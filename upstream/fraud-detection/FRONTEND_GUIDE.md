@@ -2,7 +2,49 @@
 
 You now have **TWO** beautiful frontends to visually test your fraud detection system!
 
-## Option 1: Streamlit Dashboard (Recommended) 🚀
+## Option 1: React Frontend (Modern SPA) 🚀
+
+### Features:
+- ✅ Modern React 19 with Vite
+- ✅ Component-based architecture
+- ✅ Real-time transaction testing
+- ✅ Metrics dashboard with alerts
+- ✅ Responsive design
+- ✅ Beautiful gradient UI
+- ✅ Quick test scenarios
+
+### How to Run:
+
+1. **Make sure the API is running:**
+```bash
+uvicorn src.api.main:app --reload
+```
+
+2. **In a new terminal, start the React frontend:**
+```bash
+cd frontend-react
+npm install  # First time only
+npm run dev
+```
+
+3. **Open your browser:**
+   - Visit: http://localhost:5173
+
+### What You Can Do:
+- 🔍 **Test Transaction Tab**: Submit transactions and see fraud scores
+  - Use quick scenario buttons (Normal, High Amount, Suspicious, Geo-Time)
+  - Enter custom transaction details
+  - View real-time fraud analysis with visual score gauge
+  - See detailed explanations
+- 📊 **Metrics Dashboard Tab**: View system analytics
+  - Total alerts and status breakdown
+  - Filter alerts by status and priority
+  - View decision thresholds
+  - Browse recent alerts
+
+---
+
+## Option 2: Streamlit Dashboard (Python-based) 🐍
 
 ### Features:
 - ✅ Interactive web interface
@@ -37,40 +79,6 @@ streamlit run src/dashboard/app.py
 
 ---
 
-## Option 2: HTML/JavaScript Frontend 🌐
-
-### Features:
-- ✅ Simple, fast, no dependencies
-- ✅ Beautiful gradient design
-- ✅ Quick test scenarios
-- ✅ Real-time fraud scoring
-- ✅ Visual fraud score gauge
-
-### How to Run:
-
-1. **Make sure the API is running:**
-```bash
-uvicorn src.api.main:app --reload
-```
-
-2. **Open the HTML file:**
-```bash
-# On Linux/Mac
-open frontend/index.html
-
-# Or just double-click the file in your file manager
-```
-
-3. **The page will open in your default browser**
-
-### What You Can Do:
-- Enter transaction details manually
-- Use quick scenario buttons (Normal, High Amount, Suspicious, Geo-Time)
-- See instant fraud analysis with visual score
-- View explanations for decisions
-
----
-
 ## 🎯 Testing Scenarios
 
 ### Scenario 1: Normal Transaction ✅
@@ -95,19 +103,21 @@ open frontend/index.html
 
 ---
 
-## 📸 Screenshots
+## 📸 Comparison
+
+### React Frontend:
+- Single-page application with tabs
+- Fast and responsive
+- Modern component architecture
+- Great for production deployment
+- Mobile-friendly design
 
 ### Streamlit Dashboard:
 - Multi-page application
+- Python-based, easy to extend
 - Interactive charts and graphs
-- Real-time metrics
-- Alert management system
-
-### HTML Frontend:
-- Single-page application
-- Gradient design
-- Circular fraud score gauge
-- Quick scenario buttons
+- Great for data science demos
+- Rapid prototyping
 
 ---
 
@@ -122,6 +132,10 @@ uvicorn src.api.main:app --reload
 ### "Port already in use"
 **Solution:** Kill the process or use a different port:
 ```bash
+# For React
+cd frontend-react
+npm run dev -- --port 5174
+
 # For Streamlit
 streamlit run src/dashboard/app.py --server.port 8502
 
@@ -129,14 +143,34 @@ streamlit run src/dashboard/app.py --server.port 8502
 uvicorn src.api.main:app --reload --port 8001
 ```
 
-### CORS Errors (HTML Frontend)
+### React: "Module not found"
+**Solution:** Install dependencies:
+```bash
+cd frontend-react
+npm install
+```
+
+### CORS Errors
 **Solution:** The API already has CORS enabled. If you still see errors:
-1. Make sure you're accessing via `file://` or a local server
-2. Check browser console for specific errors
+1. Check that API is running on http://localhost:8000
+2. Update `.env` file in frontend-react if using different URL
+3. Check browser console for specific errors
 
 ---
 
 ## 🎨 Customization
+
+### React Frontend:
+Edit files in `frontend-react/src/`:
+- `App.jsx` - Main application logic
+- `App.css` - Global styles and colors
+- `components/TransactionForm.jsx` - Transaction input form
+- `components/ResultDisplay.jsx` - Fraud score display
+- `components/MetricsDashboard.jsx` - Metrics and alerts
+
+Configuration:
+- Create `.env` file from `.env.example`
+- Set `VITE_API_URL` and `VITE_API_KEY`
 
 ### Streamlit Dashboard:
 Edit `src/dashboard/app.py` to:
@@ -144,13 +178,6 @@ Edit `src/dashboard/app.py` to:
 - Add new pages
 - Modify visualizations
 - Add more features
-
-### HTML Frontend:
-Edit `frontend/index.html` to:
-- Change colors (CSS section)
-- Modify layout
-- Add new fields
-- Customize styling
 
 ---
 
@@ -175,35 +202,38 @@ Edit `frontend/index.html` to:
 5. **View Analytics**
    - Show system metrics
    - Demonstrate alert management
+   - Filter alerts by priority
 
 ---
 
-## 🚀 Next Steps
+## 🚀 Production Deployment
 
-1. **Add More Features:**
-   - Historical transaction view
-   - User profiles
-   - Merchant analytics
-   - Custom reports
+### React Frontend:
+```bash
+cd frontend-react
+npm run build
+# Deploy the 'dist' folder to:
+# - Netlify
+# - Vercel
+# - GitHub Pages
+# - AWS S3 + CloudFront
+```
 
-2. **Enhance Visualizations:**
-   - Time-series charts
-   - Heatmaps
-   - Network graphs
-
-3. **Deploy:**
-   - Host on Streamlit Cloud (free)
-   - Deploy HTML to GitHub Pages
-   - Use Docker for full stack
+### Streamlit Dashboard:
+```bash
+# Deploy to Streamlit Cloud (free)
+# Or use Docker for full stack deployment
+```
 
 ---
 
 ## 💡 Tips
 
-- **Streamlit** is better for comprehensive testing and demos
-- **HTML** is better for quick tests and embedding
+- **React** is better for production applications and mobile users
+- **Streamlit** is better for data science demos and rapid prototyping
 - Both work with the same API
 - You can run both simultaneously!
+- React frontend is more performant and scalable
 
 ---
 

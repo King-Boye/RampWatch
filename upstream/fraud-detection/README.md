@@ -102,19 +102,21 @@ uvicorn src.api.main:app --reload
 
 The API will be available at `http://localhost:8000`
 
-### Running the Dashboard (Visual Testing)
+### Running the Frontend (Visual Testing)
 
-**Option 1: Streamlit Dashboard (Recommended)**
+**Option 1: React Frontend (Modern SPA - Recommended)**
+```bash
+cd frontend-react
+npm install  # First time only
+npm run dev
+```
+Visit: http://localhost:5173
+
+**Option 2: Streamlit Dashboard (Python-based)**
 ```bash
 streamlit run src/dashboard/app.py
 ```
 Visit: http://localhost:8501
-
-**Option 2: HTML Frontend**
-```bash
-# Simply open frontend/index.html in your browser
-open frontend/index.html
-```
 
 ### Testing the System
 
@@ -128,8 +130,8 @@ python3 test_api.py
 Once the server is running, visit:
 - **Interactive API Docs**: http://localhost:8000/docs
 - **Alternative Docs**: http://localhost:8000/redoc
+- **React Frontend**: http://localhost:5173
 - **Streamlit Dashboard**: http://localhost:8501
-- **HTML Frontend**: Open `frontend/index.html`
 
 ## 📖 Usage Examples
 
@@ -259,14 +261,23 @@ unusual amount ($5000, 10x user average), new device"
 │   │   ├── schemas.py         # Pydantic schemas
 │   │   ├── encryption.py      # PII encryption
 │   │   └── init_db.py         # Database initialization
-│   └── services/              # Business logic
-│       ├── ingestion.py       # Transaction ingestion
-│       ├── features.py        # Feature engineering
-│       ├── model_service.py   # ML model service
-│       ├── decision_engine.py # Decision classification
-│       ├── explainability.py  # Explanation generation
-│       ├── alert_system.py    # Alert management
-│       └── cache.py           # Redis caching
+│   ├── services/              # Business logic
+│   │   ├── ingestion.py       # Transaction ingestion
+│   │   ├── features.py        # Feature engineering
+│   │   ├── model_service.py   # ML model service
+│   │   ├── decision_engine.py # Decision classification
+│   │   ├── explainability.py  # Explanation generation
+│   │   ├── alert_system.py    # Alert management
+│   │   └── cache.py           # Redis caching
+│   └── dashboard/             # Streamlit dashboard
+│       └── app.py            # Dashboard application
+├── frontend-react/            # React frontend
+│   ├── src/
+│   │   ├── components/       # React components
+│   │   ├── App.jsx           # Main application
+│   │   └── main.jsx          # Entry point
+│   ├── package.json          # Node dependencies
+│   └── vite.config.js        # Vite configuration
 ├── config/                    # Configuration
 │   └── settings.py           # Application settings
 ├── tests/                     # Test suite
@@ -279,6 +290,7 @@ unusual amount ($5000, 10x user average), new device"
 ├── requirements.txt          # Python dependencies
 ├── test_api.py              # API test script
 ├── IMPLEMENTATION_STATUS.md  # Implementation details
+├── FRONTEND_GUIDE.md         # Frontend testing guide
 └── README.md                # This file
 ```
 
