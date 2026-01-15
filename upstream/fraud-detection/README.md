@@ -102,6 +102,20 @@ uvicorn src.api.main:app --reload
 
 The API will be available at `http://localhost:8000`
 
+### Running the Dashboard (Visual Testing)
+
+**Option 1: Streamlit Dashboard (Recommended)**
+```bash
+streamlit run src/dashboard/app.py
+```
+Visit: http://localhost:8501
+
+**Option 2: HTML Frontend**
+```bash
+# Simply open frontend/index.html in your browser
+open frontend/index.html
+```
+
 ### Testing the System
 
 ```bash
@@ -114,6 +128,8 @@ python3 test_api.py
 Once the server is running, visit:
 - **Interactive API Docs**: http://localhost:8000/docs
 - **Alternative Docs**: http://localhost:8000/redoc
+- **Streamlit Dashboard**: http://localhost:8501
+- **HTML Frontend**: Open `frontend/index.html`
 
 ## 📖 Usage Examples
 
