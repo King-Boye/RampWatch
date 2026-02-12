@@ -1,0 +1,223 @@
+#![no_std]
+
+mod errors;
+mod events;
+mod storage;
+mod types;
+
+use soroban_sdk::{contract, contractimpl, token, Address, Env};
+
+pub use errors::ContractError;
+pub use events::*;
+pub use storage::*;
+pub use types::*;
+
+#[contract]
+pub struct SwiftRemitContract;
+
+#[contractimpl]
+impl SwiftRemitContract {
+    pub fn initialize(
+        env: Env,
+        admin: Address,
+        usdc_token: Address,
+        fee_bps: u32,
+    ) -> Result<(), ContractError> {
+        if has_admin(&env) {
+            return Err(ContractError::AlreadyInitialized);
+        }
+
+        if fee_bps > 10000 {
+            return Err(ContractError::InvalidFeeBps);
+        }
+
+        set_admin(&env, &admin);
+        set_usdc_token(&env, &usdc_token);
+        set_platform_fee_bps(&env, fee_bps);
+        set_remittance_counter(&env, 0);
+        set_accumulated_fees(&env, 0);
+
+        Ok(())
+    }
+
+    pub fn register_agent(env: Env, agent: Address) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+
+        set_agent_registered(&env, &agent, true);
+        emit_agent_registered(&env, agent);
+
+        Ok(())
+    }
+
+    pub fn remove_agent(env: Env, agent: Address) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+
+        set_agent_registered(&env, &agent, false);
+        emit_agent_removed(&env, agent);
+
+        Ok(())
+    }
+
+    pub fn update_fee(env: Env, fee_bps: u32) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+
+        if fee_bps > 10000 {
+            return Err(ContractError::InvalidFeeBps);
+        }
+
+        set_platform_fee_bps(&env, fee_bps);
+        emit_fee_updated(&env, fee_bps);
+
+        Ok(())
+    }
+
+    pub fn create_remittance(
+        env: Env,
+        sender: Address,
+        agent: Address,
+        amount: i128,
+    ) -> Result<u64, ContractError> {
+        sender.require_auth();
+
+        if amount <= 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        if !is_agent_registered(&env, &agent) {
+            return Err(ContractError::AgentNotRegistered);
+        }
+
+        let fee_bps = get_platform_fee_bps(&env)?;
+        let fee = amount
+            .checked_mul(fee_bps as i128)
+            .ok_or(ContractError::Overflow)?
+            .checked_div(10000)
+            .ok_or(ContractError::Overflow)?;
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&sender, &env.current_contract_address(), &amount);
+
+        let counter = get_remittance_counter(&env)?;
+        let remittance_id = counter
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
+
+        let remittance = Remittance {
+            id: remittance_id,
+            sender: sender.clone(),
+            agent: agent.clone(),
+            amount,
+            fee,
+            status: RemittanceStatus::Pending,
+        };
+
+        set_remittance(&env, remittance_id, &remittance);
+        set_remittance_counter(&env, remittance_id);
+
+        emit_remittance_created(&env, remittance_id, sender, agent, amount, fee);
+
+        Ok(remittance_id)
+    }
+
+    pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<(), ContractError> {
+        let mut remittance = get_remittance(&env, remittance_id)?;
+
+        remittance.agent.require_auth();
+
+        if remittance.status != RemittanceStatus::Pending {
+            return Err(ContractError::InvalidStatus);
+        }
+
+        let payout_amount = remittance
+            .amount
+            .checked_sub(remittance.fee)
+            .ok_or(ContractError::Overflow)?;
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &remittance.agent,
+            &payout_amount,
+        );
+
+        let current_fees = get_accumulated_fees(&env)?;
+        let new_fees = current_fees
+            .checked_add(remittance.fee)
+            .ok_or(ContractError::Overflow)?;
+        set_accumulated_fees(&env, new_fees);
+
+        remittance.status = RemittanceStatus::Completed;
+        set_remittance(&env, remittance_id, &remittance);
+
+        emit_remittance_completed(&env, remittance_id, remittance.agent, payout_amount);
+
+        Ok(())
+    }
+
+    pub fn cancel_remittance(env: Env, remittance_id: u64) -> Result<(), ContractError> {
+        let mut remittance = get_remittance(&env, remittance_id)?;
+
+        remittance.sender.require_auth();
+
+        if remittance.status != RemittanceStatus::Pending {
+            return Err(ContractError::InvalidStatus);
+        }
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &remittance.sender,
+            &remittance.amount,
+        );
+
+        remittance.status = RemittanceStatus::Cancelled;
+        set_remittance(&env, remittance_id, &remittance);
+
+        emit_remittance_cancelled(&env, remittance_id, remittance.sender, remittance.amount);
+
+        Ok(())
+    }
+
+    pub fn withdraw_fees(env: Env, to: Address) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+
+        let fees = get_accumulated_fees(&env)?;
+
+        if fees <= 0 {
+            return Err(ContractError::NoFeesToWithdraw);
+        }
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&env.current_contract_address(), &to, &fees);
+
+        set_accumulated_fees(&env, 0);
+
+        emit_fees_withdrawn(&env, to, fees);
+
+        Ok(())
+    }
+
+    pub fn get_remittance(env: Env, remittance_id: u64) -> Result<Remittance, ContractError> {
+        get_remittance(&env, remittance_id)
+    }
+
+    pub fn get_accumulated_fees(env: Env) -> Result<i128, ContractError> {
+        get_accumulated_fees(&env)
+    }
+
+    pub fn is_agent_registered(env: Env, agent: Address) -> bool {
+        is_agent_registered(&env, &agent)
+    }
+
+    pub fn get_platform_fee_bps(env: Env) -> Result<u32, ContractError> {
+        get_platform_fee_bps(&env)
+    }
+}

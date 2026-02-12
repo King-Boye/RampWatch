@@ -1,0 +1,106 @@
+use soroban_sdk::{contracttype, Address, Env};
+
+use crate::{ContractError, Remittance};
+
+#[contracttype]
+#[derive(Clone)]
+enum DataKey {
+    Admin,
+    UsdcToken,
+    PlatformFeeBps,
+    RemittanceCounter,
+    Remittance(u64),
+    AgentRegistered(Address),
+    AccumulatedFees,
+}
+
+pub fn has_admin(env: &Env) -> bool {
+    env.storage().instance().has(&DataKey::Admin)
+}
+
+pub fn set_admin(env: &Env, admin: &Address) {
+    env.storage().instance().set(&DataKey::Admin, admin);
+}
+
+pub fn get_admin(env: &Env) -> Result<Address, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .ok_or(ContractError::NotInitialized)
+}
+
+pub fn set_usdc_token(env: &Env, token: &Address) {
+    env.storage().instance().set(&DataKey::UsdcToken, token);
+}
+
+pub fn get_usdc_token(env: &Env) -> Result<Address, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::UsdcToken)
+        .ok_or(ContractError::NotInitialized)
+}
+
+pub fn set_platform_fee_bps(env: &Env, fee_bps: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PlatformFeeBps, &fee_bps);
+}
+
+pub fn get_platform_fee_bps(env: &Env) -> Result<u32, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::PlatformFeeBps)
+        .ok_or(ContractError::NotInitialized)
+}
+
+pub fn set_remittance_counter(env: &Env, counter: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::RemittanceCounter, &counter);
+}
+
+pub fn get_remittance_counter(env: &Env) -> Result<u64, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::RemittanceCounter)
+        .ok_or(ContractError::NotInitialized)
+}
+
+pub fn set_remittance(env: &Env, id: u64, remittance: &Remittance) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Remittance(id), remittance);
+}
+
+pub fn get_remittance(env: &Env, id: u64) -> Result<Remittance, ContractError> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Remittance(id))
+        .ok_or(ContractError::RemittanceNotFound)
+}
+
+pub fn set_agent_registered(env: &Env, agent: &Address, registered: bool) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::AgentRegistered(agent.clone()), &registered);
+}
+
+pub fn is_agent_registered(env: &Env, agent: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::AgentRegistered(agent.clone()))
+        .unwrap_or(false)
+}
+
+pub fn set_accumulated_fees(env: &Env, fees: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::AccumulatedFees, &fees);
+}
+
+pub fn get_accumulated_fees(env: &Env) -> Result<i128, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::AccumulatedFees)
+        .ok_or(ContractError::NotInitialized)
+}
