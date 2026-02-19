@@ -4,6 +4,7 @@ mod errors;
 mod events;
 mod storage;
 mod types;
+mod validation;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env};
 
@@ -11,6 +12,7 @@ pub use errors::ContractError;
 pub use events::*;
 pub use storage::*;
 pub use types::*;
+pub use validation::*;
 
 #[contract]
 pub struct SwiftRemitContract;
@@ -132,6 +134,9 @@ impl SwiftRemitContract {
             return Err(ContractError::InvalidStatus);
         }
 
+        // Validate the agent address before transfer
+        validate_address(&remittance.agent)?;
+
         let payout_amount = remittance
             .amount
             .checked_sub(remittance.fee)
@@ -187,6 +192,9 @@ impl SwiftRemitContract {
     pub fn withdraw_fees(env: Env, to: Address) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
+
+        // Validate the recipient address
+        validate_address(&to)?;
 
         let fees = get_accumulated_fees(&env)?;
 

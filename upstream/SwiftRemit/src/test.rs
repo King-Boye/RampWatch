@@ -511,3 +511,122 @@ fn test_authorization_enforcement() {
         )]
     );
 }
+
+#[test]
+fn test_withdraw_fees_valid_address() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let fee_recipient = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000);
+    contract.confirm_payout(&remittance_id);
+
+    // This should succeed with a valid address
+    contract.withdraw_fees(&fee_recipient);
+
+    assert_eq!(token.balance(&fee_recipient), 25);
+    assert_eq!(contract.get_accumulated_fees(), 0);
+}
+
+#[test]
+fn test_confirm_payout_valid_address() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000);
+
+    // This should succeed with a valid agent address
+    contract.confirm_payout(&remittance_id);
+
+    let remittance = contract.get_remittance(&remittance_id);
+    assert_eq!(remittance.status, crate::types::RemittanceStatus::Completed);
+    assert_eq!(token.balance(&agent), 975);
+}
+
+#[test]
+fn test_address_validation_in_settlement_flow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Create remittance with valid addresses
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000);
+    
+    // Confirm payout - should validate agent address
+    contract.confirm_payout(&remittance_id);
+
+    // Verify the settlement completed successfully
+    let remittance = contract.get_remittance(&remittance_id);
+    assert_eq!(remittance.status, crate::types::RemittanceStatus::Completed);
+    assert_eq!(token.balance(&agent), 975);
+    assert_eq!(contract.get_accumulated_fees(), 25);
+}
+
+#[test]
+fn test_multiple_settlements_with_address_validation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender1 = Address::generate(&env);
+    let sender2 = Address::generate(&env);
+    let agent1 = Address::generate(&env);
+    let agent2 = Address::generate(&env);
+
+    token.mint(&sender1, &10000);
+    token.mint(&sender2, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent1);
+    contract.register_agent(&agent2);
+
+    // Create and confirm multiple remittances
+    let remittance_id1 = contract.create_remittance(&sender1, &agent1, &1000);
+    let remittance_id2 = contract.create_remittance(&sender2, &agent2, &2000);
+
+    // Both should succeed with valid addresses
+    contract.confirm_payout(&remittance_id1);
+    contract.confirm_payout(&remittance_id2);
+
+    assert_eq!(token.balance(&agent1), 975);
+    assert_eq!(token.balance(&agent2), 1950);
+    assert_eq!(contract.get_accumulated_fees(), 75);
+}
