@@ -1,5 +1,8 @@
 use soroban_sdk::contracterror;
 
+/// Error codes for AnchorKit contract operations.
+/// All error codes are in the range 100-120 for stable API compatibility.
+/// See API_SPEC.md for detailed documentation.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]

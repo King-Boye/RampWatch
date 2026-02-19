@@ -320,20 +320,12 @@
               },
               {
                 "symbol": "added"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
               }
             ],
-            "data": {
-              "map": [
-                {
-                  "key": {
-                    "symbol": "attestor"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                  }
-                }
-              ]
-            }
+            "data": "void"
           }
         }
       },
@@ -390,10 +382,10 @@
                   "u64": 0
                 },
                 {
-                  "bytes": "fca13106f9533a95f42344cf6a103eb279228fca0b4f47c4ffaf29ff0bcc7c73"
+                  "bytes": "b7716342acb84697e338ae9624fc92bb8248bd72ce032996cde7197450c58d4d"
                 },
                 {
-                  "bytes": "b59110e9d335d6e83a46e3b79a3ef21ae98ddd62fb92cb75a6b9afd57ea2d41a137559b893c26f90137e8de3dfa967d340f47d7fca0d38f7ba0624723a9467e8"
+                  "bytes": "25b14c282226ee7ffe465d5c0f632246306d257ff160cdbd180a91daa31cf7fac67d911d613c6f082d77c0fc7e0b71922f3917f0aa9279a19c1d53674208d05c"
                 }
               ]
             }
@@ -419,7 +411,7 @@
             ],
             "data": {
               "error": {
-                "contract": 7
+                "contract": 106
               }
             }
           }
@@ -440,7 +432,7 @@
               },
               {
                 "error": {
-                  "contract": 7
+                  "contract": 106
                 }
               }
             ],
@@ -465,7 +457,7 @@
               },
               {
                 "error": {
-                  "contract": 7
+                  "contract": 106
                 }
               }
             ],
@@ -489,10 +481,10 @@
                       "u64": 0
                     },
                     {
-                      "bytes": "fca13106f9533a95f42344cf6a103eb279228fca0b4f47c4ffaf29ff0bcc7c73"
+                      "bytes": "b7716342acb84697e338ae9624fc92bb8248bd72ce032996cde7197450c58d4d"
                     },
                     {
-                      "bytes": "b59110e9d335d6e83a46e3b79a3ef21ae98ddd62fb92cb75a6b9afd57ea2d41a137559b893c26f90137e8de3dfa967d340f47d7fca0d38f7ba0624723a9467e8"
+                      "bytes": "25b14c282226ee7ffe465d5c0f632246306d257ff160cdbd180a91daa31cf7fac67d911d613c6f082d77c0fc7e0b71922f3917f0aa9279a19c1d53674208d05c"
                     }
                   ]
                 }
@@ -516,7 +508,7 @@
               },
               {
                 "error": {
-                  "contract": 7
+                  "contract": 106
                 }
               }
             ],

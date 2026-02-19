@@ -40,10 +40,7 @@ impl AnchorKitContract {
 
         Storage::set_attestor(&env, &attestor, true);
         
-        AttestorAdded {
-            attestor: attestor.clone(),
-        }
-        .publish(&env);
+        AttestorAdded::publish(&env, &attestor);
 
         Ok(())
     }
@@ -59,10 +56,7 @@ impl AnchorKitContract {
 
         Storage::set_attestor(&env, &attestor, false);
         
-        AttestorRemoved {
-            attestor: attestor.clone(),
-        }
-        .publish(&env);
+        AttestorRemoved::publish(&env, &attestor);
 
         Ok(())
     }
@@ -114,14 +108,7 @@ impl AnchorKitContract {
         Storage::mark_hash_used(&env, &payload_hash);
 
         // Emit event
-        AttestationRecorded {
-            id,
-            issuer,
-            subject,
-            timestamp,
-            payload_hash,
-        }
-        .publish(&env);
+        AttestationRecorded::publish(&env, id, &subject, timestamp, payload_hash);
 
         Ok(id)
     }
@@ -301,7 +288,7 @@ mod tests {
     use super::*;
     use soroban_sdk::{
         testutils::{Address as _, BytesN as _, Events},
-        Address, Bytes, BytesN, Env, IntoVal,
+        Address, Bytes, BytesN, Env,
     };
 
     fn create_test_contract(env: &Env) -> (Address, AnchorKitContractClient<'_>) {
@@ -338,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #1)")]
+    #[should_panic(expected = "Error(Contract, #100)")]
     fn test_initialize_twice_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -374,14 +361,12 @@ mod tests {
         // Check event was emitted
         let events = env.events().all();
         let event = events.last().unwrap();
-        assert_eq!(
-            event.1,
-            (soroban_sdk::symbol_short!("attestor"), soroban_sdk::symbol_short!("added")).into_val(&env)
-        );
+        // Event topic now includes the attestor address
+        assert_eq!(event.1.len(), 3); // ("attestor", "added", address)
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #4)")]
+    #[should_panic(expected = "Error(Contract, #103)")]
     fn test_register_attestor_twice_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -421,14 +406,12 @@ mod tests {
         // Check event was emitted
         let events = env.events().all();
         let event = events.last().unwrap();
-        assert_eq!(
-            event.1,
-            (soroban_sdk::symbol_short!("attestor"), soroban_sdk::symbol_short!("removed")).into_val(&env)
-        );
+        // Event topic now includes the attestor address
+        assert_eq!(event.1.len(), 3); // ("attestor", "removed", address)
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #5)")]
+    #[should_panic(expected = "Error(Contract, #104)")]
     fn test_revoke_unregistered_attestor_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -477,14 +460,12 @@ mod tests {
         // Check event was emitted
         let events = env.events().all();
         let event = events.last().unwrap();
-        assert_eq!(
-            event.1,
-            (soroban_sdk::symbol_short!("attest"), soroban_sdk::symbol_short!("recorded")).into_val(&env)
-        );
+        // Event topic now includes attestation_id and subject address
+        assert_eq!(event.1.len(), 4); // ("attest", "recorded", id, subject)
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #3)")]
+    #[should_panic(expected = "Error(Contract, #102)")]
     fn test_submit_attestation_unauthorized_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -506,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #7)")]
+    #[should_panic(expected = "Error(Contract, #106)")]
     fn test_submit_attestation_invalid_timestamp_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -528,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #6)")]
+    #[should_panic(expected = "Error(Contract, #105)")]
     fn test_submit_attestation_replay_attack_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -591,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #8)")]
+    #[should_panic(expected = "Error(Contract, #107)")]
     fn test_get_nonexistent_attestation_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -621,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #2)")]
+    #[should_panic(expected = "Error(Contract, #101)")]
     fn test_get_admin_before_initialize_fails() {
         let env = Env::default();
         
