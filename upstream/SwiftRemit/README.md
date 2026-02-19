@@ -95,6 +95,36 @@ cargo test
 
 ## Quick Start
 
+### Automated Deployment (Recommended)
+
+Run the deployment script to build, deploy, and initialize everything automatically:
+
+**Linux/macOS:**
+```bash
+chmod +x deploy.sh
+./deploy.sh
+# To deploy to a specific network (default: testnet):
+./deploy.sh mainnet
+```
+
+**Windows (PowerShell):**
+```powershell
+.\deploy.ps1
+# To deploy to a specific network (default: testnet):
+.\deploy.ps1 -Network mainnet
+```
+
+This will:
+- Build and optimize the contract
+- Create/fund a `deployer` identity
+- Deploy the contract and a mock USDC token
+- Initialize the contract
+- Save contract IDs to `.env.local`
+
+### Manual Setup
+
+If you prefer to run steps manually:
+
 ### 1. Build the Contract
 
 ```bash

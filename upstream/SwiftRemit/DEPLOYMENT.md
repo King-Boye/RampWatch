@@ -26,6 +26,29 @@ soroban network add --global testnet \
   --network-passphrase "Test SDF Network ; September 2015"
 ```
 
+## Automated Deployment (Recommended)
+
+For convenience, use the provided deployment scripts which handle building, optimizing, deploying, and initializing the contract in one step.
+
+**Linux/macOS:**
+```bash
+./deploy.sh [network]
+# Example: ./deploy.sh testnet
+```
+
+**Windows (PowerShell):**
+```powershell
+.\deploy.ps1 -Network [network]
+# Example: .\deploy.ps1 -Network testnet
+```
+
+These scripts will automatically:
+1. Build and optimize the contract
+2. Create/fund a deployer identity (if needed)
+3. Deploy the contract and a mock USDC token
+4. Initialize the contract
+5. Save contract IDs to `.env.local`
+
 ## Build the Contract
 
 1. Navigate to the project directory:
