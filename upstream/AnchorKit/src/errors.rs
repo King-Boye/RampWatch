@@ -19,4 +19,6 @@ pub enum Error {
     InvalidEndpointFormat = 10,
     EndpointNotFound = 11,
     EndpointAlreadyExists = 12,
+    ServicesNotConfigured = 13,
+    InvalidServiceType = 14,
 }

@@ -1,4 +1,6 @@
-use soroban_sdk::{contracttype, Address, BytesN, Env, String};
+use soroban_sdk::{contracttype, Address, BytesN, Env, String, Vec};
+
+use crate::types::ServiceType;
 
 /// Event emitted when an attestor is added.
 /// Format: (Topic, SubjectAddr)
@@ -85,6 +87,22 @@ impl EndpointRemoved {
     pub fn publish(&self, env: &Env) {
         env.events().publish(
             (soroban_sdk::symbol_short!("endpoint"), soroban_sdk::symbol_short!("removed")),
+            self.clone(),
+        );
+    }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServicesConfigured {
+    pub anchor: Address,
+    pub services: Vec<ServiceType>,
+}
+
+impl ServicesConfigured {
+    pub fn publish(&self, env: &Env) {
+        env.events().publish(
+            (soroban_sdk::symbol_short!("services"), soroban_sdk::symbol_short!("config")),
             self.clone(),
         );
     }

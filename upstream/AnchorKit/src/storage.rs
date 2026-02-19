@@ -1,6 +1,6 @@
-use soroban_sdk::{Address, BytesN, Env, IntoVal, String};
+use soroban_sdk::{Address, BytesN, Env, IntoVal, String, Vec};
 
-use crate::{types::{Attestation, Endpoint}, Error};
+use crate::{types::{Attestation, Endpoint, AnchorServices, ServiceType}, Error};
 
 #[derive(Clone)]
 enum StorageKey {
@@ -10,6 +10,7 @@ enum StorageKey {
     Attestation(u64),
     UsedHash(BytesN<32>),
     Endpoint(Address),
+    AnchorServices(Address),
 }
 
 impl StorageKey {
@@ -28,6 +29,9 @@ impl StorageKey {
             }
             StorageKey::Endpoint(addr) => {
                 (soroban_sdk::symbol_short!("ENDPOINT"), addr).into_val(env)
+            }
+            StorageKey::AnchorServices(addr) => {
+                (soroban_sdk::symbol_short!("SERVICES"), addr).into_val(env)
             }
         }
     }
@@ -143,5 +147,26 @@ impl Storage {
     pub fn remove_endpoint(env: &Env, attestor: &Address) {
         let key = StorageKey::Endpoint(attestor.clone()).to_storage_key(env);
         env.storage().persistent().remove(&key);
+    }
+
+    pub fn set_anchor_services(env: &Env, services: &AnchorServices) {
+        let key = StorageKey::AnchorServices(services.anchor.clone()).to_storage_key(env);
+        env.storage().persistent().set(&key, services);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, Self::PERSISTENT_LIFETIME, Self::PERSISTENT_LIFETIME);
+    }
+
+    pub fn get_anchor_services(env: &Env, anchor: &Address) -> Result<AnchorServices, Error> {
+        let key = StorageKey::AnchorServices(anchor.clone()).to_storage_key(env);
+        env.storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::ServicesNotConfigured)
+    }
+
+    pub fn has_anchor_services(env: &Env, anchor: &Address) -> bool {
+        let key = StorageKey::AnchorServices(anchor.clone()).to_storage_key(env);
+        env.storage().persistent().has(&key)
     }
 }
