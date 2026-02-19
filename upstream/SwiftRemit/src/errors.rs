@@ -14,4 +14,5 @@ pub enum ContractError {
     Overflow = 8,
     NoFeesToWithdraw = 9,
     InvalidAddress = 10,
+    SettlementExpired = 11,
 }

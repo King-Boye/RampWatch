@@ -81,6 +81,7 @@ impl SwiftRemitContract {
         sender: Address,
         agent: Address,
         amount: i128,
+        expiry: Option<u64>,
     ) -> Result<u64, ContractError> {
         sender.require_auth();
 
@@ -115,6 +116,7 @@ impl SwiftRemitContract {
             amount,
             fee,
             status: RemittanceStatus::Pending,
+            expiry,
         };
 
         set_remittance(&env, remittance_id, &remittance);
@@ -132,6 +134,14 @@ impl SwiftRemitContract {
 
         if remittance.status != RemittanceStatus::Pending {
             return Err(ContractError::InvalidStatus);
+        }
+
+        // Check if settlement has expired
+        if let Some(expiry_time) = remittance.expiry {
+            let current_time = env.ledger().timestamp();
+            if current_time > expiry_time {
+                return Err(ContractError::SettlementExpired);
+            }
         }
 
         // Validate the agent address before transfer
