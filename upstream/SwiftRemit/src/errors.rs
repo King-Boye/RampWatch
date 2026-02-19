@@ -13,4 +13,5 @@ pub enum ContractError {
     InvalidStatus = 7,
     Overflow = 8,
     NoFeesToWithdraw = 9,
+    InvalidAddress = 10,
 }
