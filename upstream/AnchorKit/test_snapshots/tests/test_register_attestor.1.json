@@ -320,20 +320,12 @@
               },
               {
                 "symbol": "added"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
               }
             ],
-            "data": {
-              "map": [
-                {
-                  "key": {
-                    "symbol": "attestor"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                  }
-                }
-              ]
-            }
+            "data": "void"
           }
         }
       },

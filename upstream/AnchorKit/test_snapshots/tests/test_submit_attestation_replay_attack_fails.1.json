@@ -61,10 +61,10 @@
                   "u64": 1234567890
                 },
                 {
-                  "bytes": "d84fbfef286f24894aff9432823ab116567bc3ead2830b476a5bff4b0f3f73bd"
+                  "bytes": "fb427ed5529a182fa46340b04ef16f519257afb7c3114aeb1d438a058411f826"
                 },
                 {
-                  "bytes": "73a59054ed8d16e4a45c1de145679e6d8458f8325029209de8282c8bd2839d80f18a62164f1cc18fc3f26620c3a5fd8f6c6963c6b50e1a3776b4e5e1b9f9488c"
+                  "bytes": "bb1cbbb3fac351d4692a8e3ff75328e207197bd5e741717849bd4c982035f3f710c2c367a4ec8b19a4bc9d9e32e5e76d0083ebca0b17985d081af5d1a764e36c"
                 }
               ]
             }
@@ -242,7 +242,7 @@
                         "symbol": "payload_hash"
                       },
                       "val": {
-                        "bytes": "d84fbfef286f24894aff9432823ab116567bc3ead2830b476a5bff4b0f3f73bd"
+                        "bytes": "fb427ed5529a182fa46340b04ef16f519257afb7c3114aeb1d438a058411f826"
                       }
                     },
                     {
@@ -250,7 +250,7 @@
                         "symbol": "signature"
                       },
                       "val": {
-                        "bytes": "73a59054ed8d16e4a45c1de145679e6d8458f8325029209de8282c8bd2839d80f18a62164f1cc18fc3f26620c3a5fd8f6c6963c6b50e1a3776b4e5e1b9f9488c"
+                        "bytes": "bb1cbbb3fac351d4692a8e3ff75328e207197bd5e741717849bd4c982035f3f710c2c367a4ec8b19a4bc9d9e32e5e76d0083ebca0b17985d081af5d1a764e36c"
                       }
                     },
                     {
@@ -333,7 +333,7 @@
                   "symbol": "USED"
                 },
                 {
-                  "bytes": "d84fbfef286f24894aff9432823ab116567bc3ead2830b476a5bff4b0f3f73bd"
+                  "bytes": "fb427ed5529a182fa46340b04ef16f519257afb7c3114aeb1d438a058411f826"
                 }
               ]
             },
@@ -353,7 +353,7 @@
                       "symbol": "USED"
                     },
                     {
-                      "bytes": "d84fbfef286f24894aff9432823ab116567bc3ead2830b476a5bff4b0f3f73bd"
+                      "bytes": "fb427ed5529a182fa46340b04ef16f519257afb7c3114aeb1d438a058411f826"
                     }
                   ]
                 },
@@ -535,20 +535,12 @@
               },
               {
                 "symbol": "added"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
               }
             ],
-            "data": {
-              "map": [
-                {
-                  "key": {
-                    "symbol": "attestor"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                  }
-                }
-              ]
-            }
+            "data": "void"
           }
         }
       },
@@ -605,10 +597,10 @@
                   "u64": 1234567890
                 },
                 {
-                  "bytes": "d84fbfef286f24894aff9432823ab116567bc3ead2830b476a5bff4b0f3f73bd"
+                  "bytes": "fb427ed5529a182fa46340b04ef16f519257afb7c3114aeb1d438a058411f826"
                 },
                 {
-                  "bytes": "73a59054ed8d16e4a45c1de145679e6d8458f8325029209de8282c8bd2839d80f18a62164f1cc18fc3f26620c3a5fd8f6c6963c6b50e1a3776b4e5e1b9f9488c"
+                  "bytes": "bb1cbbb3fac351d4692a8e3ff75328e207197bd5e741717849bd4c982035f3f710c2c367a4ec8b19a4bc9d9e32e5e76d0083ebca0b17985d081af5d1a764e36c"
                 }
               ]
             }
@@ -630,40 +622,22 @@
               },
               {
                 "symbol": "recorded"
+              },
+              {
+                "u64": 0
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
               }
             ],
             "data": {
               "map": [
                 {
                   "key": {
-                    "symbol": "id"
-                  },
-                  "val": {
-                    "u64": 0
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "issuer"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                  }
-                },
-                {
-                  "key": {
                     "symbol": "payload_hash"
                   },
                   "val": {
-                    "bytes": "d84fbfef286f24894aff9432823ab116567bc3ead2830b476a5bff4b0f3f73bd"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "subject"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                    "bytes": "fb427ed5529a182fa46340b04ef16f519257afb7c3114aeb1d438a058411f826"
                   }
                 },
                 {
@@ -734,10 +708,10 @@
                   "u64": 1234567890
                 },
                 {
-                  "bytes": "d84fbfef286f24894aff9432823ab116567bc3ead2830b476a5bff4b0f3f73bd"
+                  "bytes": "fb427ed5529a182fa46340b04ef16f519257afb7c3114aeb1d438a058411f826"
                 },
                 {
-                  "bytes": "73a59054ed8d16e4a45c1de145679e6d8458f8325029209de8282c8bd2839d80f18a62164f1cc18fc3f26620c3a5fd8f6c6963c6b50e1a3776b4e5e1b9f9488c"
+                  "bytes": "bb1cbbb3fac351d4692a8e3ff75328e207197bd5e741717849bd4c982035f3f710c2c367a4ec8b19a4bc9d9e32e5e76d0083ebca0b17985d081af5d1a764e36c"
                 }
               ]
             }
@@ -763,7 +737,7 @@
             ],
             "data": {
               "error": {
-                "contract": 6
+                "contract": 105
               }
             }
           }
@@ -784,7 +758,7 @@
               },
               {
                 "error": {
-                  "contract": 6
+                  "contract": 105
                 }
               }
             ],
@@ -809,7 +783,7 @@
               },
               {
                 "error": {
-                  "contract": 6
+                  "contract": 105
                 }
               }
             ],
@@ -833,10 +807,10 @@
                       "u64": 1234567890
                     },
                     {
-                      "bytes": "d84fbfef286f24894aff9432823ab116567bc3ead2830b476a5bff4b0f3f73bd"
+                      "bytes": "fb427ed5529a182fa46340b04ef16f519257afb7c3114aeb1d438a058411f826"
                     },
                     {
-                      "bytes": "73a59054ed8d16e4a45c1de145679e6d8458f8325029209de8282c8bd2839d80f18a62164f1cc18fc3f26620c3a5fd8f6c6963c6b50e1a3776b4e5e1b9f9488c"
+                      "bytes": "bb1cbbb3fac351d4692a8e3ff75328e207197bd5e741717849bd4c982035f3f710c2c367a4ec8b19a4bc9d9e32e5e76d0083ebca0b17985d081af5d1a764e36c"
                     }
                   ]
                 }
@@ -860,7 +834,7 @@
               },
               {
                 "error": {
-                  "contract": 6
+                  "contract": 105
                 }
               }
             ],
