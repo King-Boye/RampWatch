@@ -7,22 +7,16 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    /// Contract has already been initialized
-    AlreadyInitialized = 100,
-    /// Contract has not been initialized yet
-    NotInitialized = 101,
-    /// Caller is not a registered attestor
-    UnauthorizedAttestor = 102,
-    /// Attestor is already registered
-    AttestorAlreadyRegistered = 103,
-    /// Attestor is not registered
-    AttestorNotRegistered = 104,
-    /// Attestation with this hash has already been submitted (replay attack)
-    ReplayAttack = 105,
-    /// Timestamp is invalid (zero or in the future)
-    InvalidTimestamp = 106,
-    /// Attestation with the given ID was not found
-    AttestationNotFound = 107,
-    /// Public key format is invalid
-    InvalidPublicKey = 108,
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    UnauthorizedAttestor = 3,
+    AttestorAlreadyRegistered = 4,
+    AttestorNotRegistered = 5,
+    ReplayAttack = 6,
+    InvalidTimestamp = 7,
+    AttestationNotFound = 8,
+    InvalidPublicKey = 9,
+    InvalidEndpointFormat = 10,
+    EndpointNotFound = 11,
+    EndpointAlreadyExists = 12,
 }

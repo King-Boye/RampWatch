@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, Env};
+use soroban_sdk::{contracttype, Address, BytesN, Env, String};
 
 /// Event emitted when an attestor is added.
 /// Format: (Topic, SubjectAddr)
@@ -55,6 +55,37 @@ impl AttestationRecorded {
                 timestamp,
                 payload_hash,
             },
+        );
+    }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EndpointConfigured {
+    pub attestor: Address,
+    pub url: String,
+}
+
+impl EndpointConfigured {
+    pub fn publish(&self, env: &Env) {
+        env.events().publish(
+            (soroban_sdk::symbol_short!("endpoint"), soroban_sdk::symbol_short!("config")),
+            self.clone(),
+        );
+    }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EndpointRemoved {
+    pub attestor: Address,
+}
+
+impl EndpointRemoved {
+    pub fn publish(&self, env: &Env) {
+        env.events().publish(
+            (soroban_sdk::symbol_short!("endpoint"), soroban_sdk::symbol_short!("removed")),
+            self.clone(),
         );
     }
 }
