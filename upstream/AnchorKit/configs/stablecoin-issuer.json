@@ -1,0 +1,375 @@
+{
+  "contract": {
+    "name": "stablecoin-issuer-anchor",
+    "version": "1.0.0",
+    "description": "AnchorKit instance for stablecoin issuance with collateral and reserve attestations",
+    "network": "stellar-public",
+    "admin_address": "GBAA5XKQC3KVDPD5OS3CHJJ24SB3BX7GI7XBXKNNCKQVPQVX6S3VT5O"
+  },
+  "attestors": {
+    "registry": [
+      {
+        "name": "reserve-auditor",
+        "address": "GBAA5XKQC3KVDPD5OS3CHJJ24SB3BX7GI7XBXKNNCKQVPQVX6S3VT5O",
+        "description": "Independent auditor verifying reserve adequacy",
+        "endpoint": "https://auditor.example.com/reserves",
+        "role": "reserve-verifier",
+        "enabled": true,
+        "contact_email": "audit@example.com"
+      },
+      {
+        "name": "collateral-manager",
+        "address": "GBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "description": "Manages collateral positions and liquidations",
+        "endpoint": "https://collateral-mgmt.example.com/positions",
+        "role": "collateral-custodian",
+        "enabled": true,
+        "contact_email": "collateral@example.com"
+      },
+      {
+        "name": "treasury-manager",
+        "address": "GBYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",
+        "description": "Authorizes mint, burn, and redeemable operations",
+        "role": "treasury-operator",
+        "enabled": true,
+        "contact_email": "treasury@example.com"
+      },
+      {
+        "name": "risk-monitor",
+        "address": "GBZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+        "description": "Continuous monitoring of stablecoin risk parameters",
+        "endpoint": "https://risk-system.example.com/monitor",
+        "role": "risk-analyst",
+        "enabled": true,
+        "contact_email": "risk@example.com"
+      }
+    ]
+  },
+  "sessions": {
+    "enable_session_tracking": true,
+    "session_timeout_seconds": 3600,
+    "operations_per_session": 10000,
+    "audit_log_retention_days": 2555
+  },
+  "operations": {
+    "templates": [
+      {
+        "id": "reserve-proof",
+        "name": "Reserve Proof",
+        "attestor": "reserve-auditor",
+        "operation_type": "reserve_attestation",
+        "required_fields": ["audit_timestamp", "total_reserves_usd", "currency_breakdown", "reserve_ratio"],
+        "replay_protection": "enabled",
+        "description": "Auditor confirms sufficient reserves backing stablecoins in circulation",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "audit_timestamp": { "type": "integer" },
+            "total_reserves_usd": { "type": "number" },
+            "currency_breakdown": { "type": "object" },
+            "reserve_ratio": { "type": "number" }
+          },
+          "required": ["audit_timestamp", "total_reserves_usd", "currency_breakdown", "reserve_ratio"]
+        }
+      },
+      {
+        "id": "collateral-deposit",
+        "name": "Collateral Deposit",
+        "attestor": "collateral-manager",
+        "operation_type": "collateral_deposit",
+        "required_fields": ["borrower_address", "collateral_amount", "collateral_type", "deposit_timestamp", "collateral_hash"],
+        "replay_protection": "enabled",
+        "description": "Collateral received and registered with custodian",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "borrower_address": { "type": "string" },
+            "collateral_amount": { "type": "number" },
+            "collateral_type": { "type": "string", "enum": ["ethereum", "bitcoin", "stellar-native"] },
+            "deposit_timestamp": { "type": "integer" },
+            "collateral_hash": { "type": "string" }
+          },
+          "required": ["borrower_address", "collateral_amount", "collateral_type", "deposit_timestamp", "collateral_hash"]
+        }
+      },
+      {
+        "id": "collateral-liquidation",
+        "name": "Collateral Liquidation",
+        "attestor": "collateral-manager",
+        "operation_type": "collateral_liquidation",
+        "required_fields": ["borrower_address", "liquidation_timestamp", "liquidated_amount", "reason"],
+        "replay_protection": "enabled",
+        "description": "Collateral liquidated due to insufficient maintenance ratio",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "borrower_address": { "type": "string" },
+            "liquidation_timestamp": { "type": "integer" },
+            "liquidated_amount": { "type": "number" },
+            "reason": { "type": "string" }
+          },
+          "required": ["borrower_address", "liquidation_timestamp", "liquidated_amount", "reason"]
+        }
+      },
+      {
+        "id": "mint-authorization",
+        "name": "Mint Authorization",
+        "attestor": "treasury-manager",
+        "operation_type": "mint_authorization",
+        "required_fields": ["mint_amount", "authorization_timestamp", "approved_by"],
+        "replay_protection": "enabled",
+        "description": "Treasury authorized minting of new stablecoins",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "mint_amount": { "type": "number" },
+            "authorization_timestamp": { "type": "integer" },
+            "approved_by": { "type": "string" }
+          },
+          "required": ["mint_amount", "authorization_timestamp", "approved_by"]
+        }
+      },
+      {
+        "id": "burn-confirmation",
+        "name": "Burn Confirmation",
+        "attestor": "treasury-manager",
+        "operation_type": "burn_confirmation",
+        "required_fields": ["burn_amount", "burn_timestamp", "burn_reason", "transaction_hash"],
+        "replay_protection": "enabled",
+        "description": "Confirmed stablecoins removed from circulation",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "burn_amount": { "type": "number" },
+            "burn_timestamp": { "type": "integer" },
+            "burn_reason": { "type": "string" },
+            "transaction_hash": { "type": "string" }
+          },
+          "required": ["burn_amount", "burn_timestamp", "burn_reason", "transaction_hash"]
+        }
+      },
+      {
+        "id": "redemption-processing",
+        "name": "Redemption Processing",
+        "attestor": "treasury-manager",
+        "operation_type": "redemption_processing",
+        "required_fields": ["redemption_amount", "redeemer_address", "processing_timestamp", "settlement_hash"],
+        "replay_protection": "enabled",
+        "description": "Stablecoins redeemed for underlying reserves",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "redemption_amount": { "type": "number" },
+            "redeemer_address": { "type": "string" },
+            "processing_timestamp": { "type": "integer" },
+            "settlement_hash": { "type": "string" }
+          },
+          "required": ["redemption_amount", "redeemer_address", "processing_timestamp", "settlement_hash"]
+        }
+      },
+      {
+        "id": "risk-assessment",
+        "name": "Risk Assessment",
+        "attestor": "risk-monitor",
+        "operation_type": "risk_assessment",
+        "required_fields": ["assessment_timestamp", "collateral_ratio", "liquidation_price_impact", "risk_score"],
+        "replay_protection": "enabled",
+        "description": "Risk parameters monitored and updated",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "assessment_timestamp": { "type": "integer" },
+            "collateral_ratio": { "type": "number" },
+            "liquidation_price_impact": { "type": "number" },
+            "risk_score": { "type": "number" }
+          },
+          "required": ["assessment_timestamp", "collateral_ratio", "liquidation_price_impact", "risk_score"]
+        }
+      },
+      {
+        "id": "price-feed",
+        "name": "Price Feed",
+        "attestor": "risk-monitor",
+        "operation_type": "price_feed",
+        "required_fields": ["asset_type", "price_usd", "feed_timestamp", "source"],
+        "replay_protection": "enabled",
+        "description": "Price feed for collateral or reserve asset confirmed",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "asset_type": { "type": "string" },
+            "price_usd": { "type": "number" },
+            "feed_timestamp": { "type": "integer" },
+            "source": { "type": "string" }
+          },
+          "required": ["asset_type", "price_usd", "feed_timestamp", "source"]
+        }
+      }
+    ]
+  },
+  "stablecoin": {
+    "name": "USD Coin",
+    "symbol": "USDC",
+    "decimals": 6,
+    "reserve_currency": "USD",
+    "reserve_composition": [
+      {
+        "asset": "USD-cash",
+        "target_percentage": 50.0,
+        "minimum_percentage": 40.0
+      },
+      {
+        "asset": "USD-treasuries",
+        "target_percentage": 40.0,
+        "minimum_percentage": 30.0
+      },
+      {
+        "asset": "USD-equivalents",
+        "target_percentage": 10.0,
+        "minimum_percentage": 5.0
+      }
+    ],
+    "supply_caps": {
+      "maximum_supply_cap": 10000000000,
+      "warning_threshold_percent": 90,
+      "emergency_threshold_percent": 95
+    },
+    "collateral_types": [
+      {
+        "name": "ethereum",
+        "symbol": "ETH",
+        "liquidation_ratio": 1.5,
+        "liquidation_fee_percent": 3.0,
+        "price_feed": "https://price-feed.example.com/eth",
+        "minimum_deposit": 0.1
+      },
+      {
+        "name": "bitcoin",
+        "symbol": "BTC",
+        "liquidation_ratio": 1.3,
+        "liquidation_fee_percent": 2.0,
+        "price_feed": "https://price-feed.example.com/btc",
+        "minimum_deposit": 0.01
+      },
+      {
+        "name": "stellar-native",
+        "symbol": "XLM",
+        "liquidation_ratio": 2.0,
+        "liquidation_fee_percent": 5.0,
+        "price_feed": "https://price-feed.example.com/xlm",
+        "minimum_deposit": 100
+      }
+    ]
+  },
+  "compliance": {
+    "reserve_requirements": {
+      "minimum_reserve_ratio": 1.0,
+      "target_reserve_ratio": 1.05,
+      "audit_frequency_days": 30,
+      "audit_announcement_days": 7
+    },
+    "transaction_limits": {
+      "max_single_redemption_usd": 1000000,
+      "max_single_mint_usd": 1000000,
+      "max_daily_total_flow_usd": 100000000
+    },
+    "collateral_ratio_monitoring": {
+      "minimum_collateral_ratio": 1.3,
+      "warning_collateral_ratio": 1.5,
+      "emergency_collateral_ratio": 1.2
+    }
+  },
+  "storage": {
+    "instance_ttl_days": 1,
+    "session_cache_enabled": true,
+    "persistent_ttl_days": 2555,
+    "audit_log_enabled": true,
+    "audit_log_compression": "gzip"
+  },
+  "security": {
+    "require_signature_verification": true,
+    "signature_algorithm": "ed25519",
+    "signature_expiry_seconds": 300,
+    "nonce_required": true,
+    "nonce_reuse_prevention": true,
+    "multisig_requirements": [
+      {
+        "operation": "mint",
+        "required_signatures": 2,
+        "signatory_attestors": ["treasury-manager"]
+      },
+      {
+        "operation": "burn",
+        "required_signatures": 2,
+        "signatory_attestors": ["treasury-manager"]
+      },
+      {
+        "operation": "reserve-proof",
+        "required_signatures": 1,
+        "signatory_attestors": ["reserve-auditor"]
+      }
+    ],
+    "rate_limits": [
+      {
+        "attestor": "reserve-auditor",
+        "requests_per_minute": 10,
+        "requests_per_hour": 100
+      },
+      {
+        "attestor": "collateral-manager",
+        "requests_per_minute": 500,
+        "requests_per_hour": 50000
+      },
+      {
+        "attestor": "treasury-manager",
+        "requests_per_minute": 200,
+        "requests_per_hour": 10000
+      },
+      {
+        "attestor": "risk-monitor",
+        "requests_per_minute": 1000,
+        "requests_per_hour": 100000
+      }
+    ]
+  },
+  "monitoring": {
+    "enable_metrics": true,
+    "log_all_operations": true,
+    "alert_on_failed_attestations": true,
+    "alert_on_replay_attempts": true,
+    "metrics_namespace": "anchorkit.stablecoin",
+    "alerts": [
+      {
+        "condition": "reserve_ratio_below_minimum",
+        "severity": "critical",
+        "recipients": ["treasury@example.com", "ceo@example.com"]
+      },
+      {
+        "condition": "collateral_ratio_warning",
+        "severity": "warning",
+        "recipients": ["risk@example.com"]
+      },
+      {
+        "condition": "missed_audit",
+        "severity": "critical",
+        "recipients": ["compliance@example.com", "ceo@example.com"]
+      },
+      {
+        "condition": "supply_approaching_cap",
+        "severity": "warning",
+        "recipients": ["treasury@example.com"]
+      },
+      {
+        "condition": "unauthorized_mint_attempt",
+        "severity": "critical",
+        "recipients": ["security@example.com", "ceo@example.com"]
+      },
+      {
+        "condition": "price_feed_stale",
+        "severity": "warning",
+        "recipients": ["risk@example.com", "ops@example.com"],
+        "max_age_seconds": 3600
+      }
+    ]
+  }
+}

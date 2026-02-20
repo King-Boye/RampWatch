@@ -1,0 +1,202 @@
+{
+  "contract": {
+    "name": "fiat-ramp-anchor",
+    "version": "1.0.0",
+    "description": "AnchorKit instance for fiat on/off ramp operations with KYC attestations",
+    "network": "stellar-testnet",
+    "admin_address": "GBAA5XKQC3KVDPD5OS3CHJJ24SB3BX7GI7XBXKNNCKQVPQVX6S3VT5O"
+  },
+  "attestors": {
+    "registry": [
+      {
+        "name": "kyc-provider",
+        "address": "GBBD6A7KNZF5WNWQEPZP5DYJD2AYUTLXRB6VXJ4RCX4RTNPPQVNF3GQ",
+        "description": "Third-party KYC verification service",
+        "endpoint": "https://kyc-provider.example.com/verify",
+        "role": "kyc-issuer",
+        "enabled": true,
+        "contact_email": "support@kyc-provider.example.com"
+      },
+      {
+        "name": "bank-integration",
+        "address": "GB7ZTQBJ7XXJQ6JDLHYQXQX3JQXJ3JQXJ3JQXJ3JQXJ3JQXJ3JQX",
+        "description": "Bank wire transfer confirmation",
+        "endpoint": "https://banking-api.example.com/transfers",
+        "role": "transfer-verifier",
+        "enabled": true,
+        "contact_email": "api@banking.example.com"
+      },
+      {
+        "name": "compliance-officer",
+        "address": "GBCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZAB",
+        "description": "Manual compliance review and approval",
+        "role": "compliance-approver",
+        "enabled": true,
+        "contact_email": "compliance@example.com"
+      }
+    ]
+  },
+  "sessions": {
+    "enable_session_tracking": true,
+    "session_timeout_seconds": 3600,
+    "operations_per_session": 1000,
+    "audit_log_retention_days": 365
+  },
+  "operations": {
+    "templates": [
+      {
+        "id": "kyc-verification",
+        "name": "KYC Verification",
+        "attestor": "kyc-provider",
+        "operation_type": "kyc_verification",
+        "required_fields": ["user_id", "kyc_status", "verification_timestamp", "kyc_level"],
+        "replay_protection": "enabled",
+        "description": "Individual has completed KYC verification at specified level",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "user_id": { "type": "string" },
+            "kyc_status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+            "verification_timestamp": { "type": "integer" },
+            "kyc_level": { "type": "string", "enum": ["basic", "intermediate", "advanced"] }
+          },
+          "required": ["user_id", "kyc_status", "verification_timestamp", "kyc_level"]
+        }
+      },
+      {
+        "id": "deposit-confirmation",
+        "name": "Deposit Confirmation",
+        "attestor": "bank-integration",
+        "operation_type": "fund_transfer",
+        "required_fields": ["transaction_id", "amount", "currency", "timestamp", "account_hash"],
+        "replay_protection": "enabled",
+        "description": "Bank has confirmed receipt of fiat deposit",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "transaction_id": { "type": "string" },
+            "amount": { "type": "number" },
+            "currency": { "type": "string" },
+            "timestamp": { "type": "integer" },
+            "account_hash": { "type": "string" }
+          },
+          "required": ["transaction_id", "amount", "currency", "timestamp", "account_hash"]
+        }
+      },
+      {
+        "id": "withdrawal-approval",
+        "name": "Withdrawal Approval",
+        "attestor": "compliance-officer",
+        "operation_type": "withdrawal_approval",
+        "required_fields": ["user_id", "amount", "destination_account", "approval_timestamp"],
+        "replay_protection": "enabled",
+        "description": "Compliance officer approved withdrawal request",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "user_id": { "type": "string" },
+            "amount": { "type": "number" },
+            "destination_account": { "type": "string" },
+            "approval_timestamp": { "type": "integer" }
+          },
+          "required": ["user_id", "amount", "destination_account", "approval_timestamp"]
+        }
+      },
+      {
+        "id": "deposit-refund",
+        "name": "Deposit Refund",
+        "attestor": "bank-integration",
+        "operation_type": "fund_refund",
+        "required_fields": ["original_transaction_id", "refund_amount", "refund_timestamp", "reason"],
+        "replay_protection": "enabled",
+        "description": "Bank processed refund for failed deposit",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "original_transaction_id": { "type": "string" },
+            "refund_amount": { "type": "number" },
+            "refund_timestamp": { "type": "integer" },
+            "reason": { "type": "string" }
+          },
+          "required": ["original_transaction_id", "refund_amount", "refund_timestamp", "reason"]
+        }
+      }
+    ]
+  },
+  "compliance": {
+    "kyc_levels": ["basic", "intermediate", "advanced"],
+    "minimum_kyc_for_deposits": "basic",
+    "minimum_kyc_for_withdrawals": "intermediate",
+    "minimum_kyc_for_high_value": "advanced",
+    "high_value_threshold_usd": 10000,
+    "deposit_limits": {
+      "basic_usd": 1000,
+      "intermediate_usd": 50000,
+      "advanced_usd": 500000
+    },
+    "withdrawal_limits": {
+      "basic_usd": 500,
+      "intermediate_usd": 25000,
+      "advanced_usd": 250000
+    },
+    "geographic_restrictions": {
+      "restricted_countries": ["XX", "YY"],
+      "supported_currencies": ["USD", "EUR", "GBP", "JPY"]
+    }
+  },
+  "storage": {
+    "instance_ttl_days": 30,
+    "session_cache_enabled": true,
+    "persistent_ttl_days": 365,
+    "audit_log_enabled": true,
+    "audit_log_compression": "gzip"
+  },
+  "security": {
+    "require_signature_verification": true,
+    "signature_algorithm": "ed25519",
+    "signature_expiry_seconds": 300,
+    "nonce_required": true,
+    "nonce_reuse_prevention": true,
+    "rate_limits": [
+      {
+        "attestor": "kyc-provider",
+        "requests_per_minute": 100,
+        "requests_per_hour": 5000
+      },
+      {
+        "attestor": "bank-integration",
+        "requests_per_minute": 50,
+        "requests_per_hour": 2000
+      },
+      {
+        "attestor": "compliance-officer",
+        "requests_per_minute": 20,
+        "requests_per_hour": 500
+      }
+    ]
+  },
+  "monitoring": {
+    "enable_metrics": true,
+    "log_all_operations": true,
+    "alert_on_failed_attestations": true,
+    "alert_on_replay_attempts": true,
+    "metrics_namespace": "anchorkit.fiat_ramp",
+    "alerts": [
+      {
+        "condition": "failed_kyc_verification",
+        "severity": "warning",
+        "recipients": ["ops@example.com"]
+      },
+      {
+        "condition": "replay_attack_detected",
+        "severity": "critical",
+        "recipients": ["security@example.com", "ops@example.com"]
+      },
+      {
+        "condition": "unknown_attestor",
+        "severity": "critical",
+        "recipients": ["security@example.com"]
+      }
+    ]
+  }
+}

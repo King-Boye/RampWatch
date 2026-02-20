@@ -1,0 +1,159 @@
+# AnchorKit Configuration: Fiat On/Off Ramp
+# Designed for KYC verification, fund transfer attestations, and compliance tracking
+# Last Updated: 2026-02-19
+
+[contract]
+name = "fiat-ramp-anchor"
+version = "1.0.0"
+description = "AnchorKit instance for fiat on/off ramp operations with KYC attestations"
+network = "stellar-testnet"
+
+[attestors]
+# KYC Provider
+[[attestors.registry]]
+name = "kyc-provider"
+address = "GBBD6A7KNZF5WNWQEPZP5DYJD2AYUTLXRB6VXJ4RCX4RTNPPQVNF3GQ"
+description = "Third-party KYC verification service"
+endpoint = "https://kyc-provider.example.com/verify"
+role = "kyc-issuer"
+enabled = true
+
+# Bank Integration Service
+[[attestors.registry]]
+name = "bank-integration"
+address = "GB7ZTQBJ7XXJQ6JDLHYQXQX3JQXJ3JQXJ3JQXJ3JQXJ3JQXJ3JQX"
+description = "Bank wire transfer confirmation"
+endpoint = "https://banking-api.example.com/transfers"
+role = "transfer-verifier"
+enabled = true
+
+# Compliance Officer
+[[attestors.registry]]
+name = "compliance-officer"
+address = "GBCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZAB"
+description = "Manual compliance review and approval"
+role = "compliance-approver"
+enabled = true
+
+[sessions]
+# Session configuration for grouping KYC + transfer operations
+enable_session_tracking = true
+session_timeout_seconds = 3600
+operations_per_session = 1000
+audit_log_retention_days = 365
+
+[operations]
+# KYC Verification Attestation
+[[operations.templates]]
+name = "kyc-verification"
+attestor = "kyc-provider"
+operation_type = "kyc_verification"
+required_fields = ["user_id", "kyc_status", "verification_timestamp", "kyc_level"]
+replay_protection = "enabled"
+description = "Individual has completed KYC verification at specified level"
+
+# Fund Deposit Confirmation
+[[operations.templates]]
+name = "deposit-confirmation"
+attestor = "bank-integration"
+operation_type = "fund_transfer"
+required_fields = ["transaction_id", "amount", "currency", "timestamp", "account_hash"]
+replay_protection = "enabled"
+description = "Bank has confirmed receipt of fiat deposit"
+
+# Withdrawal Approval
+[[operations.templates]]
+name = "withdrawal-approval"
+attestor = "compliance-officer"
+operation_type = "withdrawal_approval"
+required_fields = ["user_id", "amount", "destination_account", "approval_timestamp"]
+replay_protection = "enabled"
+description = "Compliance officer approved withdrawal request"
+
+# Deposit Refund
+[[operations.templates]]
+name = "deposit-refund"
+attestor = "bank-integration"
+operation_type = "fund_refund"
+required_fields = ["original_transaction_id", "refund_amount", "refund_timestamp", "reason"]
+replay_protection = "enabled"
+description = "Bank processed refund for failed deposit"
+
+[compliance]
+# KYC levels supported
+kyc_levels = ["basic", "intermediate", "advanced"]
+minimum_kyc_for_deposits = "basic"
+minimum_kyc_for_withdrawals = "intermediate"
+minimum_kyc_for_high_value = "advanced"
+high_value_threshold_usd = 10000
+
+# Transaction limits (per 24h)
+deposit_limit_basic_usd = 1000
+deposit_limit_intermediate_usd = 50000
+deposit_limit_advanced_usd = 500000
+
+withdrawal_limit_basic_usd = 500
+withdrawal_limit_intermediate_usd = 25000
+withdrawal_limit_advanced_usd = 250000
+
+# Geographic restrictions
+restricted_countries = ["XX", "YY"]  # ISO-3166 codes
+supported_currencies = ["USD", "EUR", "GBP", "JPY"]
+
+[storage]
+# Instance storage (temporary, cleared regularly)
+instance_ttl_days = 30
+session_cache_enabled = true
+
+# Persistent storage (long-term audit trail)
+persistent_ttl_days = 365
+audit_log_enabled = true
+audit_log_compression = "gzip"
+
+[security]
+# Signature verification
+require_signature_verification = true
+signature_algorithm = "ed25519"
+signature_expiry_seconds = 300
+
+# Nonce management
+nonce_required = true
+nonce_reuse_prevention = true
+
+# Rate limiting per attestor
+[[security.rate_limits]]
+attestor = "kyc-provider"
+requests_per_minute = 100
+requests_per_hour = 5000
+
+[[security.rate_limits]]
+attestor = "bank-integration"
+requests_per_minute = 50
+requests_per_hour = 2000
+
+[[security.rate_limits]]
+attestor = "compliance-officer"
+requests_per_minute = 20
+requests_per_hour = 500
+
+[monitoring]
+enable_metrics = true
+log_all_operations = true
+alert_on_failed_attestations = true
+alert_on_replay_attempts = true
+metrics_namespace = "anchorkit.fiat_ramp"
+
+[[monitoring.alerts]]
+condition = "failed_kyc_verification"
+severity = "warning"
+recipients = ["ops@example.com"]
+
+[[monitoring.alerts]]
+condition = "replay_attack_detected"
+severity = "critical"
+recipients = ["security@example.com", "ops@example.com"]
+
+[[monitoring.alerts]]
+condition = "unknown_attestor"
+severity = "critical"
+recipients = ["security@example.com"]
