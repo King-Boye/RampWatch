@@ -3827,303 +3827,94 @@ fn test_migration_with_multiple_remittance_statuses() {
     assert_eq!(contract2.get_remittance(&id3).unwrap().status, crate::RemittanceStatus::Cancelled);
 }
 
-
-// ===== Daily Send Limit Tests =====
+// ═══════════════════════════════════════════════════════════════════════════
+// Rate Limiting Tests
+// ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_set_daily_limit() {
+fn test_rate_limit_initialization() {
     let env = Env::default();
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
     let token_admin = Address::generate(&env);
     let token = create_token_contract(&env, &token_admin);
-
     let contract = create_swiftremit_contract(&env);
+
+    // Whitelist token first
+    contract.whitelist_token(&admin, &token.address);
     contract.initialize(&admin, &token.address, &250);
 
-    let currency = String::from_str(&env, "USD");
-    let country = String::from_str(&env, "US");
-
-    contract.set_daily_limit(&currency, &country, &10000);
-
-    let limit = contract.get_daily_limit(&currency, &country);
-    assert!(limit.is_some());
-    assert_eq!(limit.unwrap().limit, 10000);
+    // Check default rate limit config
+    let (max_requests, window_seconds, enabled) = contract.get_rate_limit_config();
+    assert_eq!(max_requests, 100);
+    assert_eq!(window_seconds, 60);
+    assert!(enabled);
 }
 
 #[test]
-fn test_daily_limit_enforcement_within_limit() {
+fn test_update_rate_limit() {
     let env = Env::default();
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
     let token_admin = Address::generate(&env);
     let token = create_token_contract(&env, &token_admin);
+    let contract = create_swiftremit_contract(&env);
+
+    // Whitelist token first
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Update rate limit
+    contract.update_rate_limit(&admin, &50, &30, &true);
+
+    let (max_requests, window_seconds, enabled) = contract.get_rate_limit_config();
+    assert_eq!(max_requests, 50);
+    assert_eq!(window_seconds, 30);
+    assert!(enabled);
+}
+
+#[test]
+fn test_rate_limit_status() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let contract = create_swiftremit_contract(&env);
+
+    // Whitelist token first
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+
     let sender = Address::generate(&env);
-    let agent = Address::generate(&env);
 
-    token.mint(&sender, &20000);
-
-    let contract = create_swiftremit_contract(&env);
-    contract.initialize(&admin, &token.address, &250);
-    contract.register_agent(&agent);
-
-    let currency = String::from_str(&env, "USD");
-    let country = String::from_str(&env, "US");
-
-    // Set daily limit to 10000
-    contract.set_daily_limit(&currency, &country, &10000);
-
-    // First transfer of 5000 should succeed
-    let remittance_id1 = contract.create_remittance(&sender, &agent, &5000, &currency, &country, &None);
-    assert_eq!(remittance_id1, 1);
-
-    // Second transfer of 4000 should succeed (total 9000 < 10000)
-    let remittance_id2 = contract.create_remittance(&sender, &agent, &4000, &currency, &country, &None);
-    assert_eq!(remittance_id2, 2);
-
-    assert_eq!(token.balance(&contract.address), 9000);
+    // Check initial status
+    let (current, max, window) = contract.get_rate_limit_status(&sender);
+    assert_eq!(current, 0);
+    assert_eq!(max, 100);
+    assert_eq!(window, 60);
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #23)")]
-fn test_daily_limit_enforcement_exceeds_limit() {
+fn test_rate_limit_disable() {
     let env = Env::default();
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
     let token_admin = Address::generate(&env);
     let token = create_token_contract(&env, &token_admin);
-    let sender = Address::generate(&env);
-    let agent = Address::generate(&env);
-
-    token.mint(&sender, &20000);
-
     let contract = create_swiftremit_contract(&env);
-    contract.initialize(&admin, &token.address, &250);
-    contract.register_agent(&agent);
 
-    let currency = String::from_str(&env, "USD");
-    let country = String::from_str(&env, "US");
-
-    // Set daily limit to 10000
-    contract.set_daily_limit(&currency, &country, &10000);
-
-    // First transfer of 6000 should succeed
-    contract.create_remittance(&sender, &agent, &6000, &currency, &country, &None);
-
-    // Second transfer of 5000 should fail (total 11000 > 10000)
-    contract.create_remittance(&sender, &agent, &5000, &currency, &country, &None);
-}
-
-#[test]
-fn test_daily_limit_rolling_window() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let token_admin = Address::generate(&env);
-    let token = create_token_contract(&env, &token_admin);
-    let sender = Address::generate(&env);
-    let agent = Address::generate(&env);
-
-    token.mint(&sender, &30000);
-
-    let contract = create_swiftremit_contract(&env);
-    contract.initialize(&admin, &token.address, &250);
-    contract.register_agent(&agent);
-
-    let currency = String::from_str(&env, "USD");
-    let country = String::from_str(&env, "US");
-
-    // Set daily limit to 10000
-    contract.set_daily_limit(&currency, &country, &10000);
-
-    // First transfer of 8000
-    contract.create_remittance(&sender, &agent, &8000, &currency, &country, &None);
-
-    // Advance time by 25 hours (beyond 24-hour window)
-    env.ledger().with_mut(|li| {
-        li.timestamp = li.timestamp + 90000; // 25 hours in seconds
-    });
-
-    // After 25 hours, the old transfer should be outside the window
-    // New transfer of 9000 should succeed
-    let remittance_id = contract.create_remittance(&sender, &agent, &9000, &currency, &country, &None);
-    assert_eq!(remittance_id, 2);
-}
-
-#[test]
-fn test_daily_limit_different_currencies() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let token_admin = Address::generate(&env);
-    let token = create_token_contract(&env, &token_admin);
-    let sender = Address::generate(&env);
-    let agent = Address::generate(&env);
-
-    token.mint(&sender, &30000);
-
-    let contract = create_swiftremit_contract(&env);
-    contract.initialize(&admin, &token.address, &250);
-    contract.register_agent(&agent);
-
-    let usd = String::from_str(&env, "USD");
-    let eur = String::from_str(&env, "EUR");
-    let us = String::from_str(&env, "US");
-
-    // Set different limits for different currencies
-    contract.set_daily_limit(&usd, &us, &10000);
-    contract.set_daily_limit(&eur, &us, &15000);
-
-    // Transfer 9000 in USD should succeed
-    contract.create_remittance(&sender, &agent, &9000, &usd, &us, &None);
-
-    // Transfer 14000 in EUR should succeed (different currency limit)
-    contract.create_remittance(&sender, &agent, &14000, &eur, &us, &None);
-
-    assert_eq!(token.balance(&contract.address), 23000);
-}
-
-#[test]
-fn test_daily_limit_different_countries() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let token_admin = Address::generate(&env);
-    let token = create_token_contract(&env, &token_admin);
-    let sender = Address::generate(&env);
-    let agent = Address::generate(&env);
-
-    token.mint(&sender, &30000);
-
-    let contract = create_swiftremit_contract(&env);
-    contract.initialize(&admin, &token.address, &250);
-    contract.register_agent(&agent);
-
-    let usd = String::from_str(&env, "USD");
-    let us = String::from_str(&env, "US");
-    let uk = String::from_str(&env, "UK");
-
-    // Set different limits for different countries
-    contract.set_daily_limit(&usd, &us, &10000);
-    contract.set_daily_limit(&usd, &uk, &15000);
-
-    // Transfer 9000 to US should succeed
-    contract.create_remittance(&sender, &agent, &9000, &usd, &us, &None);
-
-    // Transfer 14000 to UK should succeed (different country limit)
-    contract.create_remittance(&sender, &agent, &14000, &usd, &uk, &None);
-
-    assert_eq!(token.balance(&contract.address), 23000);
-}
-
-#[test]
-fn test_daily_limit_no_limit_configured() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let token_admin = Address::generate(&env);
-    let token = create_token_contract(&env, &token_admin);
-    let sender = Address::generate(&env);
-    let agent = Address::generate(&env);
-
-    token.mint(&sender, &100000);
-
-    let contract = create_swiftremit_contract(&env);
-    contract.initialize(&admin, &token.address, &250);
-    contract.register_agent(&agent);
-
-    let currency = String::from_str(&env, "USD");
-    let country = String::from_str(&env, "US");
-
-    // No limit configured, large transfer should succeed
-    let remittance_id = contract.create_remittance(&sender, &agent, &50000, &currency, &country, &None);
-    assert_eq!(remittance_id, 1);
-    assert_eq!(token.balance(&contract.address), 50000);
-}
-
-#[test]
-fn test_daily_limit_multiple_users() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let token_admin = Address::generate(&env);
-    let token = create_token_contract(&env, &token_admin);
-    let sender1 = Address::generate(&env);
-    let sender2 = Address::generate(&env);
-    let agent = Address::generate(&env);
-
-    token.mint(&sender1, &20000);
-    token.mint(&sender2, &20000);
-
-    let contract = create_swiftremit_contract(&env);
-    contract.initialize(&admin, &token.address, &250);
-    contract.register_agent(&agent);
-
-    let currency = String::from_str(&env, "USD");
-    let country = String::from_str(&env, "US");
-
-    // Set daily limit to 10000
-    contract.set_daily_limit(&currency, &country, &10000);
-
-    // Each user should have their own limit
-    contract.create_remittance(&sender1, &agent, &9000, &currency, &country, &None);
-    contract.create_remittance(&sender2, &agent, &9000, &currency, &country, &None);
-
-    assert_eq!(token.balance(&contract.address), 18000);
-}
-
-#[test]
-#[should_panic(expected = "Error(Contract, #3)")]
-fn test_set_daily_limit_negative() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let token_admin = Address::generate(&env);
-    let token = create_token_contract(&env, &token_admin);
-
-    let contract = create_swiftremit_contract(&env);
+    // Whitelist token first
+    contract.whitelist_token(&admin, &token.address);
     contract.initialize(&admin, &token.address, &250);
 
-    let currency = String::from_str(&env, "USD");
-    let country = String::from_str(&env, "US");
+    // Disable rate limiting
+    contract.update_rate_limit(&admin, &100, &60, &false);
 
-    // Negative limit should fail
-    contract.set_daily_limit(&currency, &country, &-1000);
-}
-
-#[test]
-fn test_daily_limit_exact_limit() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let token_admin = Address::generate(&env);
-    let token = create_token_contract(&env, &token_admin);
-    let sender = Address::generate(&env);
-    let agent = Address::generate(&env);
-
-    token.mint(&sender, &20000);
-
-    let contract = create_swiftremit_contract(&env);
-    contract.initialize(&admin, &token.address, &250);
-    contract.register_agent(&agent);
-
-    let currency = String::from_str(&env, "USD");
-    let country = String::from_str(&env, "US");
-
-    // Set daily limit to 10000
-    contract.set_daily_limit(&currency, &country, &10000);
-
-    // Transfer exactly 10000 should succeed
-    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &currency, &country, &None);
-    assert_eq!(remittance_id, 1);
+    let (_, _, enabled) = contract.get_rate_limit_config();
+    assert!(!enabled);
 }
