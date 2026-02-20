@@ -321,6 +321,278 @@ fn test_cancel_remittance_already_completed() {
     contract.cancel_remittance(&remittance_id);
 }
 
+// ============================================================================
+// Comprehensive Cancellation Flow Tests
+// ============================================================================
+
+#[test]
+fn test_cancel_remittance_full_refund() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    // Mint initial balance to sender
+    let initial_balance = 10000i128;
+    token.mint(&sender, &initial_balance);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250); // 2.5% fee
+    contract.register_agent(&agent);
+
+    // Create remittance with 1000 tokens
+    let remittance_amount = 1000i128;
+    let remittance_id = contract.create_remittance(&sender, &agent, &remittance_amount, &None);
+
+    // Verify sender balance decreased by full amount
+    assert_eq!(token.balance(&sender), initial_balance - remittance_amount);
+    assert_eq!(token.balance(&contract.address), remittance_amount);
+
+    // Cancel the remittance
+    contract.cancel_remittance(&remittance_id);
+
+    // Verify full refund (entire amount including fee portion)
+    assert_eq!(token.balance(&sender), initial_balance);
+    assert_eq!(token.balance(&contract.address), 0);
+
+    // Verify remittance status is Cancelled
+    let remittance = contract.get_remittance(&remittance_id);
+    assert_eq!(remittance.status, crate::types::RemittanceStatus::Cancelled);
+}
+
+#[test]
+fn test_cancel_remittance_sender_authorization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+
+    // Cancel and verify sender authorization was required
+    contract.cancel_remittance(&remittance_id);
+
+    assert_eq!(
+        env.auths(),
+        [(
+            sender.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    contract.address.clone(),
+                    symbol_short!("cancel_remittance"),
+                    (remittance_id,).into_val(&env)
+                )),
+                sub_invocations: std::vec![]
+            }
+        )]
+    );
+}
+
+#[test]
+fn test_cancel_remittance_event_emission() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let remittance_amount = 1000i128;
+    let remittance_id = contract.create_remittance(&sender, &agent, &remittance_amount, &None);
+
+    // Cancel the remittance
+    contract.cancel_remittance(&remittance_id);
+
+    // Verify event was emitted
+    let events = env.events().all();
+    let event = events.last().unwrap();
+
+    assert_eq!(
+        event,
+        (
+            contract.address.clone(),
+            (Symbol::new(&env, "remittance_cancelled"), remittance_id).into_val(&env),
+            (sender.clone(), agent.clone(), token.address.clone(), remittance_amount).into_val(&env)
+        )
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #6)")]
+fn test_cancel_remittance_not_found() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Try to cancel non-existent remittance
+    contract.cancel_remittance(&999);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #7)")]
+fn test_cancel_remittance_already_cancelled() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+
+    // Cancel once
+    contract.cancel_remittance(&remittance_id);
+
+    // Try to cancel again - should fail
+    contract.cancel_remittance(&remittance_id);
+}
+
+#[test]
+fn test_cancel_remittance_multiple_remittances() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &20000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Create multiple remittances
+    let remittance_id1 = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id2 = contract.create_remittance(&sender, &agent, &2000, &None);
+    let remittance_id3 = contract.create_remittance(&sender, &agent, &3000, &None);
+
+    // Sender should have 14000 left (20000 - 1000 - 2000 - 3000)
+    assert_eq!(token.balance(&sender), 14000);
+    assert_eq!(token.balance(&contract.address), 6000);
+
+    // Cancel first and third remittances
+    contract.cancel_remittance(&remittance_id1);
+    contract.cancel_remittance(&remittance_id3);
+
+    // Verify partial refunds
+    assert_eq!(token.balance(&sender), 18000); // 14000 + 1000 + 3000
+    assert_eq!(token.balance(&contract.address), 2000); // Only remittance_id2 remains
+
+    // Verify statuses
+    let r1 = contract.get_remittance(&remittance_id1);
+    let r2 = contract.get_remittance(&remittance_id2);
+    let r3 = contract.get_remittance(&remittance_id3);
+
+    assert_eq!(r1.status, crate::types::RemittanceStatus::Cancelled);
+    assert_eq!(r2.status, crate::types::RemittanceStatus::Pending);
+    assert_eq!(r3.status, crate::types::RemittanceStatus::Cancelled);
+}
+
+#[test]
+fn test_cancel_remittance_no_fee_accumulation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Create and cancel remittance
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    contract.cancel_remittance(&remittance_id);
+
+    // Verify no fees were accumulated (fees only accumulate on successful payout)
+    assert_eq!(contract.get_accumulated_fees(), 0);
+}
+
+#[test]
+fn test_cancel_remittance_preserves_remittance_data() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let remittance_amount = 1000i128;
+    let remittance_id = contract.create_remittance(&sender, &agent, &remittance_amount, &None);
+
+    // Get original remittance data
+    let original = contract.get_remittance(&remittance_id);
+
+    // Cancel the remittance
+    contract.cancel_remittance(&remittance_id);
+
+    // Get cancelled remittance data
+    let cancelled = contract.get_remittance(&remittance_id);
+
+    // Verify all data is preserved except status
+    assert_eq!(cancelled.id, original.id);
+    assert_eq!(cancelled.sender, original.sender);
+    assert_eq!(cancelled.agent, original.agent);
+    assert_eq!(cancelled.amount, original.amount);
+    assert_eq!(cancelled.fee, original.fee);
+    assert_eq!(cancelled.expiry, original.expiry);
+    assert_eq!(cancelled.status, crate::types::RemittanceStatus::Cancelled);
+    assert_eq!(original.status, crate::types::RemittanceStatus::Pending);
+}
+
+
 #[test]
 fn test_withdraw_fees() {
     let env = Env::default();
