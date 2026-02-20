@@ -17,4 +17,5 @@ pub struct Remittance {
     pub amount: i128,
     pub fee: i128,
     pub status: RemittanceStatus,
+    pub expiry: Option<u64>,
 }
