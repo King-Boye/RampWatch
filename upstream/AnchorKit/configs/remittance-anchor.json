@@ -1,0 +1,317 @@
+{
+  "contract": {
+    "name": "remittance-anchor",
+    "version": "1.0.0",
+    "description": "AnchorKit instance for remittance operations with beneficiary verification",
+    "network": "stellar-public",
+    "admin_address": "GBAA5XKQC3KVDPD5OS3CHJJ24SB3BX7GI7XBXKNNCKQVPQVX6S3VT5O"
+  },
+  "attestors": {
+    "registry": [
+      {
+        "name": "identity-verifier",
+        "address": "GBAA5XKQC3KVDPD5OS3CHJJ24SB3BX7GI7XBXKNNCKQVPQVX6S3VT5O",
+        "description": "Biometric and document verification for remittance recipients",
+        "endpoint": "https://identity-service.example.com/verify",
+        "role": "identity-verifier",
+        "enabled": true,
+        "contact_email": "support@identity-service.example.com"
+      },
+      {
+        "name": "correspondent-bank",
+        "address": "GBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "description": "Correspondent bank for settlement in recipient country",
+        "endpoint": "https://bank-api.example.com/settlement",
+        "role": "settlement-bank",
+        "enabled": true,
+        "contact_email": "api@bank.example.com"
+      },
+      {
+        "name": "corridor-operator",
+        "address": "GBYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",
+        "description": "Remittance corridor operator managing local partnerships",
+        "role": "corridor-manager",
+        "enabled": true,
+        "contact_email": "ops@corridor-operator.example.com"
+      },
+      {
+        "name": "aml-screening",
+        "address": "GBZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+        "description": "Sanctions screening and AML/CFT compliance checks",
+        "endpoint": "https://aml-service.example.com/screen",
+        "role": "compliance-checker",
+        "enabled": true,
+        "contact_email": "api@aml-service.example.com"
+      }
+    ]
+  },
+  "sessions": {
+    "enable_session_tracking": true,
+    "session_timeout_seconds": 7200,
+    "operations_per_session": 5000,
+    "audit_log_retention_days": 1825
+  },
+  "operations": {
+    "templates": [
+      {
+        "id": "sender-kyc",
+        "name": "Sender KYC",
+        "attestor": "identity-verifier",
+        "operation_type": "sender_verification",
+        "required_fields": ["sender_id", "identity_type", "verification_level", "timestamp"],
+        "replay_protection": "enabled",
+        "description": "Sender identity verified through biometric or document verification",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "sender_id": { "type": "string" },
+            "identity_type": { "type": "string", "enum": ["passport", "national_id", "driver_license", "biometric"] },
+            "verification_level": { "type": "string", "enum": ["basic", "full"] },
+            "timestamp": { "type": "integer" }
+          },
+          "required": ["sender_id", "identity_type", "verification_level", "timestamp"]
+        }
+      },
+      {
+        "id": "recipient-verification",
+        "name": "Recipient Verification",
+        "attestor": "identity-verifier",
+        "operation_type": "recipient_verification",
+        "required_fields": ["recipient_id", "identity_type", "verification_timestamp", "account_details_hash"],
+        "replay_protection": "enabled",
+        "description": "Recipient identity and account details verified",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "recipient_id": { "type": "string" },
+            "identity_type": { "type": "string" },
+            "verification_timestamp": { "type": "integer" },
+            "account_details_hash": { "type": "string" }
+          },
+          "required": ["recipient_id", "identity_type", "verification_timestamp", "account_details_hash"]
+        }
+      },
+      {
+        "id": "aml-clearance",
+        "name": "AML Clearance",
+        "attestor": "aml-screening",
+        "operation_type": "aml_screening",
+        "required_fields": ["sender_id", "recipient_id", "amount", "screening_timestamp", "clearance_status"],
+        "replay_protection": "enabled",
+        "description": "Transaction cleared by AML/CFT screening against sanctions lists",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "sender_id": { "type": "string" },
+            "recipient_id": { "type": "string" },
+            "amount": { "type": "number" },
+            "screening_timestamp": { "type": "integer" },
+            "clearance_status": { "type": "string", "enum": ["cleared", "blocked", "manual_review"] }
+          },
+          "required": ["sender_id", "recipient_id", "amount", "screening_timestamp", "clearance_status"]
+        }
+      },
+      {
+        "id": "settlement-instruction",
+        "name": "Settlement Instruction",
+        "attestor": "correspondent-bank",
+        "operation_type": "settlement_instruction",
+        "required_fields": ["remittance_id", "amount", "currency", "recipient_account_hash", "instruction_timestamp"],
+        "replay_protection": "enabled",
+        "description": "Settlement instruction sent to correspondent bank",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "remittance_id": { "type": "string" },
+            "amount": { "type": "number" },
+            "currency": { "type": "string" },
+            "recipient_account_hash": { "type": "string" },
+            "instruction_timestamp": { "type": "integer" }
+          },
+          "required": ["remittance_id", "amount", "currency", "recipient_account_hash", "instruction_timestamp"]
+        }
+      },
+      {
+        "id": "settlement-confirmation",
+        "name": "Settlement Confirmation",
+        "attestor": "correspondent-bank",
+        "operation_type": "settlement_confirmation",
+        "required_fields": ["remittance_id", "settlement_timestamp", "final_amount", "settlement_reference"],
+        "replay_protection": "enabled",
+        "description": "Correspondent bank confirmed funds settled to recipient",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "remittance_id": { "type": "string" },
+            "settlement_timestamp": { "type": "integer" },
+            "final_amount": { "type": "number" },
+            "settlement_reference": { "type": "string" }
+          },
+          "required": ["remittance_id", "settlement_timestamp", "final_amount", "settlement_reference"]
+        }
+      },
+      {
+        "id": "corridor-routing",
+        "name": "Corridor Routing",
+        "attestor": "corridor-operator",
+        "operation_type": "corridor_routing",
+        "required_fields": ["remittance_id", "source_country", "destination_country", "selected_route", "routing_timestamp"],
+        "replay_protection": "enabled",
+        "description": "Corridor operator selected optimal remittance route",
+        "payload_schema": {
+          "type": "object",
+          "properties": {
+            "remittance_id": { "type": "string" },
+            "source_country": { "type": "string" },
+            "destination_country": { "type": "string" },
+            "selected_route": { "type": "string" },
+            "routing_timestamp": { "type": "integer" }
+          },
+          "required": ["remittance_id", "source_country", "destination_country", "selected_route", "routing_timestamp"]
+        }
+      }
+    ]
+  },
+  "remittance": {
+    "corridors": [
+      {
+        "source": "US",
+        "destination": "MX",
+        "local_currency": "MXN",
+        "settlement_method": "bank_transfer",
+        "expected_settlement_hours": 24,
+        "minimum_amount": 1.0,
+        "maximum_amount": 50000.0
+      },
+      {
+        "source": "GB",
+        "destination": "NG",
+        "local_currency": "NGN",
+        "settlement_method": "mobile_money",
+        "expected_settlement_hours": 4,
+        "minimum_amount": 10.0,
+        "maximum_amount": 10000.0
+      },
+      {
+        "source": "AE",
+        "destination": "PK",
+        "local_currency": "PKR",
+        "settlement_method": "bank_transfer",
+        "expected_settlement_hours": 48,
+        "minimum_amount": 100.0,
+        "maximum_amount": 100000.0
+      }
+    ],
+    "exchange_rate": {
+      "enable_live_rates": true,
+      "rate_lock_duration_seconds": 60,
+      "rate_variance_tolerance_percent": 0.5
+    },
+    "fee_structure": [
+      {
+        "corridor": "US-MX",
+        "fee_type": "percentage",
+        "fee_value": 1.5
+      },
+      {
+        "corridor": "GB-NG",
+        "fee_type": "percentage",
+        "fee_value": 2.0
+      },
+      {
+        "corridor": "AE-PK",
+        "fee_type": "percentage",
+        "fee_value": 1.0
+      }
+    ]
+  },
+  "compliance": {
+    "kyc_required_threshold_usd": 250,
+    "aml_screening_all_transactions": true,
+    "sanctions_list_sources": ["ofac", "eu_consolidated", "un_security_council"],
+    "transaction_limits": {
+      "daily_limit_usd": 5000,
+      "monthly_limit_usd": 50000,
+      "annual_limit_usd": 500000
+    },
+    "velocity_checks": {
+      "transactions_per_day_max": 10,
+      "transactions_per_week_max": 30
+    },
+    "geographic_restrictions": {
+      "high_risk_destinations": ["KP", "IR", "SY", "CU"],
+      "excluded_destinations": []
+    }
+  },
+  "storage": {
+    "instance_ttl_days": 7,
+    "session_cache_enabled": true,
+    "persistent_ttl_days": 1825,
+    "audit_log_enabled": true,
+    "audit_log_compression": "gzip"
+  },
+  "security": {
+    "require_signature_verification": true,
+    "signature_algorithm": "ed25519",
+    "signature_expiry_seconds": 600,
+    "nonce_required": true,
+    "nonce_reuse_prevention": true,
+    "endpoint_pins": [
+      {
+        "endpoint": "https://identity-service.example.com/verify",
+        "pin_sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      {
+        "endpoint": "https://bank-api.example.com/settlement",
+        "pin_sha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB="
+      }
+    ],
+    "rate_limits": [
+      {
+        "attestor": "identity-verifier",
+        "requests_per_minute": 200,
+        "requests_per_hour": 10000
+      },
+      {
+        "attestor": "correspondent-bank",
+        "requests_per_minute": 100,
+        "requests_per_hour": 5000
+      },
+      {
+        "attestor": "aml-screening",
+        "requests_per_minute": 150,
+        "requests_per_hour": 8000
+      }
+    ]
+  },
+  "monitoring": {
+    "enable_metrics": true,
+    "log_all_operations": true,
+    "alert_on_failed_attestations": true,
+    "alert_on_replay_attempts": true,
+    "metrics_namespace": "anchorkit.remittance",
+    "alerts": [
+      {
+        "condition": "aml_screening_failure",
+        "severity": "critical",
+        "recipients": ["compliance@example.com", "ops@example.com"]
+      },
+      {
+        "condition": "settlement_delay",
+        "severity": "warning",
+        "recipients": ["ops@example.com"],
+        "threshold_minutes": 180
+      },
+      {
+        "condition": "high_risk_corridor_attempt",
+        "severity": "critical",
+        "recipients": ["compliance@example.com"]
+      },
+      {
+        "condition": "velocity_limit_exceeded",
+        "severity": "warning",
+        "recipients": ["risk@example.com"]
+      }
+    ]
+  }
+}

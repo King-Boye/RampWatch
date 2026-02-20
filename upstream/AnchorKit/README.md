@@ -54,6 +54,7 @@ if contract.supports_service(&anchor, &ServiceType::Deposits) {
 - **Audit Trail**: Complete immutable record of all operations
 - **Reproducibility**: Deterministic operation replay for verification
 - **Replay Protection**: Multi-level protection against unauthorized replays
+- **Mock Anchor**: Built-in simulator for testing without external APIs
 
 ## New: Session Traceability & Reproducibility
 
@@ -69,31 +70,48 @@ AnchorKit now includes comprehensive session management and operation tracing to
 
 ### Quick Example
 
-```javascript
+```rust
 // Create a session
-const sessionId = await contract.create_session(userAddress);
+let session_id = contract.create_session(&user_address);
 
 // Perform operations within the session
-const attestationId = await contract.submit_attestation_with_session(
-    sessionId,
-    issuer,
-    subject,
-    timestamp,
-    payloadHash,
-    signature
+let attestation_id = contract.submit_attestation_with_session(
+    &session_id,
+    &issuer,
+    &subject,
+    &timestamp,
+    &payload_hash,
+    &signature
 );
 
 // Verify session completeness
-const operationCount = await contract.get_session_operation_count(sessionId);
+let operation_count = contract.get_session_operation_count(&session_id);
 
 // Retrieve audit logs
-const auditLog = await contract.get_audit_log(0);
+let audit_log = contract.get_audit_log(&0);
 ```
+
+## Testing with Mock Anchor
+
+```rust
+use anchorkit::mock_anchor::MockAnchor;
+
+// Create mock attestation data
+let payload = Bytes::from_slice(&env, b"KYC approved");
+let payload_hash = MockAnchor::hash_payload(&env, &payload);
+let signature = MockAnchor::sign(&env, &issuer, &subject, timestamp, &payload_hash);
+
+// Submit to contract
+let id = contract.submit_attestation(&issuer, &subject, &timestamp, &payload_hash, &signature);
+```
+
+See [MOCK_ANCHOR.md](./MOCK_ANCHOR.md) for complete testing guide.
 
 ## Documentation
 
 ### Getting Started
 - **[QUICK_START.md](./QUICK_START.md)** - Quick reference guide with examples
+- **[MOCK_ANCHOR.md](./MOCK_ANCHOR.md)** - Mock anchor for testing without external APIs
 
 ### Feature Documentation
 - **[SESSION_TRACEABILITY.md](./SESSION_TRACEABILITY.md)** - Complete feature guide with usage patterns
