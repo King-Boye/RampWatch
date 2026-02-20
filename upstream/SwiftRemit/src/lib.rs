@@ -1,5 +1,4 @@
 #![no_std]
-
 mod debug;
 mod errors;
 mod events;
@@ -8,7 +7,7 @@ mod storage;
 mod types;
 mod validation;
 
-use soroban_sdk::{contract, contractimpl, token, Address, Env};
+use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec};
 
 pub use debug::*;
 pub use errors::ContractError;
