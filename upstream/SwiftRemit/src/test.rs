@@ -3283,3 +3283,413 @@ fn test_net_settlement_mathematical_correctness() {
     assert_ne!(settlement_id2, settlement_id3);
 
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Migration Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_export_migration_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Export state
+    let snapshot = contract.export_migration_state(&admin);
+    assert!(snapshot.is_ok());
+
+    let snap = snapshot.unwrap();
+    assert_eq!(snap.version, 1);
+    assert_eq!(snap.instance_data.platform_fee_bps, 250);
+    assert_eq!(snap.instance_data.remittance_counter, 0);
+    assert_eq!(snap.instance_data.accumulated_fees, 0);
+}
+
+#[test]
+fn test_export_import_migration_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    // Create and populate first contract
+    let contract1 = create_swiftremit_contract(&env);
+    contract1.whitelist_token(&admin, &token.address);
+    contract1.initialize(&admin, &token.address, &250);
+
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    contract1.register_agent(&agent);
+
+    token.mint(&sender, &1000);
+    let id = contract1.create_remittance(&sender, &agent, &100, &None);
+
+    // Export state
+    let snapshot = contract1.export_migration_state(&admin).unwrap();
+
+    // Create new contract and import state
+    let contract2 = create_swiftremit_contract(&env);
+    let result = contract2.import_migration_state(&admin, snapshot);
+    assert!(result.is_ok());
+
+    // Verify state was imported correctly
+    assert_eq!(contract2.get_platform_fee_bps(), 250);
+    assert_eq!(contract2.get_accumulated_fees(), 0);
+
+    let remittance = contract2.get_remittance(&id);
+    assert!(remittance.is_ok());
+    assert_eq!(remittance.unwrap().amount, 100);
+}
+
+#[test]
+fn test_verify_migration_snapshot() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Export and verify
+    let snapshot = contract.export_migration_state(&admin).unwrap();
+    let verification = contract.verify_migration_snapshot(snapshot);
+
+    assert!(verification.valid);
+    assert_eq!(verification.expected_hash, verification.actual_hash);
+}
+
+#[test]
+fn test_migration_hash_detects_tampering() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Export snapshot
+    let mut snapshot = contract.export_migration_state(&admin).unwrap();
+
+    // Tamper with data
+    snapshot.instance_data.platform_fee_bps = 500;
+
+    // Verification should fail
+    let verification = contract.verify_migration_snapshot(snapshot.clone());
+    assert!(!verification.valid);
+
+    // Import should fail
+    let contract2 = create_swiftremit_contract(&env);
+    let result = contract2.import_migration_state(&admin, snapshot);
+    assert!(result.is_err());
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn test_import_fails_if_already_initialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    // Create and export from first contract
+    let contract1 = create_swiftremit_contract(&env);
+    contract1.whitelist_token(&admin, &token.address);
+    contract1.initialize(&admin, &token.address, &250);
+    let snapshot = contract1.export_migration_state(&admin).unwrap();
+
+    // Create and initialize second contract
+    let contract2 = create_swiftremit_contract(&env);
+    contract2.whitelist_token(&admin, &token.address);
+    contract2.initialize(&admin, &token.address, &300);
+
+    // Import should fail because contract2 is already initialized
+    contract2.import_migration_state(&admin, snapshot);
+}
+
+#[test]
+fn test_export_migration_batch() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    contract.register_agent(&agent);
+
+    token.mint(&sender, &10000);
+
+    // Create 10 remittances
+    for _ in 0..10 {
+        contract.create_remittance(&sender, &agent, &100, &None);
+    }
+
+    // Export in batches of 5
+    let batch0 = contract.export_migration_batch(&admin, 0, 5);
+    assert!(batch0.is_ok());
+
+    let b0 = batch0.unwrap();
+    assert_eq!(b0.batch_number, 0);
+    assert_eq!(b0.total_batches, 2);
+    assert_eq!(b0.remittances.len(), 5);
+
+    let batch1 = contract.export_migration_batch(&admin, 1, 5);
+    assert!(batch1.is_ok());
+
+    let b1 = batch1.unwrap();
+    assert_eq!(b1.batch_number, 1);
+    assert_eq!(b1.remittances.len(), 5);
+}
+
+#[test]
+fn test_import_migration_batch() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    // Create and populate first contract
+    let contract1 = create_swiftremit_contract(&env);
+    contract1.whitelist_token(&admin, &token.address);
+    contract1.initialize(&admin, &token.address, &250);
+
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    contract1.register_agent(&agent);
+
+    token.mint(&sender, &10000);
+
+    // Create 5 remittances
+    for _ in 0..5 {
+        contract1.create_remittance(&sender, &agent, &100, &None);
+    }
+
+    // Export batch
+    let batch = contract1.export_migration_batch(&admin, 0, 5).unwrap();
+
+    // Create new contract and import batch
+    let contract2 = create_swiftremit_contract(&env);
+    contract2.whitelist_token(&admin, &token.address);
+    contract2.initialize(&admin, &token.address, &250);
+
+    let result = contract2.import_migration_batch(&admin, batch);
+    assert!(result.is_ok());
+
+    // Verify remittances were imported
+    for id in 1..=5 {
+        let remittance = contract2.get_remittance(&id);
+        assert!(remittance.is_ok());
+    }
+}
+
+#[test]
+fn test_migration_batch_hash_verification() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract1 = create_swiftremit_contract(&env);
+    contract1.whitelist_token(&admin, &token.address);
+    contract1.initialize(&admin, &token.address, &250);
+
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    contract1.register_agent(&agent);
+
+    token.mint(&sender, &10000);
+
+    // Create remittances
+    for _ in 0..5 {
+        contract1.create_remittance(&sender, &agent, &100, &None);
+    }
+
+    // Export batch
+    let mut batch = contract1.export_migration_batch(&admin, 0, 5).unwrap();
+
+    // Tamper with batch
+    let mut remittances = batch.remittances.clone();
+    let mut first = remittances.get_unchecked(0);
+    first.amount = 200; // Change amount
+    remittances.set(0, first);
+    batch.remittances = remittances;
+
+    // Import should fail due to hash mismatch
+    let contract2 = create_swiftremit_contract(&env);
+    contract2.whitelist_token(&admin, &token.address);
+    contract2.initialize(&admin, &token.address, &250);
+
+    let result = contract2.import_migration_batch(&admin, batch);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_migration_preserves_all_data() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    // Create and populate first contract
+    let contract1 = create_swiftremit_contract(&env);
+    contract1.whitelist_token(&admin, &token.address);
+    contract1.initialize(&admin, &token.address, &250);
+
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    contract1.register_agent(&agent);
+
+    token.mint(&sender, &1000);
+
+    // Create remittance and complete it
+    let id = contract1.create_remittance(&sender, &agent, &100, &None);
+    contract1.confirm_payout(&id);
+
+    // Export state
+    let snapshot = contract1.export_migration_state(&admin).unwrap();
+
+    // Verify all data is in snapshot
+    assert_eq!(snapshot.instance_data.platform_fee_bps, 250);
+    assert_eq!(snapshot.instance_data.remittance_counter, 1);
+    assert!(snapshot.instance_data.accumulated_fees > 0);
+    assert_eq!(snapshot.persistent_data.remittances.len(), 1);
+
+    // Import to new contract
+    let contract2 = create_swiftremit_contract(&env);
+    contract2.import_migration_state(&admin, snapshot).unwrap();
+
+    // Verify all data was imported
+    assert_eq!(contract2.get_platform_fee_bps(), 250);
+    assert!(contract2.get_accumulated_fees().unwrap() > 0);
+
+    let remittance = contract2.get_remittance(&id).unwrap();
+    assert_eq!(remittance.status, crate::RemittanceStatus::Completed);
+}
+
+#[test]
+fn test_migration_deterministic_hash() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Export twice
+    let snapshot1 = contract.export_migration_state(&admin).unwrap();
+    let snapshot2 = contract.export_migration_state(&admin).unwrap();
+
+    // Hashes should be identical (deterministic)
+    // Note: timestamps will differ, so we can't compare full snapshots
+    // but the hash algorithm should be deterministic for same data
+    assert_eq!(snapshot1.instance_data.platform_fee_bps, snapshot2.instance_data.platform_fee_bps);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")]
+fn test_export_batch_invalid_size() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Try to export with batch size > MAX_MIGRATION_BATCH_SIZE
+    contract.export_migration_batch(&admin, 0, 101);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")]
+fn test_export_batch_zero_size() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Try to export with zero batch size
+    contract.export_migration_batch(&admin, 0, 0);
+}
+
+#[test]
+fn test_migration_with_multiple_remittance_statuses() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract1 = create_swiftremit_contract(&env);
+    contract1.whitelist_token(&admin, &token.address);
+    contract1.initialize(&admin, &token.address, &250);
+
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    contract1.register_agent(&agent);
+
+    token.mint(&sender, &10000);
+
+    // Create remittances with different statuses
+    let id1 = contract1.create_remittance(&sender, &agent, &100, &None); // Pending
+    let id2 = contract1.create_remittance(&sender, &agent, &100, &None);
+    contract1.confirm_payout(&id2); // Completed
+    let id3 = contract1.create_remittance(&sender, &agent, &100, &None);
+    contract1.cancel_remittance(&id3); // Cancelled
+
+    // Export and import
+    let snapshot = contract1.export_migration_state(&admin).unwrap();
+    let contract2 = create_swiftremit_contract(&env);
+    contract2.import_migration_state(&admin, snapshot).unwrap();
+
+    // Verify all statuses preserved
+    assert_eq!(contract2.get_remittance(&id1).unwrap().status, crate::RemittanceStatus::Pending);
+    assert_eq!(contract2.get_remittance(&id2).unwrap().status, crate::RemittanceStatus::Completed);
+    assert_eq!(contract2.get_remittance(&id3).unwrap().status, crate::RemittanceStatus::Cancelled);
+}

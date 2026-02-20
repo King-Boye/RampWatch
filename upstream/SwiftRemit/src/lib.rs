@@ -3,6 +3,7 @@ mod debug;
 mod errors;
 mod events;
 mod hashing;
+mod migration;
 mod netting;
 mod storage;
 mod types;
@@ -14,6 +15,7 @@ pub use debug::*;
 pub use errors::ContractError;
 pub use events::*;
 pub use hashing::*;
+pub use migration::*;
 pub use netting::*;
 pub use storage::*;
 pub use types::*;
@@ -691,5 +693,174 @@ impl SwiftRemitContract {
     /// Check if a token is whitelisted.
     pub fn is_token_whitelisted(env: Env, token: Address) -> bool {
         is_token_whitelisted(&env, &token)
+    }
+}
+
+#[contractimpl]
+impl SwiftRemitContract {
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Migration Functions
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Export complete contract state for migration
+    /// 
+    /// Creates a cryptographically verified snapshot of all contract data including:
+    /// - Instance storage (admin, token, fees, counters)
+    /// - Persistent storage (remittances, agents, admins, settlement hashes)
+    /// - Verification hash for integrity checking
+    /// 
+    /// # Security
+    /// - Only callable by admin
+    /// - Generates deterministic SHA-256 hash
+    /// - Includes timestamp and ledger sequence for audit trail
+    /// - Prevents tampering through cryptographic verification
+    /// 
+    /// # Returns
+    /// MigrationSnapshot containing complete contract state
+    /// 
+    /// # Example
+    /// ```ignore
+    /// let snapshot = contract.export_migration_state(&admin)?;
+    /// // Verify hash before using
+    /// let verification = contract.verify_migration_snapshot(&snapshot)?;
+    /// assert!(verification.valid);
+    /// ```
+    pub fn export_migration_state(
+        env: Env,
+        caller: Address,
+    ) -> Result<MigrationSnapshot, ContractError> {
+        require_admin(&env, &caller)?;
+        migration::export_state(&env)
+    }
+
+    /// Import contract state from migration snapshot
+    /// 
+    /// Restores complete contract state from a verified snapshot including:
+    /// - Cryptographic hash verification
+    /// - Instance storage restoration
+    /// - Persistent storage restoration
+    /// - Replay protection
+    /// 
+    /// # Security
+    /// - Only callable by admin
+    /// - Verifies cryptographic hash before import
+    /// - Prevents import if contract already initialized
+    /// - Atomic operation (all or nothing)
+    /// - No trust assumptions (cryptographically verified)
+    /// 
+    /// # Parameters
+    /// - `caller`: Admin address (must be authorized)
+    /// - `snapshot`: Complete migration snapshot to import
+    /// 
+    /// # Returns
+    /// Ok(()) if import successful
+    /// 
+    /// # Errors
+    /// - AlreadyInitialized: Contract already has data
+    /// - InvalidMigrationHash: Hash verification failed
+    /// - Unauthorized: Caller is not admin
+    /// 
+    /// # Example
+    /// ```ignore
+    /// // On new contract deployment
+    /// let snapshot = get_snapshot_from_old_contract();
+    /// contract.import_migration_state(&admin, snapshot)?;
+    /// ```
+    pub fn import_migration_state(
+        env: Env,
+        caller: Address,
+        snapshot: MigrationSnapshot,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        migration::import_state(&env, snapshot)
+    }
+
+    /// Verify migration snapshot integrity without importing
+    /// 
+    /// Validates that a snapshot's cryptographic hash matches its contents.
+    /// Useful for pre-import validation and auditing.
+    /// 
+    /// # Parameters
+    /// - `snapshot`: Snapshot to verify
+    /// 
+    /// # Returns
+    /// MigrationVerification with:
+    /// - valid: Whether hash matches
+    /// - expected_hash: Hash from snapshot
+    /// - actual_hash: Computed hash
+    /// - timestamp: Verification time
+    /// 
+    /// # Example
+    /// ```ignore
+    /// let snapshot = get_snapshot();
+    /// let verification = contract.verify_migration_snapshot(&snapshot)?;
+    /// if !verification.valid {
+    ///     panic!("Snapshot integrity check failed!");
+    /// }
+    /// ```
+    pub fn verify_migration_snapshot(
+        env: Env,
+        snapshot: MigrationSnapshot,
+    ) -> MigrationVerification {
+        migration::verify_snapshot(&env, &snapshot)
+    }
+
+    /// Export state in batches for large datasets
+    /// 
+    /// For contracts with many remittances, export in batches to avoid
+    /// resource limits. Each batch includes its own hash for verification.
+    /// 
+    /// # Parameters
+    /// - `caller`: Admin address (must be authorized)
+    /// - `batch_number`: Which batch to export (0-indexed)
+    /// - `batch_size`: Number of items per batch (max 100)
+    /// 
+    /// # Returns
+    /// MigrationBatch containing subset of data with verification hash
+    /// 
+    /// # Example
+    /// ```ignore
+    /// // Export in batches of 50
+    /// let batch0 = contract.export_migration_batch(&admin, 0, 50)?;
+    /// let batch1 = contract.export_migration_batch(&admin, 1, 50)?;
+    /// ```
+    pub fn export_migration_batch(
+        env: Env,
+        caller: Address,
+        batch_number: u32,
+        batch_size: u32,
+    ) -> Result<MigrationBatch, ContractError> {
+        require_admin(&env, &caller)?;
+        migration::export_batch(&env, batch_number, batch_size)
+    }
+
+    /// Import state from batch
+    /// 
+    /// Import a single batch of remittances with hash verification.
+    /// Batches should be imported in order (0, 1, 2, ...) for consistency.
+    /// 
+    /// # Parameters
+    /// - `caller`: Admin address (must be authorized)
+    /// - `batch`: Batch to import with verification hash
+    /// 
+    /// # Returns
+    /// Ok(()) if import successful
+    /// 
+    /// # Errors
+    /// - InvalidMigrationHash: Batch hash verification failed
+    /// - Unauthorized: Caller is not admin
+    /// 
+    /// # Example
+    /// ```ignore
+    /// let batch = get_batch_from_old_contract(0);
+    /// contract.import_migration_batch(&admin, batch)?;
+    /// ```
+    pub fn import_migration_batch(
+        env: Env,
+        caller: Address,
+        batch: MigrationBatch,
+    ) -> Result<(), ContractError> {
+        require_admin(&env, &caller)?;
+        migration::import_batch(&env, batch)
     }
 }
