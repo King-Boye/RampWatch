@@ -193,6 +193,9 @@ impl SwiftRemitContract {
         set_settlement_hash(&env, remittance_id);
 
         emit_remittance_completed(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), payout_amount);
+        
+        // Emit settlement completed event with final executed values
+        emit_settlement_completed(&env, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), payout_amount);
 
         log_confirm_payout(&env, remittance_id, payout_amount);
 
