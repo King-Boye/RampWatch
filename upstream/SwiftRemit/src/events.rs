@@ -164,4 +164,27 @@ pub fn emit_unpaused(env: &Env, admin: Address) {
     );
 }
 
+// ── Settlement Events ──────────────────────────────────────────────
+
+pub fn emit_settlement_completed(
+    env: &Env,
+    sender: Address,
+    recipient: Address,
+    token: Address,
+    amount: i128,
+) {
+    env.events().publish(
+        (symbol_short!("settle"), symbol_short!("complete")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            sender,
+            recipient,
+            token,
+            amount,
+        ),
+    );
+}
+
 ```
