@@ -177,7 +177,14 @@ impl SwiftRemitContract {
         // Mark settlement as executed to prevent duplicates
         set_settlement_hash(&env, remittance_id);
 
-        emit_remittance_completed(&env, remittance_id, remittance.agent, payout_amount);
+        emit_remittance_completed(&env, remittance_id, remittance.agent.clone(), payout_amount);
+        emit_settlement_completed(
+            &env,
+            remittance.sender,
+            remittance.agent,
+            usdc_token,
+            payout_amount,
+        );
 
         Ok(())
     }
