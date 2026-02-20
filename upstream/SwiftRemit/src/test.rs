@@ -860,6 +860,29 @@ fn test_duplicate_prevention_with_expiry() {
 }
 
 #[test]
+fn test_pause_unpause() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    assert!(!contract.is_paused());
+
+    contract.pause();
+    assert!(contract.is_paused());
+
+    contract.unpause();
+    assert!(!contract.is_paused());
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn test_settlement_blocked_when_paused() {
 fn test_get_settlement_valid() {
     let env = Env::default();
     env.mock_all_auths();
@@ -877,6 +900,14 @@ fn test_get_settlement_valid() {
     contract.register_agent(&agent);
 
     let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+
+    contract.pause();
+
+    contract.confirm_payout(&remittance_id);
+}
+
+#[test]
+fn test_settlement_works_after_unpause() {
     contract.confirm_payout(&remittance_id);
 
     let settlement = contract.get_settlement(&remittance_id);
@@ -897,9 +928,25 @@ fn test_get_settlement_invalid_id() {
     let admin = Address::generate(&env);
     let token_admin = Address::generate(&env);
     let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
 
     let contract = create_swiftremit_contract(&env);
     contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+
+    contract.pause();
+    contract.unpause();
+
+    contract.confirm_payout(&remittance_id);
+
+    let remittance = contract.get_remittance(&remittance_id);
+    assert_eq!(remittance.status, crate::types::RemittanceStatus::Completed);
+}
 
     contract.get_settlement(&999);
 }

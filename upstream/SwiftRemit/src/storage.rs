@@ -40,6 +40,10 @@ enum DataKey {
     // Keys for managing platform fees
     /// Total accumulated platform fees awaiting withdrawal
     AccumulatedFees,
+    
+    /// Contract pause status for emergency halts
+    Paused,
+    
 
     // === Settlement Deduplication ===
     // Keys for preventing duplicate settlement execution
@@ -148,4 +152,15 @@ pub fn set_settlement_hash(env: &Env, remittance_id: u64) {
     env.storage()
         .persistent()
         .set(&DataKey::SettlementHash(remittance_id), &true);
+}
+
+pub fn is_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+}
+
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&DataKey::Paused, &paused);
 }

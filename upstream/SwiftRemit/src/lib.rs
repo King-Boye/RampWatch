@@ -139,6 +139,10 @@ impl SwiftRemitContract {
     }
 
     pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<(), ContractError> {
+        if is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
+
         let mut remittance = get_remittance(&env, remittance_id)?;
 
         remittance.agent.require_auth();
@@ -266,5 +270,29 @@ impl SwiftRemitContract {
 
     pub fn get_platform_fee_bps(env: Env) -> Result<u32, ContractError> {
         get_platform_fee_bps(&env)
+    }
+
+    pub fn pause(env: Env) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+
+        set_paused(&env, true);
+        emit_paused(&env, admin);
+
+        Ok(())
+    }
+
+    pub fn unpause(env: Env) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+
+        set_paused(&env, false);
+        emit_unpaused(&env, admin);
+
+        Ok(())
+    }
+
+    pub fn is_paused(env: Env) -> bool {
+        is_paused(&env)
     }
 }
