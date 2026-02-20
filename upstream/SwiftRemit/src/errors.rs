@@ -75,4 +75,12 @@ pub enum ContractError {
     /// Cannot remove the last admin from the system.
     /// Cause: Attempting to remove the only remaining admin.
     CannotRemoveLastAdmin = 17,
+    
+    /// Token is not whitelisted for use in the system.
+    /// Cause: Attempting to initialize contract with non-whitelisted token.
+    TokenNotWhitelisted = 18,
+    
+    /// Token is already whitelisted in the system.
+    /// Cause: Attempting to add a token that is already whitelisted.
+    TokenAlreadyWhitelisted = 19,
 }

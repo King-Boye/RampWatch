@@ -1834,3 +1834,423 @@ fn test_multi_token_mixed_success_failure() {
     assert_eq!(remittance1.status, crate::types::RemittanceStatus::Completed);
     assert_eq!(remittance2.status, crate::types::RemittanceStatus::Cancelled);
 }
+
+
+// ============================================================================
+// Token Whitelist Tests
+// ============================================================================
+
+#[test]
+fn test_whitelist_token() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Initially token should not be whitelisted
+    assert!(!contract.is_token_whitelisted(&token.address));
+
+    // Admin whitelists the token
+    contract.whitelist_token(&admin, &token.address);
+
+    // Now token should be whitelisted
+    assert!(contract.is_token_whitelisted(&token.address));
+}
+
+#[test]
+fn test_remove_whitelisted_token() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Whitelist the token
+    contract.whitelist_token(&admin, &token.address);
+    assert!(contract.is_token_whitelisted(&token.address));
+
+    // Remove from whitelist
+    contract.remove_whitelisted_token(&admin, &token.address);
+    assert!(!contract.is_token_whitelisted(&token.address));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #19)")]
+fn test_whitelist_token_already_whitelisted() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Whitelist the token
+    contract.whitelist_token(&admin, &token.address);
+
+    // Try to whitelist again - should fail
+    contract.whitelist_token(&admin, &token.address);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #18)")]
+fn test_remove_token_not_whitelisted() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Try to remove a token that was never whitelisted - should fail
+    contract.remove_whitelisted_token(&admin, &token.address);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #18)")]
+fn test_initialize_with_non_whitelisted_token() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Try to initialize with non-whitelisted token - should fail
+    contract.initialize(&admin, &token.address, &250);
+}
+
+#[test]
+fn test_initialize_with_whitelisted_token() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Whitelist the token first
+    contract.whitelist_token(&admin, &token.address);
+
+    // Now initialize should succeed
+    contract.initialize(&admin, &token.address, &250);
+
+    assert_eq!(contract.get_platform_fee_bps(), 250);
+}
+
+#[test]
+fn test_multiple_tokens_whitelist() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    
+    let token1 = create_token_contract(&env, &token_admin);
+    let token2 = create_token_contract(&env, &token_admin);
+    let token3 = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Whitelist multiple tokens
+    contract.whitelist_token(&admin, &token1.address);
+    contract.whitelist_token(&admin, &token2.address);
+    contract.whitelist_token(&admin, &token3.address);
+
+    // Verify all are whitelisted
+    assert!(contract.is_token_whitelisted(&token1.address));
+    assert!(contract.is_token_whitelisted(&token2.address));
+    assert!(contract.is_token_whitelisted(&token3.address));
+
+    // Remove one
+    contract.remove_whitelisted_token(&admin, &token2.address);
+
+    // Verify state
+    assert!(contract.is_token_whitelisted(&token1.address));
+    assert!(!contract.is_token_whitelisted(&token2.address));
+    assert!(contract.is_token_whitelisted(&token3.address));
+}
+
+#[test]
+fn test_whitelist_authorization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Whitelist token
+    contract.whitelist_token(&admin, &token.address);
+
+    // Verify authorization was required
+    assert_eq!(
+        env.auths(),
+        [(
+            admin.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    contract.address.clone(),
+                    symbol_short!("whitelist_token"),
+                    (&admin, &token.address).into_val(&env)
+                )),
+                sub_invocations: std::vec![]
+            }
+        )]
+    );
+}
+
+#[test]
+fn test_whitelist_events_emitted() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Whitelist token
+    contract.whitelist_token(&admin, &token.address);
+
+    let events = env.events().all();
+    let whitelist_event = events.last().unwrap();
+
+    assert_eq!(
+        whitelist_event.topics,
+        (symbol_short!("token"), symbol_short!("whitelist")).into_val(&env)
+    );
+
+    // Remove token
+    contract.remove_whitelisted_token(&admin, &token.address);
+
+    let events = env.events().all();
+    let remove_event = events.last().unwrap();
+
+    assert_eq!(
+        remove_event.topics,
+        (symbol_short!("token"), symbol_short!("removed")).into_val(&env)
+    );
+}
+
+#[test]
+fn test_multi_admin_whitelist_management() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    
+    let token1 = create_token_contract(&env, &token_admin);
+    let token2 = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Whitelist first token
+    contract.whitelist_token(&admin1, &token1.address);
+    
+    // Initialize with whitelisted token
+    contract.initialize(&admin1, &token1.address, &250);
+    
+    // Add second admin
+    contract.add_admin(&admin1, &admin2);
+
+    // Second admin should be able to whitelist tokens
+    contract.whitelist_token(&admin2, &token2.address);
+    assert!(contract.is_token_whitelisted(&token2.address));
+
+    // Second admin should be able to remove whitelisted tokens
+    contract.remove_whitelisted_token(&admin2, &token2.address);
+    assert!(!contract.is_token_whitelisted(&token2.address));
+}
+
+#[test]
+fn test_whitelist_different_contract_instances() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    
+    let token1 = create_token_contract(&env, &token_admin);
+    let token2 = create_token_contract(&env, &token_admin);
+
+    // Create two separate contract instances
+    let contract1 = create_swiftremit_contract(&env);
+    let contract2 = create_swiftremit_contract(&env);
+
+    // Whitelist token1 in contract1
+    contract1.whitelist_token(&admin, &token1.address);
+    
+    // Whitelist token2 in contract2
+    contract2.whitelist_token(&admin, &token2.address);
+
+    // Verify isolation - each contract has its own whitelist
+    assert!(contract1.is_token_whitelisted(&token1.address));
+    assert!(!contract1.is_token_whitelisted(&token2.address));
+    
+    assert!(!contract2.is_token_whitelisted(&token1.address));
+    assert!(contract2.is_token_whitelisted(&token2.address));
+}
+
+#[test]
+fn test_whitelist_and_full_workflow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Whitelist token
+    contract.whitelist_token(&admin, &token.address);
+
+    // Initialize with whitelisted token
+    contract.initialize(&admin, &token.address, &250);
+
+    // Register agent
+    contract.register_agent(&agent);
+
+    // Create and complete remittance
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    contract.confirm_payout(&remittance_id);
+
+    // Verify everything worked
+    assert_eq!(token.balance(&agent), 975);
+    assert_eq!(contract.get_accumulated_fees(), 25);
+}
+
+#[test]
+fn test_whitelist_token_isolation_across_contracts() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    
+    let token1 = create_token_contract(&env, &token_admin);
+    let token2 = create_token_contract(&env, &token_admin);
+    let token3 = create_token_contract(&env, &token_admin);
+
+    let contract1 = create_swiftremit_contract(&env);
+    let contract2 = create_swiftremit_contract(&env);
+
+    // Contract1: whitelist token1 and token2
+    contract1.whitelist_token(&admin1, &token1.address);
+    contract1.whitelist_token(&admin1, &token2.address);
+
+    // Contract2: whitelist token2 and token3
+    contract2.whitelist_token(&admin2, &token2.address);
+    contract2.whitelist_token(&admin2, &token3.address);
+
+    // Verify contract1 whitelist
+    assert!(contract1.is_token_whitelisted(&token1.address));
+    assert!(contract1.is_token_whitelisted(&token2.address));
+    assert!(!contract1.is_token_whitelisted(&token3.address));
+
+    // Verify contract2 whitelist
+    assert!(!contract2.is_token_whitelisted(&token1.address));
+    assert!(contract2.is_token_whitelisted(&token2.address));
+    assert!(contract2.is_token_whitelisted(&token3.address));
+
+    // Initialize both contracts with their whitelisted tokens
+    contract1.initialize(&admin1, &token1.address, &250);
+    contract2.initialize(&admin2, &token3.address, &300);
+
+    assert_eq!(contract1.get_platform_fee_bps(), 250);
+    assert_eq!(contract2.get_platform_fee_bps(), 300);
+}
+
+#[test]
+fn test_cannot_use_removed_token() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract1 = create_swiftremit_contract(&env);
+    let contract2 = create_swiftremit_contract(&env);
+
+    // Whitelist token
+    contract1.whitelist_token(&admin, &token.address);
+    contract2.whitelist_token(&admin, &token.address);
+
+    // Initialize first contract
+    contract1.initialize(&admin, &token.address, &250);
+
+    // Remove token from whitelist for contract2
+    contract2.remove_whitelisted_token(&admin, &token.address);
+
+    // Verify contract1 still works (already initialized)
+    assert_eq!(contract1.get_platform_fee_bps(), 250);
+
+    // Verify contract2 cannot initialize with removed token
+    assert!(!contract2.is_token_whitelisted(&token.address));
+}
+
+#[test]
+fn test_whitelist_edge_case_many_tokens() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Whitelist many tokens
+    let mut tokens = std::vec![];
+    for _ in 0..10 {
+        let token = create_token_contract(&env, &token_admin);
+        contract.whitelist_token(&admin, &token.address);
+        tokens.push(token);
+    }
+
+    // Verify all are whitelisted
+    for token in &tokens {
+        assert!(contract.is_token_whitelisted(&token.address));
+    }
+
+    // Remove every other token
+    for (i, token) in tokens.iter().enumerate() {
+        if i % 2 == 0 {
+            contract.remove_whitelisted_token(&admin, &token.address);
+        }
+    }
+
+    // Verify correct state
+    for (i, token) in tokens.iter().enumerate() {
+        if i % 2 == 0 {
+            assert!(!contract.is_token_whitelisted(&token.address));
+        } else {
+            assert!(contract.is_token_whitelisted(&token.address));
+        }
+    }
+}
