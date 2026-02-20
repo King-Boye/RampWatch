@@ -3,5 +3,6 @@ Cargo.lock
 *.wasm
 *.optimized.wasm
 .soroban/
+.kiro
 # scratch/audit workfiles
 *.txt
