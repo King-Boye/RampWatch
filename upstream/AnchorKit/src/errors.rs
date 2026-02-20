@@ -1,8 +1,7 @@
 use soroban_sdk::contracterror;
 
 /// Error codes for AnchorKit contract operations.
-/// All error codes are in the range 100-120 for stable API compatibility.
-/// See API_SPEC.md for detailed documentation.
+/// All error codes are in the range 100-130 for stable API compatibility.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -19,7 +18,6 @@ pub enum Error {
     InvalidEndpointFormat = 10,
     EndpointNotFound = 11,
     EndpointAlreadyExists = 12,
-
     ServicesNotConfigured = 13,
     InvalidServiceType = 14,
 
@@ -34,4 +32,7 @@ pub enum Error {
     NoQuotesAvailable = 21,
     QuoteNotFound = 22,
 
+    /// Transaction intent / compliance errors
+    InvalidTransactionIntent = 23,
+    ComplianceNotMet = 24,
 }
