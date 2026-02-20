@@ -116,9 +116,7 @@ impl SwiftRemitContract {
         token_client.transfer(&sender, &env.current_contract_address(), &amount);
 
         let counter = get_remittance_counter(&env)?;
-        let remittance_id = counter
-            .checked_add(1)
-            .ok_or(ContractError::Overflow)?;
+        let remittance_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
 
         let remittance = Remittance {
             id: remittance_id,
