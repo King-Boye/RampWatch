@@ -5,6 +5,9 @@ mod events;
 mod storage;
 mod types;
 
+#[cfg(any(test, feature = "testutils"))]
+pub mod mock_anchor;
+
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String};
 
 pub use errors::Error;
@@ -436,7 +439,7 @@ mod tests {
     use super::*;
     use soroban_sdk::{
         testutils::{Address as _, BytesN as _, Events},
-        Address, Bytes, BytesN, Env,
+        Address, Bytes, BytesN, Env, IntoVal,
     };
 
     fn create_test_contract(env: &Env) -> (Address, AnchorKitContractClient<'_>) {
