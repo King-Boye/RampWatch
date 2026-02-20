@@ -883,6 +883,7 @@ fn test_pause_unpause() {
 #[test]
 #[should_panic(expected = "Error(Contract, #13)")]
 fn test_settlement_blocked_when_paused() {
+fn test_get_settlement_valid() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -907,6 +908,20 @@ fn test_settlement_blocked_when_paused() {
 
 #[test]
 fn test_settlement_works_after_unpause() {
+    contract.confirm_payout(&remittance_id);
+
+    let settlement = contract.get_settlement(&remittance_id);
+    assert_eq!(settlement.id, remittance_id);
+    assert_eq!(settlement.sender, sender);
+    assert_eq!(settlement.agent, agent);
+    assert_eq!(settlement.amount, 1000);
+    assert_eq!(settlement.fee, 25);
+    assert_eq!(settlement.status, crate::types::RemittanceStatus::Completed);
+}
+
+#[test]
+#[should_panic(expected = "RemittanceNotFound")]
+fn test_get_settlement_invalid_id() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -933,3 +948,5 @@ fn test_settlement_works_after_unpause() {
     assert_eq!(remittance.status, crate::types::RemittanceStatus::Completed);
 }
 
+    contract.get_settlement(&999);
+}
