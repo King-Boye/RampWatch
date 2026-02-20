@@ -8,8 +8,28 @@ pub const MAX_BATCH_SIZE: u32 = 50;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RemittanceStatus {
     Pending,
-    Completed,
-    Cancelled,
+    Authorized,
+    Settled,
+    Finalized,
+    Failed,
+}
+
+impl RemittanceStatus {
+    pub fn can_transition_to(&self, next: &RemittanceStatus) -> bool {
+        match (self, next) {
+            (RemittanceStatus::Pending, RemittanceStatus::Authorized) => true,
+            (RemittanceStatus::Pending, RemittanceStatus::Failed) => true,
+
+            (RemittanceStatus::Authorized, RemittanceStatus::Settled) => true,
+            (RemittanceStatus::Authorized, RemittanceStatus::Failed) => true,
+
+            (RemittanceStatus::Settled, RemittanceStatus::Finalized) => true,
+
+            // Allow transitions to Failed from any non-terminal state
+
+            _ => false,
+        }
+    }
 }
 
 #[contracttype]

@@ -8,6 +8,8 @@ mod netting;
 mod storage;
 mod types;
 mod validation;
+#[cfg(test)]
+mod test;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec};
 
@@ -153,7 +155,6 @@ impl SwiftRemitContract {
             return Err(ContractError::InvalidFeeBps);
         }
 
-        set_platform_fee_bps(&env, fee_bps);
         let old_fee = get_platform_fee_bps(&env)?;
         
         // Event: Fee updated - Fires when admin changes the platform fee percentage
@@ -227,8 +228,8 @@ impl SwiftRemitContract {
 
         remittance.agent.require_auth();
 
-        if remittance.status != RemittanceStatus::Pending {
-            return Err(ContractError::InvalidStatus);
+        if !remittance.status.can_transition_to(&RemittanceStatus::Settled) {
+            return Err(ContractError::InvalidStateTransition);
         }
 
         // Check for duplicate settlement execution
@@ -266,7 +267,7 @@ impl SwiftRemitContract {
             .ok_or(ContractError::Overflow)?;
         set_accumulated_fees(&env, new_fees);
 
-        remittance.status = RemittanceStatus::Completed;
+        remittance.status = RemittanceStatus::Settled;
         set_remittance(&env, remittance_id, &remittance);
 
         // Mark settlement as executed to prevent duplicates
@@ -285,13 +286,33 @@ impl SwiftRemitContract {
         Ok(remittance_id)
     }
 
+    pub fn finalize_remittance(env: Env, caller: Address, remittance_id: u64) -> Result<(), ContractError> {
+        require_admin(&env, &caller)?;
+        let mut remittance = get_remittance(&env, remittance_id)?;
+
+        if !remittance.status.can_transition_to(&RemittanceStatus::Finalized) {
+            return Err(ContractError::InvalidStateTransition);
+        }
+
+        remittance.status = RemittanceStatus::Finalized;
+        set_remittance(&env, remittance_id, &remittance);
+
+        Ok(())
+    }
+
+    pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<(), ContractError> {
+        // Alias for settle_remittance to maintain backward compatibility if desired,
+        // but enforcing the state machine.
+        Self::settle_remittance(env, remittance_id)
+    }
+
     pub fn cancel_remittance(env: Env, remittance_id: u64) -> Result<(), ContractError> {
         let mut remittance = get_remittance(&env, remittance_id)?;
 
         remittance.sender.require_auth();
 
-        if remittance.status != RemittanceStatus::Pending {
-            return Err(ContractError::InvalidStatus);
+        if !remittance.status.can_transition_to(&RemittanceStatus::Failed) {
+            return Err(ContractError::InvalidStateTransition);
         }
 
         let usdc_token = get_usdc_token(&env)?;
@@ -302,12 +323,36 @@ impl SwiftRemitContract {
             &remittance.amount,
         );
 
-        remittance.status = RemittanceStatus::Cancelled;
+        remittance.status = RemittanceStatus::Failed;
         set_remittance(&env, remittance_id, &remittance);
 
         // Event: Remittance cancelled - Fires when sender cancels a pending remittance and receives full refund
         // Used by off-chain systems to track cancellations and update transaction status
         emit_remittance_cancelled(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), remittance.amount);
+
+        log_cancel_remittance(&env, remittance_id);
+
+        Ok(())
+    }
+
+    pub fn fail_remittance(env: Env, caller: Address, remittance_id: u64) -> Result<(), ContractError> {
+        require_admin(&env, &caller)?;
+        let mut remittance = get_remittance(&env, remittance_id)?;
+
+        if !remittance.status.can_transition_to(&RemittanceStatus::Failed) {
+            return Err(ContractError::InvalidStateTransition);
+        }
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &remittance.sender,
+            &remittance.amount,
+        );
+
+        remittance.status = RemittanceStatus::Failed;
+        set_remittance(&env, remittance_id, &remittance);
 
         log_cancel_remittance(&env, remittance_id);
 
@@ -478,7 +523,7 @@ impl SwiftRemitContract {
     }
 
     pub fn is_paused(env: Env) -> bool {
-        is_paused(&env)
+        crate::storage::is_paused(&env)
     }
 
     pub fn get_version(env: Env) -> soroban_sdk::String {
