@@ -3,6 +3,7 @@
 mod debug;
 mod errors;
 mod events;
+mod hashing;
 mod storage;
 mod types;
 mod validation;
@@ -12,6 +13,7 @@ use soroban_sdk::{contract, contractimpl, token, Address, Env};
 pub use debug::*;
 pub use errors::ContractError;
 pub use events::*;
+pub use hashing::*;
 pub use storage::*;
 pub use types::*;
 pub use validation::*;
@@ -98,9 +100,7 @@ impl SwiftRemitContract {
         require_admin(&env, &caller)?;
 
         set_agent_registered(&env, &agent, true);
-        emit_agent_registered(&env, agent.clone(), caller.clone());
-
-        log_register_agent(&env, &agent);
+        emit_agent_registered(&env, agent, admin.clone());
 
         Ok(())
     }
@@ -110,9 +110,7 @@ impl SwiftRemitContract {
         require_admin(&env, &caller)?;
 
         set_agent_registered(&env, &agent, false);
-        emit_agent_removed(&env, agent.clone(), caller.clone());
-
-        log_remove_agent(&env, &agent);
+        emit_agent_removed(&env, agent, admin.clone());
 
         Ok(())
     }
