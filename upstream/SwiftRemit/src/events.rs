@@ -139,4 +139,46 @@ pub fn emit_fees_withdrawn(
         ),
     );
 }
+pub fn emit_paused(env: &Env, admin: Address) {
+    env.events().publish(
+        (symbol_short!("paused"),),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            admin,
+        ),
+    );
+}
 
+pub fn emit_unpaused(env: &Env, admin: Address) {
+    env.events().publish(
+        (symbol_short!("unpaused"),),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            admin,
+        ),
+    );
+}
+pub fn emit_settlement_completed(
+    env: &Env,
+    sender: Address,
+    agent: Address,
+    token: Address,
+    amount: i128,
+) {
+    env.events().publish(
+        (symbol_short!("settle"), symbol_short!("complete")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            sender,
+            agent,
+            token,
+            amount,
+        ),
+    );
+}

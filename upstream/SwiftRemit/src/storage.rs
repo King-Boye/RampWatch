@@ -16,10 +16,10 @@ enum DataKey {
     // Core contract settings stored in instance storage
     /// Contract administrator address with privileged access (deprecated - use AdminRole)
     Admin,
-    
+
     /// Admin role status indexed by address (persistent storage)
     AdminRole(Address),
-    
+
     /// Counter for tracking number of admins
     AdminCount,
 
@@ -46,10 +46,9 @@ enum DataKey {
     // Keys for managing platform fees
     /// Total accumulated platform fees awaiting withdrawal
     AccumulatedFees,
-    
+
     /// Contract pause status for emergency halts
     Paused,
-    
 
     // === Settlement Deduplication ===
     // Keys for preventing duplicate settlement execution
@@ -199,10 +198,10 @@ pub fn set_admin_count(env: &Env, count: u32) {
 
 pub fn require_admin(env: &Env, address: &Address) -> Result<(), ContractError> {
     address.require_auth();
-    
+
     if !is_admin(env, address) {
         return Err(ContractError::Unauthorized);
     }
-    
+
     Ok(())
 }
