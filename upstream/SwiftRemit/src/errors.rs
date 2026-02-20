@@ -59,4 +59,16 @@ pub enum ContractError {
     /// Contract is paused. Settlements are temporarily disabled.
     /// Cause: Attempting confirm_payout() while contract is in paused state.
     ContractPaused = 13,
+    
+    /// Batch settlement is empty. At least one settlement is required.
+    /// Cause: Calling batch_settle() with an empty vector.
+    EmptyBatchSettlement = 14,
+    
+    /// Batch settlement contains too many entries.
+    /// Cause: Exceeding maximum batch size for a single transaction.
+    BatchTooLarge = 15,
+    
+    /// Batch settlement validation failed for one or more entries.
+    /// Cause: Invalid remittance ID, status, or duplicate in the batch.
+    BatchValidationFailed = 16,
 }

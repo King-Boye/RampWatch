@@ -187,4 +187,44 @@ pub fn emit_settlement_completed(
     );
 }
 
-```
+// ── Batch Settlement Events ──────────────────────────────────────────
+
+/// Emits an event when batch settlement processing starts.
+pub fn emit_batch_settlement_started(env: &Env, batch_size: u32) {
+    env.events().publish(
+        (symbol_short!("batch"), symbol_short!("start")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            batch_size,
+        ),
+    );
+}
+
+/// Emits an event when batch settlement processing completes.
+pub fn emit_batch_settlement_completed(env: &Env, settled_count: u32, failed_count: u32) {
+    env.events().publish(
+        (symbol_short!("batch"), symbol_short!("complete")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            settled_count,
+            failed_count,
+        ),
+    );
+}
+
+/// Emits an event when batch settlement fails.
+pub fn emit_batch_settlement_failed(env: &Env, reason: u32) {
+    env.events().publish(
+        (symbol_short!("batch"), symbol_short!("failed")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            reason,
+        ),
+    );
+}
