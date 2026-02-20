@@ -7,7 +7,7 @@ mod storage;
 mod types;
 mod validation;
 
-use soroban_sdk::{contract, contractimpl, token, Address, Env};
+use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
 
 pub use debug::*;
 pub use errors::ContractError;
@@ -92,6 +92,8 @@ impl SwiftRemitContract {
         sender: Address,
         agent: Address,
         amount: i128,
+        currency: String,
+        country: String,
         expiry: Option<u64>,
     ) -> Result<u64, ContractError> {
         sender.require_auth();
@@ -103,6 +105,9 @@ impl SwiftRemitContract {
         if !is_agent_registered(&env, &agent) {
             return Err(ContractError::AgentNotRegistered);
         }
+
+        // Validate daily send limit before processing the transfer
+        validate_daily_send_limit(&env, &sender, amount, &currency, &country)?;
 
         let fee_bps = get_platform_fee_bps(&env)?;
         let fee = amount
@@ -294,5 +299,27 @@ impl SwiftRemitContract {
 
     pub fn is_paused(env: Env) -> bool {
         is_paused(&env)
+    }
+
+    pub fn set_daily_limit(
+        env: Env,
+        currency: String,
+        country: String,
+        limit: i128,
+    ) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+
+        if limit < 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        set_daily_limit(&env, &currency, &country, limit);
+
+        Ok(())
+    }
+
+    pub fn get_daily_limit(env: Env, currency: String, country: String) -> Option<DailyLimit> {
+        get_daily_limit(&env, &currency, &country)
     }
 }

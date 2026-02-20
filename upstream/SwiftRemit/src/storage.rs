@@ -1,6 +1,6 @@
-use soroban_sdk::{contracttype, Address, Env};
+use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
-use crate::{ContractError, Remittance};
+use crate::{ContractError, Remittance, TransferRecord, DailyLimit};
 
 /// Storage keys for the SwiftRemit contract.
 ///
@@ -49,6 +49,14 @@ enum DataKey {
     // Keys for preventing duplicate settlement execution
     /// Settlement hash for duplicate detection (persistent storage)
     SettlementHash(u64),
+    
+    // === Daily Send Limits ===
+    // Keys for tracking and enforcing daily send limits
+    /// Daily limit configuration indexed by currency and country (persistent storage)
+    DailyLimit(String, String),
+    
+    /// Transfer records for a user within rolling 24-hour window (persistent storage)
+    UserTransfers(Address),
 }
 
 pub fn has_admin(env: &Env) -> bool {
@@ -163,4 +171,34 @@ pub fn is_paused(env: &Env) -> bool {
 
 pub fn set_paused(env: &Env, paused: bool) {
     env.storage().instance().set(&DataKey::Paused, &paused);
+}
+
+pub fn set_daily_limit(env: &Env, currency: &String, country: &String, limit: i128) {
+    let daily_limit = DailyLimit {
+        currency: currency.clone(),
+        country: country.clone(),
+        limit,
+    };
+    env.storage()
+        .persistent()
+        .set(&DataKey::DailyLimit(currency.clone(), country.clone()), &daily_limit);
+}
+
+pub fn get_daily_limit(env: &Env, currency: &String, country: &String) -> Option<DailyLimit> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::DailyLimit(currency.clone(), country.clone()))
+}
+
+pub fn get_user_transfers(env: &Env, user: &Address) -> Vec<TransferRecord> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::UserTransfers(user.clone()))
+        .unwrap_or(Vec::new(env))
+}
+
+pub fn set_user_transfers(env: &Env, user: &Address, transfers: &Vec<TransferRecord>) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::UserTransfers(user.clone()), transfers);
 }

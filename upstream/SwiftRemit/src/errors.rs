@@ -59,4 +59,8 @@ pub enum ContractError {
     /// Contract is paused. Settlements are temporarily disabled.
     /// Cause: Attempting confirm_payout() while contract is in paused state.
     ContractPaused = 13,
+    
+    /// Daily send limit exceeded for this user.
+    /// Cause: User's total transfers in the last 24 hours exceed the configured limit.
+    DailySendLimitExceeded = 14,
 }
