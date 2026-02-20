@@ -163,5 +163,3 @@ pub fn emit_unpaused(env: &Env, admin: Address) {
         ),
     );
 }
-
-```
