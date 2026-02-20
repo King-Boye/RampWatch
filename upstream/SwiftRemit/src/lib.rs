@@ -36,6 +36,11 @@ impl SwiftRemitContract {
             return Err(ContractError::InvalidFeeBps);
         }
 
+        // Check if token is whitelisted
+        if !is_token_whitelisted(&env, &usdc_token) {
+            return Err(ContractError::TokenNotWhitelisted);
+        }
+
         // Set legacy admin for backward compatibility
         set_admin(&env, &admin);
         
@@ -345,5 +350,40 @@ impl SwiftRemitContract {
 
     pub fn get_version(env: Env) -> soroban_sdk::String {
         soroban_sdk::String::from_str(&env, env!("CARGO_PKG_VERSION"))
+    }
+
+    /// Add a token to the whitelist. Only admins can call this.
+    pub fn whitelist_token(env: Env, caller: Address, token: Address) -> Result<(), ContractError> {
+        require_admin(&env, &caller)?;
+
+        if is_token_whitelisted(&env, &token) {
+            return Err(ContractError::TokenAlreadyWhitelisted);
+        }
+
+        set_token_whitelisted(&env, &token, true);
+        emit_token_whitelisted(&env, caller.clone(), token.clone());
+        log_whitelist_token(&env, &token);
+
+        Ok(())
+    }
+
+    /// Remove a token from the whitelist. Only admins can call this.
+    pub fn remove_whitelisted_token(env: Env, caller: Address, token: Address) -> Result<(), ContractError> {
+        require_admin(&env, &caller)?;
+
+        if !is_token_whitelisted(&env, &token) {
+            return Err(ContractError::TokenNotWhitelisted);
+        }
+
+        set_token_whitelisted(&env, &token, false);
+        emit_token_removed(&env, caller.clone(), token.clone());
+        log_remove_whitelisted_token(&env, &token);
+
+        Ok(())
+    }
+
+    /// Check if a token is whitelisted.
+    pub fn is_token_whitelisted(env: Env, token: Address) -> bool {
+        is_token_whitelisted(&env, &token)
     }
 }
