@@ -44,6 +44,12 @@ enum DataKey {
     
     /// Total accumulated platform fees awaiting withdrawal
     AccumulatedFees,
+    
+    // === Settlement Deduplication ===
+    // Keys for preventing duplicate settlement execution
+    
+    /// Settlement hash for duplicate detection (persistent storage)
+    SettlementHash(u64),
 }
 
 pub fn has_admin(env: &Env) -> bool {
@@ -135,4 +141,16 @@ pub fn get_accumulated_fees(env: &Env) -> Result<i128, ContractError> {
         .instance()
         .get(&DataKey::AccumulatedFees)
         .ok_or(ContractError::NotInitialized)
+}
+
+pub fn has_settlement_hash(env: &Env, remittance_id: u64) -> bool {
+    env.storage()
+        .persistent()
+        .has(&DataKey::SettlementHash(remittance_id))
+}
+
+pub fn set_settlement_hash(env: &Env, remittance_id: u64) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::SettlementHash(remittance_id), &true);
 }
