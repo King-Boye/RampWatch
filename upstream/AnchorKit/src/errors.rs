@@ -23,9 +23,15 @@ pub enum Error {
     ServicesNotConfigured = 13,
     InvalidServiceType = 14,
 
-    /// Session-related errors (13-15 reserved for future use)
-    SessionNotFound = 13,
-    InvalidSessionId = 14,
-    SessionReplayAttack = 15,
+    /// Session-related errors
+    SessionNotFound = 16,
+    InvalidSessionId = 17,
+    SessionReplayAttack = 18,
+
+    /// Quote-related errors
+    InvalidQuote = 19,
+    StaleQuote = 20,
+    NoQuotesAvailable = 21,
+    QuoteNotFound = 22,
 
 }

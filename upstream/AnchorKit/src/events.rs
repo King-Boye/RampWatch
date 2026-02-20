@@ -105,6 +105,37 @@ impl ServicesConfigured {
         env.events().publish(
             (soroban_sdk::symbol_short!("services"), soroban_sdk::symbol_short!("config")),
             self.clone(),
+        );
+    }
+}
+
+/// Event emitted when a quote is submitted by an anchor
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QuoteSubmitted {
+    pub anchor: Address,
+    pub quote_id: u64,
+    pub base_asset: String,
+    pub quote_asset: String,
+    pub rate: u64,
+    pub valid_until: u64,
+}
+
+impl QuoteSubmitted {
+    pub fn publish(env: &Env, anchor: &Address, quote_id: u64, base_asset: &String, quote_asset: &String, rate: u64, valid_until: u64) {
+        env.events().publish(
+            (soroban_sdk::symbol_short!("quote"), soroban_sdk::symbol_short!("submit"), quote_id),
+            QuoteSubmitted {
+                anchor: anchor.clone(),
+                quote_id,
+                base_asset: base_asset.clone(),
+                quote_asset: quote_asset.clone(),
+                rate,
+                valid_until,
+            },
+        );
+    }
+}
 
 /// Event emitted when a session is created.
 /// Enables tracing of all operations within the session.
@@ -152,7 +183,6 @@ impl OperationLogged {
                 operation_type: operation_type.clone(),
                 status: status.clone(),
             },
-
         );
     }
 }

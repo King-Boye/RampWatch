@@ -1,11 +1,7 @@
 
 use soroban_sdk::{Address, BytesN, Env, IntoVal, String, Vec};
 
-use crate::{types::{Attestation, Endpoint, AnchorServices, ServiceType}, Error};
-
-use soroban_sdk::{Address, BytesN, Env, IntoVal};
-
-use crate::{types::{Attestation, Endpoint, InteractionSession, OperationContext, AuditLog}, Error};
+use crate::{types::{Attestation, Endpoint, AnchorServices, ServiceType, QuoteData, InteractionSession, OperationContext, AuditLog}, Error};
 
 
 #[derive(Clone)]
@@ -18,6 +14,8 @@ enum StorageKey {
     Endpoint(Address),
 
     AnchorServices(Address),
+    Quote(Address, u64), // anchor, quote_id
+    QuoteCounter,
 
     SessionCounter,
     Session(u64),
@@ -48,6 +46,11 @@ impl StorageKey {
 
             StorageKey::AnchorServices(addr) => {
                 (soroban_sdk::symbol_short!("SERVICES"), addr).into_val(env)
+            }
+            StorageKey::Quote(addr, id) => {
+                (soroban_sdk::symbol_short!("QUOTE"), addr, *id).into_val(env)
+            }
+            StorageKey::QuoteCounter => (soroban_sdk::symbol_short!("QCNT"),).into_val(env),
 
             StorageKey::SessionCounter => (soroban_sdk::symbol_short!("SCNT"),).into_val(env),
             StorageKey::Session(id) => {
@@ -62,7 +65,6 @@ impl StorageKey {
             }
             StorageKey::SessionOperationCount(id) => {
                 (soroban_sdk::symbol_short!("SOPCNT"), *id).into_val(env)
-
             }
         }
     }
@@ -200,6 +202,29 @@ impl Storage {
     pub fn has_anchor_services(env: &Env, anchor: &Address) -> bool {
         let key = StorageKey::AnchorServices(anchor.clone()).to_storage_key(env);
         env.storage().persistent().has(&key)
+    }
+
+    // ============ Quote Management ============
+
+    pub fn set_quote(env: &Env, quote: &QuoteData) {
+        let key = StorageKey::Quote(quote.anchor.clone(), quote.quote_id).to_storage_key(env);
+        env.storage().persistent().set(&key, quote);
+        env.storage().persistent().extend_ttl(&key, Self::PERSISTENT_LIFETIME, Self::PERSISTENT_LIFETIME);
+    }
+
+    pub fn get_quote(env: &Env, anchor: &Address, quote_id: u64) -> Option<QuoteData> {
+        let key = StorageKey::Quote(anchor.clone(), quote_id).to_storage_key(env);
+        env.storage().persistent().get(&key)
+    }
+
+    pub fn get_next_quote_id(env: &Env) -> u64 {
+        let key = StorageKey::QuoteCounter.to_storage_key(env);
+        let current: u64 = env.storage().instance().get(&key).unwrap_or(0);
+        let next = current + 1;
+        env.storage().instance().set(&key, &next);
+        env.storage().instance().extend_ttl(Self::INSTANCE_LIFETIME, Self::INSTANCE_LIFETIME);
+        next
+    }
 
     // ============ Session Management ============
 
@@ -314,6 +339,5 @@ impl Storage {
             .instance()
             .extend_ttl(Self::INSTANCE_LIFETIME, Self::INSTANCE_LIFETIME);
         counter
-
     }
 }
