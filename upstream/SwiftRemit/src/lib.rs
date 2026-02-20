@@ -235,6 +235,10 @@ impl SwiftRemitContract {
         get_remittance(&env, remittance_id)
     }
 
+    pub fn get_settlement(env: Env, id: u64) -> Result<Remittance, ContractError> {
+        get_remittance(&env, id)
+    }
+
     pub fn get_accumulated_fees(env: Env) -> Result<i128, ContractError> {
         get_accumulated_fees(&env)
     }

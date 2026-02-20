@@ -858,3 +858,48 @@ fn test_duplicate_prevention_with_expiry() {
     // Even with valid expiry, duplicate should be prevented
     // (This would require manual status manipulation to test, covered by test_duplicate_settlement_prevention)
 }
+
+#[test]
+fn test_get_settlement_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    contract.confirm_payout(&remittance_id);
+
+    let settlement = contract.get_settlement(&remittance_id);
+    assert_eq!(settlement.id, remittance_id);
+    assert_eq!(settlement.sender, sender);
+    assert_eq!(settlement.agent, agent);
+    assert_eq!(settlement.amount, 1000);
+    assert_eq!(settlement.fee, 25);
+    assert_eq!(settlement.status, crate::types::RemittanceStatus::Completed);
+}
+
+#[test]
+#[should_panic(expected = "RemittanceNotFound")]
+fn test_get_settlement_invalid_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    contract.get_settlement(&999);
+}
