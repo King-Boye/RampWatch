@@ -2527,16 +2527,23 @@ fn test_whitelist_edge_case_many_tokens() {
     }
 }
 
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Net Settlement Tests
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn test_net_settlement_simple_offset() {
+
+
+#[test]
+fn test_simulate_settlement_success() {
+
     let env = Env::default();
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
+
     let token_admin = Address::generate(&env);
     let token = create_token_contract(&env, &token_admin);
 
@@ -2635,10 +2642,40 @@ fn test_net_settlement_complete_offset() {
 
 #[test]
 fn test_net_settlement_multiple_parties() {
+
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Whitelist token
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Mint and create remittance
+    token.mint(&sender, &10000);
+    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &None);
+
+    // Simulate settlement
+    let simulation = contract.simulate_settlement(&remittance_id);
+
+    assert_eq!(simulation.would_succeed, true);
+    assert_eq!(simulation.payout_amount, 9750); // 10000 - 250 (2.5% fee)
+    assert_eq!(simulation.fee, 250);
+    assert_eq!(simulation.error_message, None);
+}
+
+#[test]
+fn test_simulate_settlement_invalid_status() {
+
     let env = Env::default();
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
+
     let token_admin = Address::generate(&env);
     let token = create_token_contract(&env, &token_admin);
 
@@ -2739,6 +2776,36 @@ fn test_net_settlement_order_independence() {
 #[test]
 #[should_panic(expected = "Error(Contract, #3)")]
 fn test_net_settlement_empty_batch() {
+
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Whitelist token
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Mint and create remittance
+    token.mint(&sender, &10000);
+    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &None);
+
+    // Complete the remittance
+    contract.confirm_payout(&remittance_id);
+
+    // Simulate settlement on completed remittance
+    let simulation = contract.simulate_settlement(&remittance_id);
+
+    assert_eq!(simulation.would_succeed, false);
+    assert_eq!(simulation.error_message, Some(7)); // InvalidStatus error code
+}
+
+#[test]
+fn test_simulate_settlement_nonexistent() {
+
     let env = Env::default();
     env.mock_all_auths();
 
@@ -2747,6 +2814,7 @@ fn test_net_settlement_empty_batch() {
     let token = create_token_contract(&env, &token_admin);
 
     let contract = create_swiftremit_contract(&env);
+
     contract.whitelist_token(&admin, &token.address);
     contract.initialize(&admin, &token.address, &250);
 
@@ -2787,10 +2855,27 @@ fn test_net_settlement_exceeds_max_batch_size() {
 #[test]
 #[should_panic(expected = "Error(Contract, #12)")]
 fn test_net_settlement_duplicate_ids() {
+
+
+    // Whitelist token
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Simulate non-existent remittance
+    let simulation = contract.simulate_settlement(&999);
+
+    assert_eq!(simulation.would_succeed, false);
+    assert_eq!(simulation.error_message, Some(6)); // RemittanceNotFound error code
+}
+
+#[test]
+fn test_simulate_settlement_when_paused() {
+
     let env = Env::default();
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
+
     let token_admin = Address::generate(&env);
     let token = create_token_contract(&env, &token_admin);
 
@@ -2827,9 +2912,20 @@ fn test_net_settlement_already_completed() {
     let agent = Address::generate(&env);
 
     let contract = create_swiftremit_contract(&env);
+
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    // Whitelist token
+
     contract.whitelist_token(&admin, &token.address);
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
+
 
     token.mint(&sender, &1000);
 
@@ -2848,10 +2944,30 @@ fn test_net_settlement_already_completed() {
 #[test]
 #[should_panic(expected = "Error(Contract, #13)")]
 fn test_net_settlement_when_paused() {
+=======
+    // Mint and create remittance
+    token.mint(&sender, &10000);
+    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &None);
+
+    // Pause contract
+    contract.pause();
+
+    // Simulate settlement while paused
+    let simulation = contract.simulate_settlement(&remittance_id);
+
+    assert_eq!(simulation.would_succeed, false);
+    assert_eq!(simulation.error_message, Some(13)); // ContractPaused error code
+}
+
+
+#[test]
+fn test_settlement_id_returned() {
+
     let env = Env::default();
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
+
     let token_admin = Address::generate(&env);
     let token = create_token_contract(&env, &token_admin);
 
@@ -2859,9 +2975,19 @@ fn test_net_settlement_when_paused() {
     let agent = Address::generate(&env);
 
     let contract = create_swiftremit_contract(&env);
+
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+
     contract.whitelist_token(&admin, &token.address);
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
+
 
     token.mint(&sender, &1000);
 
@@ -2878,10 +3004,29 @@ fn test_net_settlement_when_paused() {
 
 #[test]
 fn test_net_settlement_fee_preservation() {
+
+    token.mint(&sender, &10000);
+    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &None);
+
+    // Confirm payout should return the settlement ID
+    let settlement_id = contract.confirm_payout(&remittance_id);
+    
+    assert_eq!(settlement_id, remittance_id);
+    
+    // Should be able to query settlement using the ID
+    let settlement = contract.get_settlement(&settlement_id);
+    assert_eq!(settlement.id, settlement_id);
+    assert_eq!(settlement.status, crate::RemittanceStatus::Completed);
+}
+
+#[test]
+fn test_settlement_ids_sequential() {
+
     let env = Env::default();
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
+
     let token_admin = Address::generate(&env);
     let token = create_token_contract(&env, &token_admin);
 
@@ -2927,10 +3072,56 @@ fn test_net_settlement_fee_preservation() {
 
 #[test]
 fn test_net_settlement_large_batch() {
+
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    token.mint(&sender, &100000);
+
+    // Create multiple remittances and verify IDs are sequential
+    let id1 = contract.create_remittance(&sender, &agent, &10000, &None);
+    let id2 = contract.create_remittance(&sender, &agent, &10000, &None);
+    let id3 = contract.create_remittance(&sender, &agent, &10000, &None);
+
+    assert_eq!(id1, 1);
+    assert_eq!(id2, 2);
+    assert_eq!(id3, 3);
+
+    // Settle and verify settlement IDs match remittance IDs
+    let settlement_id1 = contract.confirm_payout(&id1);
+    let settlement_id2 = contract.confirm_payout(&id2);
+    let settlement_id3 = contract.confirm_payout(&id3);
+
+    assert_eq!(settlement_id1, id1);
+    assert_eq!(settlement_id2, id2);
+    assert_eq!(settlement_id3, id3);
+
+    // Verify all settlements can be queried
+    let s1 = contract.get_settlement(&settlement_id1);
+    let s2 = contract.get_settlement(&settlement_id2);
+    let s3 = contract.get_settlement(&settlement_id3);
+
+    assert_eq!(s1.id, 1);
+    assert_eq!(s2.id, 2);
+    assert_eq!(s3.id, 3);
+}
+
+#[test]
+fn test_settlement_id_uniqueness() {
+
     let env = Env::default();
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
+
     let token_admin = Address::generate(&env);
     let token = create_token_contract(&env, &token_admin);
 
@@ -3056,4 +3247,39 @@ fn test_net_settlement_mathematical_correctness() {
 
     let fees = contract.get_accumulated_fees();
     assert_eq!(fees, expected_fees);
+
+    let sender1 = Address::generate(&env);
+    let sender2 = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    token.mint(&sender1, &50000);
+    token.mint(&sender2, &50000);
+
+    // Create remittances from different senders
+    let id1 = contract.create_remittance(&sender1, &agent, &10000, &None);
+    let id2 = contract.create_remittance(&sender2, &agent, &10000, &None);
+    let id3 = contract.create_remittance(&sender1, &agent, &10000, &None);
+
+    // All IDs should be unique
+    assert_ne!(id1, id2);
+    assert_ne!(id1, id3);
+    assert_ne!(id2, id3);
+
+    // Settle and verify unique settlement IDs
+    let settlement_id1 = contract.confirm_payout(&id1);
+    let settlement_id2 = contract.confirm_payout(&id2);
+    let settlement_id3 = contract.confirm_payout(&id3);
+
+    assert_ne!(settlement_id1, settlement_id2);
+    assert_ne!(settlement_id1, settlement_id3);
+    assert_ne!(settlement_id2, settlement_id3);
+
 }

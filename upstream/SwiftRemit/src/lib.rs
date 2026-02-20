@@ -72,6 +72,10 @@ impl SwiftRemitContract {
         let count = get_admin_count(&env);
         set_admin_count(&env, count + 1);
 
+        // Event: Admin added - Fires when an existing admin adds a new admin to the system
+        // Used by off-chain systems to track admin role assignments and access control changes
+        emit_admin_added(&env, caller.clone(), new_admin.clone());
+        
         log_add_admin(&env, &caller, &new_admin);
 
         Ok(())
@@ -92,6 +96,10 @@ impl SwiftRemitContract {
         set_admin_role(&env, &admin_to_remove, false);
         set_admin_count(&env, count - 1);
 
+        // Event: Admin removed - Fires when an admin removes another admin from the system
+        // Used by off-chain systems to track admin role revocations and access control changes
+        emit_admin_removed(&env, caller.clone(), admin_to_remove.clone());
+        
         log_remove_admin(&env, &caller, &admin_to_remove);
 
         Ok(())
@@ -106,7 +114,14 @@ impl SwiftRemitContract {
         require_admin(&env, &caller)?;
 
         set_agent_registered(&env, &agent, true);
+
         emit_agent_registered(&env, agent.clone(), caller.clone());
+
+        
+        // Event: Agent registered - Fires when admin adds a new agent to the approved list
+        // Used by off-chain systems to track which addresses can confirm payouts
+        emit_agent_registered(&env, agent, caller.clone());
+
 
         Ok(())
     }
@@ -116,7 +131,14 @@ impl SwiftRemitContract {
         require_admin(&env, &caller)?;
 
         set_agent_registered(&env, &agent, false);
+
         emit_agent_removed(&env, agent.clone(), caller.clone());
+
+        
+        // Event: Agent removed - Fires when admin removes an agent from the approved list
+        // Used by off-chain systems to revoke payout confirmation privileges
+        emit_agent_removed(&env, agent, caller.clone());
+
 
         Ok(())
     }
@@ -131,6 +153,9 @@ impl SwiftRemitContract {
 
         set_platform_fee_bps(&env, fee_bps);
         let old_fee = get_platform_fee_bps(&env)?;
+        
+        // Event: Fee updated - Fires when admin changes the platform fee percentage
+        // Used by off-chain systems to track fee changes for accounting and transparency
         emit_fee_updated(&env, caller.clone(), old_fee, fee_bps);
 
         log_update_fee(&env, fee_bps);
@@ -182,6 +207,8 @@ impl SwiftRemitContract {
         set_remittance(&env, remittance_id, &remittance);
         set_remittance_counter(&env, remittance_id);
 
+        // Event: Remittance created - Fires when sender initiates a new remittance
+        // Used by off-chain systems to notify agents of pending payouts and track transaction flow
         emit_remittance_created(&env, remittance_id, sender.clone(), agent.clone(), usdc_token.clone(), amount, fee);
 
         log_create_remittance(&env, remittance_id, &sender, &agent, amount, fee);
@@ -189,7 +216,7 @@ impl SwiftRemitContract {
         Ok(remittance_id)
     }
 
-    pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<(), ContractError> {
+    pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<u64, ContractError> {
         if is_paused(&env) {
             return Err(ContractError::ContractPaused);
         }
@@ -243,14 +270,17 @@ impl SwiftRemitContract {
         // Mark settlement as executed to prevent duplicates
         set_settlement_hash(&env, remittance_id);
 
+        // Event: Remittance completed - Fires when agent confirms fiat payout and USDC is released
+        // Used by off-chain systems to track successful settlements and update transaction status
         emit_remittance_completed(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), payout_amount);
         
-        // Emit settlement completed event with final executed values
+        // Event: Settlement completed - Fires with final executed settlement values
+        // Used by off-chain systems for reconciliation and audit trails of completed transactions
         emit_settlement_completed(&env, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), payout_amount);
 
         log_confirm_payout(&env, remittance_id, payout_amount);
 
-        Ok(())
+        Ok(remittance_id)
     }
 
     pub fn cancel_remittance(env: Env, remittance_id: u64) -> Result<(), ContractError> {
@@ -273,6 +303,8 @@ impl SwiftRemitContract {
         remittance.status = RemittanceStatus::Cancelled;
         set_remittance(&env, remittance_id, &remittance);
 
+        // Event: Remittance cancelled - Fires when sender cancels a pending remittance and receives full refund
+        // Used by off-chain systems to track cancellations and update transaction status
         emit_remittance_cancelled(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), remittance.amount);
 
         log_cancel_remittance(&env, remittance_id);
@@ -299,11 +331,102 @@ impl SwiftRemitContract {
 
         set_accumulated_fees(&env, 0);
 
+        // Event: Fees withdrawn - Fires when admin withdraws accumulated platform fees
+        // Used by off-chain systems to track revenue collection and maintain financial records
         emit_fees_withdrawn(&env, caller.clone(), to.clone(), usdc_token.clone(), fees);
 
         log_withdraw_fees(&env, &to, fees);
 
         Ok(())
+    }
+
+    pub fn simulate_settlement(env: Env, remittance_id: u64) -> SettlementSimulation {
+        // Check if paused
+        if is_paused(&env) {
+            return SettlementSimulation {
+                would_succeed: false,
+                payout_amount: 0,
+                fee: 0,
+                error_message: Some(ContractError::ContractPaused as u32),
+            };
+        }
+
+        // Get remittance
+        let remittance = match get_remittance(&env, remittance_id) {
+            Ok(r) => r,
+            Err(e) => {
+                return SettlementSimulation {
+                    would_succeed: false,
+                    payout_amount: 0,
+                    fee: 0,
+                    error_message: Some(e as u32),
+                };
+            }
+        };
+
+        // Check status
+        if remittance.status != RemittanceStatus::Pending {
+            return SettlementSimulation {
+                would_succeed: false,
+                payout_amount: 0,
+                fee: remittance.fee,
+                error_message: Some(ContractError::InvalidStatus as u32),
+            };
+        }
+
+        // Check for duplicate settlement
+        if has_settlement_hash(&env, remittance_id) {
+            return SettlementSimulation {
+                would_succeed: false,
+                payout_amount: 0,
+                fee: remittance.fee,
+                error_message: Some(ContractError::DuplicateSettlement as u32),
+            };
+        }
+
+        // Check expiry
+        if let Some(expiry_time) = remittance.expiry {
+            let current_time = env.ledger().timestamp();
+            if current_time > expiry_time {
+                return SettlementSimulation {
+                    would_succeed: false,
+                    payout_amount: 0,
+                    fee: remittance.fee,
+                    error_message: Some(ContractError::SettlementExpired as u32),
+                };
+            }
+        }
+
+        // Validate agent address
+        if let Err(e) = validate_address(&remittance.agent) {
+            return SettlementSimulation {
+                would_succeed: false,
+                payout_amount: 0,
+                fee: remittance.fee,
+                error_message: Some(e as u32),
+            };
+        }
+
+        // Calculate payout amount
+        let payout_amount = match remittance.amount.checked_sub(remittance.fee) {
+            Some(amount) => amount,
+            None => {
+                return SettlementSimulation {
+                    would_succeed: false,
+                    payout_amount: 0,
+                    fee: remittance.fee,
+                    error_message: Some(ContractError::Overflow as u32),
+                };
+            }
+        };
+
+        // Success case
+        SettlementSimulation {
+            would_succeed: true,
+            payout_amount,
+            fee: remittance.fee,
+            error_message: None,
+        }
     }
 
     pub fn get_remittance(env: Env, remittance_id: u64) -> Result<Remittance, ContractError> {
@@ -331,6 +454,9 @@ impl SwiftRemitContract {
         require_admin(&env, &caller)?;
 
         set_paused(&env, true);
+        
+        // Event: Paused - Fires when admin pauses the contract to prevent new payouts
+        // Used by off-chain systems to halt operations during emergencies or maintenance
         emit_paused(&env, caller);
 
         Ok(())
@@ -341,6 +467,9 @@ impl SwiftRemitContract {
         require_admin(&env, &caller)?;
 
         set_paused(&env, false);
+        
+        // Event: Unpaused - Fires when admin resumes contract operations after pause
+        // Used by off-chain systems to resume normal payout processing
         emit_unpaused(&env, caller);
 
         Ok(())
@@ -532,6 +661,9 @@ impl SwiftRemitContract {
         }
 
         set_token_whitelisted(&env, &token, true);
+        
+        // Event: Token whitelisted - Fires when admin adds a token to the approved list
+        // Used by off-chain systems to track which tokens can be used for remittances
         emit_token_whitelisted(&env, caller.clone(), token.clone());
         log_whitelist_token(&env, &token);
 
@@ -547,6 +679,9 @@ impl SwiftRemitContract {
         }
 
         set_token_whitelisted(&env, &token, false);
+        
+        // Event: Token removed - Fires when admin removes a token from the approved list
+        // Used by off-chain systems to track which tokens are no longer accepted for remittances
         emit_token_removed(&env, caller.clone(), token.clone());
         log_remove_whitelisted_token(&env, &token);
 
