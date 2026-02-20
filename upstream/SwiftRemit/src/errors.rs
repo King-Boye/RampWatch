@@ -15,4 +15,5 @@ pub enum ContractError {
     NoFeesToWithdraw = 9,
     InvalidAddress = 10,
     SettlementExpired = 11,
+    DuplicateSettlement = 12,
 }

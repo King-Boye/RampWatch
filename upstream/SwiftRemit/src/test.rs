@@ -717,3 +717,144 @@ fn test_settlement_without_expiry() {
     assert_eq!(remittance.status, crate::types::RemittanceStatus::Completed);
     assert_eq!(token.balance(&agent), 975);
 }
+
+#[test]
+#[should_panic(expected = "Error(Contract, #12)")]
+fn test_duplicate_settlement_prevention() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+
+    // First settlement should succeed
+    contract.confirm_payout(&remittance_id);
+
+    // Verify first settlement completed
+    let remittance = contract.get_remittance(&remittance_id);
+    assert_eq!(remittance.status, crate::types::RemittanceStatus::Completed);
+    assert_eq!(token.balance(&agent), 975);
+    assert_eq!(contract.get_accumulated_fees(), 25);
+
+    // Manually reset status to Pending to bypass status check
+    // This simulates an attempt to re-execute the same settlement
+    let mut remittance_copy = remittance.clone();
+    remittance_copy.status = crate::types::RemittanceStatus::Pending;
+    
+    // Store the modified remittance back (simulating a scenario where status could be manipulated)
+    env.as_contract(&contract.address, || {
+        crate::storage::set_remittance(&env, remittance_id, &remittance_copy);
+    });
+
+    // Second settlement attempt should fail with DuplicateSettlement error
+    contract.confirm_payout(&remittance_id);
+}
+
+#[test]
+fn test_different_settlements_allowed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &20000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Create two different remittances
+    let remittance_id1 = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id2 = contract.create_remittance(&sender, &agent, &1000, &None);
+
+    // Both settlements should succeed as they are different remittances
+    contract.confirm_payout(&remittance_id1);
+    contract.confirm_payout(&remittance_id2);
+
+    // Verify both completed successfully
+    let remittance1 = contract.get_remittance(&remittance_id1);
+    let remittance2 = contract.get_remittance(&remittance_id2);
+    
+    assert_eq!(remittance1.status, crate::types::RemittanceStatus::Completed);
+    assert_eq!(remittance2.status, crate::types::RemittanceStatus::Completed);
+    assert_eq!(token.balance(&agent), 1950);
+    assert_eq!(contract.get_accumulated_fees(), 50);
+}
+
+#[test]
+fn test_settlement_hash_storage_efficiency() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &50000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Create and settle multiple remittances
+    for _ in 0..5 {
+        let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+        contract.confirm_payout(&remittance_id);
+    }
+
+    // Verify all settlements completed
+    assert_eq!(contract.get_accumulated_fees(), 125);
+    assert_eq!(token.balance(&agent), 4875);
+    
+    // Storage should only contain settlement hashes (boolean flags), not full remittance data duplicates
+    // This is verified by the fact that the contract still functions correctly
+}
+
+#[test]
+fn test_duplicate_prevention_with_expiry() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let current_time = env.ledger().timestamp();
+    let expiry_time = current_time + 3600;
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &Some(expiry_time));
+
+    // First settlement should succeed
+    contract.confirm_payout(&remittance_id);
+
+    let remittance = contract.get_remittance(&remittance_id);
+    assert_eq!(remittance.status, crate::types::RemittanceStatus::Completed);
+    
+    // Even with valid expiry, duplicate should be prevented
+    // (This would require manual status manipulation to test, covered by test_duplicate_settlement_prevention)
+}

@@ -136,6 +136,11 @@ impl SwiftRemitContract {
             return Err(ContractError::InvalidStatus);
         }
 
+        // Check for duplicate settlement execution
+        if has_settlement_hash(&env, remittance_id) {
+            return Err(ContractError::DuplicateSettlement);
+        }
+
         // Check if settlement has expired
         if let Some(expiry_time) = remittance.expiry {
             let current_time = env.ledger().timestamp();
@@ -168,6 +173,9 @@ impl SwiftRemitContract {
 
         remittance.status = RemittanceStatus::Completed;
         set_remittance(&env, remittance_id, &remittance);
+
+        // Mark settlement as executed to prevent duplicates
+        set_settlement_hash(&env, remittance_id);
 
         emit_remittance_completed(&env, remittance_id, remittance.agent, payout_amount);
 
