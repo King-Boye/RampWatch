@@ -35,7 +35,13 @@ impl SwiftRemitContract {
             return Err(ContractError::InvalidFeeBps);
         }
 
+        // Set legacy admin for backward compatibility
         set_admin(&env, &admin);
+        
+        // Initialize new admin role system
+        set_admin_role(&env, &admin, true);
+        set_admin_count(&env, 1);
+        
         set_usdc_token(&env, &usdc_token);
         set_platform_fee_bps(&env, fee_bps);
         set_remittance_counter(&env, 0);
@@ -46,12 +52,53 @@ impl SwiftRemitContract {
         Ok(())
     }
 
+    pub fn add_admin(env: Env, caller: Address, new_admin: Address) -> Result<(), ContractError> {
+        require_admin(&env, &caller)?;
+
+        if is_admin(&env, &new_admin) {
+            return Err(ContractError::AdminAlreadyExists);
+        }
+
+        set_admin_role(&env, &new_admin, true);
+        
+        let count = get_admin_count(&env);
+        set_admin_count(&env, count + 1);
+
+        log_add_admin(&env, &caller, &new_admin);
+
+        Ok(())
+    }
+
+    pub fn remove_admin(env: Env, caller: Address, admin_to_remove: Address) -> Result<(), ContractError> {
+        require_admin(&env, &caller)?;
+
+        if !is_admin(&env, &admin_to_remove) {
+            return Err(ContractError::AdminNotFound);
+        }
+
+        let count = get_admin_count(&env);
+        if count <= 1 {
+            return Err(ContractError::CannotRemoveLastAdmin);
+        }
+
+        set_admin_role(&env, &admin_to_remove, false);
+        set_admin_count(&env, count - 1);
+
+        log_remove_admin(&env, &caller, &admin_to_remove);
+
+        Ok(())
+    }
+
+    pub fn is_admin(env: Env, address: Address) -> bool {
+        is_admin(&env, &address)
+    }
+
     pub fn register_agent(env: Env, agent: Address) -> Result<(), ContractError> {
-        let admin = get_admin(&env)?;
-        admin.require_auth();
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
 
         set_agent_registered(&env, &agent, true);
-        emit_agent_registered(&env, agent.clone(), admin.clone());
+        emit_agent_registered(&env, agent.clone(), caller.clone());
 
         log_register_agent(&env, &agent);
 
@@ -59,11 +106,11 @@ impl SwiftRemitContract {
     }
 
     pub fn remove_agent(env: Env, agent: Address) -> Result<(), ContractError> {
-        let admin = get_admin(&env)?;
-        admin.require_auth();
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
 
         set_agent_registered(&env, &agent, false);
-        emit_agent_removed(&env, agent.clone(), admin.clone());
+        emit_agent_removed(&env, agent.clone(), caller.clone());
 
         log_remove_agent(&env, &agent);
 
@@ -71,8 +118,8 @@ impl SwiftRemitContract {
     }
 
     pub fn update_fee(env: Env, fee_bps: u32) -> Result<(), ContractError> {
-        let admin = get_admin(&env)?;
-        admin.require_auth();
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
 
         if fee_bps > 10000 {
             return Err(ContractError::InvalidFeeBps);
@@ -80,7 +127,7 @@ impl SwiftRemitContract {
 
         set_platform_fee_bps(&env, fee_bps);
         let old_fee = get_platform_fee_bps(&env)?;
-        emit_fee_updated(&env, admin.clone(), old_fee, fee_bps);
+        emit_fee_updated(&env, caller.clone(), old_fee, fee_bps);
 
         log_update_fee(&env, fee_bps);
 
@@ -230,8 +277,8 @@ impl SwiftRemitContract {
     }
 
     pub fn withdraw_fees(env: Env, to: Address) -> Result<(), ContractError> {
-        let admin = get_admin(&env)?;
-        admin.require_auth();
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
 
         // Validate the recipient address
         validate_address(&to)?;
@@ -248,7 +295,7 @@ impl SwiftRemitContract {
 
         set_accumulated_fees(&env, 0);
 
-        emit_fees_withdrawn(&env, admin.clone(), to.clone(), usdc_token.clone(), fees);
+        emit_fees_withdrawn(&env, caller.clone(), to.clone(), usdc_token.clone(), fees);
 
         log_withdraw_fees(&env, &to, fees);
 
@@ -276,21 +323,21 @@ impl SwiftRemitContract {
     }
 
     pub fn pause(env: Env) -> Result<(), ContractError> {
-        let admin = get_admin(&env)?;
-        admin.require_auth();
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
 
         set_paused(&env, true);
-        emit_paused(&env, admin);
+        emit_paused(&env, caller);
 
         Ok(())
     }
 
     pub fn unpause(env: Env) -> Result<(), ContractError> {
-        let admin = get_admin(&env)?;
-        admin.require_auth();
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
 
         set_paused(&env, false);
-        emit_unpaused(&env, admin);
+        emit_unpaused(&env, caller);
 
         Ok(())
     }

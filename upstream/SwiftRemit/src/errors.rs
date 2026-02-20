@@ -59,4 +59,20 @@ pub enum ContractError {
     /// Contract is paused. Settlements are temporarily disabled.
     /// Cause: Attempting confirm_payout() while contract is in paused state.
     ContractPaused = 13,
+    
+    /// Caller is not authorized to perform admin operations.
+    /// Cause: Non-admin attempting to perform admin-only operations.
+    Unauthorized = 14,
+    
+    /// Admin address already exists in the system.
+    /// Cause: Attempting to add an admin that is already registered.
+    AdminAlreadyExists = 15,
+    
+    /// Admin address does not exist in the system.
+    /// Cause: Attempting to remove an admin that is not registered.
+    AdminNotFound = 16,
+    
+    /// Cannot remove the last admin from the system.
+    /// Cause: Attempting to remove the only remaining admin.
+    CannotRemoveLastAdmin = 17,
 }

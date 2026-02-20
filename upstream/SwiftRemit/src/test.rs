@@ -1031,3 +1031,179 @@ fn test_settlement_completed_event_fields_accuracy() {
     assert_eq!(event_data.5, token.address);
     assert_eq!(event_data.6, expected_payout);
 }
+
+
+// ============================================================================
+// Multi-Admin Tests
+// ============================================================================
+
+#[test]
+fn test_add_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin1, &token.address, &250);
+
+    // Initial admin should be registered
+    assert!(contract.is_admin(&admin1));
+    assert!(!contract.is_admin(&admin2));
+
+    // Add second admin
+    contract.add_admin(&admin1, &admin2);
+
+    // Both should be admins now
+    assert!(contract.is_admin(&admin1));
+    assert!(contract.is_admin(&admin2));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_add_admin_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Non-admin trying to add admin should fail
+    contract.add_admin(&non_admin, &new_admin);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #15)")]
+fn test_add_admin_already_exists() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Try to add the same admin again
+    contract.add_admin(&admin, &admin);
+}
+
+#[test]
+fn test_remove_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin1, &token.address, &250);
+
+    // Add second admin
+    contract.add_admin(&admin1, &admin2);
+    assert!(contract.is_admin(&admin2));
+
+    // Remove second admin
+    contract.remove_admin(&admin1, &admin2);
+    assert!(!contract.is_admin(&admin2));
+    assert!(contract.is_admin(&admin1));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #17)")]
+fn test_cannot_remove_last_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Try to remove the only admin
+    contract.remove_admin(&admin, &admin);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_remove_admin_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin1, &token.address, &250);
+    contract.add_admin(&admin1, &admin2);
+
+    // Non-admin trying to remove admin should fail
+    contract.remove_admin(&non_admin, &admin2);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_remove_admin_not_found() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Try to remove an address that is not an admin
+    contract.remove_admin(&admin, &non_admin);
+}
+
+#[test]
+fn test_multiple_admins_can_perform_admin_actions() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let agent = Address::generate(&env);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin1, &token.address, &250);
+    contract.add_admin(&admin1, &admin2);
+
+    // Both admins should be able to register agents
+    contract.register_agent(&agent);
+    assert!(contract.is_agent_registered(&agent));
+
+    // Admin2 should be able to update fee
+    contract.update_fee(&500);
+    assert_eq!(contract.get_platform_fee_bps(), 500);
+
+    // Admin2 should be able to pause
+    contract.pause();
+    assert!(contract.is_paused());
+
+    // Admin1 should be able to unpause
+    contract.unpause();
+    assert!(!contract.is_paused());
+}

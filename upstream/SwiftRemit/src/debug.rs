@@ -86,6 +86,18 @@ pub fn log_withdraw_fees(env: &Env, to: &soroban_sdk::Address, fees: i128) {
     soroban_sdk::log!(env, "Withdraw fees: to={}, fees={}", to, fees);
 }
 
+/// Logs admin addition in debug mode.
+#[cfg(feature = "debug-log")]
+pub fn log_add_admin(env: &Env, caller: &soroban_sdk::Address, new_admin: &soroban_sdk::Address) {
+    soroban_sdk::log!(env, "Add admin: caller={}, new_admin={}", caller, new_admin);
+}
+
+/// Logs admin removal in debug mode.
+#[cfg(feature = "debug-log")]
+pub fn log_remove_admin(env: &Env, caller: &soroban_sdk::Address, removed_admin: &soroban_sdk::Address) {
+    soroban_sdk::log!(env, "Remove admin: caller={}, removed_admin={}", caller, removed_admin);
+}
+
 // Non-feature-gated stubs for compile-time compatibility
 
 /// Logs contract initialization - no-op in release.
@@ -119,3 +131,11 @@ pub fn log_cancel_remittance(_env: &Env, _remittance_id: u64) {}
 /// Logs fee withdrawal - no-op in release.
 #[cfg(not(feature = "debug-log"))]
 pub fn log_withdraw_fees(_env: &Env, _to: &soroban_sdk::Address, _fees: i128) {}
+
+/// Logs admin addition - no-op in release.
+#[cfg(not(feature = "debug-log"))]
+pub fn log_add_admin(_env: &Env, _caller: &soroban_sdk::Address, _new_admin: &soroban_sdk::Address) {}
+
+/// Logs admin removal - no-op in release.
+#[cfg(not(feature = "debug-log"))]
+pub fn log_remove_admin(_env: &Env, _caller: &soroban_sdk::Address, _removed_admin: &soroban_sdk::Address) {}
