@@ -75,8 +75,24 @@ pub enum ContractError {
     /// Cannot remove the last admin from the system.
     /// Cause: Attempting to remove the only remaining admin.
     CannotRemoveLastAdmin = 17,
-
-    /// Invalid state transition for the remittance.
-    /// Cause: Attempting to jump to an invalid state (e.g., Pending -> Settled).
-    InvalidStateTransition = 18,
+    
+    /// Token is not whitelisted for use in the system.
+    /// Cause: Attempting to initialize contract with non-whitelisted token.
+    TokenNotWhitelisted = 18,
+    
+    /// Token is already whitelisted in the system.
+    /// Cause: Attempting to add a token that is already whitelisted.
+    TokenAlreadyWhitelisted = 19,
+    
+    /// Migration hash verification failed.
+    /// Cause: Snapshot hash doesn't match computed hash (data tampering or corruption).
+    InvalidMigrationHash = 20,
+    
+    /// Migration already in progress or completed.
+    /// Cause: Attempting to start migration when one is already active.
+    MigrationInProgress = 21,
+    
+    /// Migration batch out of order or invalid.
+    /// Cause: Importing batches in wrong order or invalid batch number.
+    InvalidMigrationBatch = 22,
 }

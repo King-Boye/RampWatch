@@ -54,6 +54,9 @@ enum DataKey {
     // Keys for preventing duplicate settlement execution
     /// Settlement hash for duplicate detection (persistent storage)
     SettlementHash(u64),
+    
+    /// Token whitelist status indexed by token address (persistent storage)
+    TokenWhitelisted(Address),
 }
 
 pub fn has_admin(env: &Env) -> bool {
@@ -204,4 +207,19 @@ pub fn require_admin(env: &Env, address: &Address) -> Result<(), ContractError> 
     }
 
     Ok(())
+}
+
+// === Token Whitelist Management ===
+
+pub fn is_token_whitelisted(env: &Env, token: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::TokenWhitelisted(token.clone()))
+        .unwrap_or(false)
+}
+
+pub fn set_token_whitelisted(env: &Env, token: &Address, whitelisted: bool) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::TokenWhitelisted(token.clone()), &whitelisted);
 }

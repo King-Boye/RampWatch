@@ -197,9 +197,25 @@ pub fn log_add_admin(
 
 /// Logs admin removal - no-op in release.
 #[cfg(not(feature = "debug-log"))]
-pub fn log_remove_admin(
-    _env: &Env,
-    _caller: &soroban_sdk::Address,
-    _removed_admin: &soroban_sdk::Address,
-) {
+pub fn log_remove_admin(_env: &Env, _caller: &soroban_sdk::Address, _removed_admin: &soroban_sdk::Address) {}
+
+
+/// Logs token whitelist addition in debug mode.
+#[cfg(feature = "debug-log")]
+pub fn log_whitelist_token(env: &Env, token: &soroban_sdk::Address) {
+    soroban_sdk::log!(env, "Whitelist token: {}", token);
 }
+
+/// Logs token whitelist removal in debug mode.
+#[cfg(feature = "debug-log")]
+pub fn log_remove_whitelisted_token(env: &Env, token: &soroban_sdk::Address) {
+    soroban_sdk::log!(env, "Remove whitelisted token: {}", token);
+}
+
+/// Logs token whitelist addition - no-op in release.
+#[cfg(not(feature = "debug-log"))]
+pub fn log_whitelist_token(_env: &Env, _token: &soroban_sdk::Address) {}
+
+/// Logs token whitelist removal - no-op in release.
+#[cfg(not(feature = "debug-log"))]
+pub fn log_remove_whitelisted_token(_env: &Env, _token: &soroban_sdk::Address) {}

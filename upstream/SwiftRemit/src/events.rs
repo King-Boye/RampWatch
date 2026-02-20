@@ -151,9 +151,9 @@ pub fn emit_paused(env: &Env, admin: Address) {
     );
 }
 
-pub fn emit_unpaused(env: &Env, admin: Address) {
+pub fn emit_paused(env: &Env, admin: Address) {
     env.events().publish(
-        (symbol_short!("unpaused"),),
+        (symbol_short!("admin"), symbol_short!("paused")),
         (
             SCHEMA_VERSION,
             env.ledger().sequence(),
@@ -162,10 +162,25 @@ pub fn emit_unpaused(env: &Env, admin: Address) {
         ),
     );
 }
+
+pub fn emit_unpaused(env: &Env, admin: Address) {
+    env.events().publish(
+        (symbol_short!("admin"), symbol_short!("unpaused")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            admin,
+        ),
+    );
+}
+
+// ── Settlement Events ──────────────────────────────────────────────
+
 pub fn emit_settlement_completed(
     env: &Env,
     sender: Address,
-    agent: Address,
+    recipient: Address,
     token: Address,
     amount: i128,
 ) {
@@ -176,9 +191,67 @@ pub fn emit_settlement_completed(
             env.ledger().sequence(),
             env.ledger().timestamp(),
             sender,
-            agent,
+            recipient,
             token,
             amount,
+        ),
+    );
+}
+
+```
+
+// ── Admin Events ───────────────────────────────────────────────────
+
+pub fn emit_admin_added(env: &Env, caller: Address, new_admin: Address) {
+    env.events().publish(
+        (symbol_short!("admin"), symbol_short!("added")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            caller,
+            new_admin,
+        ),
+    );
+}
+
+pub fn emit_admin_removed(env: &Env, caller: Address, removed_admin: Address) {
+    env.events().publish(
+        (symbol_short!("admin"), symbol_short!("removed")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            caller,
+            removed_admin,
+        ),
+    );
+}
+
+// ── Token Whitelist Events ─────────────────────────────────────────
+
+pub fn emit_token_whitelisted(env: &Env, admin: Address, token: Address) {
+    env.events().publish(
+        (symbol_short!("token"), symbol_short!("whitelist")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            admin,
+            token,
+        ),
+    );
+}
+
+pub fn emit_token_removed(env: &Env, admin: Address, token: Address) {
+    env.events().publish(
+        (symbol_short!("token"), symbol_short!("removed")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            admin,
+            token,
         ),
     );
 }
