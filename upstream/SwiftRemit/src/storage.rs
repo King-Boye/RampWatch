@@ -10,51 +10,50 @@ use soroban_sdk::{contracttype, Address, Env};
 use crate::{ContractError, Remittance};
 
 /// Storage keys for the SwiftRemit contract.
-/// 
+///
 /// Storage Layout:
-/// - Instance storage: Contract-level configuration and state (Admin, UsdcToken, PlatformFeeBps, 
+/// - Instance storage: Contract-level configuration and state (Admin, UsdcToken, PlatformFeeBps,
 ///   RemittanceCounter, AccumulatedFees)
-/// - Persistent storage: Per-entity data that needs long-term retention (Remittance records, 
+/// - Persistent storage: Per-entity data that needs long-term retention (Remittance records,
 ///   AgentRegistered status)
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
     // === Contract Configuration ===
     // Core contract settings stored in instance storage
-    
     /// Contract administrator address with privileged access
     Admin,
-    
+
     /// USDC token contract address used for all remittance transactions
     UsdcToken,
-    
+
     /// Platform fee in basis points (1 bps = 0.01%)
     PlatformFeeBps,
-    
+
     // === Remittance Management ===
     // Keys for tracking and storing remittance transactions
-    
     /// Global counter for generating unique remittance IDs
     RemittanceCounter,
-    
+
     /// Individual remittance record indexed by ID (persistent storage)
     Remittance(u64),
-    
+
     // === Agent Management ===
     // Keys for tracking registered agents
-    
     /// Agent registration status indexed by agent address (persistent storage)
     AgentRegistered(Address),
-    
+
     // === Fee Tracking ===
     // Keys for managing platform fees
-    
     /// Total accumulated platform fees awaiting withdrawal
     AccumulatedFees,
     
+    /// Contract pause status for emergency halts
+    Paused,
+    
+
     // === Settlement Deduplication ===
     // Keys for preventing duplicate settlement execution
-    
     /// Settlement hash for duplicate detection (persistent storage)
     SettlementHash(u64),
 }
@@ -303,4 +302,15 @@ pub fn set_settlement_hash(env: &Env, remittance_id: u64) {
     env.storage()
         .persistent()
         .set(&DataKey::SettlementHash(remittance_id), &true);
+}
+
+pub fn is_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+}
+
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&DataKey::Paused, &paused);
 }
