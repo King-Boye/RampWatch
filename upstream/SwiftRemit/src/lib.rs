@@ -345,4 +345,8 @@ impl SwiftRemitContract {
     pub fn is_paused(env: Env) -> bool {
         is_paused(&env)
     }
+
+    pub fn get_version(env: Env) -> soroban_sdk::String {
+        soroban_sdk::String::from_str(&env, env!("CARGO_PKG_VERSION"))
+    }
 }
