@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Vec};
+use soroban_sdk::{contracttype, Address, String, Vec};
 
 /// Maximum number of settlements that can be processed in a single batch.
 /// This limit prevents excessive resource consumption in a single transaction.
@@ -75,4 +75,19 @@ pub struct SettlementSimulation {
     pub fee: i128,
     /// Error message if would_succeed is false
     pub error_message: Option<u32>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DailyLimit {
+    pub currency: String,
+    pub country: String,
+    pub limit: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransferRecord {
+    pub timestamp: u64,
+    pub amount: i128,
 }

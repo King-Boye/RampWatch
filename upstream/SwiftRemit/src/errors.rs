@@ -95,4 +95,8 @@ pub enum ContractError {
     /// Migration batch out of order or invalid.
     /// Cause: Importing batches in wrong order or invalid batch number.
     InvalidMigrationBatch = 22,
+    
+    /// Daily send limit exceeded for this user.
+    /// Cause: User's total transfers in the last 24 hours exceed the configured limit.
+    DailySendLimitExceeded = 23,
 }

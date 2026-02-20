@@ -25,6 +25,14 @@ fn create_swiftremit_contract<'a>(env: &Env) -> SwiftRemitContractClient<'a> {
     SwiftRemitContractClient::new(env, &env.register_contract(None, SwiftRemitContract {}))
 }
 
+fn default_currency(env: &Env) -> String {
+    String::from_str(env, "USD")
+}
+
+fn default_country(env: &Env) -> String {
+    String::from_str(env, "US")
+}
+
 #[test]
 fn test_initialize() {
     let env = Env::default();
@@ -175,7 +183,7 @@ fn test_create_remittance() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     assert_eq!(remittance_id, 1);
 
@@ -206,7 +214,7 @@ fn test_create_remittance_invalid_amount() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    contract.create_remittance(&sender, &agent, &0, &None);
+    contract.create_remittance(&sender, &agent, &0, &default_currency(&env), &default_country(&env), &None);
 }
 
 #[test]
@@ -227,7 +235,7 @@ fn test_create_remittance_unregistered_agent() {
     let contract = create_swiftremit_contract(&env);
     contract.initialize(&admin, &token.address, &250);
 
-    contract.create_remittance(&sender, &agent, &1000, &None);
+    contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 }
 
 #[test]
@@ -248,7 +256,7 @@ fn test_confirm_payout() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     contract.authorize_remittance(&admin, &remittance_id);
     contract.confirm_payout(&remittance_id);
@@ -281,7 +289,7 @@ fn test_confirm_payout_twice() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     contract.authorize_remittance(&admin, &remittance_id);
     contract.confirm_payout(&remittance_id);
@@ -306,7 +314,7 @@ fn test_cancel_remittance() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     contract.cancel_remittance(&remittance_id);
 
@@ -337,7 +345,7 @@ fn test_cancel_remittance_already_completed() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
     contract.authorize_remittance(&admin, &remittance_id);
     contract.confirm_payout(&remittance_id);
 
@@ -409,7 +417,7 @@ fn test_cancel_remittance_sender_authorization() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     // Cancel and verify sender authorization was required
     contract.cancel_remittance(&remittance_id);
@@ -511,7 +519,7 @@ fn test_cancel_remittance_already_cancelled() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     // Cancel once
     contract.cancel_remittance(&remittance_id);
@@ -538,9 +546,9 @@ fn test_cancel_remittance_multiple_remittances() {
     contract.register_agent(&agent);
 
     // Create multiple remittances
-    let remittance_id1 = contract.create_remittance(&sender, &agent, &1000, &None);
-    let remittance_id2 = contract.create_remittance(&sender, &agent, &2000, &None);
-    let remittance_id3 = contract.create_remittance(&sender, &agent, &3000, &None);
+    let remittance_id1 = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
+    let remittance_id2 = contract.create_remittance(&sender, &agent, &2000, &default_currency(&env), &default_country(&env), &None);
+    let remittance_id3 = contract.create_remittance(&sender, &agent, &3000, &default_currency(&env), &default_country(&env), &None);
 
     let token_client = token::Client::new(&env, &token.address);
     // Sender should have 14000 left (20000 - 1000 - 2000 - 3000)
@@ -584,7 +592,7 @@ fn test_cancel_remittance_no_fee_accumulation() {
     contract.register_agent(&agent);
 
     // Create and cancel remittance
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
     contract.cancel_remittance(&remittance_id);
 
     // Verify no fees were accumulated (fees only accumulate on successful payout)
@@ -651,7 +659,7 @@ fn test_withdraw_fees() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
     contract.authorize_remittance(&admin, &remittance_id);
     contract.confirm_payout(&remittance_id);
 
@@ -697,7 +705,7 @@ fn test_fee_calculation() {
     contract.initialize(&admin, &token.address, &500);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &default_currency(&env), &default_country(&env), &None);
 
     let remittance = contract.get_remittance(&remittance_id);
     assert_eq!(remittance.fee, 500);
@@ -728,8 +736,8 @@ fn test_multiple_remittances() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id1 = contract.create_remittance(&sender1, &agent, &1000, &None);
-    let remittance_id2 = contract.create_remittance(&sender2, &agent, &2000, &None);
+    let remittance_id1 = contract.create_remittance(&sender1, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
+    let remittance_id2 = contract.create_remittance(&sender2, &agent, &2000, &default_currency(&env), &default_country(&env), &None);
 
     assert_eq!(remittance_id1, 1);
     assert_eq!(remittance_id2, 2);
@@ -770,7 +778,7 @@ fn test_events_emitted() {
     assert_eq!(Symbol::from_val(&env, &agent_reg_event.1.get(0).unwrap()), symbol_short!("agent"));
     assert_eq!(Symbol::from_val(&env, &agent_reg_event.1.get(1).unwrap()), symbol_short!("register"));
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     let events = env.events().all();
     let create_event = events.last().unwrap();
@@ -808,7 +816,7 @@ fn test_authorization_enforcement() {
     contract.register_agent(&agent);
 
     env.mock_all_auths();
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     env.mock_all_auths();
     contract.authorize_remittance(&admin, &remittance_id);
@@ -851,7 +859,7 @@ fn test_withdraw_fees_valid_address() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
     contract.authorize_remittance(&admin, &remittance_id);
     contract.confirm_payout(&remittance_id);
 
@@ -881,7 +889,7 @@ fn test_confirm_payout_valid_address() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     // This should succeed with a valid agent address
     contract.authorize_remittance(&admin, &remittance_id);
@@ -912,7 +920,7 @@ fn test_address_validation_in_settlement_flow() {
     contract.register_agent(&agent);
 
     // Create remittance with valid addresses
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     // Confirm payout - should validate agent address
     contract.authorize_remittance(&admin, &remittance_id);
@@ -948,8 +956,8 @@ fn test_multiple_settlements_with_address_validation() {
     contract.register_agent(&agent2);
 
     // Create and confirm multiple remittances
-    let remittance_id1 = contract.create_remittance(&sender1, &agent1, &1000, &None);
-    let remittance_id2 = contract.create_remittance(&sender2, &agent2, &2000, &None);
+    let remittance_id1 = contract.create_remittance(&sender1, &agent1, &1000, &default_currency(&env), &default_country(&env), &None);
+    let remittance_id2 = contract.create_remittance(&sender2, &agent2, &2000, &default_currency(&env), &default_country(&env), &None);
 
     // Both should succeed with valid addresses
     contract.authorize_remittance(&admin, &remittance_id1);
@@ -987,7 +995,7 @@ fn test_settlement_with_future_expiry() {
     let current_time = env.ledger().timestamp();
     let expiry_time = current_time + 3600;
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &Some(expiry_time));
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &Some(expiry_time));
 
     // Should succeed since expiry is in the future
     contract.authorize_remittance(&admin, &remittance_id);
@@ -1023,7 +1031,7 @@ fn test_settlement_with_past_expiry() {
     let current_time = env.ledger().timestamp();
     let expiry_time = current_time.saturating_sub(3600);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &Some(expiry_time));
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &Some(expiry_time));
 
     // Should fail with SettlementExpired error
     contract.authorize_remittance(&admin, &remittance_id);
@@ -1049,7 +1057,7 @@ fn test_settlement_without_expiry() {
     contract.register_agent(&agent);
 
     // Create remittance without expiry
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     // Should succeed since there's no expiry
     contract.authorize_remittance(&admin, &remittance_id);
@@ -1080,7 +1088,7 @@ fn test_duplicate_settlement_prevention() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     // First settlement should succeed
     contract.authorize_remittance(&admin, &remittance_id);
@@ -1126,8 +1134,8 @@ fn test_different_settlements_allowed() {
     contract.register_agent(&agent);
 
     // Create two different remittances
-    let remittance_id1 = contract.create_remittance(&sender, &agent, &1000, &None);
-    let remittance_id2 = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id1 = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
+    let remittance_id2 = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     // Both settlements should succeed as they are different remittances
     contract.authorize_remittance(&admin, &remittance_id1);
@@ -1166,7 +1174,7 @@ fn test_settlement_hash_storage_efficiency() {
 
     // Create and settle multiple remittances
     for _ in 0..5 {
-        let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+        let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
         contract.authorize_remittance(&admin, &remittance_id);
         contract.confirm_payout(&remittance_id);
     }
@@ -1202,7 +1210,7 @@ fn test_duplicate_prevention_with_expiry() {
     let current_time = env.ledger().timestamp();
     let expiry_time = current_time + 3600;
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &Some(expiry_time));
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &Some(expiry_time));
 
     contract.authorize_remittance(&admin, &remittance_id);
 
@@ -1256,7 +1264,7 @@ fn test_settlement_blocked_when_paused() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
     contract.authorize_remittance(&admin, &remittance_id);
 
     contract.pause();
@@ -1282,7 +1290,7 @@ fn test_settlement_works_after_unpause() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
     contract.authorize_remittance(&admin, &remittance_id);
 
     contract.pause();
@@ -1333,7 +1341,7 @@ fn test_settlement_completed_event_emission() {
     contract.initialize(&admin, &token.address, &250);
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     contract.authorize_remittance(&admin, &remittance_id);
     contract.confirm_payout(&remittance_id);
@@ -1400,7 +1408,7 @@ fn test_settlement_completed_event_fields_accuracy() {
     contract.initialize(&admin, &token.address, &500); // 5% fee
     contract.register_agent(&agent);
 
-    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &default_currency(&env), &default_country(&env), &None);
 
     contract.authorize_remittance(&admin, &remittance_id);
     contract.confirm_payout(&remittance_id);
@@ -1641,8 +1649,8 @@ fn test_multiple_tokens_different_contracts() {
     contract2.register_agent(&agent);
 
     // Create remittances with different tokens
-    let remittance_id1 = contract1.create_remittance(&sender, &agent, &1000, &None);
-    let remittance_id2 = contract2.create_remittance(&sender, &agent, &2000, &None);
+    let remittance_id1 = contract1.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
+    let remittance_id2 = contract2.create_remittance(&sender, &agent, &2000, &default_currency(&env), &default_country(&env), &None);
 
     // Confirm payouts
     contract1.confirm_payout(&remittance_id1);
@@ -1697,10 +1705,10 @@ fn test_multi_token_balance_isolation() {
     contract3.register_agent(&agent2);
 
     // Create multiple remittances across different tokens
-    let rem1 = contract1.create_remittance(&sender1, &agent1, &5000, &None);
-    let rem2 = contract2.create_remittance(&sender1, &agent1, &3000, &None);
-    let rem3 = contract2.create_remittance(&sender2, &agent2, &4000, &None);
-    let rem4 = contract3.create_remittance(&sender2, &agent2, &6000, &None);
+    let rem1 = contract1.create_remittance(&sender1, &agent1, &5000, &default_currency(&env), &default_country(&env), &None);
+    let rem2 = contract2.create_remittance(&sender1, &agent1, &3000, &default_currency(&env), &default_country(&env), &None);
+    let rem3 = contract2.create_remittance(&sender2, &agent2, &4000, &default_currency(&env), &default_country(&env), &None);
+    let rem4 = contract3.create_remittance(&sender2, &agent2, &6000, &default_currency(&env), &default_country(&env), &None);
 
     // Confirm all payouts
     contract1.confirm_payout(&rem1);
@@ -1761,12 +1769,12 @@ fn test_multi_token_fee_withdrawal() {
 
     // Create and complete multiple remittances
     for _ in 0..3 {
-        let rem1 = contract1.create_remittance(&sender, &agent, &1000, &None);
+        let rem1 = contract1.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
         contract1.confirm_payout(&rem1);
     }
     
     for _ in 0..2 {
-        let rem2 = contract2.create_remittance(&sender, &agent, &2000, &None);
+        let rem2 = contract2.create_remittance(&sender, &agent, &2000, &default_currency(&env), &default_country(&env), &None);
         contract2.confirm_payout(&rem2);
     }
 
@@ -1816,9 +1824,9 @@ fn test_multi_token_cancellation_refunds() {
     contract2.register_agent(&agent);
 
     // Create remittances
-    let rem1 = contract1.create_remittance(&sender, &agent, &2000, &None);
-    let rem2 = contract2.create_remittance(&sender, &agent, &3000, &None);
-    let rem3 = contract1.create_remittance(&sender, &agent, &1500, &None);
+    let rem1 = contract1.create_remittance(&sender, &agent, &2000, &default_currency(&env), &default_country(&env), &None);
+    let rem2 = contract2.create_remittance(&sender, &agent, &3000, &default_currency(&env), &default_country(&env), &None);
+    let rem3 = contract1.create_remittance(&sender, &agent, &1500, &default_currency(&env), &default_country(&env), &None);
 
     // Cancel some remittances
     contract1.cancel_remittance(&rem1);
@@ -1867,8 +1875,8 @@ fn test_multi_token_state_transitions() {
     contract2.register_agent(&agent);
 
     // Create remittances in both tokens
-    let rem1 = contract1.create_remittance(&sender, &agent, &1000, &None);
-    let rem2 = contract2.create_remittance(&sender, &agent, &1000, &None);
+    let rem1 = contract1.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
+    let rem2 = contract2.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     // Verify initial state
     let remittance1 = contract1.get_remittance(&rem1);
@@ -1926,8 +1934,8 @@ fn test_multi_token_concurrent_operations() {
     contract2.register_agent(&agent2);
 
     // Create multiple concurrent remittances
-    let rem1_1 = contract1.create_remittance(&sender1, &agent1, &1000, &None);
-    let rem1_2 = contract1.create_remittance(&sender2, &agent2, &2000, &None);
+    let rem1_1 = contract1.create_remittance(&sender1, &agent1, &1000, &default_currency(&env), &default_country(&env), &None);
+    let rem1_2 = contract1.create_remittance(&sender2, &agent2, &2000, &default_currency(&env), &default_country(&env), &None);
     let rem2_1 = contract2.create_remittance(&sender1, &agent2, &1500, &None);
     let rem2_2 = contract2.create_remittance(&sender2, &agent1, &2500, &None);
 
@@ -1974,8 +1982,8 @@ fn test_multi_token_edge_case_zero_fee() {
     contract1.register_agent(&agent);
     contract2.register_agent(&agent);
 
-    let rem1 = contract1.create_remittance(&sender, &agent, &1000, &None);
-    let rem2 = contract2.create_remittance(&sender, &agent, &1000, &None);
+    let rem1 = contract1.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
+    let rem2 = contract2.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     contract1.confirm_payout(&rem1);
     contract2.confirm_payout(&rem2);
@@ -2063,7 +2071,7 @@ fn test_multi_token_expiry_handling() {
 
     // Create remittances with expiry
     let rem1 = contract1.create_remittance(&sender, &agent, &1000, &Some(future_expiry));
-    let rem2 = contract2.create_remittance(&sender, &agent, &1000, &None);
+    let rem2 = contract2.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     // Both should succeed
     contract1.confirm_payout(&rem1);
@@ -2104,8 +2112,8 @@ fn test_multi_token_pause_independence() {
     contract1.register_agent(&agent);
     contract2.register_agent(&agent);
 
-    let rem1 = contract1.create_remittance(&sender, &agent, &1000, &None);
-    let rem2 = contract2.create_remittance(&sender, &agent, &1000, &None);
+    let rem1 = contract1.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
+    let rem2 = contract2.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     // Pause only contract1
     contract1.pause();
@@ -2212,8 +2220,8 @@ fn test_multi_token_mixed_success_failure() {
     contract2.register_agent(&agent);
 
     // Create remittances
-    let rem1 = contract1.create_remittance(&sender, &agent, &1000, &None);
-    let rem2 = contract2.create_remittance(&sender, &agent, &1000, &None);
+    let rem1 = contract1.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
+    let rem2 = contract2.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
 
     // Complete first
     contract1.confirm_payout(&rem1);
@@ -2534,7 +2542,7 @@ fn test_whitelist_and_full_workflow() {
     contract.register_agent(&agent);
 
     // Create and complete remittance
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &default_currency(&env), &default_country(&env), &None);
     contract.confirm_payout(&remittance_id);
 
     // Verify everything worked
@@ -2783,7 +2791,7 @@ fn test_net_settlement_multiple_parties() {
 
     // Mint and create remittance
     token.mint(&sender, &10000);
-    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &default_currency(&env), &default_country(&env), &None);
 
     // Simulate settlement
     let simulation = contract.simulate_settlement(&remittance_id);
@@ -2917,7 +2925,7 @@ fn test_net_settlement_empty_batch() {
 
     // Mint and create remittance
     token.mint(&sender, &10000);
-    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &default_currency(&env), &default_country(&env), &None);
 
     // Complete the remittance
     contract.confirm_payout(&remittance_id);
@@ -2971,7 +2979,7 @@ fn test_net_settlement_exceeds_max_batch_size() {
     // Create more than MAX_BATCH_SIZE remittances
     let mut entries = Vec::new(&env);
     for _ in 0..51 {
-        let id = contract.create_remittance(&sender, &agent, &100, &None);
+        let id = contract.create_remittance(&sender, &agent, &100, &default_currency(&env), &default_country(&env), &None);
         entries.push_back(crate::BatchSettlementEntry { remittance_id: id });
     }
 
@@ -3015,7 +3023,7 @@ fn test_simulate_settlement_when_paused() {
 
     token.mint(&sender, &1000);
 
-    let id = contract.create_remittance(&sender, &agent, &100, &None);
+    let id = contract.create_remittance(&sender, &agent, &100, &default_currency(&env), &default_country(&env), &None);
 
     let mut entries = Vec::new(&env);
     entries.push_back(crate::BatchSettlementEntry { remittance_id: id });
@@ -3055,7 +3063,7 @@ fn test_net_settlement_already_completed() {
 
     token.mint(&sender, &1000);
 
-    let id = contract.create_remittance(&sender, &agent, &100, &None);
+    let id = contract.create_remittance(&sender, &agent, &100, &default_currency(&env), &default_country(&env), &None);
 
     // Complete it first
     contract.confirm_payout(&id);
@@ -3072,7 +3080,7 @@ fn test_net_settlement_already_completed() {
 fn test_net_settlement_when_paused() {
     // Mint and create remittance
     token.mint(&sender, &10000);
-    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &default_currency(&env), &default_country(&env), &None);
 
     // Pause contract
     contract.pause();
@@ -3116,7 +3124,7 @@ fn test_settlement_id_returned() {
 
     token.mint(&sender, &1000);
 
-    let id = contract.create_remittance(&sender, &agent, &100, &None);
+    let id = contract.create_remittance(&sender, &agent, &100, &default_currency(&env), &default_country(&env), &None);
 
     // Pause the contract
     contract.pause(&admin);
@@ -3131,7 +3139,7 @@ fn test_settlement_id_returned() {
 fn test_net_settlement_fee_preservation() {
 
     token.mint(&sender, &10000);
-    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &default_currency(&env), &default_country(&env), &None);
 
     // Confirm payout should return the settlement ID
     let settlement_id = contract.confirm_payout(&remittance_id);
@@ -3212,9 +3220,9 @@ fn test_net_settlement_large_batch() {
     token.mint(&sender, &100000);
 
     // Create multiple remittances and verify IDs are sequential
-    let id1 = contract.create_remittance(&sender, &agent, &10000, &None);
-    let id2 = contract.create_remittance(&sender, &agent, &10000, &None);
-    let id3 = contract.create_remittance(&sender, &agent, &10000, &None);
+    let id1 = contract.create_remittance(&sender, &agent, &10000, &default_currency(&env), &default_country(&env), &None);
+    let id2 = contract.create_remittance(&sender, &agent, &10000, &default_currency(&env), &default_country(&env), &None);
+    let id3 = contract.create_remittance(&sender, &agent, &10000, &default_currency(&env), &default_country(&env), &None);
 
     assert_eq!(id1, 1);
     assert_eq!(id2, 2);
@@ -3263,7 +3271,7 @@ fn test_settlement_id_uniqueness() {
     // Create maximum allowed batch size
     let mut entries = Vec::new(&env);
     for _ in 0..50 {
-        let id = contract.create_remittance(&sender, &agent, &100, &None);
+        let id = contract.create_remittance(&sender, &agent, &100, &default_currency(&env), &default_country(&env), &None);
         entries.push_back(crate::BatchSettlementEntry { remittance_id: id });
     }
 
@@ -3389,9 +3397,9 @@ fn test_net_settlement_mathematical_correctness() {
     token.mint(&sender2, &50000);
 
     // Create remittances from different senders
-    let id1 = contract.create_remittance(&sender1, &agent, &10000, &None);
-    let id2 = contract.create_remittance(&sender2, &agent, &10000, &None);
-    let id3 = contract.create_remittance(&sender1, &agent, &10000, &None);
+    let id1 = contract.create_remittance(&sender1, &agent, &10000, &default_currency(&env), &default_country(&env), &None);
+    let id2 = contract.create_remittance(&sender2, &agent, &10000, &default_currency(&env), &default_country(&env), &None);
+    let id3 = contract.create_remittance(&sender1, &agent, &10000, &default_currency(&env), &default_country(&env), &None);
 
     // All IDs should be unique
     assert_ne!(id1, id2);
@@ -3457,7 +3465,7 @@ fn test_export_import_migration_state() {
     contract1.register_agent(&agent);
 
     token.mint(&sender, &1000);
-    let id = contract1.create_remittance(&sender, &agent, &100, &None);
+    let id = contract1.create_remittance(&sender, &agent, &100, &default_currency(&env), &default_country(&env), &None);
 
     // Export state
     let snapshot = contract1.export_migration_state(&admin).unwrap();
@@ -3572,7 +3580,7 @@ fn test_export_migration_batch() {
 
     // Create 10 remittances
     for _ in 0..10 {
-        contract.create_remittance(&sender, &agent, &100, &None);
+        contract.create_remittance(&sender, &agent, &100, &default_currency(&env), &default_country(&env), &None);
     }
 
     // Export in batches of 5
@@ -3614,7 +3622,7 @@ fn test_import_migration_batch() {
 
     // Create 5 remittances
     for _ in 0..5 {
-        contract1.create_remittance(&sender, &agent, &100, &None);
+        contract1.create_remittance(&sender, &agent, &100, &default_currency(&env), &default_country(&env), &None);
     }
 
     // Export batch
@@ -3656,7 +3664,7 @@ fn test_migration_batch_hash_verification() {
 
     // Create remittances
     for _ in 0..5 {
-        contract1.create_remittance(&sender, &agent, &100, &None);
+        contract1.create_remittance(&sender, &agent, &100, &default_currency(&env), &default_country(&env), &None);
     }
 
     // Export batch
@@ -3699,7 +3707,7 @@ fn test_migration_preserves_all_data() {
     token.mint(&sender, &1000);
 
     // Create remittance and complete it
-    let id = contract1.create_remittance(&sender, &agent, &100, &None);
+    let id = contract1.create_remittance(&sender, &agent, &100, &default_currency(&env), &default_country(&env), &None);
     contract1.confirm_payout(&id);
 
     // Export state
@@ -3802,10 +3810,10 @@ fn test_migration_with_multiple_remittance_statuses() {
     token.mint(&sender, &10000);
 
     // Create remittances with different statuses
-    let id1 = contract1.create_remittance(&sender, &agent, &100, &None); // Pending
-    let id2 = contract1.create_remittance(&sender, &agent, &100, &None);
+    let id1 = contract1.create_remittance(&sender, &agent, &100, &default_currency(&env), &default_country(&env), &None); // Pending
+    let id2 = contract1.create_remittance(&sender, &agent, &100, &default_currency(&env), &default_country(&env), &None);
     contract1.confirm_payout(&id2); // Completed
-    let id3 = contract1.create_remittance(&sender, &agent, &100, &None);
+    let id3 = contract1.create_remittance(&sender, &agent, &100, &default_currency(&env), &default_country(&env), &None);
     contract1.cancel_remittance(&id3); // Cancelled
 
     // Export and import
@@ -3817,4 +3825,305 @@ fn test_migration_with_multiple_remittance_statuses() {
     assert_eq!(contract2.get_remittance(&id1).unwrap().status, crate::RemittanceStatus::Pending);
     assert_eq!(contract2.get_remittance(&id2).unwrap().status, crate::RemittanceStatus::Completed);
     assert_eq!(contract2.get_remittance(&id3).unwrap().status, crate::RemittanceStatus::Cancelled);
+}
+
+
+// ===== Daily Send Limit Tests =====
+
+#[test]
+fn test_set_daily_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    let currency = String::from_str(&env, "USD");
+    let country = String::from_str(&env, "US");
+
+    contract.set_daily_limit(&currency, &country, &10000);
+
+    let limit = contract.get_daily_limit(&currency, &country);
+    assert!(limit.is_some());
+    assert_eq!(limit.unwrap().limit, 10000);
+}
+
+#[test]
+fn test_daily_limit_enforcement_within_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &20000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let currency = String::from_str(&env, "USD");
+    let country = String::from_str(&env, "US");
+
+    // Set daily limit to 10000
+    contract.set_daily_limit(&currency, &country, &10000);
+
+    // First transfer of 5000 should succeed
+    let remittance_id1 = contract.create_remittance(&sender, &agent, &5000, &currency, &country, &None);
+    assert_eq!(remittance_id1, 1);
+
+    // Second transfer of 4000 should succeed (total 9000 < 10000)
+    let remittance_id2 = contract.create_remittance(&sender, &agent, &4000, &currency, &country, &None);
+    assert_eq!(remittance_id2, 2);
+
+    assert_eq!(token.balance(&contract.address), 9000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #23)")]
+fn test_daily_limit_enforcement_exceeds_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &20000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let currency = String::from_str(&env, "USD");
+    let country = String::from_str(&env, "US");
+
+    // Set daily limit to 10000
+    contract.set_daily_limit(&currency, &country, &10000);
+
+    // First transfer of 6000 should succeed
+    contract.create_remittance(&sender, &agent, &6000, &currency, &country, &None);
+
+    // Second transfer of 5000 should fail (total 11000 > 10000)
+    contract.create_remittance(&sender, &agent, &5000, &currency, &country, &None);
+}
+
+#[test]
+fn test_daily_limit_rolling_window() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &30000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let currency = String::from_str(&env, "USD");
+    let country = String::from_str(&env, "US");
+
+    // Set daily limit to 10000
+    contract.set_daily_limit(&currency, &country, &10000);
+
+    // First transfer of 8000
+    contract.create_remittance(&sender, &agent, &8000, &currency, &country, &None);
+
+    // Advance time by 25 hours (beyond 24-hour window)
+    env.ledger().with_mut(|li| {
+        li.timestamp = li.timestamp + 90000; // 25 hours in seconds
+    });
+
+    // After 25 hours, the old transfer should be outside the window
+    // New transfer of 9000 should succeed
+    let remittance_id = contract.create_remittance(&sender, &agent, &9000, &currency, &country, &None);
+    assert_eq!(remittance_id, 2);
+}
+
+#[test]
+fn test_daily_limit_different_currencies() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &30000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let usd = String::from_str(&env, "USD");
+    let eur = String::from_str(&env, "EUR");
+    let us = String::from_str(&env, "US");
+
+    // Set different limits for different currencies
+    contract.set_daily_limit(&usd, &us, &10000);
+    contract.set_daily_limit(&eur, &us, &15000);
+
+    // Transfer 9000 in USD should succeed
+    contract.create_remittance(&sender, &agent, &9000, &usd, &us, &None);
+
+    // Transfer 14000 in EUR should succeed (different currency limit)
+    contract.create_remittance(&sender, &agent, &14000, &eur, &us, &None);
+
+    assert_eq!(token.balance(&contract.address), 23000);
+}
+
+#[test]
+fn test_daily_limit_different_countries() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &30000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let usd = String::from_str(&env, "USD");
+    let us = String::from_str(&env, "US");
+    let uk = String::from_str(&env, "UK");
+
+    // Set different limits for different countries
+    contract.set_daily_limit(&usd, &us, &10000);
+    contract.set_daily_limit(&usd, &uk, &15000);
+
+    // Transfer 9000 to US should succeed
+    contract.create_remittance(&sender, &agent, &9000, &usd, &us, &None);
+
+    // Transfer 14000 to UK should succeed (different country limit)
+    contract.create_remittance(&sender, &agent, &14000, &usd, &uk, &None);
+
+    assert_eq!(token.balance(&contract.address), 23000);
+}
+
+#[test]
+fn test_daily_limit_no_limit_configured() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &100000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let currency = String::from_str(&env, "USD");
+    let country = String::from_str(&env, "US");
+
+    // No limit configured, large transfer should succeed
+    let remittance_id = contract.create_remittance(&sender, &agent, &50000, &currency, &country, &None);
+    assert_eq!(remittance_id, 1);
+    assert_eq!(token.balance(&contract.address), 50000);
+}
+
+#[test]
+fn test_daily_limit_multiple_users() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender1 = Address::generate(&env);
+    let sender2 = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender1, &20000);
+    token.mint(&sender2, &20000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let currency = String::from_str(&env, "USD");
+    let country = String::from_str(&env, "US");
+
+    // Set daily limit to 10000
+    contract.set_daily_limit(&currency, &country, &10000);
+
+    // Each user should have their own limit
+    contract.create_remittance(&sender1, &agent, &9000, &currency, &country, &None);
+    contract.create_remittance(&sender2, &agent, &9000, &currency, &country, &None);
+
+    assert_eq!(token.balance(&contract.address), 18000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")]
+fn test_set_daily_limit_negative() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    let currency = String::from_str(&env, "USD");
+    let country = String::from_str(&env, "US");
+
+    // Negative limit should fail
+    contract.set_daily_limit(&currency, &country, &-1000);
+}
+
+#[test]
+fn test_daily_limit_exact_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &20000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let currency = String::from_str(&env, "USD");
+    let country = String::from_str(&env, "US");
+
+    // Set daily limit to 10000
+    contract.set_daily_limit(&currency, &country, &10000);
+
+    // Transfer exactly 10000 should succeed
+    let remittance_id = contract.create_remittance(&sender, &agent, &10000, &currency, &country, &None);
+    assert_eq!(remittance_id, 1);
 }

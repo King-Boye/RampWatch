@@ -11,7 +11,7 @@ mod validation;
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
 pub use debug::*;
 pub use errors::ContractError;
@@ -167,57 +167,63 @@ impl SwiftRemitContract {
     }
 
     pub fn create_remittance(
-        env: Env,
-        sender: Address,
-        agent: Address,
-        amount: i128,
-        expiry: Option<u64>,
-    ) -> Result<u64, ContractError> {
-        sender.require_auth();
+            env: Env,
+            sender: Address,
+            agent: Address,
+            amount: i128,
+            currency: String,
+            country: String,
+            expiry: Option<u64>,
+        ) -> Result<u64, ContractError> {
+            sender.require_auth();
 
-        if amount <= 0 {
-            return Err(ContractError::InvalidAmount);
+            if amount <= 0 {
+                return Err(ContractError::InvalidAmount);
+            }
+
+            if !is_agent_registered(&env, &agent) {
+                return Err(ContractError::AgentNotRegistered);
+            }
+
+            // Validate daily send limit before processing the transfer
+            validate_daily_send_limit(&env, &sender, amount, &currency, &country)?;
+
+            let fee_bps = get_platform_fee_bps(&env)?;
+            let fee = amount
+                .checked_mul(fee_bps as i128)
+                .ok_or(ContractError::Overflow)?
+                .checked_div(10000)
+                .ok_or(ContractError::Overflow)?;
+
+            let usdc_token = get_usdc_token(&env)?;
+            let token_client = token::Client::new(&env, &usdc_token);
+            token_client.transfer(&sender, &env.current_contract_address(), &amount);
+
+            let counter = get_remittance_counter(&env)?;
+            let remittance_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
+
+            let remittance = Remittance {
+                id: remittance_id,
+                sender: sender.clone(),
+                agent: agent.clone(),
+                amount,
+                fee,
+                status: RemittanceStatus::Pending,
+                expiry,
+            };
+
+            set_remittance(&env, remittance_id, &remittance);
+            set_remittance_counter(&env, remittance_id);
+
+            // Event: Remittance created - Fires when sender initiates a new remittance
+            // Used by off-chain systems to notify agents of pending payouts and track transaction flow
+            emit_remittance_created(&env, remittance_id, sender.clone(), agent.clone(), usdc_token.clone(), amount, fee);
+
+            log_create_remittance(&env, remittance_id, &sender, &agent, amount, fee);
+
+            Ok(remittance_id)
         }
 
-        if !is_agent_registered(&env, &agent) {
-            return Err(ContractError::AgentNotRegistered);
-        }
-
-        let fee_bps = get_platform_fee_bps(&env)?;
-        let fee = amount
-            .checked_mul(fee_bps as i128)
-            .ok_or(ContractError::Overflow)?
-            .checked_div(10000)
-            .ok_or(ContractError::Overflow)?;
-
-        let usdc_token = get_usdc_token(&env)?;
-        let token_client = token::Client::new(&env, &usdc_token);
-        token_client.transfer(&sender, &env.current_contract_address(), &amount);
-
-        let counter = get_remittance_counter(&env)?;
-        let remittance_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
-
-        let remittance = Remittance {
-            id: remittance_id,
-            sender: sender.clone(),
-            agent: agent.clone(),
-            amount,
-            fee,
-            status: RemittanceStatus::Pending,
-            expiry,
-        };
-
-        set_remittance(&env, remittance_id, &remittance);
-        set_remittance_counter(&env, remittance_id);
-
-        // Event: Remittance created - Fires when sender initiates a new remittance
-        // Used by off-chain systems to notify agents of pending payouts and track transaction flow
-        emit_remittance_created(&env, remittance_id, sender.clone(), agent.clone(), usdc_token.clone(), amount, fee);
-
-        log_create_remittance(&env, remittance_id, &sender, &agent, amount, fee);
-
-        Ok(remittance_id)
-    }
 
     pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<u64, ContractError> {
         if is_paused(&env) {
@@ -907,5 +913,49 @@ impl SwiftRemitContract {
     ) -> Result<(), ContractError> {
         require_admin(&env, &caller)?;
         migration::import_batch(&env, batch)
+    }
+
+    /// Sets the daily send limit for a specific currency-country pair.
+    /// 
+    /// # Parameters
+    /// - `currency`: Currency code (e.g., "USD", "EUR")
+    /// - `country`: Country code (e.g., "US", "UK")
+    /// - `limit`: Maximum amount that can be sent in 24 hours
+    /// 
+    /// # Authorization
+    /// Requires admin authentication
+    /// 
+    /// # Errors
+    /// - InvalidAmount: If limit is negative
+    /// - Unauthorized: If caller is not admin
+    pub fn set_daily_limit(
+        env: Env,
+        currency: String,
+        country: String,
+        limit: i128,
+    ) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+
+        if limit < 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        set_daily_limit(&env, &currency, &country, limit);
+
+        Ok(())
+    }
+
+    /// Gets the configured daily send limit for a currency-country pair.
+    /// 
+    /// # Parameters
+    /// - `currency`: Currency code (e.g., "USD", "EUR")
+    /// - `country`: Country code (e.g., "US", "UK")
+    /// 
+    /// # Returns
+    /// - `Some(DailyLimit)`: If a limit is configured
+    /// - `None`: If no limit is configured (unlimited)
+    pub fn get_daily_limit(env: Env, currency: String, country: String) -> Option<DailyLimit> {
+        get_daily_limit(&env, &currency, &country)
     }
 }
