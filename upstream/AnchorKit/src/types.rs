@@ -37,7 +37,42 @@ pub enum ServiceType {
 pub struct AnchorServices {
     pub anchor: Address,
     pub services: Vec<ServiceType>,
-=======
+}
+
+/// Quote data structure for rate comparison
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QuoteData {
+    pub anchor: Address,
+    pub base_asset: String,
+    pub quote_asset: String,
+    pub rate: u64, // Rate in basis points (10000 = 1.0)
+    pub fee_percentage: u32, // Fee in basis points
+    pub minimum_amount: u64,
+    pub maximum_amount: u64,
+    pub valid_until: u64, // Unix timestamp
+    pub quote_id: u64,
+}
+
+/// Rate comparison result
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateComparison {
+    pub best_quote: QuoteData,
+    pub all_quotes: Vec<QuoteData>,
+    pub comparison_timestamp: u64,
+}
+
+/// Quote request parameters
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QuoteRequest {
+    pub base_asset: String,
+    pub quote_asset: String,
+    pub amount: u64,
+    pub operation_type: ServiceType, // Deposits or Withdrawals
+}
+
 /// Represents a reproducible interaction session.
 /// Each session is uniquely identified and tracks all operations within it.
 #[contracttype]

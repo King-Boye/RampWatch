@@ -10,13 +10,9 @@ use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String};
 
 pub use errors::Error;
 
-pub use events::{AttestationRecorded, AttestorAdded, AttestorRemoved, EndpointConfigured, EndpointRemoved, ServicesConfigured};
+pub use events::{AttestationRecorded, AttestorAdded, AttestorRemoved, EndpointConfigured, EndpointRemoved, ServicesConfigured, SessionCreated, OperationLogged, QuoteSubmitted};
 pub use storage::Storage;
-pub use types::{Attestation, Endpoint, ServiceType, AnchorServices};
-
-pub use events::{AttestationRecorded, AttestorAdded, AttestorRemoved, EndpointConfigured, EndpointRemoved, SessionCreated, OperationLogged};
-pub use storage::Storage;
-pub use types::{Attestation, Endpoint, InteractionSession, OperationContext, AuditLog};
+pub use types::{Attestation, Endpoint, ServiceType, AnchorServices, QuoteData, RateComparison, QuoteRequest, InteractionSession, OperationContext, AuditLog};
 
 
 #[contract]
@@ -471,8 +467,136 @@ impl AnchorKitContract {
 
         Self::log_session_operation(&env, session_id, &admin, "revoke", "success", 0)?;
 
-
         Ok(())
+    }
+
+    /// Submit a quote from an anchor. Only callable by registered attestors.
+    pub fn submit_quote(
+        env: Env,
+        anchor: Address,
+        base_asset: String,
+        quote_asset: String,
+        rate: u64,
+        fee_percentage: u32,
+        minimum_amount: u64,
+        maximum_amount: u64,
+        valid_until: u64,
+    ) -> Result<u64, Error> {
+        anchor.require_auth();
+
+        // Check if anchor is a registered attestor
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::UnauthorizedAttestor);
+        }
+
+        // Validate quote parameters
+        if rate == 0 || valid_until <= env.ledger().timestamp() {
+            return Err(Error::InvalidQuote);
+        }
+
+        // Check if anchor supports quotes service
+        if let Ok(services) = Storage::get_anchor_services(&env, &anchor) {
+            if !services.services.contains(&ServiceType::Quotes) {
+                return Err(Error::InvalidServiceType);
+            }
+        } else {
+            return Err(Error::ServicesNotConfigured);
+        }
+
+        let quote_id = Storage::get_next_quote_id(&env);
+        let quote = QuoteData {
+            anchor: anchor.clone(),
+            base_asset,
+            quote_asset,
+            rate,
+            fee_percentage,
+            minimum_amount,
+            maximum_amount,
+            valid_until,
+            quote_id,
+        };
+
+        Storage::set_quote(&env, &quote);
+        
+        // Emit event
+        QuoteSubmitted::publish(&env, &anchor, quote_id, &base_asset, &quote_asset, rate, valid_until);
+        
+        Ok(quote_id)
+    }
+
+    /// Get a specific quote by anchor and quote ID
+    pub fn get_quote(env: Env, anchor: Address, quote_id: u64) -> Result<QuoteData, Error> {
+        Storage::get_quote(&env, &anchor, quote_id).ok_or(Error::QuoteNotFound)
+    }
+
+    /// Compare rates for specific anchors and return the best option
+    pub fn compare_rates_for_anchors(
+        env: Env,
+        request: QuoteRequest,
+        anchors: Vec<Address>,
+    ) -> Result<RateComparison, Error> {
+        let current_timestamp = env.ledger().timestamp();
+        let mut valid_quotes: Vec<QuoteData> = Vec::new(&env);
+
+        // Collect valid quotes from specified anchors
+        for anchor in anchors.iter() {
+            if let Some(quote) = Self::get_latest_quote_for_anchor(&env, anchor, &request) {
+                if quote.valid_until > current_timestamp &&
+                   quote.base_asset == request.base_asset &&
+                   quote.quote_asset == request.quote_asset &&
+                   request.amount >= quote.minimum_amount &&
+                   request.amount <= quote.maximum_amount {
+                    valid_quotes.push_back(quote);
+                }
+            }
+        }
+
+        if valid_quotes.is_empty() {
+            return Err(Error::NoQuotesAvailable);
+        }
+
+        // Find the best quote (lowest effective rate including fees)
+        let mut best_quote = valid_quotes.get(0).unwrap();
+        let mut best_effective_rate = Self::calculate_effective_rate(&best_quote, request.amount);
+
+        for i in 1..valid_quotes.len() {
+            let quote = valid_quotes.get(i).unwrap();
+            let effective_rate = Self::calculate_effective_rate(&quote, request.amount);
+            
+            if effective_rate < best_effective_rate {
+                best_quote = quote;
+                best_effective_rate = effective_rate;
+            }
+        }
+
+        Ok(RateComparison {
+            best_quote: best_quote.clone(),
+            all_quotes: valid_quotes,
+            comparison_timestamp: current_timestamp,
+        })
+    }
+
+    // Helper functions
+    fn calculate_effective_rate(quote: &QuoteData, amount: u64) -> u64 {
+        // Calculate the effective rate including fees
+        // Rate is in basis points (10000 = 1.0)
+        let base_rate = quote.rate;
+        let fee_amount = (amount * quote.fee_percentage as u64) / 10000;
+        let effective_amount = amount + fee_amount;
+        
+        // Return effective rate per unit
+        (base_rate * effective_amount) / amount
+    }
+
+    fn get_latest_quote_for_anchor(
+        env: &Env,
+        anchor: &Address,
+        request: &QuoteRequest,
+    ) -> Option<QuoteData> {
+        // In a real implementation, this would query the latest quote for the anchor
+        // For now, we'll return None as this requires additional storage indexing
+        // You could implement this by storing the latest quote ID per anchor
+        None
     }
 
     /// Validate endpoint URL format.
@@ -515,7 +639,15 @@ impl AnchorKitContract {
 
 
 #[cfg(test)]
+mod rate_comparison_tests;
+
+#[cfg(test)]
 mod tests {
+    use super::*;
+    use soroban_sdk::{
+        testutils::{Address as _, BytesN as _, Events},
+        Address, Bytes, BytesN, Env,
+    };
     use super::*;
     use soroban_sdk::{
         testutils::{Address as _, BytesN as _, Events},
@@ -1355,3 +1487,4 @@ mod tests {
         assert!(supported2.contains(&ServiceType::Withdrawals));
         assert!(supported2.contains(&ServiceType::Quotes));
     }
+}

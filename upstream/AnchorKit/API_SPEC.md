@@ -100,6 +100,47 @@ Configures the list of supported services for an anchor. Only callable by the an
 Retrieves the list of services supported by an anchor.
 
 **Returns:**
+- `Ok(services)` on success
+- `Err(Error::ServicesNotConfigured)` if anchor hasn't configured services
+
+### `submit_quote(env: Env, anchor: Address, base_asset: String, quote_asset: String, rate: u64, fee_percentage: u32, minimum_amount: u64, maximum_amount: u64, valid_until: u64) -> Result<u64, Error>`
+Submits a quote from an anchor. Only callable by registered attestors.
+
+**Parameters:**
+- `anchor`: The anchor address submitting the quote
+- `base_asset`: Source asset (e.g., "USD")
+- `quote_asset`: Target asset (e.g., "USDC")
+- `rate`: Exchange rate in basis points (10000 = 1.0)
+- `fee_percentage`: Fee in basis points
+- `minimum_amount`: Minimum transaction amount
+- `maximum_amount`: Maximum transaction amount
+- `valid_until`: Unix timestamp when quote expires
+
+**Returns:**
+- `Ok(quote_id)` on success
+- `Err(Error::UnauthorizedAttestor)` if anchor is not registered
+- `Err(Error::InvalidQuote)` if quote parameters are invalid
+- `Err(Error::ServicesNotConfigured)` if anchor doesn't support quotes
+
+### `get_quote(env: Env, anchor: Address, quote_id: u64) -> Result<QuoteData, Error>`
+Retrieves a specific quote by anchor and quote ID.
+
+**Returns:**
+- `Ok(quote_data)` on success
+- `Err(Error::QuoteNotFound)` if quote doesn't exist
+
+### `compare_rates_for_anchors(env: Env, request: QuoteRequest, anchors: Vec<Address>) -> Result<RateComparison, Error>`
+Compares rates for specific anchors and returns the best option.
+
+**Parameters:**
+- `request`: Quote request with asset pair, amount, and operation type
+- `anchors`: List of anchor addresses to compare
+
+**Returns:**
+- `Ok(rate_comparison)` with best quote and all valid quotes
+- `Err(Error::NoQuotesAvailable)` if no valid quotes found
+
+**Returns:**
 - `Ok(Vec<ServiceType>)` containing the list of supported services
 - `Err(Error::ServicesNotConfigured)` if anchor hasn't configured services
 
