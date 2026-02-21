@@ -54,6 +54,7 @@ if contract.supports_service(&anchor, &ServiceType::Deposits) {
 - **Audit Trail**: Complete immutable record of all operations
 - **Reproducibility**: Deterministic operation replay for verification
 - **Replay Protection**: Multi-level protection against unauthorized replays
+- **Secure Credential Management**: Runtime credential injection with automatic rotation
 
 ## New: Session Traceability & Reproducibility
 
@@ -97,11 +98,13 @@ const auditLog = await contract.get_audit_log(0);
 
 ### Feature Documentation
 - **[SESSION_TRACEABILITY.md](./SESSION_TRACEABILITY.md)** - Complete feature guide with usage patterns
+- **[SECURE_CREDENTIALS.md](./SECURE_CREDENTIALS.md)** - Secure credential injection and management
 - **[API_SPEC.md](./API_SPEC.md)** - API specification and error codes
 
 ### Technical Documentation
 - **[IMPLEMENTATION_GUIDE.md](./IMPLEMENTATION_GUIDE.md)** - Technical implementation details
 - **[IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md)** - Implementation overview
+- **[DEPLOYMENT_WITH_CREDENTIALS.md](./DEPLOYMENT_WITH_CREDENTIALS.md)** - Deployment guide with secure credentials
 - **[VERIFICATION_CHECKLIST.md](./VERIFICATION_CHECKLIST.md)** - Verification and quality assurance
 
 ## New API Methods

@@ -1,6 +1,7 @@
 use soroban_sdk::{Address, BytesN, Env, IntoVal};
 
 use crate::{
+    credentials::{CredentialPolicy, SecureCredential},
     types::{
         AnchorServices, Attestation, AuditLog, Endpoint, InteractionSession, OperationContext,
         QuoteData,
@@ -26,6 +27,8 @@ enum StorageKey {
     AuditLogCounter,
     AuditLog(u64),
     SessionOperationCount(u64),
+    CredentialPolicy(Address),
+    SecureCredential(Address),
 }
 
 impl StorageKey {
@@ -52,6 +55,12 @@ impl StorageKey {
             StorageKey::AuditLog(id) => (soroban_sdk::symbol_short!("AUDIT"), *id).into_val(env),
             StorageKey::SessionOperationCount(id) => {
                 (soroban_sdk::symbol_short!("SOPCNT"), *id).into_val(env)
+            }
+            StorageKey::CredentialPolicy(addr) => {
+                (soroban_sdk::symbol_short!("CREDPOL"), addr).into_val(env)
+            }
+            StorageKey::SecureCredential(addr) => {
+                (soroban_sdk::symbol_short!("CREDENC"), addr).into_val(env)
             }
         }
     }
@@ -345,5 +354,42 @@ impl Storage {
             .instance()
             .extend_ttl(Self::INSTANCE_LIFETIME, Self::INSTANCE_LIFETIME);
         counter
+    }
+
+    // ============ Credential Management ============
+
+    pub fn set_credential_policy(env: &Env, policy: &CredentialPolicy) {
+        let key = StorageKey::CredentialPolicy(policy.attestor.clone()).to_storage_key(env);
+        env.storage().persistent().set(&key, policy);
+        env.storage().persistent().extend_ttl(
+            &key,
+            Self::PERSISTENT_LIFETIME,
+            Self::PERSISTENT_LIFETIME,
+        );
+    }
+
+    pub fn get_credential_policy(env: &Env, attestor: &Address) -> Option<CredentialPolicy> {
+        let key = StorageKey::CredentialPolicy(attestor.clone()).to_storage_key(env);
+        env.storage().persistent().get(&key)
+    }
+
+    pub fn set_secure_credential(env: &Env, credential: &SecureCredential) {
+        let key = StorageKey::SecureCredential(credential.attestor.clone()).to_storage_key(env);
+        env.storage().persistent().set(&key, credential);
+        env.storage().persistent().extend_ttl(
+            &key,
+            Self::PERSISTENT_LIFETIME,
+            Self::PERSISTENT_LIFETIME,
+        );
+    }
+
+    pub fn get_secure_credential(env: &Env, attestor: &Address) -> Option<SecureCredential> {
+        let key = StorageKey::SecureCredential(attestor.clone()).to_storage_key(env);
+        env.storage().persistent().get(&key)
+    }
+
+    pub fn remove_secure_credential(env: &Env, attestor: &Address) {
+        let key = StorageKey::SecureCredential(attestor.clone()).to_storage_key(env);
+        env.storage().persistent().remove(&key);
     }
 }

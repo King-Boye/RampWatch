@@ -1,5 +1,6 @@
 #![no_std]
 
+mod credentials;
 mod errors;
 mod events;
 mod storage;
@@ -7,6 +8,9 @@ mod types;
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
+pub use credentials::{
+    CredentialManager, CredentialPolicy, CredentialType, RuntimeCredential, SecureCredential,
+};
 pub use errors::Error;
 pub use events::{
     AttestationRecorded, AttestorAdded, AttestorRemoved, EndpointConfigured, EndpointRemoved,
@@ -674,6 +678,139 @@ impl AnchorKitContract {
         _payload_hash: &BytesN<32>,
         _signature: &Bytes,
     ) -> Result<(), Error> {
+        Ok(())
+    }
+
+    // ============ Secure Credential Management ============
+
+    /// Set credential policy for an attestor. Only callable by admin.
+    /// Defines rotation intervals and security requirements.
+    pub fn set_credential_policy(
+        env: Env,
+        attestor: Address,
+        rotation_interval_seconds: u64,
+        require_encryption: bool,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        if !Storage::is_attestor(&env, &attestor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+
+        let policy = CredentialPolicy {
+            attestor: attestor.clone(),
+            rotation_interval_seconds,
+            require_encryption,
+            allow_plaintext_storage: !require_encryption,
+        };
+
+        Storage::set_credential_policy(&env, &policy);
+        Ok(())
+    }
+
+    /// Get credential policy for an attestor.
+    pub fn get_credential_policy(env: Env, attestor: Address) -> Result<CredentialPolicy, Error> {
+        Storage::get_credential_policy(&env, &attestor).ok_or(Error::CredentialNotFound)
+    }
+
+    /// Store encrypted credential for an attestor. Only callable by admin.
+    /// Credentials should be encrypted before storage and never stored in plaintext.
+    pub fn store_encrypted_credential(
+        env: Env,
+        attestor: Address,
+        credential_type: CredentialType,
+        encrypted_value: Bytes,
+        expires_at: u64,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        if !Storage::is_attestor(&env, &attestor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+
+        CredentialManager::validate_credential_format(&credential_type, &encrypted_value)?;
+
+        let policy = Storage::get_credential_policy(&env, &attestor)
+            .unwrap_or_else(|| CredentialManager::create_default_policy(attestor.clone()));
+
+        if policy.require_encryption && policy.allow_plaintext_storage {
+            return Err(Error::InsecureCredentialStorage);
+        }
+
+        let credential = SecureCredential {
+            attestor: attestor.clone(),
+            credential_type,
+            encrypted_value,
+            created_at: env.ledger().timestamp(),
+            expires_at,
+            rotation_required: false,
+        };
+
+        Storage::set_secure_credential(&env, &credential);
+        Ok(())
+    }
+
+    /// Rotate credential for an attestor. Only callable by admin.
+    /// Marks the current credential for rotation and stores the new encrypted credential.
+    pub fn rotate_credential(
+        env: Env,
+        attestor: Address,
+        credential_type: CredentialType,
+        new_encrypted_value: Bytes,
+        expires_at: u64,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        if !Storage::is_attestor(&env, &attestor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+
+        CredentialManager::validate_credential_format(&credential_type, &new_encrypted_value)?;
+
+        let credential = SecureCredential {
+            attestor: attestor.clone(),
+            credential_type,
+            encrypted_value: new_encrypted_value,
+            created_at: env.ledger().timestamp(),
+            expires_at,
+            rotation_required: false,
+        };
+
+        Storage::set_secure_credential(&env, &credential);
+        Ok(())
+    }
+
+    /// Check if credential needs rotation based on policy.
+    pub fn check_credential_rotation(env: Env, attestor: Address) -> Result<bool, Error> {
+        let credential = Storage::get_secure_credential(&env, &attestor)
+            .ok_or(Error::CredentialNotFound)?;
+
+        let policy = Storage::get_credential_policy(&env, &attestor)
+            .unwrap_or_else(|| CredentialManager::create_default_policy(attestor.clone()));
+
+        let current_time = env.ledger().timestamp();
+
+        if credential.is_expired(current_time) {
+            return Err(Error::CredentialExpired);
+        }
+
+        Ok(credential.needs_rotation(current_time, &policy))
+    }
+
+    /// Revoke credential for an attestor. Only callable by admin.
+    /// Removes the credential from storage immediately.
+    pub fn revoke_credential(env: Env, attestor: Address) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        if !Storage::is_attestor(&env, &attestor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+
+        Storage::remove_secure_credential(&env, &attestor);
         Ok(())
     }
 }
