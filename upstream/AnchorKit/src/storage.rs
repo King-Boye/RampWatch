@@ -3,8 +3,8 @@ use soroban_sdk::{Address, BytesN, Env, IntoVal};
 use crate::{
     config::{ContractConfig, SessionConfig},
     types::{
-        AnchorServices, Attestation, AuditLog, Endpoint, InteractionSession, OperationContext,
-        QuoteData,
+        AnchorMetadata, AnchorServices, Attestation, AuditLog, Endpoint, InteractionSession,
+        OperationContext, QuoteData,
     },
     Error,
 };
@@ -35,22 +35,32 @@ impl StorageKey {
     fn to_storage_key(&self, env: &Env) -> soroban_sdk::Val {
         match self {
             StorageKey::Admin => (soroban_sdk::symbol_short!("ADMIN"),).into_val(env),
-            StorageKey::Attestor(addr) => (soroban_sdk::symbol_short!("ATTESTOR"), addr).into_val(env),
+            StorageKey::Attestor(addr) => {
+                (soroban_sdk::symbol_short!("ATTESTOR"), addr).into_val(env)
+            }
             StorageKey::Counter => (soroban_sdk::symbol_short!("COUNTER"),).into_val(env),
-            StorageKey::Attestation(id) => (soroban_sdk::symbol_short!("ATTEST"), *id).into_val(env),
+            StorageKey::Attestation(id) => {
+                (soroban_sdk::symbol_short!("ATTEST"), *id).into_val(env)
+            }
             StorageKey::UsedHash(hash) => {
                 (soroban_sdk::symbol_short!("USED"), hash.clone()).into_val(env)
             }
-            StorageKey::Endpoint(addr) => (soroban_sdk::symbol_short!("ENDPOINT"), addr).into_val(env),
+            StorageKey::Endpoint(addr) => {
+                (soroban_sdk::symbol_short!("ENDPOINT"), addr).into_val(env)
+            }
             StorageKey::AnchorServices(addr) => {
                 (soroban_sdk::symbol_short!("SERVICES"), addr).into_val(env)
             }
-            StorageKey::Quote(addr, id) => (soroban_sdk::symbol_short!("QUOTE"), addr, *id).into_val(env),
+            StorageKey::Quote(addr, id) => {
+                (soroban_sdk::symbol_short!("QUOTE"), addr, *id).into_val(env)
+            }
             StorageKey::QuoteCounter => (soroban_sdk::symbol_short!("QCNT"),).into_val(env),
             StorageKey::IntentCounter => (soroban_sdk::symbol_short!("ICNT"),).into_val(env),
             StorageKey::SessionCounter => (soroban_sdk::symbol_short!("SCNT"),).into_val(env),
             StorageKey::Session(id) => (soroban_sdk::symbol_short!("SESS"), *id).into_val(env),
-            StorageKey::SessionNonce(id) => (soroban_sdk::symbol_short!("SNONCE"), *id).into_val(env),
+            StorageKey::SessionNonce(id) => {
+                (soroban_sdk::symbol_short!("SNONCE"), *id).into_val(env)
+            }
             StorageKey::AuditLogCounter => (soroban_sdk::symbol_short!("ACNT"),).into_val(env),
             StorageKey::AuditLog(id) => (soroban_sdk::symbol_short!("AUDIT"), *id).into_val(env),
             StorageKey::SessionOperationCount(id) => {
@@ -84,7 +94,10 @@ impl Storage {
 
     pub fn get_admin(env: &Env) -> Result<Address, Error> {
         let key = StorageKey::Admin.to_storage_key(env);
-        env.storage().instance().get(&key).ok_or(Error::NotInitialized)
+        env.storage()
+            .instance()
+            .get(&key)
+            .ok_or(Error::NotInitialized)
     }
 
     pub fn set_attestor(env: &Env, attestor: &Address, is_registered: bool) {

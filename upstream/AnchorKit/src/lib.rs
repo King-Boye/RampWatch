@@ -15,13 +15,25 @@ use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, V
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
 pub use errors::Error;
 pub use events::{
-    AttestationRecorded, AttestorAdded, AttestorRemoved, EndpointConfigured, EndpointRemoved,
-    OperationLogged, QuoteSubmitted, ServicesConfigured, SessionCreated,
+    AttestationRecorded,
+    AttestorAdded,
+    AttestorRemoved,
+    EndpointConfigured,
+    EndpointRemoved,
+    OperationLogged,
+    // --- Added the 3 new lifecycle events ---
+    QuoteReceived,
+    QuoteSubmitted,
+    ServicesConfigured,
+    SessionCreated,
+    SettlementConfirmed,
+    TransferInitiated,
 };
 pub use storage::Storage;
 pub use types::{
-    AnchorServices, Attestation, AuditLog, Endpoint, InteractionSession, OperationContext,
-    QuoteData, QuoteRequest, RateComparison, ServiceType, TransactionIntent,
+    AnchorMetadata, AnchorOption, AnchorServices, Attestation, AuditLog, Endpoint,
+    InteractionSession, OperationContext, QuoteData, QuoteRequest, RateComparison,
+    RoutingRequest, RoutingResult, RoutingStrategy, ServiceType, TransactionIntent,
     TransactionIntentBuilder,
 };
 pub use validation::{validate_init_config, validate_attestor_batch, validate_session_config};
@@ -32,12 +44,10 @@ pub struct AnchorKitContract;
 #[contractimpl]
 impl AnchorKitContract {
     /// Initialize the contract with an admin address.
-    /// Can only be called once.
     pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
         if Storage::has_admin(&env) {
             return Err(Error::AlreadyInitialized);
         }
-
         admin.require_auth();
         Storage::set_admin(&env, &admin);
         Ok(())
@@ -113,156 +123,57 @@ impl AnchorKitContract {
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
-        if Storage::is_attestor(&env, &attestor) {
-            return Err(Error::AttestorAlreadyRegistered);
-        }
-
-        Storage::set_attestor(&env, &attestor, true);
-        AttestorAdded::publish(&env, &attestor);
-
-        Ok(())
-    }
-
-    /// Revoke an attestor. Only callable by admin.
-    pub fn revoke_attestor(env: Env, attestor: Address) -> Result<(), Error> {
-        let admin = Storage::get_admin(&env)?;
-        admin.require_auth();
-
-        if !Storage::is_attestor(&env, &attestor) {
-            return Err(Error::AttestorNotRegistered);
-        }
-
-        Storage::set_attestor(&env, &attestor, false);
-        AttestorRemoved::publish(&env, &attestor);
-
-        Ok(())
-    }
-
-    /// Submit an attestation. Must be signed by a registered attestor.
-    pub fn submit_attestation(
+    /// Get a specific quote and notify listeners that it has been received.
+    /// This fulfills the "Quote Received" requirement.
+    pub fn get_quote(
         env: Env,
-        issuer: Address,
-        subject: Address,
-        timestamp: u64,
-        payload_hash: BytesN<32>,
-        signature: Bytes,
+        receiver: Address,
+        anchor: Address,
+        quote_id: u64,
+    ) -> Result<QuoteData, Error> {
+        receiver.require_auth();
+
+        // Use your existing storage method
+        let quote = Storage::get_quote(&env, &anchor, quote_id).ok_or(Error::QuoteNotFound)?;
+
+        // Emit the event
+        QuoteReceived::publish(&env, quote_id, &receiver, env.ledger().timestamp());
+
+        Ok(quote)
+    }
+
+    /// Helper function to initiate a transfer (Lifecycle Event 2)
+    pub fn initiate_transfer(
+        env: Env,
+        sender: Address,
+        destination: Address,
+        amount: i128,
     ) -> Result<u64, Error> {
-        issuer.require_auth();
+        sender.require_auth();
 
-        if timestamp == 0 {
-            return Err(Error::InvalidTimestamp);
-        }
+        // 1. Logic for fund movement or intent recording would go here
+        let transfer_id = Storage::get_next_intent_id(&env);
 
-        if !Storage::is_attestor(&env, &issuer) {
-            return Err(Error::UnauthorizedAttestor);
-        }
+        // 2. Emit the "Transfer Initiated" event
+        TransferInitiated::publish(&env, transfer_id, &sender, &destination, amount);
 
-        if Storage::is_hash_used(&env, &payload_hash) {
-            return Err(Error::ReplayAttack);
-        }
-
-        Self::verify_signature(&env, &issuer, &subject, timestamp, &payload_hash, &signature)?;
-
-        let id = Storage::get_and_increment_counter(&env);
-        let attestation = Attestation {
-            id,
-            issuer: issuer.clone(),
-            subject: subject.clone(),
-            timestamp,
-            payload_hash: payload_hash.clone(),
-            signature,
-        };
-
-        Storage::set_attestation(&env, id, &attestation);
-        Storage::mark_hash_used(&env, &payload_hash);
-        AttestationRecorded::publish(&env, id, &subject, timestamp, payload_hash);
-
-        Ok(id)
+        Ok(transfer_id)
     }
 
-    /// Get an attestation by ID.
-    pub fn get_attestation(env: Env, id: u64) -> Result<Attestation, Error> {
-        Storage::get_attestation(&env, id)
-    }
-
-    /// Get the admin address.
-    pub fn get_admin(env: Env) -> Result<Address, Error> {
-        Storage::get_admin(&env)
-    }
-
-    /// Check if an address is a registered attestor.
-    pub fn is_attestor(env: Env, attestor: Address) -> bool {
-        Storage::is_attestor(&env, &attestor)
-    }
-
-    /// Configure an endpoint for an attestor. Callable by the attestor.
-    pub fn configure_endpoint(env: Env, attestor: Address, url: String) -> Result<(), Error> {
-        Storage::get_admin(&env)?;
-        attestor.require_auth();
-
-        Self::validate_endpoint_url(&url)?;
-
-        if !Storage::is_attestor(&env, &attestor) {
-            return Err(Error::AttestorNotRegistered);
-        }
-
-        if Storage::has_endpoint(&env, &attestor) {
-            return Err(Error::EndpointAlreadyExists);
-        }
-
-        let endpoint = Endpoint {
-            url: url.clone(),
-            attestor: attestor.clone(),
-            is_active: true,
-        };
-
-        Storage::set_endpoint(&env, &endpoint);
-
-        EndpointConfigured { attestor, url }.publish(&env);
-
-        Ok(())
-    }
-
-    /// Update an existing endpoint for an attestor. Callable by the attestor.
-    pub fn update_endpoint(
+    /// Confirm the final settlement of a transfer (Lifecycle Event 3)
+    pub fn confirm_settlement(
         env: Env,
-        attestor: Address,
-        url: String,
-        is_active: bool,
+        transfer_id: u64,
+        settlement_ref: BytesN<32>,
     ) -> Result<(), Error> {
-        Storage::get_admin(&env)?;
-        attestor.require_auth();
-
-        Self::validate_endpoint_url(&url)?;
-
-        if !Storage::has_endpoint(&env, &attestor) {
-            return Err(Error::EndpointNotFound);
-        }
-
-        let endpoint = Endpoint {
-            url: url.clone(),
-            attestor: attestor.clone(),
-            is_active,
-        };
-
-        Storage::set_endpoint(&env, &endpoint);
-
-        EndpointConfigured { attestor, url }.publish(&env);
-
-        Ok(())
-    }
-
-    /// Remove an endpoint for an attestor. Only callable by admin.
-    pub fn remove_endpoint(env: Env, attestor: Address) -> Result<(), Error> {
+        // Only admin can confirm settlement in this example
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
-        if !Storage::has_endpoint(&env, &attestor) {
-            return Err(Error::EndpointNotFound);
-        }
+        // 1. Update internal state (if applicable)
 
-        Storage::remove_endpoint(&env, &attestor);
-        EndpointRemoved { attestor }.publish(&env);
+        // 2. Emit the "Settlement Confirmed" event
+        SettlementConfirmed::publish(&env, transfer_id, settlement_ref, env.ledger().timestamp());
 
         Ok(())
     }
@@ -468,7 +379,14 @@ impl AnchorKitContract {
             return Err(Error::ReplayAttack);
         }
 
-        Self::verify_signature(&env, &issuer, &subject, timestamp, &payload_hash, &signature)?;
+        Self::verify_signature(
+            &env,
+            &issuer,
+            &subject,
+            timestamp,
+            &payload_hash,
+            &signature,
+        )?;
 
         let id = Storage::get_and_increment_counter(&env);
         let attestation = Attestation {
@@ -746,6 +664,418 @@ impl AnchorKitContract {
         _payload_hash: &BytesN<32>,
         _signature: &Bytes,
     ) -> Result<(), Error> {
+        Ok(())
+    }
+
+    // ============ Secure Credential Management ============
+
+    /// Set credential policy for an attestor. Only callable by admin.
+    /// Defines rotation intervals and security requirements.
+    pub fn set_credential_policy(
+        env: Env,
+        attestor: Address,
+        rotation_interval_seconds: u64,
+        require_encryption: bool,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        if !Storage::is_attestor(&env, &attestor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+
+        let policy = CredentialPolicy {
+            attestor: attestor.clone(),
+            rotation_interval_seconds,
+            require_encryption,
+            allow_plaintext_storage: !require_encryption,
+        };
+
+        Storage::set_credential_policy(&env, &policy);
+        Ok(())
+    }
+
+    /// Get credential policy for an attestor.
+    pub fn get_credential_policy(env: Env, attestor: Address) -> Result<CredentialPolicy, Error> {
+        Storage::get_credential_policy(&env, &attestor).ok_or(Error::CredentialNotFound)
+    }
+
+    /// Store encrypted credential for an attestor. Only callable by admin.
+    /// Credentials should be encrypted before storage and never stored in plaintext.
+    pub fn store_encrypted_credential(
+        env: Env,
+        attestor: Address,
+        credential_type: CredentialType,
+        encrypted_value: Bytes,
+        expires_at: u64,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        if !Storage::is_attestor(&env, &attestor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+
+        CredentialManager::validate_credential_format(&credential_type, &encrypted_value)?;
+
+        let policy = Storage::get_credential_policy(&env, &attestor)
+            .unwrap_or_else(|| CredentialManager::create_default_policy(attestor.clone()));
+
+        if policy.require_encryption && policy.allow_plaintext_storage {
+            return Err(Error::InsecureCredentialStorage);
+        }
+
+        let credential = SecureCredential {
+            attestor: attestor.clone(),
+            credential_type,
+            encrypted_value,
+            created_at: env.ledger().timestamp(),
+            expires_at,
+            rotation_required: false,
+        };
+
+        Storage::set_secure_credential(&env, &credential);
+        Ok(())
+    }
+
+    /// Rotate credential for an attestor. Only callable by admin.
+    /// Marks the current credential for rotation and stores the new encrypted credential.
+    pub fn rotate_credential(
+        env: Env,
+        attestor: Address,
+        credential_type: CredentialType,
+        new_encrypted_value: Bytes,
+        expires_at: u64,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        if !Storage::is_attestor(&env, &attestor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+
+        CredentialManager::validate_credential_format(&credential_type, &new_encrypted_value)?;
+
+        let credential = SecureCredential {
+            attestor: attestor.clone(),
+            credential_type,
+            encrypted_value: new_encrypted_value,
+            created_at: env.ledger().timestamp(),
+            expires_at,
+            rotation_required: false,
+        };
+
+        Storage::set_secure_credential(&env, &credential);
+        Ok(())
+    }
+
+    /// Check if credential needs rotation based on policy.
+    pub fn check_credential_rotation(env: Env, attestor: Address) -> Result<bool, Error> {
+        let credential = Storage::get_secure_credential(&env, &attestor)
+            .ok_or(Error::CredentialNotFound)?;
+
+        let policy = Storage::get_credential_policy(&env, &attestor)
+            .unwrap_or_else(|| CredentialManager::create_default_policy(attestor.clone()));
+
+        let current_time = env.ledger().timestamp();
+
+        if credential.is_expired(current_time) {
+            return Err(Error::CredentialExpired);
+        }
+
+        Ok(credential.needs_rotation(current_time, &policy))
+    }
+
+    /// Revoke credential for an attestor. Only callable by admin.
+    /// Removes the credential from storage immediately.
+    pub fn revoke_credential(env: Env, attestor: Address) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        if !Storage::is_attestor(&env, &attestor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+
+        Storage::remove_secure_credential(&env, &attestor);
+        Ok(())
+    }
+}
+
+impl AnchorKitContract {
+    // ============ Multi-Anchor Routing ============
+
+    /// Set metadata for an anchor. Only callable by admin or the anchor itself.
+    pub fn set_anchor_metadata(
+        env: Env,
+        anchor: Address,
+        reputation_score: u32,
+        average_settlement_time: u64,
+        liquidity_score: u32,
+        uptime_percentage: u32,
+        total_volume: u64,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+
+        // Validate scores (0-10000 = 0-100%)
+        if reputation_score > 10000 || liquidity_score > 10000 || uptime_percentage > 10000 {
+            return Err(Error::InvalidAnchorMetadata);
+        }
+
+        let metadata = AnchorMetadata {
+            anchor: anchor.clone(),
+            reputation_score,
+            average_settlement_time,
+            liquidity_score,
+            uptime_percentage,
+            total_volume,
+            is_active: true,
+        };
+
+        Storage::set_anchor_metadata(&env, &metadata);
+        Storage::add_to_anchor_list(&env, &anchor);
+
+        Ok(())
+    }
+
+    /// Get metadata for an anchor.
+    pub fn get_anchor_metadata(env: Env, anchor: Address) -> Result<AnchorMetadata, Error> {
+        Storage::get_anchor_metadata(&env, &anchor).ok_or(Error::AnchorMetadataNotFound)
+    }
+
+    /// Get list of all registered anchors.
+    pub fn get_all_anchors(env: Env) -> Vec<Address> {
+        Storage::get_anchor_list(&env)
+    }
+
+    /// Route a transaction request to the best anchor based on strategy.
+    pub fn route_transaction(
+        env: Env,
+        routing_request: RoutingRequest,
+    ) -> Result<RoutingResult, Error> {
+        Storage::get_admin(&env)?;
+
+        let current_timestamp = env.ledger().timestamp();
+        let anchors = Storage::get_anchor_list(&env);
+
+        if anchors.is_empty() {
+            return Err(Error::NoAnchorsAvailable);
+        }
+
+        let mut options: Vec<AnchorOption> = Vec::new(&env);
+
+        // Collect valid options from all anchors
+        for anchor in anchors.iter() {
+            // Check if anchor is registered and active
+            if !Storage::is_attestor(&env, &anchor) {
+                continue;
+            }
+
+            // Get anchor metadata
+            let metadata = match Storage::get_anchor_metadata(&env, &anchor) {
+                Some(m) => m,
+                None => continue,
+            };
+
+            if !metadata.is_active {
+                continue;
+            }
+
+            // Check reputation threshold
+            if metadata.reputation_score < routing_request.min_reputation {
+                continue;
+            }
+
+            // Check if anchor supports the required service
+            let services = match Storage::get_anchor_services(&env, &anchor) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            if !services.services.contains(&routing_request.request.operation_type) {
+                continue;
+            }
+
+            // Check KYC requirement
+            if routing_request.require_kyc && !services.services.contains(&ServiceType::KYC) {
+                continue;
+            }
+
+            // Try to get a quote from this anchor
+            if let Some(quote) = Self::get_latest_quote_for_anchor(
+                &env,
+                &anchor,
+                &routing_request.request,
+            ) {
+                // Validate quote
+                if quote.valid_until > current_timestamp
+                    && quote.base_asset == routing_request.request.base_asset
+                    && quote.quote_asset == routing_request.request.quote_asset
+                    && routing_request.request.amount >= quote.minimum_amount
+                    && routing_request.request.amount <= quote.maximum_amount
+                {
+                    // Calculate score based on strategy
+                    let score = Self::calculate_routing_score(
+                        &routing_request.strategy,
+                        &quote,
+                        &metadata,
+                        routing_request.request.amount,
+                    );
+
+                    options.push_back(AnchorOption {
+                        anchor: anchor.clone(),
+                        quote: quote.clone(),
+                        score,
+                        metadata: metadata.clone(),
+                    });
+                }
+            }
+        }
+
+        if options.is_empty() {
+            return Err(Error::NoQuotesAvailable);
+        }
+
+        // Sort options by score (descending)
+        let mut sorted_options = options.clone();
+        for i in 0..sorted_options.len() {
+            for j in (i + 1)..sorted_options.len() {
+                let score_i = sorted_options.get(i).unwrap().score;
+                let score_j = sorted_options.get(j).unwrap().score;
+                if score_j > score_i {
+                    let temp = sorted_options.get(i).unwrap();
+                    sorted_options.set(i, sorted_options.get(j).unwrap());
+                    sorted_options.set(j, temp);
+                }
+            }
+        }
+
+        // Limit alternatives
+        let max_alternatives = routing_request.max_anchors.min(sorted_options.len());
+        let mut alternatives: Vec<AnchorOption> = Vec::new(&env);
+        for i in 1..max_alternatives {
+            alternatives.push_back(sorted_options.get(i).unwrap());
+        }
+
+        let best = sorted_options.get(0).unwrap();
+
+        Ok(RoutingResult {
+            selected_anchor: best.anchor.clone(),
+            selected_quote: best.quote.clone(),
+            score: best.score,
+            alternatives,
+            routing_timestamp: current_timestamp,
+        })
+    }
+
+    /// Find best anchor for a specific service and asset pair.
+    pub fn find_best_anchor(
+        env: Env,
+        base_asset: String,
+        quote_asset: String,
+        amount: u64,
+        operation_type: ServiceType,
+        strategy: RoutingStrategy,
+    ) -> Result<Address, Error> {
+        let request = QuoteRequest {
+            base_asset,
+            quote_asset,
+            amount,
+            operation_type,
+        };
+
+        let routing_request = RoutingRequest {
+            request,
+            strategy,
+            max_anchors: 1,
+            require_kyc: false,
+            min_reputation: 0,
+        };
+
+        let result = Self::route_transaction(env, routing_request)?;
+        Ok(result.selected_anchor)
+    }
+
+    /// Calculate routing score based on strategy.
+    fn calculate_routing_score(
+        strategy: &RoutingStrategy,
+        quote: &QuoteData,
+        metadata: &AnchorMetadata,
+        amount: u64,
+    ) -> u64 {
+        match strategy {
+            RoutingStrategy::BestRate => {
+                // Higher rate is better (inverted for scoring)
+                let effective_rate = Self::calculate_effective_rate(quote, amount);
+                // Invert so lower effective rate = higher score
+                if effective_rate > 0 {
+                    1_000_000_000 / effective_rate
+                } else {
+                    0
+                }
+            }
+            RoutingStrategy::LowestFee => {
+                // Lower fee is better
+                let max_fee = 10000u32; // 100%
+                let fee_score = max_fee.saturating_sub(quote.fee_percentage);
+                fee_score as u64 * 100_000
+            }
+            RoutingStrategy::FastestSettlement => {
+                // Lower settlement time is better
+                let max_time = 86400u64; // 24 hours
+                let time_score = max_time.saturating_sub(metadata.average_settlement_time);
+                time_score * 10_000
+            }
+            RoutingStrategy::HighestLiquidity => {
+                // Higher liquidity is better
+                metadata.liquidity_score as u64 * 100_000
+            }
+            RoutingStrategy::Custom => {
+                // Weighted combination of all factors
+                let rate_score = if quote.rate > 0 {
+                    (1_000_000 / quote.rate) * 30 // 30% weight
+                } else {
+                    0
+                };
+                let fee_score = (10000u32.saturating_sub(quote.fee_percentage) as u64) * 25; // 25% weight
+                let reputation_score = metadata.reputation_score as u64 * 20; // 20% weight
+                let liquidity_score = metadata.liquidity_score as u64 * 15; // 15% weight
+                let uptime_score = metadata.uptime_percentage as u64 * 10; // 10% weight
+
+                rate_score + fee_score + reputation_score + liquidity_score + uptime_score
+            }
+        }
+    }
+
+    /// Deactivate an anchor (admin only).
+    pub fn deactivate_anchor(env: Env, anchor: Address) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        let mut metadata = Storage::get_anchor_metadata(&env, &anchor)
+            .ok_or(Error::AnchorMetadataNotFound)?;
+
+        metadata.is_active = false;
+        Storage::set_anchor_metadata(&env, &metadata);
+
+        Ok(())
+    }
+
+    /// Reactivate an anchor (admin only).
+    pub fn reactivate_anchor(env: Env, anchor: Address) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        let mut metadata = Storage::get_anchor_metadata(&env, &anchor)
+            .ok_or(Error::AnchorMetadataNotFound)?;
+
+        metadata.is_active = true;
+        Storage::set_anchor_metadata(&env, &metadata);
+
         Ok(())
     }
 }
