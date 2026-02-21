@@ -139,6 +139,41 @@ pub fn emit_fees_withdrawn(
         ),
     );
 }
+pub fn emit_paused(env: &Env, admin: Address) {
+    env.events().publish(
+        (symbol_short!("paused"),),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            admin,
+        ),
+    );
+}
+
+pub fn emit_paused(env: &Env, admin: Address) {
+    env.events().publish(
+        (symbol_short!("admin"), symbol_short!("paused")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            admin,
+        ),
+    );
+}
+
+pub fn emit_unpaused(env: &Env, admin: Address) {
+    env.events().publish(
+        (symbol_short!("admin"), symbol_short!("unpaused")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            admin,
+        ),
+    );
+}
 
 pub fn emit_paused(env: &Env, admin: Address) {
     env.events().publish(
