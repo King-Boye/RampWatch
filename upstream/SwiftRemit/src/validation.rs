@@ -1,4 +1,9 @@
-use soroban_sdk::{Address, Env};
+//! Address validation utilities for the SwiftRemit contract.
+//!
+//! This module provides validation functions for Stellar addresses used in
+//! contract operations.
+
+use soroban_sdk::Address;
 
 use crate::{ContractError, is_agent_registered, is_paused, get_remittance, RemittanceStatus};
 
@@ -7,8 +12,24 @@ use crate::{ContractError, is_agent_registered, is_paused, get_remittance, Remit
 /// from reaching business logic.
 
 /// Validates that an address is properly formatted and not empty.
+///
 /// Stellar addresses in Soroban are represented by the Address type,
 /// which is already validated by the SDK, but we check for additional constraints.
+///
+/// # Arguments
+///
+/// * `address` - Address to validate
+///
+/// # Returns
+///
+/// * `Ok(())` - Address is valid
+/// * `Err(ContractError::InvalidAddress)` - Address validation failed
+///
+/// # Notes
+///
+/// The Address type in Soroban SDK is guaranteed to be valid by the runtime.
+/// This function primarily serves as a placeholder for future validation logic
+/// and to make the code more explicit about validation requirements.
 pub fn validate_address(address: &Address) -> Result<(), ContractError> {
     // The Address type in Soroban SDK is already validated by the runtime.
     // However, we can add additional checks if needed.
