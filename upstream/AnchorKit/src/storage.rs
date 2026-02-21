@@ -1,6 +1,7 @@
 use soroban_sdk::{Address, BytesN, Env, IntoVal};
 
 use crate::{
+    credentials::{CredentialPolicy, SecureCredential},
     types::{
         AnchorMetadata, AnchorServices, Attestation, AuditLog, Endpoint, InteractionSession,
         OperationContext, QuoteData,
