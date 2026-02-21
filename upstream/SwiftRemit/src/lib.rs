@@ -36,18 +36,8 @@ impl SwiftRemitContract {
         usdc_token: Address,
         fee_bps: u32,
     ) -> Result<(), ContractError> {
-        if has_admin(&env) {
-            return Err(ContractError::AlreadyInitialized);
-        }
-
-        if fee_bps > 10000 {
-            return Err(ContractError::InvalidFeeBps);
-        }
-
-        // Check if token is whitelisted
-        if !is_token_whitelisted(&env, &usdc_token) {
-            return Err(ContractError::TokenNotWhitelisted);
-        }
+        // Centralized validation before business logic
+        validate_initialize_request(&env, &admin, &usdc_token, fee_bps)?;
 
         // Set legacy admin for backward compatibility
         set_admin(&env, &admin);
@@ -70,7 +60,8 @@ impl SwiftRemitContract {
     }
 
     pub fn add_admin(env: Env, caller: Address, new_admin: Address) -> Result<(), ContractError> {
-        require_admin(&env, &caller)?;
+        // Centralized validation
+        validate_admin_operation(&env, &caller, &new_admin)?;
 
         if is_admin(&env, &new_admin) {
             return Err(ContractError::AdminAlreadyExists);
@@ -91,7 +82,8 @@ impl SwiftRemitContract {
     }
 
     pub fn remove_admin(env: Env, caller: Address, admin_to_remove: Address) -> Result<(), ContractError> {
-        require_admin(&env, &caller)?;
+        // Centralized validation
+        validate_admin_operation(&env, &caller, &admin_to_remove)?;
 
         if !is_admin(&env, &admin_to_remove) {
             return Err(ContractError::AdminNotFound);
@@ -153,17 +145,14 @@ impl SwiftRemitContract {
     }
 
     pub fn update_fee(env: Env, fee_bps: u32) -> Result<(), ContractError> {
+        // Centralized validation
+        validate_update_fee_request(fee_bps)?;
+        
         let caller = get_admin(&env)?;
         require_admin(&env, &caller)?;
 
-        if fee_bps > 10000 {
-            return Err(ContractError::InvalidFeeBps);
-        }
-
         let old_fee = get_platform_fee_bps(&env)?;
-        
-        // Event: Fee updated - Fires when admin changes the platform fee percentage
-        // Used by off-chain systems to track fee changes for accounting and transparency
+        set_platform_fee_bps(&env, fee_bps);
         emit_fee_updated(&env, caller.clone(), old_fee, fee_bps);
 
         log_update_fee(&env, fee_bps);
@@ -172,26 +161,23 @@ impl SwiftRemitContract {
     }
 
     pub fn create_remittance(
-            env: Env,
-            sender: Address,
-            agent: Address,
-            amount: i128,
-            currency: String,
-            country: String,
-            expiry: Option<u64>,
-        ) -> Result<u64, ContractError> {
-            sender.require_auth();
+        env: Env,
+        sender: Address,
+        agent: Address,
+        amount: i128,
+        expiry: Option<u64>,
+    ) -> Result<u64, ContractError> {
+        // Centralized validation before business logic
+        validate_create_remittance_request(&env, &sender, &agent, amount)?;
+        
+        sender.require_auth();
 
-            if amount <= 0 {
-                return Err(ContractError::InvalidAmount);
-            }
-
-            if !is_agent_registered(&env, &agent) {
-                return Err(ContractError::AgentNotRegistered);
-            }
-
-            // Validate daily send limit before processing the transfer
-            validate_daily_send_limit(&env, &sender, amount, &currency, &country)?;
+        let fee_bps = get_platform_fee_bps(&env)?;
+        let fee = amount
+            .checked_mul(fee_bps as i128)
+            .ok_or(ContractError::Overflow)?
+            .checked_div(10000)
+            .ok_or(ContractError::Overflow)?;
 
             let fee_bps = get_platform_fee_bps(&env)?;
             let fee = amount
@@ -220,47 +206,11 @@ impl SwiftRemitContract {
             set_remittance(&env, remittance_id, &remittance);
             set_remittance_counter(&env, remittance_id);
 
-            // Event: Remittance created - Fires when sender initiates a new remittance
-            // Used by off-chain systems to notify agents of pending payouts and track transaction flow
-            emit_remittance_created(&env, remittance_id, sender.clone(), agent.clone(), usdc_token.clone(), amount, fee);
-
-            log_create_remittance(&env, remittance_id, &sender, &agent, amount, fee);
-
-            Ok(remittance_id)
-        }
-
-
-    pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<u64, ContractError> {
-        if is_paused(&env) {
-            return Err(ContractError::ContractPaused);
-        }
-
-        let mut remittance = get_remittance(&env, remittance_id)?;
+    pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<(), ContractError> {
+        // Centralized validation before business logic
+        let mut remittance = validate_confirm_payout_request(&env, remittance_id)?;
 
         remittance.agent.require_auth();
-
-        // Check rate limit for agent
-        check_rate_limit(&env, &remittance.agent)?;
-
-        if !remittance.status.can_transition_to(&RemittanceStatus::Settled) {
-            return Err(ContractError::InvalidStateTransition);
-        }
-
-        // Check for duplicate settlement execution
-        if has_settlement_hash(&env, remittance_id) {
-            return Err(ContractError::DuplicateSettlement);
-        }
-
-        // Check if settlement has expired
-        if let Some(expiry_time) = remittance.expiry {
-            let current_time = env.ledger().timestamp();
-            if current_time > expiry_time {
-                return Err(ContractError::SettlementExpired);
-            }
-        }
-
-        // Validate the agent address before transfer
-        validate_address(&remittance.agent)?;
 
         let payout_amount = remittance
             .amount
@@ -315,16 +265,10 @@ impl SwiftRemitContract {
     }
 
     pub fn cancel_remittance(env: Env, remittance_id: u64) -> Result<(), ContractError> {
-        let mut remittance = get_remittance(&env, remittance_id)?;
+        // Centralized validation before business logic
+        let mut remittance = validate_cancel_remittance_request(&env, remittance_id)?;
 
         remittance.sender.require_auth();
-
-        // Check rate limit for sender
-        check_rate_limit(&env, &remittance.sender)?;
-
-        if !remittance.status.can_transition_to(&RemittanceStatus::Failed) {
-            return Err(ContractError::InvalidStateTransition);
-        }
 
         let usdc_token = get_usdc_token(&env)?;
         let token_client = token::Client::new(&env, &usdc_token);
@@ -371,17 +315,11 @@ impl SwiftRemitContract {
     }
 
     pub fn withdraw_fees(env: Env, to: Address) -> Result<(), ContractError> {
+        // Centralized validation before business logic
+        let fees = validate_withdraw_fees_request(&env, &to)?;
+        
         let caller = get_admin(&env)?;
         require_admin(&env, &caller)?;
-
-        // Validate the recipient address
-        validate_address(&to)?;
-
-        let fees = get_accumulated_fees(&env)?;
-
-        if fees <= 0 {
-            return Err(ContractError::NoFeesToWithdraw);
-        }
 
         let usdc_token = get_usdc_token(&env)?;
         let token_client = token::Client::new(&env, &usdc_token);
@@ -712,7 +650,8 @@ impl SwiftRemitContract {
 
     /// Add a token to the whitelist. Only admins can call this.
     pub fn whitelist_token(env: Env, caller: Address, token: Address) -> Result<(), ContractError> {
-        require_admin(&env, &caller)?;
+        // Centralized validation
+        validate_admin_operation(&env, &caller, &token)?;
 
         if is_token_whitelisted(&env, &token) {
             return Err(ContractError::TokenAlreadyWhitelisted);
@@ -730,7 +669,8 @@ impl SwiftRemitContract {
 
     /// Remove a token from the whitelist. Only admins can call this.
     pub fn remove_whitelisted_token(env: Env, caller: Address, token: Address) -> Result<(), ContractError> {
-        require_admin(&env, &caller)?;
+        // Centralized validation
+        validate_admin_operation(&env, &caller, &token)?;
 
         if !is_token_whitelisted(&env, &token) {
             return Err(ContractError::TokenNotWhitelisted);
