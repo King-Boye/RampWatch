@@ -5,4 +5,3 @@ Cargo.lock
 .soroban/
 .kiro
 # scratch/audit workfiles
-*.txt
