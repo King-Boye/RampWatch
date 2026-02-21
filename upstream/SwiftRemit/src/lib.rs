@@ -13,7 +13,10 @@ mod validation;
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
+#[cfg(test)]
+mod test; 
+
+use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec};
 
 pub use debug::*;
 pub use error_handler::*;
@@ -37,6 +40,7 @@ impl SwiftRemitContract {
         admin: Address,
         usdc_token: Address,
         fee_bps: u32,
+        rate_limit_cooldown: u64,
     ) -> Result<(), ContractError> {
         // Centralized validation before business logic
         validate_initialize_request(&env, &admin, &usdc_token, fee_bps)?;
@@ -52,6 +56,7 @@ impl SwiftRemitContract {
         set_platform_fee_bps(&env, fee_bps);
         set_remittance_counter(&env, 0);
         set_accumulated_fees(&env, 0);
+        set_rate_limit_cooldown(&env, rate_limit_cooldown);
 
         // Initialize rate limiting with default configuration
         init_rate_limit(&env);
@@ -214,6 +219,29 @@ impl SwiftRemitContract {
 
         remittance.agent.require_auth();
 
+        if remittance.status != RemittanceStatus::Pending {
+            return Err(ContractError::InvalidStatus);
+        }
+
+        // Check for duplicate settlement execution
+        if has_settlement_hash(&env, remittance_id) {
+            return Err(ContractError::DuplicateSettlement);
+        }
+
+        // Check if settlement has expired
+        if let Some(expiry_time) = remittance.expiry {
+            let current_time = env.ledger().timestamp();
+            if current_time > expiry_time {
+                return Err(ContractError::SettlementExpired);
+            }
+        }
+
+        // Check rate limit for sender
+        check_rate_limit(&env, &remittance.sender)?;
+
+        // Validate the agent address before transfer
+        validate_address(&remittance.agent)?;
+
         let payout_amount = remittance
             .amount
             .checked_sub(remittance.fee)
@@ -238,6 +266,10 @@ impl SwiftRemitContract {
 
         // Mark settlement as executed to prevent duplicates
         set_settlement_hash(&env, remittance_id);
+        
+        // Update last settlement time for rate limiting
+        let current_time = env.ledger().timestamp();
+        set_last_settlement_time(&env, &remittance.sender, current_time);
 
         // Event: Remittance completed - Fires when agent confirms fiat payout and USDC is released
         // Used by off-chain systems to track successful settlements and update transaction status
@@ -476,6 +508,25 @@ impl SwiftRemitContract {
     pub fn is_paused(env: Env) -> bool {
         crate::storage::is_paused(&env)
     }
+    
+    pub fn update_rate_limit(env: Env, cooldown_seconds: u64) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+
+        let old_cooldown = get_rate_limit_cooldown(&env)?;
+        set_rate_limit_cooldown(&env, cooldown_seconds);
+        
+        emit_rate_limit_updated(&env, admin, old_cooldown, cooldown_seconds);
+
+        Ok(())
+    }
+    
+    pub fn get_rate_limit_cooldown(env: Env) -> Result<u64, ContractError> {
+        get_rate_limit_cooldown(&env)
+    }
+    
+    pub fn get_last_settlement_time(env: Env, sender: Address) -> Option<u64> {
+        get_last_settlement_time(&env, &sender)
 
     pub fn get_version(env: Env) -> soroban_sdk::String {
         soroban_sdk::String::from_str(&env, env!("CARGO_PKG_VERSION"))

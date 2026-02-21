@@ -68,7 +68,10 @@ pub enum ContractError {
     /// Contract is paused. Settlements are temporarily disabled.
     /// Cause: Attempting confirm_payout() while contract is in paused state.
     ContractPaused = 13,
-
+    
+    /// Rate limit exceeded. Sender must wait before submitting another settlement.
+    /// Cause: Attempting confirm_payout() before cooldown period has elapsed.
+    RateLimitExceeded = 14,
     /// Caller is not authorized to perform admin operations.
     /// Cause: Non-admin attempting to perform admin-only operations.
     Unauthorized = 14,

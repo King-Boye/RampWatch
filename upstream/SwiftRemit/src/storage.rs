@@ -55,16 +55,13 @@ enum DataKey {
     /// Settlement hash for duplicate detection (persistent storage)
     SettlementHash(u64),
     
-    /// Token whitelist status indexed by token address (persistent storage)
-    TokenWhitelisted(Address),
+    // === Rate Limiting ===
+    // Keys for preventing abuse through rate limiting
+    /// Cooldown period in seconds between settlements per sender
+    RateLimitCooldown,
     
-    // === Daily Send Limits ===
-    // Keys for tracking and enforcing daily send limits
-    /// Daily limit configuration indexed by currency and country (persistent storage)
-    DailyLimit(String, String),
-    
-    /// Transfer records for a user within rolling 24-hour window (persistent storage)
-    UserTransfers(Address),
+    /// Last settlement timestamp for a sender address (persistent storage)
+    LastSettlementTime(Address),
 }
 
 pub fn has_admin(env: &Env) -> bool {
@@ -181,7 +178,46 @@ pub fn set_paused(env: &Env, paused: bool) {
     env.storage().instance().set(&DataKey::Paused, &paused);
 }
 
-<<<<<<< HEAD
+pub fn set_rate_limit_cooldown(env: &Env, cooldown_seconds: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::RateLimitCooldown, &cooldown_seconds);
+}
+
+pub fn get_rate_limit_cooldown(env: &Env) -> Result<u64, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::RateLimitCooldown)
+        .ok_or(ContractError::NotInitialized)
+}
+
+pub fn set_last_settlement_time(env: &Env, sender: &Address, timestamp: u64) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::LastSettlementTime(sender.clone()), &timestamp);
+}
+
+pub fn get_last_settlement_time(env: &Env, sender: &Address) -> Option<u64> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::LastSettlementTime(sender.clone()))
+}
+
+pub fn check_rate_limit(env: &Env, sender: &Address) -> Result<(), ContractError> {
+    let cooldown = get_rate_limit_cooldown(env)?;
+    
+    // If cooldown is 0, rate limiting is disabled
+    if cooldown == 0 {
+        return Ok(());
+    }
+    
+    if let Some(last_time) = get_last_settlement_time(env, sender) {
+        let current_time = env.ledger().timestamp();
+        let elapsed = current_time.saturating_sub(last_time);
+        
+        if elapsed < cooldown {
+            return Err(ContractError::RateLimitExceeded);
+        }
 pub fn set_daily_limit(env: &Env, currency: &String, country: &String, limit: i128) {
     let daily_limit = DailyLimit {
         currency: currency.clone(),
@@ -210,7 +246,6 @@ pub fn set_user_transfers(env: &Env, user: &Address, transfers: &Vec<TransferRec
     env.storage()
         .persistent()
         .set(&DataKey::UserTransfers(user.clone()), transfers);
-=======
 // === Admin Role Management ===
 
 pub fn is_admin(env: &Env, address: &Address) -> bool {
@@ -260,5 +295,5 @@ pub fn set_token_whitelisted(env: &Env, token: &Address, whitelisted: bool) {
     env.storage()
         .persistent()
         .set(&DataKey::TokenWhitelisted(token.clone()), &whitelisted);
->>>>>>> origin/main
+>>>>>> origin/main
 }
