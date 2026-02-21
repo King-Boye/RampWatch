@@ -36,8 +36,16 @@ pub enum Error {
     InvalidTransactionIntent = 23,
     ComplianceNotMet = 24,
 
-    /// Multi-anchor routing errors
-    InvalidAnchorMetadata = 30,
-    AnchorMetadataNotFound = 31,
-    NoAnchorsAvailable = 32,
+    /// Configuration validation errors
+    InvalidConfig = 25,
+    DuplicateAttestor = 26,
+    NoEnabledAttestors = 27,
+    
+    /// Detailed config validation errors
+    InvalidConfigName = 28,
+    InvalidConfigVersion = 29,
+    InvalidConfigNetwork = 30,
+    InvalidAttestorName = 31,
+    InvalidAttestorAddress = 32,
+    InvalidAttestorRole = 33,
 }
