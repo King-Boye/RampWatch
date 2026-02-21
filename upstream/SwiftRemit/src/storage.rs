@@ -7,7 +7,7 @@
 
 use soroban_sdk::{contracttype, Address, Env};
 
-use crate::{ContractError, Remittance};
+use crate::{ContractError, Remittance, TransferRecord, DailyLimit};
 
 /// Storage keys for the SwiftRemit contract.
 ///
@@ -21,8 +21,14 @@ use crate::{ContractError, Remittance};
 enum DataKey {
     // === Contract Configuration ===
     // Core contract settings stored in instance storage
-    /// Contract administrator address with privileged access
+    /// Contract administrator address with privileged access (deprecated - use AdminRole)
     Admin,
+
+    /// Admin role status indexed by address (persistent storage)
+    AdminRole(Address),
+
+    /// Counter for tracking number of admins
+    AdminCount,
 
     /// USDC token contract address used for all remittance transactions
     UsdcToken,
@@ -47,15 +53,22 @@ enum DataKey {
     // Keys for managing platform fees
     /// Total accumulated platform fees awaiting withdrawal
     AccumulatedFees,
-    
+
     /// Contract pause status for emergency halts
     Paused,
-    
 
     // === Settlement Deduplication ===
     // Keys for preventing duplicate settlement execution
     /// Settlement hash for duplicate detection (persistent storage)
     SettlementHash(u64),
+    
+    // === Rate Limiting ===
+    // Keys for preventing abuse through rate limiting
+    /// Cooldown period in seconds between settlements per sender
+    RateLimitCooldown,
+    
+    /// Last settlement timestamp for a sender address (persistent storage)
+    LastSettlementTime(Address),
 }
 
 /// Checks if the contract has an admin configured.
@@ -313,4 +326,124 @@ pub fn is_paused(env: &Env) -> bool {
 
 pub fn set_paused(env: &Env, paused: bool) {
     env.storage().instance().set(&DataKey::Paused, &paused);
+}
+
+pub fn set_rate_limit_cooldown(env: &Env, cooldown_seconds: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::RateLimitCooldown, &cooldown_seconds);
+}
+
+pub fn get_rate_limit_cooldown(env: &Env) -> Result<u64, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::RateLimitCooldown)
+        .ok_or(ContractError::NotInitialized)
+}
+
+pub fn set_last_settlement_time(env: &Env, sender: &Address, timestamp: u64) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::LastSettlementTime(sender.clone()), &timestamp);
+}
+
+pub fn get_last_settlement_time(env: &Env, sender: &Address) -> Option<u64> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::LastSettlementTime(sender.clone()))
+}
+
+pub fn check_rate_limit(env: &Env, sender: &Address) -> Result<(), ContractError> {
+    let cooldown = get_rate_limit_cooldown(env)?;
+    
+    // If cooldown is 0, rate limiting is disabled
+    if cooldown == 0 {
+        return Ok(());
+    }
+    
+    if let Some(last_time) = get_last_settlement_time(env, sender) {
+        let current_time = env.ledger().timestamp();
+        let elapsed = current_time.saturating_sub(last_time);
+        
+        if elapsed < cooldown {
+            return Err(ContractError::RateLimitExceeded);
+        }
+pub fn set_daily_limit(env: &Env, currency: &String, country: &String, limit: i128) {
+    let daily_limit = DailyLimit {
+        currency: currency.clone(),
+        country: country.clone(),
+        limit,
+    };
+    env.storage()
+        .persistent()
+        .set(&DataKey::DailyLimit(currency.clone(), country.clone()), &daily_limit);
+}
+
+pub fn get_daily_limit(env: &Env, currency: &String, country: &String) -> Option<DailyLimit> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::DailyLimit(currency.clone(), country.clone()))
+}
+
+pub fn get_user_transfers(env: &Env, user: &Address) -> Vec<TransferRecord> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::UserTransfers(user.clone()))
+        .unwrap_or(Vec::new(env))
+}
+
+pub fn set_user_transfers(env: &Env, user: &Address, transfers: &Vec<TransferRecord>) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::UserTransfers(user.clone()), transfers);
+// === Admin Role Management ===
+
+pub fn is_admin(env: &Env, address: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::AdminRole(address.clone()))
+        .unwrap_or(false)
+}
+
+pub fn set_admin_role(env: &Env, address: &Address, is_admin: bool) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::AdminRole(address.clone()), &is_admin);
+}
+
+pub fn get_admin_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::AdminCount)
+        .unwrap_or(0)
+}
+
+pub fn set_admin_count(env: &Env, count: u32) {
+    env.storage().instance().set(&DataKey::AdminCount, &count);
+}
+
+pub fn require_admin(env: &Env, address: &Address) -> Result<(), ContractError> {
+    address.require_auth();
+
+    if !is_admin(env, address) {
+        return Err(ContractError::Unauthorized);
+    }
+
+    Ok(())
+}
+
+// === Token Whitelist Management ===
+
+pub fn is_token_whitelisted(env: &Env, token: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::TokenWhitelisted(token.clone()))
+        .unwrap_or(false)
+}
+
+pub fn set_token_whitelisted(env: &Env, token: &Address, whitelisted: bool) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::TokenWhitelisted(token.clone()), &whitelisted);
+>>>>>> origin/main
 }
