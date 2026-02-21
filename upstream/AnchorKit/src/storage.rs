@@ -3,8 +3,8 @@ use soroban_sdk::{Address, BytesN, Env, IntoVal};
 use crate::{
     credentials::{CredentialPolicy, SecureCredential},
     types::{
-        AnchorServices, Attestation, AuditLog, Endpoint, InteractionSession, OperationContext,
-        QuoteData,
+        AnchorMetadata, AnchorServices, Attestation, AuditLog, Endpoint, InteractionSession,
+        OperationContext, QuoteData,
     },
     Error,
 };
@@ -27,8 +27,8 @@ enum StorageKey {
     AuditLogCounter,
     AuditLog(u64),
     SessionOperationCount(u64),
-    CredentialPolicy(Address),
-    SecureCredential(Address),
+    AnchorMetadata(Address),
+    AnchorList,
 }
 
 impl StorageKey {
@@ -56,12 +56,10 @@ impl StorageKey {
             StorageKey::SessionOperationCount(id) => {
                 (soroban_sdk::symbol_short!("SOPCNT"), *id).into_val(env)
             }
-            StorageKey::CredentialPolicy(addr) => {
-                (soroban_sdk::symbol_short!("CREDPOL"), addr).into_val(env)
+            StorageKey::AnchorMetadata(addr) => {
+                (soroban_sdk::symbol_short!("ANCHMETA"), addr).into_val(env)
             }
-            StorageKey::SecureCredential(addr) => {
-                (soroban_sdk::symbol_short!("CREDENC"), addr).into_val(env)
-            }
+            StorageKey::AnchorList => (soroban_sdk::symbol_short!("ANCHLIST"),).into_val(env),
         }
     }
 }
@@ -356,11 +354,11 @@ impl Storage {
         counter
     }
 
-    // ============ Credential Management ============
+    // ============ Multi-Anchor Routing ============
 
-    pub fn set_credential_policy(env: &Env, policy: &CredentialPolicy) {
-        let key = StorageKey::CredentialPolicy(policy.attestor.clone()).to_storage_key(env);
-        env.storage().persistent().set(&key, policy);
+    pub fn set_anchor_metadata(env: &Env, metadata: &AnchorMetadata) {
+        let key = StorageKey::AnchorMetadata(metadata.anchor.clone()).to_storage_key(env);
+        env.storage().persistent().set(&key, metadata);
         env.storage().persistent().extend_ttl(
             &key,
             Self::PERSISTENT_LIFETIME,
@@ -368,14 +366,14 @@ impl Storage {
         );
     }
 
-    pub fn get_credential_policy(env: &Env, attestor: &Address) -> Option<CredentialPolicy> {
-        let key = StorageKey::CredentialPolicy(attestor.clone()).to_storage_key(env);
+    pub fn get_anchor_metadata(env: &Env, anchor: &Address) -> Option<AnchorMetadata> {
+        let key = StorageKey::AnchorMetadata(anchor.clone()).to_storage_key(env);
         env.storage().persistent().get(&key)
     }
 
-    pub fn set_secure_credential(env: &Env, credential: &SecureCredential) {
-        let key = StorageKey::SecureCredential(credential.attestor.clone()).to_storage_key(env);
-        env.storage().persistent().set(&key, credential);
+    pub fn set_anchor_list(env: &Env, anchors: &soroban_sdk::Vec<Address>) {
+        let key = StorageKey::AnchorList.to_storage_key(env);
+        env.storage().persistent().set(&key, anchors);
         env.storage().persistent().extend_ttl(
             &key,
             Self::PERSISTENT_LIFETIME,
@@ -383,13 +381,33 @@ impl Storage {
         );
     }
 
-    pub fn get_secure_credential(env: &Env, attestor: &Address) -> Option<SecureCredential> {
-        let key = StorageKey::SecureCredential(attestor.clone()).to_storage_key(env);
-        env.storage().persistent().get(&key)
+    pub fn get_anchor_list(env: &Env) -> soroban_sdk::Vec<Address> {
+        let key = StorageKey::AnchorList.to_storage_key(env);
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(soroban_sdk::Vec::new(env))
     }
 
-    pub fn remove_secure_credential(env: &Env, attestor: &Address) {
-        let key = StorageKey::SecureCredential(attestor.clone()).to_storage_key(env);
-        env.storage().persistent().remove(&key);
+    pub fn add_to_anchor_list(env: &Env, anchor: &Address) {
+        let mut anchors = Self::get_anchor_list(env);
+        if !anchors.contains(anchor) {
+            anchors.push_back(anchor.clone());
+            Self::set_anchor_list(env, &anchors);
+        }
+    }
+
+    pub fn remove_from_anchor_list(env: &Env, anchor: &Address) {
+        let anchors = Self::get_anchor_list(env);
+        let mut new_anchors = soroban_sdk::Vec::new(env);
+        
+        for i in 0..anchors.len() {
+            let a = anchors.get(i).unwrap();
+            if a != *anchor {
+                new_anchors.push_back(a);
+            }
+        }
+        
+        Self::set_anchor_list(env, &new_anchors);
     }
 }

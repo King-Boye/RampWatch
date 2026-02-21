@@ -36,10 +36,8 @@ pub enum Error {
     InvalidTransactionIntent = 23,
     ComplianceNotMet = 24,
 
-    /// Credential management errors
-    InvalidCredentialFormat = 25,
-    CredentialExpired = 26,
-    CredentialRotationRequired = 27,
-    CredentialNotFound = 28,
-    InsecureCredentialStorage = 29,
+    /// Multi-anchor routing errors
+    InvalidAnchorMetadata = 30,
+    AnchorMetadataNotFound = 31,
+    NoAnchorsAvailable = 32,
 }
