@@ -35,4 +35,11 @@ pub enum Error {
     /// Transaction intent / compliance errors
     InvalidTransactionIntent = 23,
     ComplianceNotMet = 24,
+
+    /// Credential management errors
+    InvalidCredentialFormat = 25,
+    CredentialExpired = 26,
+    CredentialRotationRequired = 27,
+    CredentialNotFound = 28,
+    InsecureCredentialStorage = 29,
 }
