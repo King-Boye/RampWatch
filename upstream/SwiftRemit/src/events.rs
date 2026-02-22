@@ -77,6 +77,7 @@ pub fn emit_remittance_created(
     agent: Address,
     amount: i128,
     fee: i128,
+    integrator_fee: i128,
 ) {
     env.events().publish(
         (symbol_short!("remit"), symbol_short!("created")),
@@ -89,6 +90,7 @@ pub fn emit_remittance_created(
             agent,
             amount,
             fee,
+            integrator_fee,
         ),
     );
 }

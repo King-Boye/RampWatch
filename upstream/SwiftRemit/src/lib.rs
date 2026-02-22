@@ -90,6 +90,7 @@ impl SwiftRemitContract {
         
         set_usdc_token(&env, &usdc_token);
         set_platform_fee_bps(&env, fee_bps);
+        set_integrator_fee_bps(&env, 0);
         set_remittance_counter(&env, 0);
         set_accumulated_fees(&env, 0);
         set_rate_limit_cooldown(&env, rate_limit_cooldown);
@@ -328,6 +329,8 @@ impl SwiftRemitContract {
         let payout_amount = remittance
             .amount
             .checked_sub(remittance.fee)
+            .ok_or(ContractError::Overflow)?
+            .checked_sub(remittance.integrator_fee)
             .ok_or(ContractError::Overflow)?;
 
         let usdc_token = get_usdc_token(&env)?;
@@ -343,6 +346,12 @@ impl SwiftRemitContract {
             .checked_add(remittance.fee)
             .ok_or(ContractError::Overflow)?;
         set_accumulated_fees(&env, new_fees);
+
+        let current_integrator_fees = get_accumulated_integrator_fees(&env)?;
+        let new_integrator_fees = current_integrator_fees
+            .checked_add(remittance.integrator_fee)
+            .ok_or(ContractError::Overflow)?;
+        set_accumulated_integrator_fees(&env, new_integrator_fees);
 
         remittance.status = RemittanceStatus::Settled;
         set_remittance(&env, remittance_id, &remittance);
@@ -538,6 +547,14 @@ impl SwiftRemitContract {
     /// * `Err(ContractError::NotInitialized)` - Contract not initialized
     pub fn get_platform_fee_bps(env: Env) -> Result<u32, ContractError> {
         get_platform_fee_bps(&env)
+    }
+
+    pub fn get_integrator_fee_bps(env: Env) -> Result<u32, ContractError> {
+        get_integrator_fee_bps(&env)
+    }
+
+    pub fn get_accumulated_integrator_fees(env: Env) -> Result<i128, ContractError> {
+        get_accumulated_integrator_fees(&env)
     }
 
     pub fn pause(env: Env) -> Result<(), ContractError> {
