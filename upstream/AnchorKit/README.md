@@ -139,6 +139,86 @@ const auditLog = await contract.get_audit_log(0);
 cargo build --release
 ```
 
+## CLI Usage
+
+AnchorKit now includes a comprehensive CLI tool for interacting with the smart contract. Each command includes helpful examples and clear descriptions.
+
+### Getting Help
+
+View all available commands:
+```bash
+anchorkit --help
+```
+
+Get detailed help for any command:
+```bash
+anchorkit deploy --help
+anchorkit register --help
+```
+
+### Common Workflows
+
+#### 1. Build and Deploy
+```bash
+# Build the contract
+anchorkit build --release
+
+# Deploy to testnet
+anchorkit deploy --network testnet
+
+# Initialize with admin account
+anchorkit init --admin GADMIN123...
+```
+
+#### 2. Register an Attestor
+```bash
+# Basic registration
+anchorkit register --address GANCHOR123...
+
+# Register with services
+anchorkit register --address GANCHOR123... \
+  --services deposits,withdrawals,kyc \
+  --endpoint https://anchor.example.com
+```
+
+#### 3. Submit Attestations
+```bash
+# Submit attestation
+anchorkit attest --subject GUSER123... --payload-hash abc123...
+
+# Submit with session tracking
+anchorkit attest --subject GUSER123... \
+  --payload-hash abc123... \
+  --session session-001
+```
+
+#### 4. Monitor Health
+```bash
+# Check all attestors
+anchorkit health
+
+# Monitor specific attestor
+anchorkit health --attestor GANCHOR123... --watch --interval 30
+```
+
+### Available Commands
+
+- `build` - Build the smart contract
+- `deploy` - Deploy to Stellar network
+- `init` - Initialize contract with admin
+- `register` - Register new attestor
+- `attest` - Submit attestation
+- `query` - Query attestation by ID
+- `health` - Check attestor health
+- `test` - Run contract tests
+- `validate` - Validate configuration files
+
+Each command includes:
+- Clear description of when to use it
+- Real-world usage examples
+- All available options and flags
+- Network selection support
+
 ## Testing
 
 The contract includes comprehensive tests for all functionality:
