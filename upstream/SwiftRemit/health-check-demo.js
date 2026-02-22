@@ -7,6 +7,9 @@
  * Since the contract has compilation issues, this shows the expected behavior.
  */
 
+const { createLogger } = require('./examples/logger');
+const logger = createLogger('health-check-demo');
+
 // Mock contract health check response
 function mockContractHealth() {
   return {
@@ -43,34 +46,36 @@ async function checkHealth() {
 
 // Main demo
 async function main() {
-  console.log('SwiftRemit Health Check Demo\n');
-  console.log('=' .repeat(50));
+  logger.info('SwiftRemit Health Check Demo');
   
   // Run 5 health checks
   for (let i = 1; i <= 5; i++) {
     const result = await checkHealth();
     
-    console.log(`\nCheck #${i}:`);
-    console.log(`  Status: ${result.success ? '✅ HEALTHY' : '❌ UNHEALTHY'}`);
-    console.log(`  Operational: ${result.data?.operational}`);
-    console.log(`  Initialized: ${result.data?.initialized}`);
-    console.log(`  Timestamp: ${result.data?.timestamp}`);
-    console.log(`  Latency: ${result.latency_ms}ms`);
-    console.log(`  Performance: ${result.latency_ms < 100 ? '✅ PASS' : '⚠️  SLOW'} (<100ms)`);
+    logger.info({
+      check_num: i,
+      status: result.success ? '✅ HEALTHY' : '❌ UNHEALTHY',
+      operational: result.data?.operational,
+      initialized: result.data?.initialized,
+      timestamp: result.data?.timestamp,
+      latency_ms: result.latency_ms,
+      performance: result.latency_ms < 100 ? '✅ PASS' : '⚠️  SLOW'
+    }, 'Health check result');
   }
   
-  console.log('\n' + '='.repeat(50));
-  console.log('\n✅ Health check demo complete!');
-  console.log('\nExpected Response Structure:');
-  console.log(JSON.stringify({
-    success: true,
-    data: {
-      operational: true,
-      timestamp: 1708545351,
-      initialized: true
-    },
-    error: null
-  }, null, 2));
+  logger.info('Health check demo complete!');
+  
+  logger.info({
+    expected_response_structure: {
+      success: true,
+      data: {
+        operational: true,
+        timestamp: 1708545351,
+        initialized: true
+      },
+      error: null
+    }
+  }, 'Expected Response Structure');
 }
 
-main().catch(console.error);
+main().catch(err => logger.error({ error: err.message }, 'Demo failed'));

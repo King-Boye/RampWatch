@@ -13,6 +13,9 @@ const {
   Keypair,
 } = require('@stellar/stellar-sdk');
 
+const { createLogger } = require('./logger');
+const logger = createLogger('migration-example');
+
 // Configuration
 const config = {
   rpcUrl: 'https://soroban-testnet.stellar.org',
@@ -30,7 +33,7 @@ const server = new SorobanRpc.Server(config.rpcUrl);
  * Demonstrates complete state migration for small datasets (< 100 remittances).
  */
 async function exampleFullMigration() {
-  console.log('\n=== Example 1: Full Migration ===\n');
+  logger.info('=== Example 1: Full Migration ===');
 
   const oldContract = new Contract(config.oldContractId);
   const newContract = new Contract(config.newContractId);
@@ -38,62 +41,66 @@ async function exampleFullMigration() {
 
   try {
     // Step 1: Pause old contract
-    console.log('1. Pausing old contract...');
+    logger.info('1. Pausing old contract...');
     await oldContract.pause({ caller: admin.publicKey() });
-    console.log('   ✓ Old contract paused');
+    logger.info('✓ Old contract paused');
 
     // Step 2: Export state
-    console.log('\n2. Exporting state...');
+    logger.info('2. Exporting state...');
     const snapshot = await oldContract.export_migration_state({
       caller: admin.publicKey()
     });
-    console.log(`   ✓ Exported ${snapshot.persistent_data.remittances.length} remittances`);
-    console.log(`   ✓ Accumulated fees: ${snapshot.instance_data.accumulated_fees}`);
-    console.log(`   ✓ Platform fee: ${snapshot.instance_data.platform_fee_bps} bps`);
+    logger.info({
+      remittance_count: snapshot.persistent_data.remittances.length,
+      accumulated_fees: snapshot.instance_data.accumulated_fees,
+      platform_fee_bps: snapshot.instance_data.platform_fee_bps
+    }, 'State exported');
 
     // Step 3: Verify snapshot
-    console.log('\n3. Verifying snapshot integrity...');
+    logger.info('3. Verifying snapshot integrity...');
     const verification = await oldContract.verify_migration_snapshot({
       snapshot: snapshot
     });
     
     if (!verification.valid) {
+      logger.error('Snapshot verification failed!');
       throw new Error('Snapshot verification failed!');
     }
-    console.log('   ✓ Snapshot verified');
-    console.log(`   ✓ Hash: ${verification.expected_hash.toString('hex').substring(0, 16)}...`);
+    logger.info({ hash: verification.expected_hash.toString('hex').substring(0, 16) }, 'Snapshot verified');
 
     // Step 4: Import to new contract
-    console.log('\n4. Importing state to new contract...');
+    logger.info('4. Importing state to new contract...');
     await newContract.import_migration_state({
       caller: admin.publicKey(),
       snapshot: snapshot
     });
-    console.log('   ✓ State imported');
+    logger.info('✓ State imported');
 
     // Step 5: Verify import
-    console.log('\n5. Verifying import...');
+    logger.info('5. Verifying import...');
     const newSnapshot = await newContract.export_migration_state({
       caller: admin.publicKey()
     });
     
     if (snapshot.instance_data.remittance_counter !== newSnapshot.instance_data.remittance_counter) {
+      logger.error({ 
+        expected: snapshot.instance_data.remittance_counter, 
+        actual: newSnapshot.instance_data.remittance_counter 
+      }, 'Remittance counter mismatch!');
       throw new Error('Remittance counter mismatch!');
     }
-    console.log('   ✓ Import verified');
+    logger.info('✓ Import verified');
 
     // Step 6: Test new contract
-    console.log('\n6. Testing new contract...');
+    logger.info('6. Testing new contract...');
     const feeBps = await newContract.get_platform_fee_bps();
-    console.log(`   ✓ Platform fee: ${feeBps} bps`);
-    
     const fees = await newContract.get_accumulated_fees();
-    console.log(`   ✓ Accumulated fees: ${fees}`);
+    logger.info({ feeBps, fees }, 'New contract state');
 
-    console.log('\n✅ Migration completed successfully!');
+    logger.info('✅ Migration completed successfully!');
 
   } catch (error) {
-    console.error('\n❌ Migration failed:', error.message);
+    logger.error({ error: error.message }, 'Migration failed');
     throw error;
   }
 }
@@ -104,7 +111,7 @@ async function exampleFullMigration() {
  * Demonstrates incremental migration for large datasets (> 100 remittances).
  */
 async function exampleBatchMigration() {
-  console.log('\n=== Example 2: Batch Migration ===\n');
+  logger.info('=== Example 2: Batch Migration ===');
 
   const oldContract = new Contract(config.oldContractId);
   const newContract = new Contract(config.newContractId);
@@ -112,21 +119,19 @@ async function exampleBatchMigration() {
 
   try {
     // Step 1: Determine batch parameters
-    console.log('1. Calculating batch parameters...');
+    logger.info('1. Calculating batch parameters...');
     const remittanceCount = await oldContract.get_remittance_counter();
     const batchSize = 50;
     const totalBatches = Math.ceil(remittanceCount / batchSize);
-    console.log(`   ✓ Total remittances: ${remittanceCount}`);
-    console.log(`   ✓ Batch size: ${batchSize}`);
-    console.log(`   ✓ Total batches: ${totalBatches}`);
+    logger.info({ remittanceCount, batchSize, totalBatches }, 'Batch parameters calculated');
 
     // Step 2: Pause old contract
-    console.log('\n2. Pausing old contract...');
+    logger.info('2. Pausing old contract...');
     await oldContract.pause({ caller: admin.publicKey() });
-    console.log('   ✓ Old contract paused');
+    logger.info('✓ Old contract paused');
 
     // Step 3: Export batches
-    console.log('\n3. Exporting batches...');
+    logger.info('3. Exporting batches...');
     const batches = [];
     for (let i = 0; i < totalBatches; i++) {
       const batch = await oldContract.export_migration_batch({
@@ -135,11 +140,11 @@ async function exampleBatchMigration() {
         batch_size: batchSize
       });
       batches.push(batch);
-      console.log(`   ✓ Exported batch ${i + 1}/${totalBatches} (${batch.remittances.length} items)`);
+      logger.info({ batch_number: i + 1, total_batches: totalBatches, count: batch.remittances.length }, 'Exported batch');
     }
 
     // Step 4: Initialize new contract
-    console.log('\n4. Initializing new contract...');
+    logger.info('4. Initializing new contract...');
     const instanceData = await oldContract.export_migration_state({
       caller: admin.publicKey()
     }).then(s => s.instance_data);
@@ -149,30 +154,31 @@ async function exampleBatchMigration() {
       usdc_token: instanceData.usdc_token,
       fee_bps: instanceData.platform_fee_bps
     });
-    console.log('   ✓ New contract initialized');
+    logger.info('✓ New contract initialized');
 
     // Step 5: Import batches
-    console.log('\n5. Importing batches...');
+    logger.info('5. Importing batches...');
     for (let i = 0; i < batches.length; i++) {
       await newContract.import_migration_batch({
         caller: admin.publicKey(),
         batch: batches[i]
       });
-      console.log(`   ✓ Imported batch ${i + 1}/${totalBatches}`);
+      logger.info({ batch_number: i + 1, total_batches: batches.length }, 'Imported batch');
     }
 
     // Step 6: Verify completeness
-    console.log('\n6. Verifying completeness...');
+    logger.info('6. Verifying completeness...');
     const newCount = await newContract.get_remittance_counter();
     if (newCount !== remittanceCount) {
+      logger.error({ expected: remittanceCount, actual: newCount }, 'Count mismatch!');
       throw new Error(`Count mismatch: expected ${remittanceCount}, got ${newCount}`);
     }
-    console.log(`   ✓ All ${newCount} remittances migrated`);
+    logger.info({ count: newCount }, 'All remittances migrated');
 
-    console.log('\n✅ Batch migration completed successfully!');
+    logger.info('✅ Batch migration completed successfully!');
 
   } catch (error) {
-    console.error('\n❌ Batch migration failed:', error.message);
+    logger.error({ error: error.message }, 'Batch migration failed');
     throw error;
   }
 }
@@ -183,37 +189,40 @@ async function exampleBatchMigration() {
  * Demonstrates how to verify a snapshot without importing.
  */
 async function exampleVerificationOnly() {
-  console.log('\n=== Example 3: Verification Only ===\n');
+  logger.info('=== Example 3: Verification Only ===');
 
   const oldContract = new Contract(config.oldContractId);
+  const admin = Keypair.fromSecret(process.env.ADMIN_SECRET); // Initialize admin here
 
   try {
     // Export snapshot
-    console.log('1. Exporting snapshot...');
+    logger.info('1. Exporting snapshot...');
     const snapshot = await oldContract.export_migration_state({
       caller: admin.publicKey()
     });
-    console.log('   ✓ Snapshot exported');
+    logger.info('✓ Snapshot exported');
 
     // Verify integrity
-    console.log('\n2. Verifying integrity...');
+    logger.info('2. Verifying integrity...');
     const verification = await oldContract.verify_migration_snapshot({
       snapshot: snapshot
     });
 
-    console.log(`   Valid: ${verification.valid}`);
-    console.log(`   Expected hash: ${verification.expected_hash.toString('hex').substring(0, 32)}...`);
-    console.log(`   Actual hash:   ${verification.actual_hash.toString('hex').substring(0, 32)}...`);
-    console.log(`   Timestamp: ${new Date(verification.timestamp * 1000).toISOString()}`);
+    logger.info({ 
+      valid: verification.valid,
+      expected_hash: verification.expected_hash.toString('hex').substring(0, 32),
+      actual_hash: verification.actual_hash.toString('hex').substring(0, 32),
+      timestamp: new Date(verification.timestamp * 1000).toISOString()
+    }, 'Snapshot integrity');
 
     if (verification.valid) {
-      console.log('\n✅ Snapshot is valid and ready for migration');
+      logger.info('✅ Snapshot is valid and ready for migration');
     } else {
-      console.log('\n❌ Snapshot verification failed - do not use!');
+      logger.error('❌ Snapshot verification failed - do not use!');
     }
 
   } catch (error) {
-    console.error('\n❌ Verification failed:', error.message);
+    logger.error({ error: error.message }, 'Verification failed');
     throw error;
   }
 }
@@ -224,7 +233,7 @@ async function exampleVerificationOnly() {
  * Demonstrates how hash verification detects tampering.
  */
 async function exampleTamperDetection() {
-  console.log('\n=== Example 4: Tamper Detection ===\n');
+  logger.info('=== Example 4: Tamper Detection ===');
 
   const oldContract = new Contract(config.oldContractId);
   const newContract = new Contract(config.newContractId);
@@ -232,54 +241,52 @@ async function exampleTamperDetection() {
 
   try {
     // Export snapshot
-    console.log('1. Exporting snapshot...');
+    logger.info('1. Exporting snapshot...');
     const snapshot = await oldContract.export_migration_state({
       caller: admin.publicKey()
     });
-    console.log('   ✓ Snapshot exported');
+    logger.info('✓ Snapshot exported');
 
     // Verify original
-    console.log('\n2. Verifying original snapshot...');
+    logger.info('2. Verifying original snapshot...');
     const verification1 = await oldContract.verify_migration_snapshot({
       snapshot: snapshot
     });
-    console.log(`   ✓ Original valid: ${verification1.valid}`);
+    logger.info({ valid: verification1.valid }, 'Original snapshot verification');
 
     // Tamper with data
-    console.log('\n3. Tampering with snapshot data...');
+    logger.info('3. Tampering with snapshot data...');
     const tamperedSnapshot = { ...snapshot };
     tamperedSnapshot.instance_data.platform_fee_bps = 9999; // Change fee
-    console.log('   ✓ Changed platform fee to 9999 bps');
+    logger.warn({ old_fee: snapshot.instance_data.platform_fee_bps, new_fee: 9999 }, 'Changed platform fee to tamper with data');
 
     // Verify tampered
-    console.log('\n4. Verifying tampered snapshot...');
+    logger.info('4. Verifying tampered snapshot...');
     const verification2 = await oldContract.verify_migration_snapshot({
       snapshot: tamperedSnapshot
     });
-    console.log(`   ✓ Tampered valid: ${verification2.valid}`);
+    logger.info({ valid: verification2.valid }, 'Tampered snapshot verification');
 
     if (!verification2.valid) {
-      console.log('   ✓ Tampering detected!');
-      console.log(`   ✓ Hash mismatch: expected != actual`);
+      logger.info('Tampering detected! Hash mismatch as expected.');
     }
 
     // Try to import tampered snapshot
-    console.log('\n5. Attempting to import tampered snapshot...');
+    logger.info('5. Attempting to import tampered snapshot...');
     try {
       await newContract.import_migration_state({
         caller: admin.publicKey(),
         snapshot: tamperedSnapshot
       });
-      console.log('   ❌ Import should have failed!');
+      logger.error('❌ Import should have failed!');
     } catch (error) {
-      console.log('   ✓ Import correctly rejected');
-      console.log(`   ✓ Error: ${error.message}`);
+      logger.info({ error: error.message }, 'Import correctly rejected');
     }
 
-    console.log('\n✅ Tamper detection working correctly!');
+    logger.info('✅ Tamper detection working correctly!');
 
   } catch (error) {
-    console.error('\n❌ Test failed:', error.message);
+    logger.error({ error: error.message }, 'Tamper detection test failed');
     throw error;
   }
 }
@@ -290,7 +297,7 @@ async function exampleTamperDetection() {
  * Demonstrates how to create an audit trail of the migration.
  */
 async function exampleAuditTrail() {
-  console.log('\n=== Example 5: Migration Audit Trail ===\n');
+  logger.info('=== Example 5: Migration Audit Trail ===');
 
   const oldContract = new Contract(config.oldContractId);
   const newContract = new Contract(config.newContractId);
@@ -306,7 +313,7 @@ async function exampleAuditTrail() {
 
   try {
     // Export
-    console.log('1. Exporting state...');
+    logger.info('1. Exporting state...');
     const snapshot = await oldContract.export_migration_state({
       caller: admin.publicKey()
     });
@@ -318,10 +325,10 @@ async function exampleAuditTrail() {
       accumulated_fees: snapshot.instance_data.accumulated_fees.toString(),
       verification_hash: snapshot.verification_hash.toString('hex'),
     });
-    console.log('   ✓ State exported');
+    logger.info('✓ State exported');
 
     // Verify
-    console.log('\n2. Verifying snapshot...');
+    logger.info('2. Verifying snapshot...');
     const verification = await oldContract.verify_migration_snapshot({
       snapshot: snapshot
     });
@@ -333,10 +340,10 @@ async function exampleAuditTrail() {
       expected_hash: verification.expected_hash.toString('hex'),
       actual_hash: verification.actual_hash.toString('hex'),
     });
-    console.log('   ✓ Snapshot verified');
+    logger.info('✓ Snapshot verified');
 
     // Import
-    console.log('\n3. Importing state...');
+    logger.info('3. Importing state...');
     await newContract.import_migration_state({
       caller: admin.publicKey(),
       snapshot: snapshot
@@ -347,10 +354,10 @@ async function exampleAuditTrail() {
       timestamp: new Date().toISOString(),
       success: true,
     });
-    console.log('   ✓ State imported');
+    logger.info('✓ State imported');
 
     // Verify import
-    console.log('\n4. Verifying import...');
+    logger.info('4. Verifying import...');
     const newSnapshot = await newContract.export_migration_state({
       caller: admin.publicKey()
     });
@@ -367,17 +374,17 @@ async function exampleAuditTrail() {
       fees_match: feesMatch,
       new_verification_hash: newSnapshot.verification_hash.toString('hex'),
     });
-    console.log('   ✓ Import verified');
+    logger.info('✓ Import verified');
 
     // Save audit log
-    console.log('\n5. Saving audit log...');
+    logger.info('5. Saving audit log...');
     const auditLogJson = JSON.stringify(auditLog, null, 2);
-    console.log(auditLogJson);
+    logger.info({ auditLog }, 'Audit log created');
     
     // In production, save to file or database
     // fs.writeFileSync('migration-audit.json', auditLogJson);
     
-    console.log('\n✅ Migration audit trail created!');
+    logger.info('✅ Migration audit trail created!');
 
   } catch (error) {
     auditLog.steps.push({
@@ -385,8 +392,7 @@ async function exampleAuditTrail() {
       timestamp: new Date().toISOString(),
       error: error.message,
     });
-    console.error('\n❌ Migration failed:', error.message);
-    console.log('\nAudit log:', JSON.stringify(auditLog, null, 2));
+    logger.error({ error: error.message, auditLog }, 'Migration failed');
     throw error;
   }
 }
@@ -423,9 +429,7 @@ async function verifyMigrationSuccess(oldContract, newContract) {
  * Main function to run examples
  */
 async function main() {
-  console.log('╔════════════════════════════════════════════════════════════╗');
-  console.log('║     SwiftRemit Contract Migration Examples                ║');
-  console.log('╚════════════════════════════════════════════════════════════╝');
+  logger.info('=== SwiftRemit Contract Migration Examples ===');
 
   try {
     // Run examples
@@ -436,7 +440,7 @@ async function main() {
     await exampleAuditTrail();
 
   } catch (error) {
-    console.error('\nError running examples:', error);
+    logger.error({ error: error.message }, 'Error running examples');
     process.exit(1);
   }
 }

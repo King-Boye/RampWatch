@@ -14,6 +14,9 @@ const {
   xdr,
 } = require('@stellar/stellar-sdk');
 
+const { createLogger } = require('./logger');
+const logger = createLogger('net-settlement-example');
+
 // Configuration
 const config = {
   rpcUrl: 'https://soroban-testnet.stellar.org',
@@ -30,7 +33,7 @@ const server = new SorobanRpc.Server(config.rpcUrl);
  * Demonstrates basic netting between two parties with opposing transfers.
  */
 async function exampleSimpleOffset() {
-  console.log('\n=== Example 1: Simple Offset ===\n');
+  logger.info('=== Example 1: Simple Offset ===');
 
   // Scenario:
   // - Alice sends 100 USDC to Bob
@@ -46,19 +49,24 @@ async function exampleSimpleOffset() {
     remittance_id: id
   }));
 
-  console.log('Remittances to settle:');
-  console.log('  1. Alice → Bob: 100 USDC');
-  console.log('  2. Bob → Alice: 90 USDC');
-  console.log('\nExpected net transfer: Alice → Bob: 10 USDC');
+  logger.info({
+    remittances: [
+      { from: 'Alice', to: 'Bob', amount: 100 },
+      { from: 'Bob', to: 'Alice', amount: 90 }
+    ],
+    expected_net: 'Alice → Bob: 10 USDC'
+  }, 'Remittances to settle');
 
   try {
     const result = await batchSettleWithNetting(entries);
-    console.log(`\n✓ Successfully settled ${result.settled_ids.length} remittances`);
-    console.log(`  Settled IDs: ${result.settled_ids.join(', ')}`);
-    console.log('  Net transfers executed: 1 (instead of 2)');
-    console.log('  Gas savings: ~50%');
+    logger.info({
+      settled_count: result.settled_ids.length,
+      settled_ids: result.settled_ids,
+      transfers_executed: 1,
+      gas_savings: '~50%'
+    }, 'Settlement successful');
   } catch (error) {
-    console.error('✗ Error:', error.message);
+    logger.error({ error: error.message }, 'Settlement failed');
   }
 }
 
@@ -68,7 +76,7 @@ async function exampleSimpleOffset() {
  * Demonstrates complete offsetting where net transfer is zero.
  */
 async function exampleCompleteOffset() {
-  console.log('\n=== Example 2: Complete Offset ===\n');
+  logger.info('=== Example 2: Complete Offset ===');
 
   // Scenario:
   // - Alice sends 100 USDC to Bob
@@ -84,20 +92,24 @@ async function exampleCompleteOffset() {
     remittance_id: id
   }));
 
-  console.log('Remittances to settle:');
-  console.log('  3. Alice → Bob: 100 USDC');
-  console.log('  4. Bob → Alice: 100 USDC');
-  console.log('\nExpected net transfer: None (complete offset)');
+  logger.info({
+    remittances: [
+      { from: 'Alice', to: 'Bob', amount: 100 },
+      { from: 'Bob', to: 'Alice', amount: 100 }
+    ],
+    expected_net: 'None (complete offset)'
+  }, 'Remittances to settle');
 
   try {
     const result = await batchSettleWithNetting(entries);
-    console.log(`\n✓ Successfully settled ${result.settled_ids.length} remittances`);
-    console.log(`  Settled IDs: ${result.settled_ids.join(', ')}`);
-    console.log('  Net transfers executed: 0 (complete offset)');
-    console.log('  Gas savings: ~100%');
-    console.log('  Note: Fees still collected from both remittances');
+    logger.info({
+      settled_count: result.settled_ids.length,
+      settled_ids: result.settled_ids,
+      transfers_executed: 0,
+      gas_savings: '~100%'
+    }, 'Settlement successful');
   } catch (error) {
-    console.error('✗ Error:', error.message);
+    logger.error({ error: error.message }, 'Settlement failed');
   }
 }
 
@@ -107,7 +119,7 @@ async function exampleCompleteOffset() {
  * Demonstrates netting with multiple parties in a triangle pattern.
  */
 async function exampleMultipleParties() {
-  console.log('\n=== Example 3: Multiple Parties ===\n');
+  logger.info('=== Example 3: Multiple Parties ===');
 
   // Scenario:
   // - Alice sends 100 USDC to Bob
@@ -125,19 +137,24 @@ async function exampleMultipleParties() {
     remittance_id: id
   }));
 
-  console.log('Remittances to settle:');
-  console.log('  5. Alice → Bob: 100 USDC');
-  console.log('  6. Bob → Charlie: 50 USDC');
-  console.log('  7. Charlie → Alice: 30 USDC');
-  console.log('\nExpected: 3 net transfers (no offsetting between different pairs)');
+  logger.info({
+    remittances: [
+      { from: 'Alice', to: 'Bob', amount: 100 },
+      { from: 'Bob', to: 'Charlie', amount: 50 },
+      { from: 'Charlie', to: 'Alice', amount: 30 }
+    ],
+    expected_net: '3 net transfers'
+  }, 'Remittances to settle');
 
   try {
     const result = await batchSettleWithNetting(entries);
-    console.log(`\n✓ Successfully settled ${result.settled_ids.length} remittances`);
-    console.log(`  Settled IDs: ${result.settled_ids.join(', ')}`);
-    console.log('  Net transfers executed: 3');
+    logger.info({
+      settled_count: result.settled_ids.length,
+      settled_ids: result.settled_ids,
+      transfers_executed: 3
+    }, 'Settlement successful');
   } catch (error) {
-    console.error('✗ Error:', error.message);
+    logger.error({ error: error.message }, 'Settlement failed');
   }
 }
 
@@ -147,7 +164,7 @@ async function exampleMultipleParties() {
  * Demonstrates efficient batch processing with high netting ratio.
  */
 async function exampleLargeBatch() {
-  console.log('\n=== Example 4: Large Batch ===\n');
+  logger.info('=== Example 4: Large Batch ===');
 
   // Scenario:
   // - 10 remittances: 5 from Alice to Bob, 5 from Bob to Alice
@@ -163,19 +180,25 @@ async function exampleLargeBatch() {
     remittance_id: id
   }));
 
-  console.log('Remittances to settle: 10 remittances');
-  console.log('  5 × Alice → Bob: 100 USDC each');
-  console.log('  5 × Bob → Alice: 100 USDC each');
-  console.log('\nExpected net transfer: None (complete offset)');
+  logger.info({
+    count: 10,
+    patterns: [
+      '5 × Alice → Bob: 100 USDC each',
+      '5 × Bob → Alice: 100 USDC each'
+    ],
+    expected_net: 'None (complete offset)'
+  }, 'Remittances to settle');
 
   try {
     const result = await batchSettleWithNetting(entries);
-    console.log(`\n✓ Successfully settled ${result.settled_ids.length} remittances`);
-    console.log('  Net transfers executed: 0 (complete offset)');
-    console.log('  Gas savings: ~100%');
-    console.log('  Netting efficiency: 100%');
+    logger.info({
+      settled_count: result.settled_ids.length,
+      transfers_executed: 0,
+      gas_savings: '~100%',
+      efficiency: '100%'
+    }, 'Settlement successful');
   } catch (error) {
-    console.error('✗ Error:', error.message);
+    logger.error({ error: error.message }, 'Settlement failed');
   }
 }
 
@@ -185,44 +208,41 @@ async function exampleLargeBatch() {
  * Demonstrates proper error handling for common issues.
  */
 async function exampleErrorHandling() {
-  console.log('\n=== Example 5: Error Handling ===\n');
+  logger.info('=== Example 5: Error Handling ===');
 
   // Test 1: Empty batch
-  console.log('Test 1: Empty batch');
+  logger.info('Test 1: Empty batch');
   try {
     await batchSettleWithNetting([]);
-    console.log('✗ Should have thrown error');
+    logger.error('Should have thrown error');
   } catch (error) {
-    console.log('✓ Correctly rejected empty batch');
-    console.log(`  Error: ${error.message}`);
+    logger.info({ error: error.message }, 'Correctly rejected empty batch');
   }
 
   // Test 2: Duplicate IDs
-  console.log('\nTest 2: Duplicate IDs');
+  logger.info('Test 2: Duplicate IDs');
   try {
     const entries = [
       { remittance_id: 1n },
       { remittance_id: 1n }, // Duplicate
     ];
     await batchSettleWithNetting(entries);
-    console.log('✗ Should have thrown error');
+    logger.error('Should have thrown error');
   } catch (error) {
-    console.log('✓ Correctly rejected duplicate IDs');
-    console.log(`  Error: ${error.message}`);
+    logger.info({ error: error.message }, 'Correctly rejected duplicate IDs');
   }
 
   // Test 3: Batch too large
-  console.log('\nTest 3: Batch exceeds maximum size');
+  logger.info('Test 3: Batch exceeds maximum size');
   try {
     const entries = [];
     for (let i = 0; i < 51; i++) {
       entries.push({ remittance_id: BigInt(i) });
     }
     await batchSettleWithNetting(entries);
-    console.log('✗ Should have thrown error');
+    logger.error('Should have thrown error');
   } catch (error) {
-    console.log('✓ Correctly rejected oversized batch');
-    console.log(`  Error: ${error.message}`);
+    logger.info({ error: error.message }, 'Correctly rejected oversized batch');
   }
 }
 
@@ -232,10 +252,10 @@ async function exampleErrorHandling() {
  * Demonstrates how to monitor settlements and calculate efficiency metrics.
  */
 async function exampleMonitoring() {
-  console.log('\n=== Example 6: Monitoring and Analytics ===\n');
+  logger.info('=== Example 6: Monitoring and Analytics ===');
 
   // Subscribe to settlement events
-  console.log('Subscribing to settlement events...\n');
+  logger.info('Subscribing to settlement events...');
 
   const currentLedger = await server.getLatestLedger();
 
@@ -257,11 +277,12 @@ async function exampleMonitoring() {
       amount,
     ] = event.value;
 
-    console.log('Net Settlement Event:');
-    console.log(`  Sender: ${sender}`);
-    console.log(`  Recipient: ${recipient}`);
-    console.log(`  Amount: ${amount}`);
-    console.log(`  Timestamp: ${new Date(timestamp * 1000).toISOString()}`);
+    logger.info({
+      sender,
+      recipient,
+      amount,
+      timestamp: new Date(timestamp * 1000).toISOString()
+    }, 'Net Settlement Event');
   });
 
   // Listen for remittance completion events
@@ -283,14 +304,15 @@ async function exampleMonitoring() {
       amount,
     ] = event.value;
 
-    console.log('Remittance Completed:');
-    console.log(`  ID: ${remittance_id}`);
-    console.log(`  Sender: ${sender}`);
-    console.log(`  Agent: ${agent}`);
-    console.log(`  Amount: ${amount}`);
+    logger.info({
+      remittance_id,
+      sender,
+      agent,
+      amount
+    }, 'Remittance Completed');
   });
 
-  console.log('Listening for events... (Press Ctrl+C to stop)');
+  logger.info('Listening for events...');
 }
 
 /**
@@ -315,12 +337,7 @@ function calculateMetrics(originalCount, netTransferCount) {
  * Display metrics
  */
 function displayMetrics(metrics) {
-  console.log('\nNetting Efficiency Metrics:');
-  console.log(`  Original transfers: ${metrics.originalCount}`);
-  console.log(`  Net transfers: ${metrics.netTransferCount}`);
-  console.log(`  Saved transfers: ${metrics.savedTransfers}`);
-  console.log(`  Efficiency: ${metrics.efficiency}%`);
-  console.log(`  Gas saved: ~${metrics.gasSaved.toLocaleString()} units`);
+  logger.info({ metrics }, 'Netting Efficiency Metrics');
 }
 
 /**
@@ -373,9 +390,7 @@ async function batchSettleWithNetting(entries) {
  * Main function to run all examples
  */
 async function main() {
-  console.log('╔════════════════════════════════════════════════════════════╗');
-  console.log('║     SwiftRemit Net Settlement Examples                    ║');
-  console.log('╚════════════════════════════════════════════════════════════╝');
+  logger.info('=== SwiftRemit Net Settlement Examples ===');
 
   try {
     // Run examples
@@ -386,7 +401,7 @@ async function main() {
     await exampleErrorHandling();
 
     // Display sample metrics
-    console.log('\n=== Sample Metrics ===\n');
+    logger.info('=== Sample Metrics ===');
     const metrics1 = calculateMetrics(10, 2);
     displayMetrics(metrics1);
 
@@ -397,7 +412,7 @@ async function main() {
     // await exampleMonitoring();
 
   } catch (error) {
-    console.error('Error running examples:', error);
+    logger.error({ error: error.message }, 'Error running examples');
   }
 }
 
