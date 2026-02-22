@@ -4,6 +4,7 @@ mod config;
 mod credentials;
 mod errors;
 mod events;
+mod serialization;
 mod storage;
 mod transport;
 mod types;
@@ -21,6 +22,9 @@ mod capability_detection_tests;
 
 #[cfg(test)]
 mod transport_tests;
+
+#[cfg(test)]
+mod serialization_tests;
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
