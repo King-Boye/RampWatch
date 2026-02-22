@@ -99,7 +99,9 @@ pub fn compute_net_settlements(env: &Env, remittances: &Vec<Remittance>) -> Vec<
     
     for i in 0..keys.len() {
         let key = keys.get_unchecked(i);
-        let (net_amount, total_fees) = net_map.get(key.clone()).unwrap();
+        // Map.get() returns Option, but we know key exists since we just got it from keys()
+        // This is safe because keys() returns only existing keys
+        let (net_amount, total_fees) = net_map.get(key.clone()).unwrap_or((0, 0));
         
         // Only include non-zero net transfers
         if net_amount != 0 {
@@ -145,8 +147,10 @@ fn compare_addresses(a: &Address, b: &Address) -> i32 {
     let min_len = if a_len < b_len { a_len } else { b_len };
     
     for i in 0..min_len {
-        let a_char = a_bytes.get(i).unwrap();
-        let b_char = b_bytes.get(i).unwrap();
+        // String.get() returns Option<u8>, but we know index is valid since i < min_len
+        // This is safe because we're iterating within bounds
+        let a_char = a_bytes.get(i).unwrap_or(0);
+        let b_char = b_bytes.get(i).unwrap_or(0);
         
         if a_char < b_char {
             return -1;
@@ -221,7 +225,7 @@ pub fn validate_net_settlement(
     
     // Verify fees are preserved exactly
     if total_original_fees != total_net_fees {
-        return Err(ContractError::Overflow); // Using Overflow as a generic math error
+        return Err(ContractError::NetSettlementValidationFailed);
     }
     
     // Note: We don't verify total amounts are equal because netting reduces
