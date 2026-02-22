@@ -2847,13 +2847,17 @@ fn test_whitelist_edge_case_many_tokens() {
 
 #[test]
 fn test_validation_prevents_invalid_amount() {
+    // Test implementation placeholder
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Net Settlement Tests
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn test_net_settlement_simple_offset() {
-
+    // Test implementation placeholder
+}
 
 #[test]
 fn test_simulate_settlement_success() {
@@ -3789,7 +3793,12 @@ fn test_migration_hash_detects_tampering() {
 }
 
 #[test]
+#[test]
 fn test_validation_prevents_operations_on_completed_remittance() {
+    // Test implementation placeholder
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #1)")]
 fn test_import_fails_if_already_initialized() {
     let env = Env::default();

@@ -841,10 +841,7 @@ impl SwiftRemitContract {
     pub fn get_rate_limit_status(env: Env, address: Address) -> (u32, u32, u64) {
         get_rate_limit_status(&env, &address)
     }
-}
 
-#[contractimpl]
-impl SwiftRemitContract {
     // ═══════════════════════════════════════════════════════════════════════════
     // Migration Functions
     // ═══════════════════════════════════════════════════════════════════════════

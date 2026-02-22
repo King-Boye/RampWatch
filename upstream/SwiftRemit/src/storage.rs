@@ -5,7 +5,7 @@
 //! Uses both instance storage (contract-level config) and persistent storage
 //! (per-entity data).
 
-use soroban_sdk::{contracttype, Address, Env};
+use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 use crate::{ContractError, Remittance, TransferRecord, DailyLimit};
 
@@ -69,6 +69,19 @@ enum DataKey {
     
     /// Last settlement timestamp for a sender address (persistent storage)
     LastSettlementTime(Address),
+    
+    // === Daily Limits ===
+    // Keys for tracking daily transfer limits
+    /// Daily limit configuration indexed by currency and country (persistent storage)
+    DailyLimit(String, String),
+    
+    /// User transfer records indexed by user address (persistent storage)
+    UserTransfers(Address),
+    
+    // === Token Whitelist ===
+    // Keys for managing whitelisted tokens
+    /// Token whitelist status indexed by token address (persistent storage)
+    TokenWhitelisted(Address),
 }
 
 /// Checks if the contract has an admin configured.
@@ -452,5 +465,4 @@ pub fn set_token_whitelisted(env: &Env, token: &Address, whitelisted: bool) {
     env.storage()
         .persistent()
         .set(&DataKey::TokenWhitelisted(token.clone()), &whitelisted);
->>>>>> origin/main
 }
