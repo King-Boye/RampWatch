@@ -354,13 +354,24 @@ impl SwiftRemitContract {
         let current_time = env.ledger().timestamp();
         set_last_settlement_time(&env, &remittance.sender, current_time);
 
+        // Emit settlement completion event exactly once
+        // This event is emitted after all state transitions are committed
+        // and includes safeguards to prevent duplicate emission
+        if !has_settlement_event_emitted(&env, remittance_id) {
+            emit_settlement_completed(
+                &env,
+                remittance_id,
+                remittance.sender.clone(),
+                remittance.agent.clone(),
+                usdc_token.clone(),
+                payout_amount
+            );
+            set_settlement_event_emitted(&env, remittance_id);
+        }
+
         // Event: Remittance completed - Fires when agent confirms fiat payout and USDC is released
         // Used by off-chain systems to track successful settlements and update transaction status
         emit_remittance_completed(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), payout_amount);
-        
-        // Event: Settlement completed - Fires with final executed settlement values
-        // Used by off-chain systems for reconciliation and audit trails of completed transactions
-        emit_settlement_completed(&env, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), payout_amount);
 
         log_confirm_payout(&env, remittance_id, payout_amount);
 
@@ -711,9 +722,6 @@ impl SwiftRemitContract {
                 .checked_add(transfer.total_fees)
                 .ok_or(ContractError::Overflow)?;
             set_accumulated_fees(&env, new_fees);
-
-            // Emit settlement event
-            emit_settlement_completed(&env, from, to, usdc_token.clone(), payout_amount);
         }
 
         // Mark all remittances as completed and set settlement hashes
@@ -726,11 +734,27 @@ impl SwiftRemitContract {
             set_settlement_hash(&env, remittance.id);
             settled_ids.push_back(remittance.id);
 
-            // Emit individual remittance completion event
+            // Calculate payout amount for this remittance
             let payout_amount = remittance
                 .amount
                 .checked_sub(remittance.fee)
                 .ok_or(ContractError::Overflow)?;
+
+            // Emit settlement completion event exactly once per remittance
+            // This ensures each finalized settlement has exactly one completion event
+            if !has_settlement_event_emitted(&env, remittance.id) {
+                emit_settlement_completed(
+                    &env,
+                    remittance.id,
+                    remittance.sender.clone(),
+                    remittance.agent.clone(),
+                    usdc_token.clone(),
+                    payout_amount,
+                );
+                set_settlement_event_emitted(&env, remittance.id);
+            }
+
+            // Emit individual remittance completion event
             emit_remittance_completed(
                 &env,
                 remittance.id,
