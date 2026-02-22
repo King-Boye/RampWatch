@@ -56,8 +56,10 @@ impl SwiftRemitContract {
         
         set_usdc_token(&env, &usdc_token);
         set_platform_fee_bps(&env, fee_bps);
+        set_integrator_fee_bps(&env, 0);
         set_remittance_counter(&env, 0);
         set_accumulated_fees(&env, 0);
+        set_accumulated_integrator_fees(&env, 0);
 
         log_initialize(&env, &admin, &usdc_token, fee_bps);
 
@@ -166,6 +168,21 @@ impl SwiftRemitContract {
         Ok(())
     }
 
+    pub fn update_integrator_fee(env: Env, fee_bps: u32) -> Result<(), ContractError> {
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
+
+        if fee_bps > 10000 {
+            return Err(ContractError::InvalidFeeBps);
+        }
+
+        let old_fee = get_integrator_fee_bps(&env)?;
+        set_integrator_fee_bps(&env, fee_bps);
+        emit_integrator_fee_updated(&env, caller.clone(), old_fee, fee_bps);
+
+        Ok(())
+    }
+
     pub fn create_remittance(
         env: Env,
         sender: Address,
@@ -190,6 +207,13 @@ impl SwiftRemitContract {
             .checked_div(10000)
             .ok_or(ContractError::Overflow)?;
 
+        let integrator_fee_bps = get_integrator_fee_bps(&env)?;
+        let integrator_fee = amount
+            .checked_mul(integrator_fee_bps as i128)
+            .ok_or(ContractError::Overflow)?
+            .checked_div(10000)
+            .ok_or(ContractError::Overflow)?;
+
         let usdc_token = get_usdc_token(&env)?;
         let token_client = token::Client::new(&env, &usdc_token);
         token_client.transfer(&sender, &env.current_contract_address(), &amount);
@@ -203,6 +227,7 @@ impl SwiftRemitContract {
             agent: agent.clone(),
             amount,
             fee,
+            integrator_fee,
             status: RemittanceStatus::Pending,
             expiry,
         };
@@ -212,7 +237,7 @@ impl SwiftRemitContract {
 
         // Event: Remittance created - Fires when sender initiates a new remittance
         // Used by off-chain systems to notify agents of pending payouts and track transaction flow
-        emit_remittance_created(&env, remittance_id, sender.clone(), agent.clone(), usdc_token.clone(), amount, fee);
+        emit_remittance_created(&env, remittance_id, sender.clone(), agent.clone(), usdc_token.clone(), amount, fee, integrator_fee);
 
         log_create_remittance(&env, remittance_id, &sender, &agent, amount, fee);
 
@@ -251,6 +276,8 @@ impl SwiftRemitContract {
         let payout_amount = remittance
             .amount
             .checked_sub(remittance.fee)
+            .ok_or(ContractError::Overflow)?
+            .checked_sub(remittance.integrator_fee)
             .ok_or(ContractError::Overflow)?;
 
         let usdc_token = get_usdc_token(&env)?;
@@ -266,6 +293,12 @@ impl SwiftRemitContract {
             .checked_add(remittance.fee)
             .ok_or(ContractError::Overflow)?;
         set_accumulated_fees(&env, new_fees);
+
+        let current_integrator_fees = get_accumulated_integrator_fees(&env)?;
+        let new_integrator_fees = current_integrator_fees
+            .checked_add(remittance.integrator_fee)
+            .ok_or(ContractError::Overflow)?;
+        set_accumulated_integrator_fees(&env, new_integrator_fees);
 
         remittance.status = RemittanceStatus::Settled;
         set_remittance(&env, remittance_id, &remittance);
@@ -474,6 +507,27 @@ impl SwiftRemitContract {
             fee: remittance.fee,
             error_message: None,
         }
+    pub fn withdraw_integrator_fees(env: Env, to: Address) -> Result<(), ContractError> {
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
+
+        validate_address(&to)?;
+
+        let fees = get_accumulated_integrator_fees(&env)?;
+
+        if fees <= 0 {
+            return Err(ContractError::NoFeesToWithdraw);
+        }
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&env.current_contract_address(), &to, &fees);
+
+        set_accumulated_integrator_fees(&env, 0);
+
+        emit_integrator_fees_withdrawn(&env, caller, to, usdc_token, fees);
+
+        Ok(())
     }
 
     pub fn get_remittance(env: Env, remittance_id: u64) -> Result<Remittance, ContractError> {
@@ -494,6 +548,14 @@ impl SwiftRemitContract {
 
     pub fn get_platform_fee_bps(env: Env) -> Result<u32, ContractError> {
         get_platform_fee_bps(&env)
+    }
+
+    pub fn get_integrator_fee_bps(env: Env) -> Result<u32, ContractError> {
+        get_integrator_fee_bps(&env)
+    }
+
+    pub fn get_accumulated_integrator_fees(env: Env) -> Result<i128, ContractError> {
+        get_accumulated_integrator_fees(&env)
     }
 
     pub fn pause(env: Env) -> Result<(), ContractError> {

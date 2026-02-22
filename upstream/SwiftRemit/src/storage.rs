@@ -47,6 +47,12 @@ enum DataKey {
     /// Total accumulated platform fees awaiting withdrawal
     AccumulatedFees,
 
+    /// Integrator fee in basis points
+    IntegratorFeeBps,
+
+    /// Total accumulated integrator fees awaiting withdrawal
+    AccumulatedIntegratorFees,
+
     /// Contract pause status for emergency halts
     Paused,
 
@@ -147,6 +153,32 @@ pub fn get_accumulated_fees(env: &Env) -> Result<i128, ContractError> {
     env.storage()
         .instance()
         .get(&DataKey::AccumulatedFees)
+        .ok_or(ContractError::NotInitialized)
+}
+
+pub fn set_integrator_fee_bps(env: &Env, fee_bps: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::IntegratorFeeBps, &fee_bps);
+}
+
+pub fn get_integrator_fee_bps(env: &Env) -> Result<u32, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::IntegratorFeeBps)
+        .ok_or(ContractError::NotInitialized)
+}
+
+pub fn set_accumulated_integrator_fees(env: &Env, fees: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::AccumulatedIntegratorFees, &fees);
+}
+
+pub fn get_accumulated_integrator_fees(env: &Env) -> Result<i128, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::AccumulatedIntegratorFees)
         .ok_or(ContractError::NotInitialized)
 }
 

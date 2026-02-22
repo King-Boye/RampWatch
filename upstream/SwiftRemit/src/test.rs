@@ -3818,3 +3818,85 @@ fn test_migration_with_multiple_remittance_statuses() {
     assert_eq!(contract2.get_remittance(&id2).unwrap().status, crate::RemittanceStatus::Completed);
     assert_eq!(contract2.get_remittance(&id3).unwrap().status, crate::RemittanceStatus::Cancelled);
 }
+
+#[test]
+fn test_integrator_fee_full_flow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let fee_recipient = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250); // 2.5% platform fee
+    contract.register_agent(&agent);
+
+    // Update integrator fee to 1.5% (150 bps)
+    contract.update_integrator_fee(&150);
+    assert_eq!(contract.get_integrator_fee_bps(), 150);
+
+    // Create remittance of 1000
+    // Platform fee: 1000 * 250 / 10000 = 25
+    // Integrator fee: 1000 * 150 / 10000 = 15
+    let id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance = contract.get_remittance(&id);
+    assert_eq!(remittance.fee, 25);
+    assert_eq!(remittance.integrator_fee, 15);
+
+    // Settle remittance
+    contract.authorize_remittance(&admin, &id);
+    contract.settle_remittance(&id);
+
+    // Payout should be 1000 - 25 - 15 = 960
+    let token_client = token::Client::new(&env, &token.address);
+    assert_eq!(token_client.balance(&agent), 960);
+    assert_eq!(contract.get_accumulated_fees(), 25);
+    assert_eq!(contract.get_accumulated_integrator_fees(), 15);
+
+    // Withdraw integrator fees
+    contract.withdraw_integrator_fees(&fee_recipient);
+    assert_eq!(token_client.balance(&fee_recipient), 15);
+    assert_eq!(contract.get_accumulated_integrator_fees(), 0);
+}
+
+#[test]
+fn test_integrator_fee_zero_by_default() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.whitelist_token(&admin, &token.address);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    assert_eq!(contract.get_integrator_fee_bps(), 0);
+
+    let id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance = contract.get_remittance(&id);
+    assert_eq!(remittance.integrator_fee, 0);
+
+    contract.authorize_remittance(&admin, &id);
+    contract.settle_remittance(&id);
+
+    assert_eq!(
+        token::Client::new(&env, &token.address).balance(&agent),
+        975
+    );
+    assert_eq!(contract.get_accumulated_integrator_fees(), 0);
+}
+

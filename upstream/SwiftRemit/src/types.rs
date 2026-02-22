@@ -26,7 +26,6 @@ impl RemittanceStatus {
             (RemittanceStatus::Settled, RemittanceStatus::Finalized) => true,
 
             // Allow transitions to Failed from any non-terminal state
-
             _ => false,
         }
     }
@@ -40,6 +39,7 @@ pub struct Remittance {
     pub agent: Address,
     pub amount: i128,
     pub fee: i128,
+    pub integrator_fee: i128,
     pub status: RemittanceStatus,
     pub expiry: Option<u64>,
 }

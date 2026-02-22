@@ -12,6 +12,7 @@ pub fn emit_remittance_created(
     token: Address,
     amount: i128,
     fee: i128,
+    integrator_fee: i128,
 ) {
     env.events().publish(
         (symbol_short!("remit"), symbol_short!("created")),
@@ -25,6 +26,7 @@ pub fn emit_remittance_created(
             token,
             amount,
             fee,
+            integrator_fee,
         ),
     );
 }
@@ -128,6 +130,41 @@ pub fn emit_fees_withdrawn(
 ) {
     env.events().publish(
         (symbol_short!("fee"), symbol_short!("withdraw")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            admin,
+            recipient,
+            token,
+            amount,
+        ),
+    );
+}
+
+pub fn emit_integrator_fee_updated(env: &Env, admin: Address, old_fee_bps: u32, new_fee_bps: u32) {
+    env.events().publish(
+        (symbol_short!("int_fee"), symbol_short!("updated")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            admin,
+            old_fee_bps,
+            new_fee_bps,
+        ),
+    );
+}
+
+pub fn emit_integrator_fees_withdrawn(
+    env: &Env,
+    admin: Address,
+    recipient: Address,
+    token: Address,
+    amount: i128,
+) {
+    env.events().publish(
+        (symbol_short!("int_fee"), symbol_short!("withdraw")),
         (
             SCHEMA_VERSION,
             env.ledger().sequence(),
