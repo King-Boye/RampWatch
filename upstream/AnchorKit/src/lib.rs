@@ -18,6 +18,7 @@ mod session_tests;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
+pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
 pub use errors::Error;
 pub use events::{
     AttestationRecorded,
@@ -34,15 +35,13 @@ pub use events::{
     SettlementConfirmed,
     TransferInitiated,
 };
-pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
 pub use storage::Storage;
 pub use types::{
-    AnchorMetadata, AnchorOption, AnchorServices, Attestation, AuditLog, Endpoint,
-    HealthStatus, InteractionSession, OperationContext, QuoteData, QuoteRequest, RateComparison,
-    RoutingRequest, RoutingResult, RoutingStrategy, ServiceType, TransactionIntent,
-    TransactionIntentBuilder,
+    AnchorMetadata, AnchorOption, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
+    InteractionSession, OperationContext, QuoteData, QuoteRequest, RateComparison, RoutingRequest,
+    RoutingResult, RoutingStrategy, ServiceType, TransactionIntent, TransactionIntentBuilder,
 };
-pub use validation::{validate_init_config, validate_attestor_batch, validate_session_config};
+pub use validation::{validate_attestor_batch, validate_init_config, validate_session_config};
 
 #[contract]
 pub struct AnchorKitContract;
@@ -72,18 +71,15 @@ impl AnchorKitContract {
         // Strict validation before initialization
         validate_init_config(&config)?;
         admin.require_auth();
-        
+
         Storage::set_admin(&env, &admin);
         Storage::set_contract_config(&env, &config);
-        
+
         Ok(())
     }
 
     /// Batch register attestors with strict validation
-    pub fn batch_register_attestors(
-        env: Env,
-        attestors: Vec<AttestorConfig>,
-    ) -> Result<(), Error> {
+    pub fn batch_register_attestors(env: Env, attestors: Vec<AttestorConfig>) -> Result<(), Error> {
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
@@ -97,7 +93,7 @@ impl AnchorKitContract {
             }
 
             let attestor_addr = Address::from_string(&config.address);
-            
+
             if Storage::is_attestor(&env, &attestor_addr) {
                 return Err(Error::AttestorAlreadyRegistered);
             }
@@ -110,10 +106,7 @@ impl AnchorKitContract {
     }
 
     /// Configure session settings with strict validation
-    pub fn configure_session_settings(
-        env: Env,
-        config: SessionConfig,
-    ) -> Result<(), Error> {
+    pub fn configure_session_settings(env: Env, config: SessionConfig) -> Result<(), Error> {
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
@@ -796,8 +789,8 @@ impl AnchorKitContract {
 
     /// Check if credential needs rotation based on policy.
     pub fn check_credential_rotation(env: Env, attestor: Address) -> Result<bool, Error> {
-        let credential = Storage::get_secure_credential(&env, &attestor)
-            .ok_or(Error::CredentialNotFound)?;
+        let credential =
+            Storage::get_secure_credential(&env, &attestor).ok_or(Error::CredentialNotFound)?;
 
         let policy = Storage::get_credential_policy(&env, &attestor)
             .unwrap_or_else(|| CredentialManager::create_default_policy(attestor.clone()));
@@ -959,7 +952,10 @@ impl AnchorKitContract {
                 Err(_) => continue,
             };
 
-            if !services.services.contains(&routing_request.request.operation_type) {
+            if !services
+                .services
+                .contains(&routing_request.request.operation_type)
+            {
                 continue;
             }
 
@@ -969,11 +965,9 @@ impl AnchorKitContract {
             }
 
             // Try to get a quote from this anchor
-            if let Some(quote) = Self::get_latest_quote_for_anchor(
-                &env,
-                &anchor,
-                &routing_request.request,
-            ) {
+            if let Some(quote) =
+                Self::get_latest_quote_for_anchor(&env, &anchor, &routing_request.request)
+            {
                 // Validate quote
                 if quote.valid_until > current_timestamp
                     && quote.base_asset == routing_request.request.base_asset
@@ -1119,8 +1113,8 @@ impl AnchorKitContract {
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
-        let mut metadata = Storage::get_anchor_metadata(&env, &anchor)
-            .ok_or(Error::AnchorMetadataNotFound)?;
+        let mut metadata =
+            Storage::get_anchor_metadata(&env, &anchor).ok_or(Error::AnchorMetadataNotFound)?;
 
         metadata.is_active = false;
         Storage::set_anchor_metadata(&env, &metadata);
@@ -1133,8 +1127,8 @@ impl AnchorKitContract {
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
-        let mut metadata = Storage::get_anchor_metadata(&env, &anchor)
-            .ok_or(Error::AnchorMetadataNotFound)?;
+        let mut metadata =
+            Storage::get_anchor_metadata(&env, &anchor).ok_or(Error::AnchorMetadataNotFound)?;
 
         metadata.is_active = true;
         Storage::set_anchor_metadata(&env, &metadata);
