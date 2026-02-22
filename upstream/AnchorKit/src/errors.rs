@@ -59,4 +59,15 @@ pub enum Error {
     InvalidAnchorMetadata = 38,
     AnchorMetadataNotFound = 39,
     NoAnchorsAvailable = 40,
+
+    /// Transport errors (HTTP/Network layer)
+    TransportError = 41,       // Generic transport/network error
+    TransportTimeout = 42,      // Timeout errors (408, 504)
+    TransportUnauthorized = 43, // Auth errors (401, 403)
+
+    /// Protocol errors (Anchor validation layer)
+    ProtocolError = 44,                 // Generic protocol error
+    ProtocolInvalidPayload = 45,        // Invalid/malformed payload
+    ProtocolRateLimitExceeded = 46,     // Rate limiting (retryable)
+    ProtocolComplianceViolation = 47,   // Compliance/KYC errors
 }

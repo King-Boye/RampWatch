@@ -2,6 +2,7 @@
 
 mod config;
 mod credentials;
+mod error_mapping;
 mod errors;
 mod events;
 mod retry;
@@ -30,6 +31,9 @@ mod serialization_tests;
 #[cfg(test)]
 mod retry_tests;
 
+#[cfg(test)]
+mod error_mapping_tests;
+
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
@@ -42,7 +46,6 @@ pub use events::{
     EndpointConfigured,
     EndpointRemoved,
     OperationLogged,
-    // --- Added the 3 new lifecycle events ---
     QuoteReceived,
     QuoteSubmitted,
     ServicesConfigured,
