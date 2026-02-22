@@ -569,6 +569,7 @@ impl SwiftRemitContract {
     
     pub fn get_last_settlement_time(env: Env, sender: Address) -> Option<u64> {
         get_last_settlement_time(&env, &sender)
+    }
 
     pub fn get_version(env: Env) -> soroban_sdk::String {
         soroban_sdk::String::from_str(&env, env!("CARGO_PKG_VERSION"))
@@ -1063,4 +1064,3 @@ impl SwiftRemitContract {
         get_daily_limit(&env, &currency, &country)
     }
 }
-    }
