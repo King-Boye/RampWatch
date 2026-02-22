@@ -2,6 +2,7 @@
 
 mod config;
 mod credentials;
+mod error_mapping;
 mod errors;
 mod events;
 mod retry;
@@ -26,9 +27,18 @@ mod serialization_tests;
 #[cfg(test)]
 mod retry_tests;
 
+#[cfg(test)]
+mod error_mapping_tests;
+
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
+pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
+pub use error_mapping::{
+    get_error_category, get_error_severity, is_protocol_error, is_protocol_error_retryable,
+    is_transport_error, is_transport_error_retryable, map_anchor_error_to_protocol,
+    map_http_status_to_error, map_network_error_to_transport,
+};
 pub use errors::Error;
 pub use events::{
     AttestationRecorded,
@@ -37,7 +47,6 @@ pub use events::{
     EndpointConfigured,
     EndpointRemoved,
     OperationLogged,
-    // --- Added the 3 new lifecycle events ---
     QuoteReceived,
     QuoteSubmitted,
     ServicesConfigured,
@@ -45,7 +54,6 @@ pub use events::{
     SettlementConfirmed,
     TransferInitiated,
 };
-pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
 pub use storage::Storage;
 pub use types::{
     AnchorMetadata, AnchorOption, AnchorServices, Attestation, AuditLog, Endpoint,
