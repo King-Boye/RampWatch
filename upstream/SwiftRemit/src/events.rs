@@ -33,11 +33,12 @@ pub fn emit_unpaused(env: &Env, admin: Address) {
         ),
     );
 }
-//! Event emission functions for the SwiftRemit contract.
-//!
-//! This module provides functions to emit structured events for all significant
-//! contract operations. Events include schema versioning and ledger metadata
-//! for comprehensive audit trails.
+
+/// Event emission functions for the SwiftRemit contract.
+///
+/// This module provides functions to emit structured events for all significant
+/// contract operations. Events include schema versioning and ledger metadata
+/// for comprehensive audit trails.
 
 use soroban_sdk::{symbol_short, Address, Env};
 
