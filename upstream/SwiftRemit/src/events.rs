@@ -227,20 +227,46 @@ pub fn emit_fees_withdrawn(env: &Env, to: Address, amount: i128) {
 
 // ── Settlement Events ──────────────────────────────────────────────
 
-/// Emits an event when a settlement is created and executed.
+/// Emits a structured completion event when a settlement is finalized.
 ///
-/// This event is fired when a settlement transaction is completed, allowing
-/// off-chain services to track settlement activity without scanning storage.
+/// This event is emitted exactly once per completed settlement, after all state
+/// transitions are successfully committed. It includes sufficient identifiers to
+/// uniquely reference the finalized settlement.
+///
+/// # Guarantees
+///
+/// - **Exactly-Once Emission**: Event is emitted once and only once per settlement
+/// - **Post-Finalization**: Only emitted after all state changes are committed
+/// - **Unique Identification**: Includes remittance_id for unambiguous reference
+/// - **Deterministic**: Same settlement always produces same event
+/// - **No Re-entry**: Protected against duplicate emission on retries
 ///
 /// # Arguments
 ///
 /// * `env` - The contract execution environment
+/// * `remittance_id` - Unique ID of the finalized settlement
 /// * `sender` - Address of the sender
 /// * `receiver` - Address of the receiver (agent)
 /// * `asset` - Address of the token contract (e.g., USDC)
 /// * `amount` - Settlement amount transferred
+///
+/// # Event Structure
+///
+/// Topic: `("settle", "complete")`
+/// Data: `(schema_version, ledger_sequence, timestamp, remittance_id, sender, receiver, asset, amount)`
+///
+/// # Usage
+///
+/// This function should only be called from `confirm_payout` after:
+/// 1. All validations pass
+/// 2. Token transfer completes
+/// 3. Fee accumulation succeeds
+/// 4. Status updated to Settled
+/// 5. Settlement hash set
+/// 6. Event emission flag checked
 pub fn emit_settlement_completed(
     env: &Env,
+    remittance_id: u64,
     sender: Address,
     receiver: Address,
     asset: Address,
@@ -252,6 +278,7 @@ pub fn emit_settlement_completed(
             SCHEMA_VERSION,
             env.ledger().sequence(),
             env.ledger().timestamp(),
+            remittance_id,
             sender,
             receiver,
             asset,

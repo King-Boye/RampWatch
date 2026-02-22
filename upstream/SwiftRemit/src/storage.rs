@@ -82,6 +82,10 @@ enum DataKey {
     // Keys for managing whitelisted tokens
     /// Token whitelist status indexed by token address (persistent storage)
     TokenWhitelisted(Address),
+    
+    /// Settlement completion event emission tracking (persistent storage)
+    /// Tracks whether the completion event has been emitted for a settlement
+    SettlementEventEmitted(u64),
 }
 
 /// Checks if the contract has an admin configured.
@@ -465,4 +469,49 @@ pub fn set_token_whitelisted(env: &Env, token: &Address, whitelisted: bool) {
     env.storage()
         .persistent()
         .set(&DataKey::TokenWhitelisted(token.clone()), &whitelisted);
+}
+
+// === Settlement Event Emission Tracking ===
+
+/// Checks if the settlement completion event has been emitted for a remittance.
+///
+/// This function is used to ensure exactly-once event emission per finalized settlement,
+/// preventing duplicate events in cases of re-entry, retries, or repeated calls.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `remittance_id` - The unique ID of the remittance/settlement
+///
+/// # Returns
+///
+/// * `true` - Event has been emitted for this settlement
+/// * `false` - Event has not been emitted yet
+pub fn has_settlement_event_emitted(env: &Env, remittance_id: u64) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::SettlementEventEmitted(remittance_id))
+        .unwrap_or(false)
+}
+
+/// Marks that the settlement completion event has been emitted for a remittance.
+///
+/// This function should be called immediately after emitting the settlement completion
+/// event to prevent duplicate emissions. It provides a persistent record that the
+/// event was successfully emitted.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `remittance_id` - The unique ID of the remittance/settlement
+///
+/// # Guarantees
+///
+/// - Idempotent: Can be called multiple times safely
+/// - Persistent: Survives contract upgrades and restarts
+/// - Deterministic: Always produces the same result for the same input
+pub fn set_settlement_event_emitted(env: &Env, remittance_id: u64) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::SettlementEventEmitted(remittance_id), &true);
 }
