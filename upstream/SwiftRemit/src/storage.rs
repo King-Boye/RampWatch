@@ -54,6 +54,12 @@ enum DataKey {
     /// Total accumulated platform fees awaiting withdrawal
     AccumulatedFees,
 
+    /// Integrator fee in basis points
+    IntegratorFeeBps,
+
+    /// Total accumulated integrator fees awaiting withdrawal
+    AccumulatedIntegratorFees,
+
     /// Contract pause status for emergency halts
     Paused,
 
@@ -86,10 +92,12 @@ enum DataKey {
     /// Settlement completion event emission tracking (persistent storage)
     /// Tracks whether the completion event has been emitted for a settlement
     SettlementEventEmitted(u64),
+
     
     /// Total number of successfully finalized settlements (instance storage)
     /// Incremented atomically each time a settlement is successfully completed
     SettlementCounter,
+
 }
 
 /// Checks if the contract has an admin configured.
@@ -520,6 +528,7 @@ pub fn set_settlement_event_emitted(env: &Env, remittance_id: u64) {
         .set(&DataKey::SettlementEventEmitted(remittance_id), &true);
 }
 
+
 // === Settlement Counter ===
 
 /// Retrieves the total number of successfully finalized settlements.
@@ -564,10 +573,16 @@ pub fn get_settlement_counter(env: &Env) -> u64 {
 ///
 /// * `env` - The contract execution environment
 ///
+
 /// # Returns
 ///
 /// * `Ok(())` - Counter incremented successfully
 /// * `Err(ContractError::SettlementCounterOverflow)` - Counter would overflow u64::MAX
+
+/// # Panics
+///
+/// Panics if the counter would overflow u64::MAX (extremely unlikely in practice)
+
 ///
 /// # Guarantees
 ///
@@ -575,6 +590,7 @@ pub fn get_settlement_counter(env: &Env) -> u64 {
 /// - Internal-only: Not exposed as public contract function
 /// - Deterministic: Always increments by exactly 1
 /// - Consistent: Only called after successful finalization
+
 pub fn increment_settlement_counter(env: &Env) -> Result<(), ContractError> {
     let current = get_settlement_counter(env);
     let new_count = current
@@ -584,4 +600,12 @@ pub fn increment_settlement_counter(env: &Env) -> Result<(), ContractError> {
         .instance()
         .set(&DataKey::SettlementCounter, &new_count);
     Ok(())
+
+pub fn increment_settlement_counter(env: &Env) {
+    let current = get_settlement_counter(env);
+    let new_count = current.checked_add(1).expect("Settlement counter overflow");
+    env.storage()
+        .instance()
+        .set(&DataKey::SettlementCounter, &new_count);
+
 }
