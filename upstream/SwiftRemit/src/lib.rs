@@ -1034,6 +1034,11 @@ impl SwiftRemitContract {
             return Err(ContractError::InvalidAmount);
         }
 
+
+        let currency = normalize_symbol(&env, &currency);
+        let country = normalize_symbol(&env, &country);
+
+
         set_daily_limit(&env, &currency, &country, limit);
 
         Ok(())
@@ -1049,6 +1054,11 @@ impl SwiftRemitContract {
     /// - `Some(DailyLimit)`: If a limit is configured
     /// - `None`: If no limit is configured (unlimited)
     pub fn get_daily_limit(env: Env, currency: String, country: String) -> Option<DailyLimit> {
+
+    let currency = normalize_symbol(&env, &currency);
+    let country = normalize_symbol(&env, &country);
+
         get_daily_limit(&env, &currency, &country)
     }
 }
+    }
