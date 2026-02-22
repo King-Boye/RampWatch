@@ -10,6 +10,8 @@ mod validation;
 
 #[cfg(test)]
 mod config_tests;
+#[cfg(test)]
+mod deterministic_hash_tests;
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
