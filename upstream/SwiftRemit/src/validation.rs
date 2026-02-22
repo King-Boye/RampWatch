@@ -206,6 +206,18 @@ pub fn validate_admin_operation(
     Ok(())
 }
 
+/// Normalizes an asset symbol to uppercase canonical form.
+pub fn normalize_symbol(env: &Env, symbol: &soroban_sdk::String) -> soroban_sdk::String {
+    let len = symbol.len() as usize;
+    let mut bytes = soroban_sdk::Bytes::new(env);
+    for i in 0..len {
+        let b = symbol.get(i as u32).unwrap();
+        let upper = if b >= b'a' && b <= b'z' { b - 32 } else { b };
+        bytes.push_back(upper);
+    }
+    soroban_sdk::String::from_bytes(env, &bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

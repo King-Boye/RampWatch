@@ -4837,3 +4837,27 @@ fn test_error_handler_high_severity_errors() {
         assert_ne!(response.severity, ErrorSeverity::High, "Unexpected High severity for {:?}", error);
     }
 }
+
+#[test]
+fn test_normalize_symbol_uppercase() {
+    let env = Env::default();
+    let input = soroban_sdk::String::from_str(&env, "usdc");
+    let result = normalize_symbol(&env, &input);
+    assert_eq!(result, soroban_sdk::String::from_str(&env, "USDC"));
+}
+
+#[test]
+fn test_normalize_symbol_mixed_case() {
+    let env = Env::default();
+    let input = soroban_sdk::String::from_str(&env, "eUr");
+    let result = normalize_symbol(&env, &input);
+    assert_eq!(result, soroban_sdk::String::from_str(&env, "EUR"));
+}
+
+#[test]
+fn test_normalize_symbol_already_upper() {
+    let env = Env::default();
+    let input = soroban_sdk::String::from_str(&env, "USD");
+    let result = normalize_symbol(&env, &input);
+    assert_eq!(result, soroban_sdk::String::from_str(&env, "USD"));
+}
