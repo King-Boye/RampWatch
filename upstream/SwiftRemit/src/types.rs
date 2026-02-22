@@ -22,6 +22,26 @@ pub enum RemittanceStatus {
     Cancelled,
 }
 
+/// Escrow status for locked funds
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EscrowStatus {
+    Pending,
+    Released,
+    Refunded,
+}
+
+/// Escrow record for locked funds
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Escrow {
+    pub transfer_id: u64,
+    pub sender: Address,
+    pub recipient: Address,
+    pub amount: i128,
+    pub status: EscrowStatus,
+}
+
 /// A remittance transaction record.
 ///
 /// Contains all information about a cross-border remittance including
