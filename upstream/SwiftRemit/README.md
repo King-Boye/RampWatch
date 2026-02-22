@@ -11,7 +11,7 @@ SwiftRemit is an escrow-based remittance system that enables secure cross-border
 - **Escrow-Based Transfers**: Secure USDC deposits held in contract until payout confirmation
 - **Agent Network**: Registered agents handle fiat distribution off-chain
 - **Automated Fee Collection**: Platform fees calculated and accumulated automatically
-- **Multi-Status Tracking**: Remittances tracked through Pending, Completed, and Cancelled states
+- **Lifecycle State Management**: Remittances tracked through 5 states (Pending, Processing, Completed, Cancelled, Failed) with enforced transitions
 - **Authorization Security**: Role-based access control for all operations
 - **Event Emission**: Comprehensive event logging for off-chain monitoring
 - **Cancellation Support**: Senders can cancel pending remittances with full refund
@@ -23,10 +23,12 @@ SwiftRemit is an escrow-based remittance system that enables secure cross-border
 
 - **lib.rs**: Main contract implementation with all public functions
 - **types.rs**: Data structures (Remittance, RemittanceStatus)
+- **transitions.rs**: State transition validation and enforcement
 - **storage.rs**: Persistent and instance storage management
 - **errors.rs**: Custom error types for contract operations
 - **events.rs**: Event emission functions for monitoring
 - **test.rs**: Comprehensive test suite with 15+ test cases
+- **test_transitions.rs**: Lifecycle transition tests
 
 ### Storage Model
 
@@ -53,7 +55,9 @@ Fees are calculated in basis points (bps):
 ### User Functions
 
 - `create_remittance(sender, agent, amount)` - Create new remittance (sender auth required)
+- `start_processing(remittance_id)` - Mark remittance as being processed (agent auth required)
 - `confirm_payout(remittance_id)` - Confirm fiat payout (agent auth required)
+- `mark_failed(remittance_id)` - Mark payout as failed with refund (agent auth required)
 - `cancel_remittance(remittance_id)` - Cancel pending remittance (sender auth required)
 
 ### Query Functions
@@ -158,6 +162,32 @@ soroban contract invoke \
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment instructions.
 
+## Lifecycle State Management
+
+SwiftRemit enforces strict state transitions to ensure remittance integrity:
+
+### States
+- **Pending**: Initial state after creation
+- **Processing**: Agent has started working on the payout
+- **Completed**: Successfully settled (terminal)
+- **Cancelled**: Cancelled by sender (terminal)
+- **Failed**: Payout failed with refund (terminal)
+
+### Valid Transitions
+```
+Pending → Processing → Completed  (successful flow)
+Pending → Cancelled               (early cancellation)
+Processing → Failed               (failed payout)
+```
+
+### Key Rules
+- Remittances must go through `Processing` before completion
+- Senders can only cancel `Pending` remittances
+- Terminal states (Completed, Cancelled, Failed) cannot be changed
+- All transitions emit events for monitoring
+
+**See [LIFECYCLE_TRANSITIONS.md](LIFECYCLE_TRANSITIONS.md) for complete documentation**
+
 ## Usage Flow
 
 1. **Admin Setup**
@@ -169,15 +199,20 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment instructions.
    - Sender approves USDC transfer to contract
    - Sender calls `create_remittance` with agent and amount
    - Contract transfers USDC from sender to escrow
-   - Remittance ID returned for tracking
+   - Remittance ID returned for tracking (status: Pending)
 
 3. **Agent Payout**
+   - Agent calls `start_processing` to signal work has begun (status: Processing)
    - Agent pays out fiat to recipient off-chain
-   - Agent calls `confirm_payout` with remittance ID
+   - Agent calls `confirm_payout` with remittance ID (status: Completed)
    - Contract transfers USDC minus fee to agent
    - Fee added to accumulated platform fees
 
-4. **Fee Management**
+4. **Alternative Flows**
+   - **Early Cancellation**: Sender calls `cancel_remittance` while Pending
+   - **Failed Payout**: Agent calls `mark_failed` during Processing (full refund)
+
+5. **Fee Management**
    - Admin monitors accumulated fees
    - Admin calls `withdraw_fees` to collect platform revenue
 
