@@ -7,8 +7,9 @@
  * Since the contract has compilation issues, this shows the expected behavior.
  */
 
+const { v4: uuidv4 } = require('uuid');
 const { createLogger } = require('./examples/logger');
-const logger = createLogger('health-check-demo');
+let logger = createLogger('health-check-demo');
 
 // Mock contract health check response
 function mockContractHealth() {
@@ -46,6 +47,8 @@ async function checkHealth() {
 
 // Main demo
 async function main() {
+  const requestId = process.env.REQUEST_ID || uuidv4();
+  logger = createLogger('health-check-demo', requestId);
   logger.info('SwiftRemit Health Check Demo');
   
   // Run 5 health checks

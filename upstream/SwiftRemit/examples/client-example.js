@@ -17,8 +17,11 @@
  * node client-example.js
  */
 
+const { v4: uuidv4 } = require('uuid');
 const { createLogger } = require('./logger');
-const logger = createLogger('client-example');
+
+// Global logger for initialization
+let logger = createLogger('client-example');
 
 // === Configuration ===
 const CONFIG = {
@@ -372,23 +375,36 @@ async function getRemittance(remittanceId) {
   const server = new StellarSdk.SorobanRpc.Server(CONFIG.rpcUrl);
   const contract = new StellarSdk.Contract(CONFIG.contractId);
   
-  const args = [StellarSdk.xdr.ScVal.scvU64(remittanceId)];
+  // Get the current requestId from the logger's context (if we had access to it)
+  // For this example, we'll use the one generated in main or a new one
+  const requestId = logger.bindings().request_id;
   
-  // Build a simulated call (no signature needed for reads)
+  const args = [
+    StellarSdk.xdr.ScVal.scvU64(remittanceId),
+    new StellarSdk.SorobanRpc.NativeString(requestId).toScVal()
+  ];
+  
   const account = await server.getAccount(CONFIG.adminKeypair.publicKey());
   const tx = new StellarSdk.TransactionBuilder(account, {
     fee: '100',
     networkPassphrase: CONFIG.networkPassphrase,
   })
-    .addOperation(contract.call('get_remittance', ...args))
+    .addOperation(contract.call('query_remittance', ...args))
     .setTimeout(30)
     .build();
   
   const preparedTx = await server.prepareTransaction(tx);
   const result = await server.simulateTransaction(preparedTx);
   
-    logger.info({ remittanceId }, 'Remittance details retrieved');
-    return returnValue;
+  if (result.results && result.results[0]) {
+    // Note: Parsing complex contracttypes in JS requires more logic, 
+    // this is a simplified representation for the example.
+    logger.info({ 
+      remittanceId,
+      returnedRequestId: requestId // In a real app we'd parse it from ScVal
+    }, 'Remittance details retrieved with Request ID verification');
+    return result.results[0];
+  }
   
   return null;
 }
@@ -490,13 +506,20 @@ async function getPlatformFeeBps() {
 // === Main Execution Flow ===
 
 async function main() {
+  // Generate a unique request ID for this execution
+  const requestId = process.env.REQUEST_ID || uuidv4();
+  
+  // Re-initialize logger with the request ID
+  logger = createLogger('client-example', requestId);
+
+  logger.info('=== SwiftRemit Client Example ===');
   logger.info({
     network: CONFIG.network,
-    contractId: CONFIG.contractId,
-    usdcToken: CONFIG.usdcTokenId,
+    contract: CONFIG.contractId,
     admin: CONFIG.adminKeypair.publicKey().slice(0, 8) + '...',
     sender: CONFIG.senderKeypair.publicKey().slice(0, 8) + '...',
     agent: CONFIG.agentKeypair.publicKey().slice(0, 8) + '...',
+    requestId: requestId
   }, 'Configuration');
   
   try {

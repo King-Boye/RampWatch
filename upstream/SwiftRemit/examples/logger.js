@@ -6,13 +6,12 @@ const pino = require('pino');
  * Provides consistent logging fields: level, service, request_id.
  * Supports JSON output for better observability.
  */
-const createLogger = (serviceName) => {
+const createLogger = (serviceName, requestId) => {
   return pino({
     level: process.env.LOG_LEVEL || 'info',
     base: {
       service: serviceName,
-      // In a real app, this might come from a context/ALS
-      request_id: process.env.REQUEST_ID || 'na'
+      request_id: requestId || process.env.REQUEST_ID || 'na'
     },
     timestamp: pino.stdTimeFunctions.isoTime,
     formatters: {

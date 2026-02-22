@@ -14,8 +14,9 @@ const {
   xdr,
 } = require('@stellar/stellar-sdk');
 
+const { v4: uuidv4 } = require('uuid');
 const { createLogger } = require('./logger');
-const logger = createLogger('net-settlement-example');
+let logger = createLogger('net-settlement-example');
 
 // Configuration
 const config = {
@@ -390,6 +391,8 @@ async function batchSettleWithNetting(entries) {
  * Main function to run all examples
  */
 async function main() {
+  const requestId = process.env.REQUEST_ID || uuidv4();
+  logger = createLogger('net-settlement-example', requestId);
   logger.info('=== SwiftRemit Net Settlement Examples ===');
 
   try {

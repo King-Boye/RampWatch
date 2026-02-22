@@ -495,6 +495,18 @@ impl SwiftRemitContract {
         get_remittance(&env, remittance_id)
     }
 
+    /// Query a remittance with a standardized response wrapper and request ID.
+    pub fn query_remittance(
+        env: Env,
+        remittance_id: u64,
+        request_id: soroban_sdk::String,
+    ) -> crate::response::Response<Remittance> {
+        match get_remittance(&env, remittance_id) {
+            Ok(remittance) => crate::response::Response::ok(remittance, request_id),
+            Err(e) => crate::response::Response::err(e as u32, request_id),
+        }
+    }
+
 
     pub fn get_accumulated_fees(env: Env) -> Result<i128, ContractError> {
         get_accumulated_fees(&env)

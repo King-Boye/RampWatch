@@ -13,8 +13,9 @@ const {
   Keypair,
 } = require('@stellar/stellar-sdk');
 
+const { v4: uuidv4 } = require('uuid');
 const { createLogger } = require('./logger');
-const logger = createLogger('migration-example');
+let logger = createLogger('migration-example');
 
 // Configuration
 const config = {
@@ -429,6 +430,8 @@ async function verifyMigrationSuccess(oldContract, newContract) {
  * Main function to run examples
  */
 async function main() {
+  const requestId = process.env.REQUEST_ID || uuidv4();
+  logger = createLogger('migration-example', requestId);
   logger.info('=== SwiftRemit Contract Migration Examples ===');
 
   try {
