@@ -573,9 +573,16 @@ pub fn get_settlement_counter(env: &Env) -> u64 {
 ///
 /// * `env` - The contract execution environment
 ///
+
+/// # Returns
+///
+/// * `Ok(())` - Counter incremented successfully
+/// * `Err(ContractError::SettlementCounterOverflow)` - Counter would overflow u64::MAX
+
 /// # Panics
 ///
 /// Panics if the counter would overflow u64::MAX (extremely unlikely in practice)
+
 ///
 /// # Guarantees
 ///
@@ -583,10 +590,22 @@ pub fn get_settlement_counter(env: &Env) -> u64 {
 /// - Internal-only: Not exposed as public contract function
 /// - Deterministic: Always increments by exactly 1
 /// - Consistent: Only called after successful finalization
+
+pub fn increment_settlement_counter(env: &Env) -> Result<(), ContractError> {
+    let current = get_settlement_counter(env);
+    let new_count = current
+        .checked_add(1)
+        .ok_or(ContractError::SettlementCounterOverflow)?;
+    env.storage()
+        .instance()
+        .set(&DataKey::SettlementCounter, &new_count);
+    Ok(())
+
 pub fn increment_settlement_counter(env: &Env) {
     let current = get_settlement_counter(env);
     let new_count = current.checked_add(1).expect("Settlement counter overflow");
     env.storage()
         .instance()
         .set(&DataKey::SettlementCounter, &new_count);
+
 }

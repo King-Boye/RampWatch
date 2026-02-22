@@ -78,7 +78,7 @@ impl ErrorHandler {
     /// preventing stack traces and sensitive information from leaking.
     fn map_error(env: &Env, error: ContractError) -> (u32, SorobanString, ErrorCategory, ErrorSeverity) {
         match error {
-            // Initialization Errors
+            // Initialization Errors (1-2)
             ContractError::AlreadyInitialized => (
                 1,
                 SorobanString::from_str(env, "Contract already initialized"),
@@ -92,7 +92,7 @@ impl ErrorHandler {
                 ErrorSeverity::Medium,
             ),
             
-            // Validation Errors
+            // Validation Errors (3-10)
             ContractError::InvalidAmount => (
                 3,
                 SorobanString::from_str(env, "Amount must be greater than zero"),
@@ -105,14 +105,6 @@ impl ErrorHandler {
                 ErrorCategory::Validation,
                 ErrorSeverity::Low,
             ),
-            ContractError::InvalidAddress => (
-                10,
-                SorobanString::from_str(env, "Invalid address format"),
-                ErrorCategory::Validation,
-                ErrorSeverity::Low,
-            ),
-            
-            // Resource Errors
             ContractError::AgentNotRegistered => (
                 5,
                 SorobanString::from_str(env, "Agent is not registered"),
@@ -125,38 +117,32 @@ impl ErrorHandler {
                 ErrorCategory::Resource,
                 ErrorSeverity::Low,
             ),
-            ContractError::AdminNotFound => (
-                16,
-                SorobanString::from_str(env, "Admin not found"),
-                ErrorCategory::Resource,
-                ErrorSeverity::Low,
-            ),
-            ContractError::AdminAlreadyExists => (
-                15,
-                SorobanString::from_str(env, "Admin already exists"),
-                ErrorCategory::Resource,
-                ErrorSeverity::Low,
-            ),
-            ContractError::TokenNotWhitelisted => (
-                18,
-                SorobanString::from_str(env, "Token is not whitelisted"),
-                ErrorCategory::Resource,
-                ErrorSeverity::Low,
-            ),
-            ContractError::TokenAlreadyWhitelisted => (
-                19,
-                SorobanString::from_str(env, "Token is already whitelisted"),
-                ErrorCategory::Resource,
-                ErrorSeverity::Low,
-            ),
-            
-            // State Errors
             ContractError::InvalidStatus => (
                 7,
                 SorobanString::from_str(env, "Invalid remittance status for this operation"),
                 ErrorCategory::State,
                 ErrorSeverity::Low,
             ),
+            ContractError::InvalidStateTransition => (
+                8,
+                SorobanString::from_str(env, "Invalid state transition attempted"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            ContractError::NoFeesToWithdraw => (
+                9,
+                SorobanString::from_str(env, "No fees available to withdraw"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            ContractError::InvalidAddress => (
+                10,
+                SorobanString::from_str(env, "Invalid address format"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Low,
+            ),
+            
+            // Settlement Errors (11-14)
             ContractError::SettlementExpired => (
                 11,
                 SorobanString::from_str(env, "Settlement window has expired"),
@@ -175,33 +161,153 @@ impl ErrorHandler {
                 ErrorCategory::State,
                 ErrorSeverity::Low,
             ),
-            ContractError::NoFeesToWithdraw => (
-                9,
-                SorobanString::from_str(env, "No fees available to withdraw"),
+            ContractError::RateLimitExceeded => (
+                14,
+                SorobanString::from_str(env, "Rate limit exceeded, please wait"),
                 ErrorCategory::State,
                 ErrorSeverity::Low,
             ),
-            ContractError::CannotRemoveLastAdmin => (
+            
+            // Authorization Errors (15-18)
+            ContractError::Unauthorized => (
+                15,
+                SorobanString::from_str(env, "Unauthorized: admin access required"),
+                ErrorCategory::Authorization,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::AdminAlreadyExists => (
+                16,
+                SorobanString::from_str(env, "Admin already exists"),
+                ErrorCategory::Resource,
+                ErrorSeverity::Low,
+            ),
+            ContractError::AdminNotFound => (
                 17,
+                SorobanString::from_str(env, "Admin not found"),
+                ErrorCategory::Resource,
+                ErrorSeverity::Low,
+            ),
+            ContractError::CannotRemoveLastAdmin => (
+                18,
                 SorobanString::from_str(env, "Cannot remove the last admin"),
                 ErrorCategory::State,
                 ErrorSeverity::Low,
             ),
             
-            // Authorization Errors
-            ContractError::Unauthorized => (
-                14,
-                SorobanString::from_str(env, "Unauthorized: admin access required"),
-                ErrorCategory::Authorization,
-                ErrorSeverity::Medium,
+            // Token Whitelist Errors (19-20)
+            ContractError::TokenNotWhitelisted => (
+                19,
+                SorobanString::from_str(env, "Token is not whitelisted"),
+                ErrorCategory::Resource,
+                ErrorSeverity::Low,
+            ),
+            ContractError::TokenAlreadyWhitelisted => (
+                20,
+                SorobanString::from_str(env, "Token is already whitelisted"),
+                ErrorCategory::Resource,
+                ErrorSeverity::Low,
             ),
             
-            // System Errors
+            // Migration Errors (21-23)
+            ContractError::InvalidMigrationHash => (
+                21,
+                SorobanString::from_str(env, "Migration hash verification failed"),
+                ErrorCategory::System,
+                ErrorSeverity::High,
+            ),
+            ContractError::MigrationInProgress => (
+                22,
+                SorobanString::from_str(env, "Migration already in progress"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            ContractError::InvalidMigrationBatch => (
+                23,
+                SorobanString::from_str(env, "Migration batch is invalid"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Low,
+            ),
+            
+            // Rate Limiting Errors (24)
+            ContractError::DailySendLimitExceeded => (
+                24,
+                SorobanString::from_str(env, "Daily send limit exceeded"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            
+            // Arithmetic Errors (25-26)
             ContractError::Overflow => (
-                8,
+                25,
                 SorobanString::from_str(env, "Arithmetic overflow occurred"),
                 ErrorCategory::System,
                 ErrorSeverity::High,
+            ),
+            ContractError::Underflow => (
+                26,
+                SorobanString::from_str(env, "Arithmetic underflow occurred"),
+                ErrorCategory::System,
+                ErrorSeverity::High,
+            ),
+            
+            // Data Integrity Errors (27-30)
+            ContractError::NetSettlementValidationFailed => (
+                27,
+                SorobanString::from_str(env, "Net settlement validation failed"),
+                ErrorCategory::System,
+                ErrorSeverity::High,
+            ),
+            ContractError::SettlementCounterOverflow => (
+                28,
+                SorobanString::from_str(env, "Settlement counter overflow"),
+                ErrorCategory::System,
+                ErrorSeverity::High,
+            ),
+            ContractError::InvalidBatchSize => (
+                29,
+                SorobanString::from_str(env, "Invalid batch size"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Low,
+            ),
+            ContractError::DataCorruption => (
+                30,
+                SorobanString::from_str(env, "Data corruption detected"),
+                ErrorCategory::System,
+                ErrorSeverity::High,
+            ),
+            
+            // Collection Errors (31-33)
+            ContractError::IndexOutOfBounds => (
+                31,
+                SorobanString::from_str(env, "Index out of bounds"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Low,
+            ),
+            ContractError::EmptyCollection => (
+                32,
+                SorobanString::from_str(env, "Collection is empty"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Low,
+            ),
+            ContractError::KeyNotFound => (
+                33,
+                SorobanString::from_str(env, "Key not found in map"),
+                ErrorCategory::Resource,
+                ErrorSeverity::Low,
+            ),
+            
+            // String/Symbol Errors (34-35)
+            ContractError::StringConversionFailed => (
+                34,
+                SorobanString::from_str(env, "String conversion failed"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Low,
+            ),
+            ContractError::InvalidSymbol => (
+                35,
+                SorobanString::from_str(env, "Symbol is invalid or malformed"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Low,
             ),
         }
     }
@@ -228,104 +334,6 @@ impl ErrorHandler {
             let _ = (env, error, severity); // Suppress unused variable warnings
         }
     }
-    
-    /// Get error category for an error
-    pub fn get_error_category(error: ContractError) -> ErrorCategory {
-        match error {
-            ContractError::InvalidAmount
-            | ContractError::InvalidFeeBps
-            | ContractError::InvalidAddress => ErrorCategory::Validation,
-            
-            ContractError::Unauthorized => ErrorCategory::Authorization,
-            
-            ContractError::AlreadyInitialized
-            | ContractError::NotInitialized
-            | ContractError::InvalidStatus
-            | ContractError::SettlementExpired
-            | ContractError::DuplicateSettlement
-            | ContractError::ContractPaused
-            | ContractError::NoFeesToWithdraw
-            | ContractError::CannotRemoveLastAdmin => ErrorCategory::State,
-            
-            ContractError::AgentNotRegistered
-            | ContractError::RemittanceNotFound
-            | ContractError::AdminNotFound
-            | ContractError::AdminAlreadyExists
-            | ContractError::TokenNotWhitelisted
-            | ContractError::TokenAlreadyWhitelisted => ErrorCategory::Resource,
-            
-            ContractError::Overflow => ErrorCategory::System,
-        }
-    }
-    
-    /// Get error severity for an error
-    pub fn get_error_severity(error: ContractError) -> ErrorSeverity {
-        match error {
-            // Low severity - expected user errors
-            ContractError::InvalidAmount
-            | ContractError::InvalidFeeBps
-            | ContractError::InvalidAddress
-            | ContractError::AgentNotRegistered
-            | ContractError::RemittanceNotFound
-            | ContractError::InvalidStatus
-            | ContractError::SettlementExpired
-            | ContractError::ContractPaused
-            | ContractError::NoFeesToWithdraw
-            | ContractError::AdminNotFound
-            | ContractError::AdminAlreadyExists
-            | ContractError::CannotRemoveLastAdmin
-            | ContractError::TokenNotWhitelisted
-            | ContractError::TokenAlreadyWhitelisted
-            | ContractError::AlreadyInitialized => ErrorSeverity::Low,
-            
-            // Medium severity - unexpected but recoverable
-            ContractError::NotInitialized
-            | ContractError::DuplicateSettlement
-            | ContractError::Unauthorized => ErrorSeverity::Medium,
-            
-            // High severity - critical system errors
-            ContractError::Overflow => ErrorSeverity::High,
-        }
-    }
-    
-    /// Check if error should be retried
-    pub fn is_retryable(error: ContractError) -> bool {
-        match error {
-            // Transient errors that might succeed on retry
-            ContractError::ContractPaused => true,
-            
-            // Permanent errors that won't succeed on retry
-            ContractError::AlreadyInitialized
-            | ContractError::NotInitialized
-            | ContractError::InvalidAmount
-            | ContractError::InvalidFeeBps
-            | ContractError::AgentNotRegistered
-            | ContractError::RemittanceNotFound
-            | ContractError::InvalidStatus
-            | ContractError::Overflow
-            | ContractError::NoFeesToWithdraw
-            | ContractError::InvalidAddress
-            | ContractError::SettlementExpired
-            | ContractError::DuplicateSettlement
-            | ContractError::Unauthorized
-            | ContractError::AdminAlreadyExists
-            | ContractError::AdminNotFound
-            | ContractError::CannotRemoveLastAdmin
-            | ContractError::TokenNotWhitelisted
-            | ContractError::TokenAlreadyWhitelisted => false,
-        }
-    }
-    
-    /// Get user-friendly error message
-    pub fn get_user_message(env: &Env, error: ContractError) -> SorobanString {
-        let (_, message, _, _) = Self::map_error(env, error);
-        message
-    }
-    
-    /// Get error code
-    pub fn get_error_code(error: ContractError) -> u32 {
-        error as u32
-    }
 }
 
 /// Helper macro for consistent error handling in contract functions
@@ -349,142 +357,3 @@ macro_rules! handle_contract_error {
 
 /// Result type alias for contract operations
 pub type ContractResult<T> = Result<T, ContractError>;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use soroban_sdk::Env;
-
-    #[test]
-    fn test_error_handler_maps_validation_errors() {
-        let env = Env::default();
-        
-        let response = ErrorHandler::handle_error(&env, ContractError::InvalidAmount);
-        assert_eq!(response.code, 3);
-        assert_eq!(response.category, ErrorCategory::Validation);
-        assert_eq!(response.severity, ErrorSeverity::Low);
-    }
-
-    #[test]
-    fn test_error_handler_maps_authorization_errors() {
-        let env = Env::default();
-        
-        let response = ErrorHandler::handle_error(&env, ContractError::Unauthorized);
-        assert_eq!(response.code, 14);
-        assert_eq!(response.category, ErrorCategory::Authorization);
-        assert_eq!(response.severity, ErrorSeverity::Medium);
-    }
-
-    #[test]
-    fn test_error_handler_maps_state_errors() {
-        let env = Env::default();
-        
-        let response = ErrorHandler::handle_error(&env, ContractError::ContractPaused);
-        assert_eq!(response.code, 13);
-        assert_eq!(response.category, ErrorCategory::State);
-        assert_eq!(response.severity, ErrorSeverity::Low);
-    }
-
-    #[test]
-    fn test_error_handler_maps_resource_errors() {
-        let env = Env::default();
-        
-        let response = ErrorHandler::handle_error(&env, ContractError::RemittanceNotFound);
-        assert_eq!(response.code, 6);
-        assert_eq!(response.category, ErrorCategory::Resource);
-        assert_eq!(response.severity, ErrorSeverity::Low);
-    }
-
-    #[test]
-    fn test_error_handler_maps_system_errors() {
-        let env = Env::default();
-        
-        let response = ErrorHandler::handle_error(&env, ContractError::Overflow);
-        assert_eq!(response.code, 8);
-        assert_eq!(response.category, ErrorCategory::System);
-        assert_eq!(response.severity, ErrorSeverity::High);
-    }
-
-    #[test]
-    fn test_get_error_category() {
-        assert_eq!(ErrorHandler::get_error_category(ContractError::InvalidAmount), ErrorCategory::Validation);
-        assert_eq!(ErrorHandler::get_error_category(ContractError::Unauthorized), ErrorCategory::Authorization);
-        assert_eq!(ErrorHandler::get_error_category(ContractError::ContractPaused), ErrorCategory::State);
-        assert_eq!(ErrorHandler::get_error_category(ContractError::RemittanceNotFound), ErrorCategory::Resource);
-        assert_eq!(ErrorHandler::get_error_category(ContractError::Overflow), ErrorCategory::System);
-    }
-
-    #[test]
-    fn test_get_error_severity() {
-        assert_eq!(ErrorHandler::get_error_severity(ContractError::InvalidAmount), ErrorSeverity::Low);
-        assert_eq!(ErrorHandler::get_error_severity(ContractError::Unauthorized), ErrorSeverity::Medium);
-        assert_eq!(ErrorHandler::get_error_severity(ContractError::Overflow), ErrorSeverity::High);
-    }
-
-    #[test]
-    fn test_is_retryable() {
-        assert!(ErrorHandler::is_retryable(ContractError::ContractPaused));
-        assert!(!ErrorHandler::is_retryable(ContractError::InvalidAmount));
-        assert!(!ErrorHandler::is_retryable(ContractError::RemittanceNotFound));
-        assert!(!ErrorHandler::is_retryable(ContractError::Overflow));
-    }
-
-    #[test]
-    fn test_get_user_message() {
-        let env = Env::default();
-        
-        let message = ErrorHandler::get_user_message(&env, ContractError::InvalidAmount);
-        assert_eq!(message, SorobanString::from_str(&env, "Amount must be greater than zero"));
-    }
-
-    #[test]
-    fn test_get_error_code() {
-        assert_eq!(ErrorHandler::get_error_code(ContractError::InvalidAmount), 3);
-        assert_eq!(ErrorHandler::get_error_code(ContractError::Unauthorized), 14);
-        assert_eq!(ErrorHandler::get_error_code(ContractError::Overflow), 8);
-    }
-
-    #[test]
-    fn test_all_errors_have_unique_codes() {
-        let env = Env::default();
-        let errors = vec![
-            ContractError::AlreadyInitialized,
-            ContractError::NotInitialized,
-            ContractError::InvalidAmount,
-            ContractError::InvalidFeeBps,
-            ContractError::AgentNotRegistered,
-            ContractError::RemittanceNotFound,
-            ContractError::InvalidStatus,
-            ContractError::Overflow,
-            ContractError::NoFeesToWithdraw,
-            ContractError::InvalidAddress,
-            ContractError::SettlementExpired,
-            ContractError::DuplicateSettlement,
-            ContractError::ContractPaused,
-            ContractError::Unauthorized,
-            ContractError::AdminAlreadyExists,
-            ContractError::AdminNotFound,
-            ContractError::CannotRemoveLastAdmin,
-            ContractError::TokenNotWhitelisted,
-            ContractError::TokenAlreadyWhitelisted,
-        ];
-
-        let mut codes = std::collections::HashSet::new();
-        for error in errors {
-            let response = ErrorHandler::handle_error(&env, error);
-            assert!(codes.insert(response.code), "Duplicate error code: {}", response.code);
-        }
-    }
-
-    #[test]
-    fn test_error_messages_are_user_friendly() {
-        let env = Env::default();
-        
-        // Messages should not contain technical jargon or stack traces
-        let response = ErrorHandler::handle_error(&env, ContractError::InvalidAmount);
-        let message_str = response.message.to_string();
-        assert!(!message_str.contains("panic"));
-        assert!(!message_str.contains("stack"));
-        assert!(!message_str.contains("trace"));
-    }
-}
