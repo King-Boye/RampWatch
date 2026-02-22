@@ -90,6 +90,7 @@ impl SwiftRemitContract {
         
         set_usdc_token(&env, &usdc_token);
         set_platform_fee_bps(&env, fee_bps);
+        set_integrator_fee_bps(&env, 0);
         set_remittance_counter(&env, 0);
         set_accumulated_fees(&env, 0);
         set_rate_limit_cooldown(&env, rate_limit_cooldown);
@@ -328,6 +329,8 @@ impl SwiftRemitContract {
         let payout_amount = remittance
             .amount
             .checked_sub(remittance.fee)
+            .ok_or(ContractError::Overflow)?
+            .checked_sub(remittance.integrator_fee)
             .ok_or(ContractError::Overflow)?;
 
         let usdc_token = get_usdc_token(&env)?;
@@ -344,6 +347,12 @@ impl SwiftRemitContract {
             .ok_or(ContractError::Overflow)?;
         set_accumulated_fees(&env, new_fees);
 
+        let current_integrator_fees = get_accumulated_integrator_fees(&env)?;
+        let new_integrator_fees = current_integrator_fees
+            .checked_add(remittance.integrator_fee)
+            .ok_or(ContractError::Overflow)?;
+        set_accumulated_integrator_fees(&env, new_integrator_fees);
+
         remittance.status = RemittanceStatus::Settled;
         set_remittance(&env, remittance_id, &remittance);
 
@@ -354,8 +363,10 @@ impl SwiftRemitContract {
         let current_time = env.ledger().timestamp();
         set_last_settlement_time(&env, &remittance.sender, current_time);
 
+
         // Increment settlement counter atomically after successful finalization
         increment_settlement_counter(&env);
+
 
         // Emit settlement completion event exactly once
         // This event is emitted after all state transitions are committed
@@ -543,6 +554,7 @@ impl SwiftRemitContract {
         get_platform_fee_bps(&env)
     }
 
+
     /// Retrieves the total number of successfully finalized settlements.
     ///
     /// This is a read-only method that performs an O(1) constant-time read directly
@@ -578,6 +590,14 @@ impl SwiftRemitContract {
     /// ```
     pub fn get_total_settlements_count(env: Env) -> u64 {
         get_settlement_counter(&env)
+
+    pub fn get_integrator_fee_bps(env: Env) -> Result<u32, ContractError> {
+        get_integrator_fee_bps(&env)
+    }
+
+    pub fn get_accumulated_integrator_fees(env: Env) -> Result<i128, ContractError> {
+        get_accumulated_integrator_fees(&env)
+
     }
 
     pub fn pause(env: Env) -> Result<(), ContractError> {
@@ -774,9 +794,11 @@ impl SwiftRemitContract {
             set_settlement_hash(&env, remittance.id);
             settled_ids.push_back(remittance.id);
 
+
             // Increment settlement counter atomically for each successful settlement
             increment_settlement_counter(&env);
 
+          
             // Calculate payout amount for this remittance
             let payout_amount = remittance
                 .amount

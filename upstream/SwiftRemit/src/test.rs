@@ -2592,7 +2592,7 @@ fn test_whitelist_authorization() {
             AuthorizedInvocation {
                 function: AuthorizedFunction::Contract((
                     contract.address.clone(),
-                    symbol_short!("whitelist_token"),
+                    soroban_sdk::Symbol::new(&env, "whitelist_token"),
                     (&admin, &token.address).into_val(&env)
                 )),
                 sub_invocations: std::vec![]
@@ -4872,6 +4872,7 @@ fn test_normalize_symbol_already_upper() {
 }
 
 
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Settlement Completion Event Tests
 // ═══════════════════════════════════════════════════════════════════════════
@@ -5680,3 +5681,4 @@ fn test_settlement_counter_preserves_storage_integrity() {
     // Final verification
     assert_eq!(contract.get_total_settlements_count(), 5);
 }
+

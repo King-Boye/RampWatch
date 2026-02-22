@@ -54,6 +54,12 @@ enum DataKey {
     /// Total accumulated platform fees awaiting withdrawal
     AccumulatedFees,
 
+    /// Integrator fee in basis points
+    IntegratorFeeBps,
+
+    /// Total accumulated integrator fees awaiting withdrawal
+    AccumulatedIntegratorFees,
+
     /// Contract pause status for emergency halts
     Paused,
 
@@ -86,10 +92,12 @@ enum DataKey {
     /// Settlement completion event emission tracking (persistent storage)
     /// Tracks whether the completion event has been emitted for a settlement
     SettlementEventEmitted(u64),
+
     
     /// Total number of successfully finalized settlements (instance storage)
     /// Incremented atomically each time a settlement is successfully completed
     SettlementCounter,
+
 }
 
 /// Checks if the contract has an admin configured.
@@ -519,6 +527,7 @@ pub fn set_settlement_event_emitted(env: &Env, remittance_id: u64) {
         .persistent()
         .set(&DataKey::SettlementEventEmitted(remittance_id), &true);
 }
+
 
 // === Settlement Counter ===
 
