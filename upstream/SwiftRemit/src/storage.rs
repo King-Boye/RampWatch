@@ -92,6 +92,12 @@ enum DataKey {
     /// Settlement completion event emission tracking (persistent storage)
     /// Tracks whether the completion event has been emitted for a settlement
     SettlementEventEmitted(u64),
+
+    
+    /// Total number of successfully finalized settlements (instance storage)
+    /// Incremented atomically each time a settlement is successfully completed
+    SettlementCounter,
+
 }
 
 /// Checks if the contract has an admin configured.
@@ -520,4 +526,67 @@ pub fn set_settlement_event_emitted(env: &Env, remittance_id: u64) {
     env.storage()
         .persistent()
         .set(&DataKey::SettlementEventEmitted(remittance_id), &true);
+}
+
+
+// === Settlement Counter ===
+
+/// Retrieves the total number of successfully finalized settlements.
+///
+/// This function performs an O(1) read directly from instance storage without
+/// iteration or recomputation. The counter is incremented atomically each time
+/// a settlement is successfully finalized.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+///
+/// # Returns
+///
+/// * `u64` - Total number of settlements processed (defaults to 0 if not initialized)
+///
+/// # Performance
+///
+/// - O(1) constant-time operation
+/// - Single storage read
+/// - No iteration or computation
+///
+/// # Guarantees
+///
+/// - Read-only: Cannot modify storage
+/// - Deterministic: Always returns same value for same state
+/// - Consistent: Reflects all successfully finalized settlements
+pub fn get_settlement_counter(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::SettlementCounter)
+        .unwrap_or(0)
+}
+
+/// Increments the settlement counter atomically.
+///
+/// This function should only be called after a settlement is successfully finalized
+/// and all state transitions are committed. It increments the counter by 1 and
+/// stores the new value in instance storage.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+///
+/// # Panics
+///
+/// Panics if the counter would overflow u64::MAX (extremely unlikely in practice)
+///
+/// # Guarantees
+///
+/// - Atomic: Increment and store happen together
+/// - Internal-only: Not exposed as public contract function
+/// - Deterministic: Always increments by exactly 1
+/// - Consistent: Only called after successful finalization
+pub fn increment_settlement_counter(env: &Env) {
+    let current = get_settlement_counter(env);
+    let new_count = current.checked_add(1).expect("Settlement counter overflow");
+    env.storage()
+        .instance()
+        .set(&DataKey::SettlementCounter, &new_count);
 }
