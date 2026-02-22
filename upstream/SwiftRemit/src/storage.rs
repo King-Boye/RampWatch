@@ -60,7 +60,7 @@ enum DataKey {
     // Keys for preventing duplicate settlement execution
     /// Settlement hash for duplicate detection (persistent storage)
     SettlementHash(u64),
-    
+
     /// Token whitelist status indexed by token address (persistent storage)
     TokenWhitelisted(Address),
 }

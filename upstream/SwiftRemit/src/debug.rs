@@ -197,8 +197,12 @@ pub fn log_add_admin(
 
 /// Logs admin removal - no-op in release.
 #[cfg(not(feature = "debug-log"))]
-pub fn log_remove_admin(_env: &Env, _caller: &soroban_sdk::Address, _removed_admin: &soroban_sdk::Address) {}
-
+pub fn log_remove_admin(
+    _env: &Env,
+    _caller: &soroban_sdk::Address,
+    _removed_admin: &soroban_sdk::Address,
+) {
+}
 
 /// Logs token whitelist addition in debug mode.
 #[cfg(feature = "debug-log")]

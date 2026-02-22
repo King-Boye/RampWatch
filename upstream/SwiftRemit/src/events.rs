@@ -176,17 +176,6 @@ pub fn emit_integrator_fees_withdrawn(
         ),
     );
 }
-pub fn emit_paused(env: &Env, admin: Address) {
-    env.events().publish(
-        (symbol_short!("paused"),),
-        (
-            SCHEMA_VERSION,
-            env.ledger().sequence(),
-            env.ledger().timestamp(),
-            admin,
-        ),
-    );
-}
 
 pub fn emit_paused(env: &Env, admin: Address) {
     env.events().publish(
@@ -234,8 +223,6 @@ pub fn emit_settlement_completed(
         ),
     );
 }
-
-```
 
 // ── Admin Events ───────────────────────────────────────────────────
 

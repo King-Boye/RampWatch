@@ -333,11 +333,6 @@ impl SwiftRemitContract {
         Ok(())
     }
 
-    pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<(), ContractError> {
-        // Alias for settle_remittance to maintain backward compatibility if desired,
-        // but enforcing the state machine.
-        Self::settle_remittance(env, remittance_id)
-    }
 
     pub fn cancel_remittance(env: Env, remittance_id: u64) -> Result<(), ContractError> {
         let mut remittance = get_remittance(&env, remittance_id)?;
@@ -507,6 +502,8 @@ impl SwiftRemitContract {
             fee: remittance.fee,
             error_message: None,
         }
+    }
+
     pub fn withdraw_integrator_fees(env: Env, to: Address) -> Result<(), ContractError> {
         let caller = get_admin(&env)?;
         require_admin(&env, &caller)?;

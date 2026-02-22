@@ -2405,7 +2405,7 @@ fn test_whitelist_authorization() {
             AuthorizedInvocation {
                 function: AuthorizedFunction::Contract((
                     contract.address.clone(),
-                    symbol_short!("whitelist_token"),
+                    soroban_sdk::Symbol::new(&env, "whitelist_token"),
                     (&admin, &token.address).into_val(&env)
                 )),
                 sub_invocations: std::vec![]
@@ -2659,8 +2659,7 @@ fn test_whitelist_edge_case_many_tokens() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_net_settlement_simple_offset() {
-
+fn test_net_settlement_simple_offset() {}
 
 #[test]
 fn test_simulate_settlement_success() {
