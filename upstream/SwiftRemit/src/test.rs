@@ -4837,3 +4837,25 @@ fn test_error_handler_high_severity_errors() {
         assert_ne!(response.severity, ErrorSeverity::High, "Unexpected High severity for {:?}", error);
     }
 }
+
+#[test]
+fn test_create_remittance_rejects_zero_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract, _admin, _usdc, agent, sender) = setup_contract(&env);
+
+    let result = contract.try_create_remittance(&sender, &agent, &0i128, &None::<u64>);
+
+    assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
+}
+
+#[test]
+fn test_create_remittance_rejects_negative_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract, _admin, _usdc, agent, sender) = setup_contract(&env);
+
+    let result = contract.try_create_remittance(&sender, &agent, &-1i128, &None::<u64>);
+
+    assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
+}
