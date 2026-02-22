@@ -232,54 +232,46 @@ impl SwiftRemitContract {
     /// # Authorization
     ///
     /// Requires authentication from the sender address.
-    pub fn create_remittance(
-        env: Env,
-        sender: Address,
-        agent: Address,
-        amount: i128,
-        expiry: Option<u64>,
-    ) -> Result<u64, ContractError> {
-        // Centralized validation before business logic
-        if is_paused(env.clone()) {
-            return Err(ContractError::ContractPaused);
-        }
-        validate_create_remittance_request(&env, &sender, &agent, amount)?;
-        sender.require_auth();
+   pub fn create_remittance(
+    env: Env,
+    sender: Address,
+    agent: Address,
+    amount: i128,
+    expiry: Option<u64>,
+) -> Result<u64, ContractError> {
+    validate_create_remittance_request(&env, &sender, &agent, amount)?;
 
-        let fee_bps = get_platform_fee_bps(&env)?;
-        let fee = amount
-            .checked_mul(fee_bps as i128)
-            .ok_or(ContractError::Overflow)?
-            .checked_div(10000)
-            .ok_or(ContractError::Overflow)?;
+    sender.require_auth();
 
-            let fee_bps = get_platform_fee_bps(&env)?;
-            let fee = amount
-                .checked_mul(fee_bps as i128)
-                .ok_or(ContractError::Overflow)?
-                .checked_div(10000)
-                .ok_or(ContractError::Overflow)?;
+    let fee_bps = get_platform_fee_bps(&env)?;
+    let fee = amount
+        .checked_mul(fee_bps as i128)
+        .ok_or(ContractError::Overflow)?
+        .checked_div(10000)
+        .ok_or(ContractError::Overflow)?;
 
-            let usdc_token = get_usdc_token(&env)?;
-            let token_client = token::Client::new(&env, &usdc_token);
-            token_client.transfer(&sender, &env.current_contract_address(), &amount);
+    let usdc_token = get_usdc_token(&env)?;
+    let token_client = token::Client::new(&env, &usdc_token);
+    token_client.transfer(&sender, &env.current_contract_address(), &amount);
 
-            let counter = get_remittance_counter(&env)?;
-            let remittance_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
+    let counter = get_remittance_counter(&env)?;
+    let remittance_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
 
-            let remittance = Remittance {
-                id: remittance_id,
-                sender: sender.clone(),
-                agent: agent.clone(),
-                amount,
-                fee,
-                status: RemittanceStatus::Pending,
-                expiry,
-            };
+    let remittance = Remittance {
+        id: remittance_id,
+        sender: sender.clone(),
+        agent: agent.clone(),
+        amount,
+        fee,
+        status: RemittanceStatus::Pending,
+        expiry,
+    };
 
-            set_remittance(&env, remittance_id, &remittance);
-            set_remittance_counter(&env, remittance_id);
+    set_remittance(&env, remittance_id, &remittance);
+    set_remittance_counter(&env, remittance_id);
 
+    Ok(remittance_id)  // ← capital O
+}
     /// Confirms a remittance payout to the agent.
     ///
     /// Transfers the remittance amount (minus platform fee) to the agent and marks
@@ -1061,4 +1053,5 @@ impl SwiftRemitContract {
     pub fn get_daily_limit(env: Env, currency: String, country: String) -> Option<DailyLimit> {
         get_daily_limit(&env, &currency, &country)
     }
+}
 }
