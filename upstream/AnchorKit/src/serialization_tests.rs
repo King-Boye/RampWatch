@@ -62,13 +62,8 @@ fn test_quote_request_no_signature_drift() {
     // Serialize the same quote request 10 times
     let mut hashes = vec![];
     for _ in 0..10 {
-        let bytes = serialize_quote_request(
-            &env,
-            &base_asset,
-            &quote_asset,
-            amount,
-            operation_type,
-        );
+        let bytes =
+            serialize_quote_request(&env, &base_asset, &quote_asset, amount, operation_type);
         let hash = compute_hash(&env, &bytes);
         hashes.push(hash);
     }
@@ -171,24 +166,12 @@ fn test_attestation_field_order_matters() {
     let payload_hash = BytesN::from_array(&env, &[1u8; 32]);
 
     // Serialize with id=1, timestamp=1000
-    let bytes1 = serialize_attestation_for_signing(
-        &env,
-        1u64,
-        &issuer,
-        &subject,
-        1000u64,
-        &payload_hash,
-    );
+    let bytes1 =
+        serialize_attestation_for_signing(&env, 1u64, &issuer, &subject, 1000u64, &payload_hash);
 
     // Serialize with id=1000, timestamp=1 (swapped values)
-    let bytes2 = serialize_attestation_for_signing(
-        &env,
-        1000u64,
-        &issuer,
-        &subject,
-        1u64,
-        &payload_hash,
-    );
+    let bytes2 =
+        serialize_attestation_for_signing(&env, 1000u64, &issuer, &subject, 1u64, &payload_hash);
 
     // Must produce different output (field order is preserved)
     assert_ne!(bytes1, bytes2);
@@ -206,22 +189,10 @@ fn test_quote_request_field_order_matters() {
     let asset2 = String::from_str(&env, "USDC");
 
     // Serialize with base=USD, quote=USDC
-    let bytes1 = serialize_quote_request(
-        &env,
-        &asset1,
-        &asset2,
-        1000u64,
-        ServiceType::Deposits,
-    );
+    let bytes1 = serialize_quote_request(&env, &asset1, &asset2, 1000u64, ServiceType::Deposits);
 
     // Serialize with base=USDC, quote=USD (swapped)
-    let bytes2 = serialize_quote_request(
-        &env,
-        &asset2,
-        &asset1,
-        1000u64,
-        ServiceType::Deposits,
-    );
+    let bytes2 = serialize_quote_request(&env, &asset2, &asset1, 1000u64, ServiceType::Deposits);
 
     // Must produce different output (field order is preserved)
     assert_ne!(bytes1, bytes2);
@@ -282,22 +253,10 @@ fn test_session_operation_index_vs_id_distinguishable() {
     let operation_type = String::from_str(&env, "attest");
 
     // Serialize with session_id=5, operation_index=10
-    let bytes1 = serialize_session_operation(
-        &env,
-        5u64,
-        10u64,
-        &operation_type,
-        1700000000u64,
-    );
+    let bytes1 = serialize_session_operation(&env, 5u64, 10u64, &operation_type, 1700000000u64);
 
     // Serialize with session_id=10, operation_index=5 (swapped)
-    let bytes2 = serialize_session_operation(
-        &env,
-        10u64,
-        5u64,
-        &operation_type,
-        1700000000u64,
-    );
+    let bytes2 = serialize_session_operation(&env, 10u64, 5u64, &operation_type, 1700000000u64);
 
     // Must produce different output
     assert_ne!(bytes1, bytes2);
@@ -440,11 +399,51 @@ fn test_quote_data_all_fields_affect_hash() {
 
     // Test each field individually
     let test_cases = vec![
-        ("rate", 10001u64, 25u32, 100u64, 10000u64, 1700000000u64, 1u64),
-        ("fee", 10000u64, 26u32, 100u64, 10000u64, 1700000000u64, 1u64),
-        ("min", 10000u64, 25u32, 101u64, 10000u64, 1700000000u64, 1u64),
-        ("max", 10000u64, 25u32, 100u64, 10001u64, 1700000000u64, 1u64),
-        ("valid", 10000u64, 25u32, 100u64, 10000u64, 1700000001u64, 1u64),
+        (
+            "rate",
+            10001u64,
+            25u32,
+            100u64,
+            10000u64,
+            1700000000u64,
+            1u64,
+        ),
+        (
+            "fee",
+            10000u64,
+            26u32,
+            100u64,
+            10000u64,
+            1700000000u64,
+            1u64,
+        ),
+        (
+            "min",
+            10000u64,
+            25u32,
+            101u64,
+            10000u64,
+            1700000000u64,
+            1u64,
+        ),
+        (
+            "max",
+            10000u64,
+            25u32,
+            100u64,
+            10001u64,
+            1700000000u64,
+            1u64,
+        ),
+        (
+            "valid",
+            10000u64,
+            25u32,
+            100u64,
+            10000u64,
+            1700000001u64,
+            1u64,
+        ),
         ("id", 10000u64, 25u32, 100u64, 10000u64, 1700000000u64, 2u64),
     ];
 
@@ -489,13 +488,7 @@ fn test_service_type_serialization_unique() {
 
     let mut hashes = vec![];
     for service_type in service_types {
-        let bytes = serialize_quote_request(
-            &env,
-            &base_asset,
-            &quote_asset,
-            amount,
-            service_type,
-        );
+        let bytes = serialize_quote_request(&env, &base_asset, &quote_asset, amount, service_type);
         let hash = compute_hash(&env, &bytes);
         hashes.push(hash);
     }
@@ -522,21 +515,9 @@ fn test_empty_string_vs_non_empty() {
     let non_empty = String::from_str(&env, "A");
     let amount = 1000u64;
 
-    let bytes1 = serialize_quote_request(
-        &env,
-        &empty,
-        &non_empty,
-        amount,
-        ServiceType::Deposits,
-    );
+    let bytes1 = serialize_quote_request(&env, &empty, &non_empty, amount, ServiceType::Deposits);
 
-    let bytes2 = serialize_quote_request(
-        &env,
-        &non_empty,
-        &empty,
-        amount,
-        ServiceType::Deposits,
-    );
+    let bytes2 = serialize_quote_request(&env, &non_empty, &empty, amount, ServiceType::Deposits);
 
     assert_ne!(bytes1, bytes2);
 
@@ -566,14 +547,8 @@ fn test_large_numbers_serialization() {
     );
 
     // Test with zero values
-    let bytes_zero = serialize_attestation_for_signing(
-        &env,
-        0u64,
-        &issuer,
-        &subject,
-        0u64,
-        &payload_hash,
-    );
+    let bytes_zero =
+        serialize_attestation_for_signing(&env, 0u64, &issuer, &subject, 0u64, &payload_hash);
 
     // Must be different
     assert_ne!(bytes_max, bytes_zero);
@@ -602,13 +577,8 @@ fn test_byte_order_consistency() {
         ServiceType::Deposits,
     );
 
-    let bytes2 = serialize_quote_request(
-        &env,
-        &base_asset,
-        &quote_asset,
-        1u64,
-        ServiceType::Deposits,
-    );
+    let bytes2 =
+        serialize_quote_request(&env, &base_asset, &quote_asset, 1u64, ServiceType::Deposits);
 
     // Must be different (proves consistent byte ordering)
     assert_ne!(bytes1, bytes2);

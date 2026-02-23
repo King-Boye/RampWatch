@@ -60,23 +60,27 @@ impl ContractConfig {
         if name_len < MIN_NAME_LEN || name_len > MAX_NAME_LEN {
             return Err(Error::InvalidConfigName);
         }
-        
+
         let version_len = self.version.len();
         if version_len < MIN_VERSION_LEN || version_len > MAX_VERSION_LEN {
             return Err(Error::InvalidConfigVersion);
         }
-        
+
         let network_len = self.network.len();
         if network_len < MIN_NETWORK_LEN || network_len > MAX_NETWORK_LEN {
             return Err(Error::InvalidConfigNetwork);
         }
-        
+
         Ok(())
     }
-    
+
     /// Create a validated config (builder pattern for type safety)
     pub fn new(name: String, version: String, network: String) -> Result<Self, Error> {
-        let config = Self { name, version, network };
+        let config = Self {
+            name,
+            version,
+            network,
+        };
         config.validate()?;
         Ok(config)
     }
@@ -89,25 +93,25 @@ impl AttestorConfig {
         if name_len < MIN_NAME_LEN || name_len > MAX_NAME_LEN {
             return Err(Error::InvalidAttestorName);
         }
-        
+
         let addr_len = self.address.len();
         if addr_len < STELLAR_ADDR_MIN || addr_len > STELLAR_ADDR_MAX {
             return Err(Error::InvalidAttestorAddress);
         }
-        
+
         let endpoint_len = self.endpoint.len();
         if endpoint_len < MIN_ENDPOINT_LEN || endpoint_len > MAX_ENDPOINT_LEN {
             return Err(Error::InvalidEndpointFormat);
         }
-        
+
         let role_len = self.role.len();
         if role_len < MIN_ROLE_LEN || role_len > MAX_ROLE_LEN {
             return Err(Error::InvalidAttestorRole);
         }
-        
+
         Ok(())
     }
-    
+
     /// Type-safe builder for attestor config
     pub fn new(
         name: String,
@@ -116,7 +120,13 @@ impl AttestorConfig {
         role: String,
         enabled: bool,
     ) -> Result<Self, Error> {
-        let config = Self { name, address, endpoint, role, enabled };
+        let config = Self {
+            name,
+            address,
+            endpoint,
+            role,
+            enabled,
+        };
         config.validate()?;
         Ok(config)
     }
@@ -125,24 +135,29 @@ impl AttestorConfig {
 impl SessionConfig {
     /// Strict validation with security constraints
     pub fn validate(&self) -> Result<(), Error> {
-        if self.timeout_seconds < MIN_SESSION_TIMEOUT || self.timeout_seconds > MAX_SESSION_TIMEOUT {
+        if self.timeout_seconds < MIN_SESSION_TIMEOUT || self.timeout_seconds > MAX_SESSION_TIMEOUT
+        {
             return Err(Error::InvalidConfig);
         }
-        
+
         if self.max_operations < MIN_OPERATIONS || self.max_operations > MAX_OPERATIONS {
             return Err(Error::InvalidConfig);
         }
-        
+
         Ok(())
     }
-    
+
     /// Type-safe builder for session config
     pub fn new(
         enable_tracking: bool,
         timeout_seconds: u64,
         max_operations: u64,
     ) -> Result<Self, Error> {
-        let config = Self { enable_tracking, timeout_seconds, max_operations };
+        let config = Self {
+            enable_tracking,
+            timeout_seconds,
+            max_operations,
+        };
         config.validate()?;
         Ok(config)
     }

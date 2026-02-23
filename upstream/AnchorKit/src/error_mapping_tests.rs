@@ -222,14 +222,18 @@ fn test_non_retryable_transport_errors() {
 
 #[test]
 fn test_retryable_protocol_errors() {
-    assert!(is_protocol_error_retryable(&Error::ProtocolRateLimitExceeded));
+    assert!(is_protocol_error_retryable(
+        &Error::ProtocolRateLimitExceeded
+    ));
 }
 
 #[test]
 fn test_non_retryable_protocol_errors() {
     assert!(!is_protocol_error_retryable(&Error::ProtocolInvalidPayload));
     assert!(!is_protocol_error_retryable(&Error::ProtocolError));
-    assert!(!is_protocol_error_retryable(&Error::ProtocolComplianceViolation));
+    assert!(!is_protocol_error_retryable(
+        &Error::ProtocolComplianceViolation
+    ));
 }
 
 /// Error severity tests
@@ -324,7 +328,10 @@ fn test_http_to_transport_error_mapping_comprehensive() {
     assert_eq!(map_http_status_to_error(400), Error::TransportError);
     assert_eq!(map_http_status_to_error(401), Error::TransportUnauthorized);
     assert_eq!(map_http_status_to_error(408), Error::TransportTimeout);
-    assert_eq!(map_http_status_to_error(429), Error::ProtocolRateLimitExceeded);
+    assert_eq!(
+        map_http_status_to_error(429),
+        Error::ProtocolRateLimitExceeded
+    );
     assert_eq!(map_http_status_to_error(500), Error::TransportError);
     assert_eq!(map_http_status_to_error(503), Error::TransportError);
     assert_eq!(map_http_status_to_error(504), Error::TransportTimeout);

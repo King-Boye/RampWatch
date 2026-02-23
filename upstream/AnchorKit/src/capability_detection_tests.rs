@@ -249,10 +249,10 @@ fn test_capability_detection_with_metadata() {
     // Set metadata
     client.set_anchor_metadata(
         &anchor,
-        &8500u32,  // reputation_score (85%)
-        &3600u64,  // average_settlement_time (1 hour)
-        &9000u32,  // liquidity_score (90%)
-        &9950u32,  // uptime_percentage (99.5%)
+        &8500u32,      // reputation_score (85%)
+        &3600u64,      // average_settlement_time (1 hour)
+        &9000u32,      // liquidity_score (90%)
+        &9950u32,      // uptime_percentage (99.5%)
         &1_000_000u64, // total_volume
     );
 
@@ -402,7 +402,14 @@ fn test_capability_detection_inactive_anchor() {
     client.configure_services(&anchor, &services);
 
     // Set metadata
-    client.set_anchor_metadata(&anchor, &8500u32, &3600u64, &9000u32, &9950u32, &1_000_000u64);
+    client.set_anchor_metadata(
+        &anchor,
+        &8500u32,
+        &3600u64,
+        &9000u32,
+        &9950u32,
+        &1_000_000u64,
+    );
 
     // Deactivate anchor
     client.deactivate_anchor(&anchor);

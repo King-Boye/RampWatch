@@ -1,8 +1,8 @@
 extern crate alloc;
 
-use soroban_sdk::{Bytes, Env, String};
-use crate::types::{QuoteData, HealthStatus};
+use crate::types::{HealthStatus, QuoteData};
 use crate::Error;
+use soroban_sdk::{Bytes, Env, String};
 
 /// Transport request types
 #[derive(Clone, Debug, PartialEq)]

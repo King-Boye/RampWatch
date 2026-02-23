@@ -43,24 +43,18 @@ mod routing_tests;
 #[cfg(test)]
 mod timeout_tests;
 
+#[cfg(test)]
+mod signature_tests;
+
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
 pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
 pub use errors::Error;
 pub use events::{
-    AttestationRecorded,
-    AttestorAdded,
-    AttestorRemoved,
-    EndpointConfigured,
-    EndpointRemoved,
-    OperationLogged,
-    QuoteReceived,
-    QuoteSubmitted,
-    ServicesConfigured,
-    SessionCreated,
-    SettlementConfirmed,
-    TransferInitiated,
+    AttestationRecorded, AttestorAdded, AttestorRemoved, EndpointConfigured, EndpointRemoved,
+    OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
+    SettlementConfirmed, TransferInitiated,
 };
 pub use storage::Storage;
 pub use types::{

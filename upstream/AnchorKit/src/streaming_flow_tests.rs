@@ -1,7 +1,10 @@
 #![cfg(test)]
 
 use crate::{AnchorKitContract, AnchorKitContractClient, ServiceType};
-use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Bytes, BytesN, Env, String, Vec};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Bytes, BytesN, Env, String, Vec,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum FlowState {
@@ -24,7 +27,7 @@ fn create_contract(env: &Env) -> AnchorKitContractClient<'_> {
 
 fn setup_anchor(env: &Env, client: &AnchorKitContractClient, admin: &Address, anchor: &Address) {
     client.register_attestor(anchor);
-    
+
     let mut services = Vec::new(env);
     services.push_back(ServiceType::Deposits);
     services.push_back(ServiceType::Quotes);
@@ -36,15 +39,15 @@ fn setup_anchor(env: &Env, client: &AnchorKitContractClient, admin: &Address, an
 fn test_streaming_flow_pending_to_awaiting_user_to_completed() {
     let env = Env::default();
     env.mock_all_auths();
-    
+
     let admin = Address::generate(&env);
     let user = Address::generate(&env);
     let anchor = Address::generate(&env);
-    
+
     let client = create_contract(&env);
     client.initialize(&admin);
     setup_anchor(&env, &client, &admin, &anchor);
-    
+
     // PENDING: Create session
     let session_id = client.create_session(&user);
     let mut flow = StreamingFlow {
@@ -53,9 +56,9 @@ fn test_streaming_flow_pending_to_awaiting_user_to_completed() {
         state: FlowState::Pending,
         anchor: anchor.clone(),
     };
-    
+
     assert_eq!(flow.state, FlowState::Pending);
-    
+
     // AWAITING_USER: Submit quote
     let quote_id = client.submit_quote(
         &anchor,
@@ -67,14 +70,14 @@ fn test_streaming_flow_pending_to_awaiting_user_to_completed() {
         &100000u64,
         &(env.ledger().timestamp() + 3600),
     );
-    
+
     flow.state = FlowState::AwaitingUser;
     assert_eq!(flow.state, FlowState::AwaitingUser);
-    
+
     // COMPLETED: Receive quote
     let quote = client.receive_quote(&user, &anchor, &quote_id);
     assert_eq!(quote.quote_id, quote_id);
-    
+
     flow.state = FlowState::Completed;
     assert_eq!(flow.state, FlowState::Completed);
 }
@@ -84,24 +87,24 @@ fn test_multi_step_async_stream_with_attestation() {
     let env = Env::default();
     env.mock_all_auths();
     env.ledger().with_mut(|li| li.timestamp = 1000000);
-    
+
     let admin = Address::generate(&env);
     let user = Address::generate(&env);
     let anchor = Address::generate(&env);
     let subject = Address::generate(&env);
-    
+
     let client = create_contract(&env);
     client.initialize(&admin);
     setup_anchor(&env, &client, &admin, &anchor);
-    
+
     // PENDING
     let session_id = client.create_session(&user);
     let mut state = FlowState::Pending;
-    
+
     // AWAITING_USER
     let payload_hash = BytesN::from_array(&env, &[1; 32]);
     let signature = Bytes::from_slice(&env, &[10, 11, 12]);
-    
+
     let attestation_id = client.submit_attestation_with_session(
         &session_id,
         &anchor,
@@ -110,15 +113,15 @@ fn test_multi_step_async_stream_with_attestation() {
         &payload_hash,
         &signature,
     );
-    
+
     state = FlowState::AwaitingUser;
     assert_eq!(state, FlowState::AwaitingUser);
     assert!(attestation_id >= 0);
-    
+
     // COMPLETED
     let session = client.get_session(&session_id);
     assert_eq!(session.session_id, session_id);
-    
+
     state = FlowState::Completed;
     assert_eq!(state, FlowState::Completed);
 }
@@ -127,24 +130,24 @@ fn test_multi_step_async_stream_with_attestation() {
 fn test_concurrent_streaming_flows() {
     let env = Env::default();
     env.mock_all_auths();
-    
+
     let admin = Address::generate(&env);
     let user1 = Address::generate(&env);
     let user2 = Address::generate(&env);
     let anchor = Address::generate(&env);
-    
+
     let client = create_contract(&env);
     client.initialize(&admin);
     setup_anchor(&env, &client, &admin, &anchor);
-    
+
     // Flow 1: PENDING
     let session1 = client.create_session(&user1);
     let mut flow1_state = FlowState::Pending;
-    
+
     // Flow 2: PENDING
     let session2 = client.create_session(&user2);
     let mut flow2_state = FlowState::Pending;
-    
+
     // Flow 1: AWAITING_USER
     let quote1 = client.submit_quote(
         &anchor,
@@ -157,7 +160,7 @@ fn test_concurrent_streaming_flows() {
         &(env.ledger().timestamp() + 3600),
     );
     flow1_state = FlowState::AwaitingUser;
-    
+
     // Flow 2: AWAITING_USER
     let quote2 = client.submit_quote(
         &anchor,
@@ -170,15 +173,15 @@ fn test_concurrent_streaming_flows() {
         &(env.ledger().timestamp() + 3600),
     );
     flow2_state = FlowState::AwaitingUser;
-    
+
     // Flow 1: COMPLETED
     let _ = client.receive_quote(&user1, &anchor, &quote1);
     flow1_state = FlowState::Completed;
-    
+
     // Flow 2: COMPLETED
     let _ = client.receive_quote(&user2, &anchor, &quote2);
     flow2_state = FlowState::Completed;
-    
+
     assert_eq!(flow1_state, FlowState::Completed);
     assert_eq!(flow2_state, FlowState::Completed);
 }

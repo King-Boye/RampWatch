@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 /// AnchorKit - Soroban toolkit for anchoring off-chain attestations to Stellar
-/// 
+///
 /// AnchorKit enables smart contracts to verify real-world events such as KYC approvals,
 /// payment confirmations, and signed claims in a trust-minimized way.
 #[derive(Parser)]
@@ -16,10 +16,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Build the AnchorKit smart contract
-    /// 
+    ///
     /// Compiles the contract to WASM format optimized for Soroban deployment.
     /// Use this before deploying to ensure your contract is ready.
-    /// 
+    ///
     /// Examples:
     ///   anchorkit build
     ///   anchorkit build --release
@@ -30,11 +30,11 @@ enum Commands {
     },
 
     /// Deploy compiled contract to configured network
-    /// 
+    ///
     /// Deploys your AnchorKit contract to the specified Stellar network.
     /// Requires a funded admin account and network configuration.
     /// Use --dry-run to validate deployment without executing.
-    /// 
+    ///
     /// Examples:
     ///   anchorkit deploy
     ///   anchorkit deploy --network devnet
@@ -50,11 +50,11 @@ enum Commands {
     },
 
     /// Initialize deployed contract with admin account
-    /// 
+    ///
     /// Sets up the contract with an admin address after deployment.
     /// This must be done before any attestors can be registered.
     /// The admin has privileges to register and revoke attestors.
-    /// 
+    ///
     /// Examples:
     ///   anchorkit init --admin GADMIN123...
     ///   anchorkit init --admin GADMIN123... --network devnet
@@ -69,11 +69,11 @@ enum Commands {
     },
 
     /// Register a new attestor/anchor
-    /// 
+    ///
     /// Adds an attestor to the contract, allowing them to submit attestations.
     /// Only the contract admin can register attestors.
     /// Optionally configure supported services during registration.
-    /// 
+    ///
     /// Examples:
     ///   anchorkit register --address GANCHOR123...
     ///   anchorkit register --address GANCHOR123... --services deposits,withdrawals,kyc
@@ -97,11 +97,11 @@ enum Commands {
     },
 
     /// Submit an attestation for verification
-    /// 
+    ///
     /// Creates an attestation linking an off-chain event to on-chain verification.
     /// Requires the submitter to be a registered attestor.
     /// Includes replay protection and timestamp validation.
-    /// 
+    ///
     /// Examples:
     ///   anchorkit attest --subject GUSER123... --payload-hash abc123...
     ///   anchorkit attest --subject GUSER123... --payload-hash abc123... --session session-001
@@ -124,11 +124,11 @@ enum Commands {
     },
 
     /// Query attestation by ID
-    /// 
+    ///
     /// Retrieves details of a previously submitted attestation.
     /// Returns issuer, subject, timestamp, and payload hash.
     /// Useful for verification and audit purposes.
-    /// 
+    ///
     /// Examples:
     ///   anchorkit query --id 42
     ///   anchorkit query --id 42 --network mainnet
@@ -143,11 +143,11 @@ enum Commands {
     },
 
     /// Check health status of registered attestors
-    /// 
+    ///
     /// Monitors attestor availability, latency, and failure rates.
     /// Helps identify performance issues and service degradation.
     /// Use --watch for continuous monitoring.
-    /// 
+    ///
     /// Examples:
     ///   anchorkit health
     ///   anchorkit health --attestor GANCHOR123...
@@ -171,11 +171,11 @@ enum Commands {
     },
 
     /// Run contract tests
-    /// 
+    ///
     /// Executes the full test suite to verify contract functionality.
     /// Includes unit tests, integration tests, and edge case validation.
     /// Use before deployment to ensure contract correctness.
-    /// 
+    ///
     /// Examples:
     ///   anchorkit test
     ///   anchorkit test --verbose
@@ -191,11 +191,11 @@ enum Commands {
     },
 
     /// Validate configuration files
-    /// 
+    ///
     /// Checks config files for correctness and security issues.
     /// Ensures no credentials are stored in configs.
     /// Validates JSON/TOML syntax and required fields.
-    /// 
+    ///
     /// Examples:
     ///   anchorkit validate
     ///   anchorkit validate --config configs/stablecoin-issuer.toml
@@ -245,7 +245,12 @@ fn main() {
             println!("Initializing contract on {} with admin: {}", network, admin);
             println!("✓ Contract initialized");
         }
-        Commands::Register { address, services, endpoint, network } => {
+        Commands::Register {
+            address,
+            services,
+            endpoint,
+            network,
+        } => {
             println!("Registering attestor {} on {}", address, network);
             if let Some(svcs) = services {
                 println!("Services: {}", svcs.join(", "));
@@ -255,7 +260,12 @@ fn main() {
             }
             println!("✓ Attestor registered");
         }
-        Commands::Attest { subject, payload_hash, session, network } => {
+        Commands::Attest {
+            subject,
+            payload_hash,
+            session,
+            network,
+        } => {
             println!("Submitting attestation on {}", network);
             println!("Subject: {}", subject);
             println!("Payload hash: {}", payload_hash);
@@ -268,7 +278,12 @@ fn main() {
             println!("Querying attestation {} on {}", id, network);
             println!("✓ Attestation retrieved");
         }
-        Commands::Health { attestor, watch, interval, network } => {
+        Commands::Health {
+            attestor,
+            watch,
+            interval,
+            network,
+        } => {
             if watch {
                 println!("Monitoring health on {} (interval: {}s)", network, interval);
                 if let Some(addr) = attestor {
