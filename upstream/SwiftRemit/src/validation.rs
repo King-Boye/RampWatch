@@ -3,7 +3,7 @@
 //! This module provides validation functions for Stellar addresses used in
 //! contract operations.
 
-use soroban_sdk::{Address, Env, String};
+use soroban_sdk::{Address, Env};
 
 use crate::{ContractError, is_agent_registered, is_paused, get_remittance, RemittanceStatus};
 
@@ -204,6 +204,28 @@ pub fn validate_admin_operation(
     validate_address(target)?;
     crate::require_admin(env, caller)?;
     Ok(())
+}
+
+/// Normalizes an asset symbol to uppercase canonical form.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `symbol` - The symbol string to normalize
+///
+/// # Returns
+///
+/// * `Ok(String)` - Normalized uppercase symbol
+/// * `Err(ContractError::InvalidSymbol)` - Symbol contains invalid characters or is malformed
+pub fn normalize_symbol(env: &Env, symbol: &soroban_sdk::String) -> Result<soroban_sdk::String, ContractError> {
+    let len = symbol.len() as usize;
+    let mut bytes = soroban_sdk::Bytes::new(env);
+    for i in 0..len {
+        let b = symbol.get(i as u32).ok_or(ContractError::InvalidSymbol)?;
+        let upper = if b >= b'a' && b <= b'z' { b - 32 } else { b };
+        bytes.push_back(upper);
+    }
+    Ok(soroban_sdk::String::from_bytes(env, &bytes))
 }
 
 #[cfg(test)]

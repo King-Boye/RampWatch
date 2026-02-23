@@ -17,11 +17,16 @@ mod types;
 mod validation;
 #[cfg(test)]
 mod test;
-
 #[cfg(test)]
-mod test; 
+mod test_escrow;
+#[cfg(test)]
+mod test_roles_simple;
+#[cfg(test)]
+mod test_transfer_state;
+#[cfg(test)]
+mod test_protocol_fee; 
 
-use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec, String};
 
 pub use debug::*;
 pub use error_handler::*;
@@ -34,6 +39,9 @@ pub use rate_limit::*;
 pub use storage::*;
 pub use types::*;
 pub use validation::*;
+
+/// Maximum number of remittances that can be settled in a single batch
+const MAX_BATCH_SIZE: u32 = 100;
 
 /// The main SwiftRemit contract for managing cross-border remittances.
 ///
@@ -77,6 +85,8 @@ impl SwiftRemitContract {
         usdc_token: Address,
         fee_bps: u32,
         rate_limit_cooldown: u64,
+        protocol_fee_bps: u32,
+        treasury: Address,
     ) -> Result<(), ContractError> {
         // Centralized validation before business logic
         validate_initialize_request(&env, &admin, &usdc_token, fee_bps)?;
@@ -88,11 +98,19 @@ impl SwiftRemitContract {
         set_admin_role(&env, &admin, true);
         set_admin_count(&env, 1);
         
+        // Assign Admin role to initial admin
+        assign_role(&env, &admin, &Role::Admin);
+        
         set_usdc_token(&env, &usdc_token);
         set_platform_fee_bps(&env, fee_bps);
         set_remittance_counter(&env, 0);
         set_accumulated_fees(&env, 0);
         set_rate_limit_cooldown(&env, rate_limit_cooldown);
+        set_escrow_counter(&env, 0);
+        
+        // Initialize protocol fee and treasury
+        set_protocol_fee_bps(&env, protocol_fee_bps)?;
+        set_treasury(&env, &treasury);
 
         // Initialize rate limiting with default configuration
         init_rate_limit(&env);
@@ -232,51 +250,49 @@ impl SwiftRemitContract {
     /// # Authorization
     ///
     /// Requires authentication from the sender address.
-    pub fn create_remittance(
-        env: Env,
-        sender: Address,
-        agent: Address,
-        amount: i128,
-        expiry: Option<u64>,
-    ) -> Result<u64, ContractError> {
-        // Centralized validation before business logic
-        validate_create_remittance_request(&env, &sender, &agent, amount)?;
-        
-        sender.require_auth();
+   pub fn create_remittance(
+    env: Env,
+    sender: Address,
+    agent: Address,
+    amount: i128,
+    expiry: Option<u64>,
+) -> Result<u64, ContractError> {
+    validate_create_remittance_request(&env, &sender, &agent, amount)?;
 
-        let fee_bps = get_platform_fee_bps(&env)?;
-        let fee = amount
-            .checked_mul(fee_bps as i128)
-            .ok_or(ContractError::Overflow)?
-            .checked_div(10000)
-            .ok_or(ContractError::Overflow)?;
+    sender.require_auth();
 
-        let usdc_token = get_usdc_token(&env)?;
-        let token_client = token::Client::new(&env, &usdc_token);
-        token_client.transfer(&sender, &env.current_contract_address(), &amount);
+    let fee_bps = get_platform_fee_bps(&env)?;
+    let fee = amount
+        .checked_mul(fee_bps as i128)
+        .ok_or(ContractError::Overflow)?
+        .checked_div(10000)
+        .ok_or(ContractError::Overflow)?;
 
-        let counter = get_remittance_counter(&env)?;
-        let remittance_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
+    let usdc_token = get_usdc_token(&env)?;
+    let token_client = token::Client::new(&env, &usdc_token);
+    token_client.transfer(&sender, &env.current_contract_address(), &amount);
 
-        let remittance = Remittance {
-            id: remittance_id,
-            sender: sender.clone(),
-            agent: agent.clone(),
-            amount,
-            fee,
-            status: RemittanceStatus::Pending,
-            expiry,
-        };
+    let counter = get_remittance_counter(&env)?;
+    let remittance_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
 
-        set_remittance(&env, remittance_id, &remittance);
-        set_remittance_counter(&env, remittance_id);
+    let remittance = Remittance {
+        id: remittance_id,
+        sender: sender.clone(),
+        agent: agent.clone(),
+        amount,
+        fee,
+        status: RemittanceStatus::Pending,
+        expiry,
+    };
 
-        // Event: RemittanceCreated
-        emit_remittance_created(&env, remittance_id, sender, agent, amount, fee);
+    set_remittance(&env, remittance_id, &remittance);
+    set_remittance_counter(&env, remittance_id);
+    
+    // Set initial transfer state
+    set_transfer_state(&env, remittance_id, TransferState::Initiated)?;
 
-        Ok(remittance_id)
-    }
-
+    Ok(remittance_id)  // ← capital O
+}
     /// Confirms a remittance payout to the agent.
     ///
     /// Transfers the remittance amount (minus platform fee) to the agent and marks
@@ -301,11 +317,18 @@ impl SwiftRemitContract {
     /// # Authorization
     ///
     /// Requires authentication from the agent address assigned to the remittance.
+    /// Requires Settler role.
     pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<(), ContractError> {
         // Centralized validation before business logic
         let mut remittance = validate_confirm_payout_request(&env, remittance_id)?;
 
         remittance.agent.require_auth();
+        
+        // Require Settler role
+        require_role_settler(&env, &remittance.agent)?;
+        
+        // Transition to Processing state
+        set_transfer_state(&env, remittance_id, TransferState::Processing)?;
 
         if remittance.status != RemittanceStatus::Pending {
             return Err(ContractError::InvalidStatus);
@@ -325,23 +348,47 @@ impl SwiftRemitContract {
         }
 
         // Check rate limit for sender
-        check_rate_limit(&env, &remittance.sender)?;
+        check_settlement_rate_limit(&env, &remittance.sender)?;
 
         // Validate the agent address before transfer
         validate_address(&remittance.agent)?;
 
+        // Calculate protocol fee
+        let protocol_fee_bps = get_protocol_fee_bps(&env);
+        let protocol_fee = remittance
+            .amount
+            .checked_mul(protocol_fee_bps as i128)
+            .ok_or(ContractError::Overflow)?
+            .checked_div(10000)
+            .ok_or(ContractError::Overflow)?;
+
+        // Calculate payout after platform and protocol fees
         let payout_amount = remittance
             .amount
             .checked_sub(remittance.fee)
+            .ok_or(ContractError::Overflow)?
+            .checked_sub(protocol_fee)
             .ok_or(ContractError::Overflow)?;
 
         let usdc_token = get_usdc_token(&env)?;
         let token_client = token::Client::new(&env, &usdc_token);
+        
+        // Transfer payout to agent
         token_client.transfer(
             &env.current_contract_address(),
             &remittance.agent,
             &payout_amount,
         );
+        
+        // Transfer protocol fee to treasury
+        if protocol_fee > 0 {
+            let treasury = get_treasury(&env)?;
+            token_client.transfer(
+                &env.current_contract_address(),
+                &treasury,
+                &protocol_fee,
+            );
+        }
 
         let current_fees = get_accumulated_fees(&env)?;
         let new_fees = current_fees
@@ -351,6 +398,9 @@ impl SwiftRemitContract {
 
         remittance.status = RemittanceStatus::Settled;
         set_remittance(&env, remittance_id, &remittance);
+        
+        // Transition to Completed state
+        set_transfer_state(&env, remittance_id, TransferState::Completed)?;
 
         // Mark settlement as executed to prevent duplicates
         set_settlement_hash(&env, remittance_id);
@@ -421,6 +471,9 @@ impl SwiftRemitContract {
 
         remittance.status = RemittanceStatus::Failed;
         set_remittance(&env, remittance_id, &remittance);
+        
+        // Transition to Refunded state
+        set_transfer_state(&env, remittance_id, TransferState::Refunded)?;
 
         // Event: Remittance cancelled - Fires when sender cancels a pending remittance and receives full refund
         // Used by off-chain systems to track cancellations and update transaction status
@@ -568,11 +621,7 @@ impl SwiftRemitContract {
         require_admin(&env, &caller)?;
 
         set_paused(&env, true);
-        
-        // Event: Paused - Fires when admin pauses the contract to prevent new payouts
-        // Used by off-chain systems to halt operations during emergencies or maintenance
         emit_paused(&env, caller);
-
         Ok(())
     }
 
@@ -581,13 +630,94 @@ impl SwiftRemitContract {
         require_admin(&env, &caller)?;
 
         set_paused(&env, false);
-        
-        // Event: Unpaused - Fires when admin resumes contract operations after pause
-        // Used by off-chain systems to resume normal payout processing
         emit_unpaused(&env, caller);
+        Ok(())
+    }
+
+    // ── Escrow Functions ───────────────────────────────────────────
+
+    pub fn create_escrow(
+        env: Env,
+        sender: Address,
+        recipient: Address,
+        amount: i128,
+    ) -> Result<u64, ContractError> {
+        sender.require_auth();
+        
+        if amount <= 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&sender, &env.current_contract_address(), &amount);
+
+        let counter = get_escrow_counter(&env)?;
+        let transfer_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
+
+        let escrow = Escrow {
+            transfer_id,
+            sender: sender.clone(),
+            recipient: recipient.clone(),
+            amount,
+            status: EscrowStatus::Pending,
+        };
+
+        set_escrow(&env, transfer_id, &escrow);
+        set_escrow_counter(&env, transfer_id);
+
+        emit_escrow_created(&env, transfer_id, sender, recipient, amount);
+
+        Ok(transfer_id)
+    }
+
+    pub fn release_escrow(env: Env, transfer_id: u64) -> Result<(), ContractError> {
+        let mut escrow = get_escrow(&env, transfer_id)?;
+        
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
+
+        if escrow.status != EscrowStatus::Pending {
+            return Err(ContractError::InvalidEscrowStatus);
+        }
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&env.current_contract_address(), &escrow.recipient, &escrow.amount);
+
+        escrow.status = EscrowStatus::Released;
+        set_escrow(&env, transfer_id, &escrow);
+
+        emit_escrow_released(&env, transfer_id, escrow.recipient, escrow.amount);
 
         Ok(())
     }
+
+    pub fn refund_escrow(env: Env, transfer_id: u64) -> Result<(), ContractError> {
+        let mut escrow = get_escrow(&env, transfer_id)?;
+        
+        escrow.sender.require_auth();
+
+        if escrow.status != EscrowStatus::Pending {
+            return Err(ContractError::InvalidEscrowStatus);
+        }
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&env.current_contract_address(), &escrow.sender, &escrow.amount);
+
+        escrow.status = EscrowStatus::Refunded;
+        set_escrow(&env, transfer_id, &escrow);
+
+        emit_escrow_refunded(&env, transfer_id, escrow.sender, escrow.amount);
+
+        Ok(())
+    }
+
+    pub fn get_escrow(env: Env, transfer_id: u64) -> Result<Escrow, ContractError> {
+        get_escrow(&env, transfer_id)
+    }
+
 
     pub fn is_paused(env: Env) -> bool {
         crate::storage::is_paused(&env)
@@ -836,6 +966,43 @@ impl SwiftRemitContract {
     /// - `max_requests`: Maximum number of requests allowed per window
     /// - `window_seconds`: Time window in seconds
     /// - `enabled`: Whether rate limiting is enabled
+    /// 
+    /// # Example
+    /// ```ignore
+    /// // Set rate limit to 50 requests per 30 seconds
+    /// contract.update_rate_limit_config(&admin, 50, 30, true)?;
+    /// ```
+    pub fn update_rate_limit_config(
+        env: Env,
+        caller: Address,
+        max_requests: u32,
+        window_seconds: u64,
+        enabled: bool,
+    ) -> Result<(), ContractError> {
+        require_admin(&env, &caller)?;
+
+        let config = RateLimitConfig {
+            max_requests,
+            window_seconds,
+            enabled,
+        };
+
+        set_rate_limit_config(&env, config);
+
+        log_update_rate_limit(&env, max_requests, window_seconds, enabled);
+
+        Ok(())
+    }
+
+    /// Get current rate limit configuration
+    /// 
+    /// # Returns
+    /// Tuple of (max_requests, window_seconds, enabled)
+    pub fn get_rate_limit_config(env: Env) -> (u32, u64, bool) {
+        let config = get_rate_limit_config(&env);
+        (config.max_requests, config.window_seconds, config.enabled)
+    }
+
     /// Get rate limit status for a specific address
     /// 
     /// # Parameters
@@ -845,6 +1012,70 @@ impl SwiftRemitContract {
     /// Tuple of (current_requests, max_requests, window_seconds)
     pub fn get_rate_limit_status(env: Env, address: Address) -> (u32, u32, u64) {
         get_rate_limit_status(&env, &address)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Protocol Fee Management
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Updates the protocol fee (Admin only, max 200 bps)
+    pub fn update_protocol_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_admin(&env, &caller)?;
+        set_protocol_fee_bps(&env, fee_bps)?;
+        Ok(())
+    }
+
+    /// Updates the treasury address (Admin only)
+    pub fn update_treasury(env: Env, caller: Address, treasury: Address) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_admin(&env, &caller)?;
+        set_treasury(&env, &treasury);
+        Ok(())
+    }
+
+    /// Gets the current protocol fee in basis points
+    pub fn get_protocol_fee_bps(env: Env) -> u32 {
+        get_protocol_fee_bps(&env)
+    }
+
+    /// Gets the treasury address
+    pub fn get_treasury(env: Env) -> Result<Address, ContractError> {
+        get_treasury(&env)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Role-Based Authorization Functions
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Assigns a role to an address (Admin only)
+    pub fn assign_role(env: Env, caller: Address, address: Address, role: Role) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_role_admin(&env, &caller)?;
+        assign_role(&env, &address, &role);
+        Ok(())
+    }
+
+    /// Removes a role from an address (Admin only)
+    pub fn remove_role(env: Env, caller: Address, address: Address, role: Role) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_role_admin(&env, &caller)?;
+        remove_role(&env, &address, &role);
+        Ok(())
+    }
+
+    /// Checks if an address has a specific role
+    pub fn has_role(env: Env, address: Address, role: Role) -> bool {
+        has_role(&env, &address, &role)
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Transfer State Registry (Read-Only for Indexers)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /// Gets the current state of a transfer (read-only for indexers)
+    pub fn get_transfer_state(env: Env, transfer_id: u64) -> Option<TransferState> {
+        get_transfer_state(&env, transfer_id)
     }
 }
 

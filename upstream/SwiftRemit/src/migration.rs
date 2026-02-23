@@ -305,9 +305,9 @@ fn compute_snapshot_hash(
 ) -> BytesN<32> {
     let mut data = Bytes::new(env);
     
-    // Serialize instance data
-    data.append(&instance_data.admin.to_string().to_bytes());
-    data.append(&instance_data.usdc_token.to_string().to_bytes());
+    // Serialize instance data using to_xdr
+    data.append(&instance_data.admin.to_xdr(env));
+    data.append(&instance_data.usdc_token.to_xdr(env));
     data.append(&Bytes::from_array(env, &instance_data.platform_fee_bps.to_be_bytes()));
     data.append(&Bytes::from_array(env, &instance_data.remittance_counter.to_be_bytes()));
     data.append(&Bytes::from_array(env, &instance_data.accumulated_fees.to_be_bytes()));
@@ -320,8 +320,8 @@ fn compute_snapshot_hash(
     for i in 0..persistent_data.remittances.len() {
         let r = persistent_data.remittances.get_unchecked(i);
         data.append(&Bytes::from_array(env, &r.id.to_be_bytes()));
-        data.append(&r.sender.to_string().to_bytes());
-        data.append(&r.agent.to_string().to_bytes());
+        data.append(&r.sender.to_xdr(env));
+        data.append(&r.agent.to_xdr(env));
         data.append(&Bytes::from_array(env, &r.amount.to_be_bytes()));
         data.append(&Bytes::from_array(env, &r.fee.to_be_bytes()));
         
@@ -340,13 +340,13 @@ fn compute_snapshot_hash(
     // Agents
     for i in 0..persistent_data.agents.len() {
         let agent = persistent_data.agents.get_unchecked(i);
-        data.append(&agent.to_string().to_bytes());
+        data.append(&agent.to_xdr(env));
     }
     
     // Admin roles
     for i in 0..persistent_data.admin_roles.len() {
         let admin = persistent_data.admin_roles.get_unchecked(i);
-        data.append(&admin.to_string().to_bytes());
+        data.append(&admin.to_xdr(env));
     }
     
     // Settlement hashes
@@ -358,7 +358,7 @@ fn compute_snapshot_hash(
     // Whitelisted tokens
     for i in 0..persistent_data.whitelisted_tokens.len() {
         let token = persistent_data.whitelisted_tokens.get_unchecked(i);
-        data.append(&token.to_string().to_bytes());
+        data.append(&token.to_xdr(env));
     }
     
     // Add timestamp and ledger sequence
@@ -494,8 +494,8 @@ fn compute_batch_hash(
     for i in 0..remittances.len() {
         let r = remittances.get_unchecked(i);
         data.append(&Bytes::from_array(env, &r.id.to_be_bytes()));
-        data.append(&r.sender.to_string().to_bytes());
-        data.append(&r.agent.to_string().to_bytes());
+        data.append(&r.sender.to_xdr(env));
+        data.append(&r.agent.to_xdr(env));
         data.append(&Bytes::from_array(env, &r.amount.to_be_bytes()));
         data.append(&Bytes::from_array(env, &r.fee.to_be_bytes()));
         

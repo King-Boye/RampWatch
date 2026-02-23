@@ -3,7 +3,7 @@ Cargo.lock
 *.wasm
 *.optimized.wasm
 .soroban/
-.kiro
+.kiro/settings/
 # scratch/audit workfiles
 *.txt
 instructions.md
