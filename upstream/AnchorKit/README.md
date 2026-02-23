@@ -49,6 +49,20 @@ if contract.supports_service(&anchor, &ServiceType::Deposits) {
 }
 ```
 
+## CLI Example
+
+See complete deposit/withdraw workflow:
+
+```bash
+# Run bash demo
+./examples/cli_example.sh
+
+# Or run Rust example
+cargo run --example cli_example
+```
+
+See **[CLI_EXAMPLE.md](./CLI_EXAMPLE.md)** for full documentation.
+
 ## Key Features
 
 - **Attestation Management**: Register attestors, submit and retrieve attestations

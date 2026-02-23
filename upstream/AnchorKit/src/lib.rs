@@ -1,6 +1,8 @@
 #![no_std]
 
+mod asset_validator;
 mod config;
+mod connection_pool;
 mod credentials;
 mod error_mapping;
 mod errors;
@@ -61,7 +63,9 @@ mod request_id_tests;
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
+pub use asset_validator::{AssetConfig, AssetValidator};
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
+pub use connection_pool::{ConnectionPool, ConnectionPoolConfig, ConnectionStats};
 pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
 pub use errors::Error;
 pub use events::{
@@ -1260,120 +1264,53 @@ impl AnchorKitContract {
         Ok(())
     }
 
-    // ============ Request ID Propagation ============
+    // ============ Connection Pooling ============
 
-    /// Generate a unique request ID for flow tracking.
-    pub fn generate_request_id(env: Env) -> RequestId {
-        RequestId::generate(&env)
-    }
-
-    /// Submit attestation with request ID tracking.
-    pub fn submit_with_request_id(
+    /// Configure connection pool. Only callable by admin.
+    pub fn configure_connection_pool(
         env: Env,
-        request_id: RequestId,
-        issuer: Address,
-        subject: Address,
-        timestamp: u64,
-        payload_hash: BytesN<32>,
-        signature: Bytes,
-    ) -> Result<u64, Error> {
-        issuer.require_auth();
+        max_connections: u32,
+        idle_timeout_seconds: u64,
+        connection_timeout_seconds: u64,
+        reuse_connections: bool,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
 
-        let start_time = env.ledger().timestamp();
-
-        // Perform attestation
-        let result = if timestamp == 0 {
-            Err(Error::InvalidTimestamp)
-        } else if !Storage::is_attestor(&env, &issuer) {
-            Err(Error::UnauthorizedAttestor)
-        } else if Storage::is_hash_used(&env, &payload_hash) {
-            Err(Error::ReplayAttack)
-        } else {
-            Self::verify_signature(&env, &issuer, &subject, timestamp, &payload_hash, &signature)?;
-
-            let id = Storage::get_and_increment_counter(&env);
-            let attestation = Attestation {
-                id,
-                issuer: issuer.clone(),
-                subject: subject.clone(),
-                timestamp,
-                payload_hash: payload_hash.clone(),
-                signature,
-            };
-
-            Storage::set_attestation(&env, id, &attestation);
-            Storage::mark_hash_used(&env, &payload_hash);
-            AttestationRecorded::publish(&env, id, &subject, timestamp, payload_hash);
-
-            Ok(id)
+        let config = ConnectionPoolConfig {
+            max_connections,
+            idle_timeout_seconds,
+            connection_timeout_seconds,
+            reuse_connections,
         };
 
-        // Store tracing span
-        let span = TracingSpan {
-            request_id: request_id.clone(),
-            operation: soroban_sdk::String::from_str(&env, "submit_attestation"),
-            actor: issuer,
-            started_at: start_time,
-            completed_at: env.ledger().timestamp(),
-            status: if result.is_ok() {
-                soroban_sdk::String::from_str(&env, "success")
-            } else {
-                soroban_sdk::String::from_str(&env, "failed")
-            },
-        };
-        RequestTracker::store_span(&env, &span);
-
-        result
+        ConnectionPool::set_config(&env, &config);
+        Ok(())
     }
 
-    /// Get tracing span by request ID.
-    pub fn get_tracing_span(env: Env, request_id: BytesN<16>) -> Option<TracingSpan> {
-        RequestTracker::get_span(&env, &request_id)
+    /// Get connection pool configuration.
+    pub fn get_pool_config(env: Env) -> ConnectionPoolConfig {
+        ConnectionPool::get_config(&env)
     }
 
-    /// Submit quote with request ID tracking.
-    pub fn quote_with_request_id(
-        env: Env,
-        request_id: RequestId,
-        anchor: Address,
-        base_asset: soroban_sdk::String,
-        quote_asset: soroban_sdk::String,
-        rate: u64,
-        fee_percentage: u32,
-        minimum_amount: u64,
-        maximum_amount: u64,
-        valid_until: u64,
-    ) -> Result<u64, Error> {
-        anchor.require_auth();
+    /// Get connection pool statistics.
+    pub fn get_pool_stats(env: Env) -> ConnectionStats {
+        ConnectionPool::get_stats(&env)
+    }
 
-        let start_time = env.ledger().timestamp();
+    /// Reset connection pool statistics.
+    pub fn reset_pool_stats(env: Env) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
 
-        let result = Self::submit_quote(
-            env.clone(),
-            anchor.clone(),
-            base_asset,
-            quote_asset,
-            rate,
-            fee_percentage,
-            minimum_amount,
-            maximum_amount,
-            valid_until,
-        );
+        ConnectionPool::reset_stats(&env);
+        Ok(())
+    }
 
-        let span = TracingSpan {
-            request_id: request_id.clone(),
-            operation: soroban_sdk::String::from_str(&env, "submit_quote"),
-            actor: anchor,
-            started_at: start_time,
-            completed_at: env.ledger().timestamp(),
-            status: if result.is_ok() {
-                soroban_sdk::String::from_str(&env, "success")
-            } else {
-                soroban_sdk::String::from_str(&env, "failed")
-            },
-        };
-        RequestTracker::store_span(&env, &span);
-
-        result
+    /// Get pooled connection for endpoint.
+    pub fn get_pooled_connection(env: Env, endpoint: String) -> Result<(), Error> {
+        ConnectionPool::get_connection(&env, &endpoint);
+        Ok(())
     }
 }
+
