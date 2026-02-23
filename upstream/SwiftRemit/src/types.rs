@@ -3,7 +3,7 @@
 //! This module defines the core data structures used throughout the contract,
 //! including remittance records and status enums.
 
-use soroban_sdk::{contracttype, Address, String, Vec};
+use soroban_sdk::{contracttype, Address, Vec, String};
 
 /// Status of a remittance transaction.
 ///

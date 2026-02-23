@@ -381,7 +381,7 @@ pub fn get_last_settlement_time(env: &Env, sender: &Address) -> Option<u64> {
         .get(&DataKey::LastSettlementTime(sender.clone()))
 }
 
-pub fn check_rate_limit(env: &Env, sender: &Address) -> Result<(), ContractError> {
+pub fn check_settlement_rate_limit(env: &Env, sender: &Address) -> Result<(), ContractError> {
     let cooldown = get_rate_limit_cooldown(env)?;
     
     // If cooldown is 0, rate limiting is disabled
