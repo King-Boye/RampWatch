@@ -11,6 +11,7 @@ AnchorKit is a Soroban-native toolkit for anchoring off-chain attestations to St
 - Service capability discovery (deposits, withdrawals, quotes, KYC)
 - **Health monitoring** (latency, failures, availability)
 - **Metadata caching** (TTL-based with manual refresh)
+- **Request ID propagation** (UUID per flow with tracing)
 - Event emission for all state changes
 - Comprehensive error handling with stable error codes
 
@@ -103,6 +104,7 @@ const auditLog = await contract.get_audit_log(0);
 - **[SECURE_CREDENTIALS.md](./SECURE_CREDENTIALS.md)** - Secure credential injection and management
 - **[HEALTH_MONITORING.md](./HEALTH_MONITORING.md)** - Anchor health monitoring interface
 - **[METADATA_CACHE.md](./METADATA_CACHE.md)** - Metadata and capabilities caching
+- **[REQUEST_ID_PROPAGATION.md](./REQUEST_ID_PROPAGATION.md)** - Request ID tracking and tracing
 - **[API_SPEC.md](./API_SPEC.md)** - API specification and error codes
 
 ### Technical Documentation

@@ -74,4 +74,6 @@ pub enum Error {
     /// Cache errors
     CacheExpired = 48,
     CacheNotFound = 49,
+    /// Rate limiter errors
+    RateLimitExceeded = 48,
 }
