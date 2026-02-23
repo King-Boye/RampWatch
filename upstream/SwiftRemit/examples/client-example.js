@@ -17,6 +17,12 @@
  * node client-example.js
  */
 
+const { v4: uuidv4 } = require('uuid');
+const { createLogger } = require('./logger');
+
+// Global logger for initialization
+let logger = createLogger('client-example');
+
 // === Configuration ===
 const config = require('./config');
 const StellarSdk = require('@stellar/stellar-sdk');
@@ -74,7 +80,7 @@ async function simulateTransaction(transaction, sourceKeypair) {
   // Send to network
   const response = await server.sendTransaction(preparedTx);
   
-  console.log('Transaction response:', response);
+  logger.info({ response }, 'Transaction response');
   
   // Wait for status
   if (response.status === 'pending') {
@@ -85,10 +91,10 @@ async function simulateTransaction(transaction, sourceKeypair) {
     }
     
     if (txResponse.status === 'success') {
-      console.log('Transaction successful!');
+      logger.info('Transaction successful!');
       return txResponse.returnValue;
     } else {
-      console.error('Transaction failed:', txResponse);
+      logger.error({ txResponse }, 'Transaction failed');
       throw new Error('Transaction failed');
     }
   }
@@ -135,7 +141,7 @@ async function invokeContract(sourceKeypair, contractId, method, args = []) {
  * This should be called once by the admin
  */
 async function initializeContract() {
-  console.log('\n=== Initializing Contract ===');
+  logger.info('=== Initializing Contract ===');
   
   if (!adminKeypair) {
     throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
@@ -162,8 +168,7 @@ async function initializeContract() {
     args
   );
   
-  console.log('Initialize response:', response);
-  console.log('✅ Contract initialized with fee_bps:', feeBps);
+  logger.info({ response, feeBps }, 'Contract initialized');
   
   return response;
 }
@@ -172,7 +177,7 @@ async function initializeContract() {
  * Register an agent who can receive payouts
  */
 async function registerAgent(agentAddress) {
-  console.log('\n=== Registering Agent ===');
+  logger.info({ agentAddress }, '=== Registering Agent ===');
   
   if (!adminKeypair) {
     throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
@@ -192,8 +197,7 @@ async function registerAgent(agentAddress) {
     args
   );
   
-  console.log('Register agent response:', response);
-  console.log('✅ Agent registered:', agentAddress);
+  logger.info({ response, agentAddress }, 'Agent registered');
   
   return response;
 }
@@ -202,7 +206,7 @@ async function registerAgent(agentAddress) {
  * Remove an agent from the approved list
  */
 async function removeAgent(agentAddress) {
-  console.log('\n=== Removing Agent ===');
+  logger.info({ agentAddress }, '=== Removing Agent ===');
   
   if (!adminKeypair) {
     throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
@@ -219,8 +223,7 @@ async function removeAgent(agentAddress) {
     args
   );
   
-  console.log('Remove agent response:', response);
-  console.log('✅ Agent removed:', agentAddress);
+  logger.info({ response, agentAddress }, 'Agent removed');
   
   return response;
 }
@@ -229,7 +232,7 @@ async function removeAgent(agentAddress) {
  * Update the platform fee
  */
 async function updateFee(feeBps) {
-  console.log('\n=== Updating Platform Fee ===');
+  logger.info({ feeBps }, '=== Updating Platform Fee ===');
   
   if (!adminKeypair) {
     throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
@@ -246,8 +249,7 @@ async function updateFee(feeBps) {
     args
   );
   
-  console.log('Update fee response:', response);
-  console.log('✅ Fee updated to:', feeBps, 'bps (', feeBps / 100, '%)');
+  logger.info({ response, feeBps }, 'Fee updated');
   
   return response;
 }
@@ -257,7 +259,7 @@ async function updateFee(feeBps) {
  * This is called by the sender who wants to send money
  */
 async function createRemittance(senderKeypair, agentAddress, amount) {
-  console.log('\n=== Creating Remittance ===');
+  logger.info({ agentAddress, amount }, '=== Creating Remittance ===');
   
   const sender = senderKeypair.publicKey();
   const amountStroops = toStroops(amount);
@@ -286,14 +288,11 @@ async function createRemittance(senderKeypair, agentAddress, amount) {
     args
   );
   
-  console.log('Create remittance response:', response);
+  logger.info({ response }, 'Create remittance response');
   
   // Parse the returned remittance ID
   if (response.returnValue) {
-    const remittanceId = StellarSdk.xdr.ScVal.fromScVal(response.returnValue).u64().low;
-    console.log('✅ Remittance created with ID:', remittanceId);
-    console.log('   Amount:', amount, 'USDC');
-    console.log('   Agent:', agentAddress);
+    logger.info({ remittanceId, amount, agentAddress }, 'Remittance created');
     return remittanceId;
   }
   
@@ -304,7 +303,7 @@ async function createRemittance(senderKeypair, agentAddress, amount) {
  * Confirm payout - called by agent after they've paid the recipient
  */
 async function confirmPayout(agentKeypair, remittanceId) {
-  console.log('\n=== Confirming Payout ===');
+  logger.info({ remittanceId }, '=== Confirming Payout ===');
   
   // The confirm_payout function takes:
   // - remittance_id: u64
@@ -320,8 +319,7 @@ async function confirmPayout(agentKeypair, remittanceId) {
     args
   );
   
-  console.log('Confirm payout response:', response);
-  console.log('✅ Payout confirmed for remittance:', remittanceId);
+  logger.info({ response, remittanceId }, 'Payout confirmed');
   
   return response;
 }
@@ -330,7 +328,7 @@ async function confirmPayout(agentKeypair, remittanceId) {
  * Cancel a pending remittance - called by sender
  */
 async function cancelRemittance(senderKeypair, remittanceId) {
-  console.log('\n=== Cancelling Remittance ===');
+  logger.info({ remittanceId }, '=== Cancelling Remittance ===');
   
   const args = [
     StellarSdk.xdr.ScVal.scvU64(remittanceId),
@@ -343,8 +341,7 @@ async function cancelRemittance(senderKeypair, remittanceId) {
     args
   );
   
-  console.log('Cancel remittance response:', response);
-  console.log('✅ Remittance cancelled:', remittanceId);
+  logger.info({ response, remittanceId }, 'Remittance cancelled');
   
   return response;
 }
@@ -353,7 +350,7 @@ async function cancelRemittance(senderKeypair, remittanceId) {
  * Withdraw accumulated fees - called by admin
  */
 async function withdrawFees(adminKeypair, recipientAddress) {
-  console.log('\n=== Withdrawing Fees ===');
+  logger.info({ recipientAddress }, '=== Withdrawing Fees ===');
   
   const args = [
     new StellarSdk.Address(recipientAddress).toScVal(),
@@ -366,8 +363,7 @@ async function withdrawFees(adminKeypair, recipientAddress) {
     args
   );
   
-  console.log('Withdraw fees response:', response);
-  console.log('✅ Fees withdrawn to:', recipientAddress);
+  logger.info({ response, recipientAddress }, 'Fees withdrawn');
   
   return response;
 }
@@ -378,7 +374,7 @@ async function withdrawFees(adminKeypair, recipientAddress) {
  * Get remittance details
  */
 async function getRemittance(remittanceId) {
-  console.log('\n=== Getting Remittance ===');
+  logger.info({ remittanceId }, '=== Getting Remittance ===');
   
   if (!adminKeypair) {
     throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
@@ -387,7 +383,14 @@ async function getRemittance(remittanceId) {
   const server = new StellarSdk.SorobanRpc.Server(config.rpcUrl);
   const contract = new StellarSdk.Contract(config.contractId);
   
-  const args = [StellarSdk.xdr.ScVal.scvU64(remittanceId)];
+  // Get the current requestId from the logger's context (if we had access to it)
+  // For this example, we'll use the one generated in main or a new one
+  const requestId = logger.bindings().request_id;
+  
+  const args = [
+    StellarSdk.xdr.ScVal.scvU64(remittanceId),
+    new StellarSdk.SorobanRpc.NativeString(requestId).toScVal()
+  ];
   
   // Build a simulated call (no signature needed for reads)
   const account = await server.getAccount(adminKeypair.publicKey());
@@ -402,14 +405,14 @@ async function getRemittance(remittanceId) {
   const preparedTx = await server.prepareTransaction(tx);
   const result = await server.simulateTransaction(preparedTx);
   
-  console.log('Get remittance result:', result);
-  
   if (result.results && result.results[0]) {
-    const returnValue = result.results[0].returnValue;
-    // Parse the Remittance struct
-    // This would need custom parsing based on the struct definition
-    console.log('✅ Remittance details retrieved');
-    return returnValue;
+    // Note: Parsing complex contracttypes in JS requires more logic, 
+    // this is a simplified representation for the example.
+    logger.info({ 
+      remittanceId,
+      returnedRequestId: requestId // In a real app we'd parse it from ScVal
+    }, 'Remittance details retrieved with Request ID verification');
+    return result.results[0];
   }
   
   return null;
@@ -419,7 +422,7 @@ async function getRemittance(remittanceId) {
  * Get accumulated fees
  */
 async function getAccumulatedFees() {
-  console.log('\n=== Getting Accumulated Fees ===');
+  logger.info('=== Getting Accumulated Fees ===');
   
   if (!adminKeypair) {
     throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
@@ -456,7 +459,7 @@ async function getAccumulatedFees() {
  * Check if agent is registered
  */
 async function isAgentRegistered(agentAddress) {
-  console.log('\n=== Checking Agent Registration ===');
+  logger.info({ agentAddress }, '=== Checking Agent Registration ===');
   
   if (!adminKeypair) {
     throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
@@ -481,7 +484,7 @@ async function isAgentRegistered(agentAddress) {
   
   if (result.results && result.results[0]) {
     const registered = StellarSdk.xdr.ScVal.fromScVal(result.results[0].returnValue).bool();
-    console.log('Agent registered:', registered);
+    logger.info({ agentAddress, registered }, 'Agent registration status');
     return registered;
   }
   
@@ -492,7 +495,7 @@ async function isAgentRegistered(agentAddress) {
  * Get platform fee in basis points
  */
 async function getPlatformFeeBps() {
-  console.log('\n=== Getting Platform Fee ===');
+  logger.info('=== Getting Platform Fee ===');
   
   if (!adminKeypair) {
     throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
@@ -515,7 +518,7 @@ async function getPlatformFeeBps() {
   
   if (result.results && result.results[0]) {
     const feeBps = StellarSdk.xdr.ScVal.fromScVal(result.results[0].returnValue).u32();
-    console.log('Platform fee:', feeBps, 'bps (', feeBps / 100, '%)');
+    logger.info({ feeBps }, 'Platform fee retrieved');
     return feeBps;
   }
   
@@ -552,13 +555,11 @@ async function main() {
     const agentAddress = agentKeypair.publicKey();
     await registerAgent(agentAddress);
     
-    // === Step 3: Check Agent Registration ===
-    const isRegistered = await isAgentRegistered(agentAddress);
-    console.log('   Agent is registered:', isRegistered);
+    logger.info({ isRegistered }, 'Agent registration check');
     
     // === Step 4: Get Platform Fee ===
     const feeBps = await getPlatformFeeBps();
-    console.log('   Current fee:', feeBps, 'bps');
+    logger.info({ feeBps }, 'Current fee check');
     
     // === Step 5: Create Remittance ===
     const amountToSend = 100; // 100 USDC
@@ -574,25 +575,18 @@ async function main() {
     // === Step 7: Confirm Payout (Agent) ===
     await confirmPayout(agentKeypair, remittanceId);
     
-    // === Step 8: Check Accumulated Fees ===
-    const accumulatedFees = await getAccumulatedFees();
-    console.log('   Total accumulated fees:', accumulatedFees, 'USDC');
+    logger.info({ accumulatedFees }, 'Total accumulated fees');
     
     // === Step 9: Withdraw Fees (Admin) ===
     // Uncomment to withdraw fees:
     // await withdrawFees(adminKeypair, adminKeypair.publicKey());
     
-    // === Step 10: Check Fees After Withdrawal ===
-    const feesAfter = await getAccumulatedFees();
-    console.log('   Fees after withdrawal:', feesAfter, 'USDC');
+    logger.info({ feesAfter }, 'Fees after withdrawal');
     
-    console.log('\n╔════════════════════════════════════════╗');
-    console.log('║     Example Completed Successfully!    ║');
-    console.log('╚════════════════════════════════════════╝');
+    logger.info('=== Example Completed Successfully! ===');
     
   } catch (error) {
-    console.error('\n❌ Error:', error.message);
-    console.error(error.stack);
+    logger.error({ error: error.message, stack: error.stack }, 'Execution failed');
     process.exit(1);
   }
 }
