@@ -5,6 +5,14 @@
 
 use soroban_sdk::{contracttype, Address, Vec, String};
 
+/// Role types for authorization
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Role {
+    Admin,
+    Settler,
+}
+
 /// Status of a remittance transaction.
 ///
 /// Remittances progress through these states:

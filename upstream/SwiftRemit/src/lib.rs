@@ -18,7 +18,9 @@ mod validation;
 #[cfg(test)]
 mod test;
 #[cfg(test)]
-mod test_escrow; 
+mod test_escrow;
+#[cfg(test)]
+mod test_roles_simple; 
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec, String};
 
@@ -89,6 +91,9 @@ impl SwiftRemitContract {
         // Initialize new admin role system
         set_admin_role(&env, &admin, true);
         set_admin_count(&env, 1);
+        
+        // Assign Admin role to initial admin
+        assign_role(&env, &admin, &Role::Admin);
         
         set_usdc_token(&env, &usdc_token);
         set_platform_fee_bps(&env, fee_bps);
@@ -299,11 +304,15 @@ impl SwiftRemitContract {
     /// # Authorization
     ///
     /// Requires authentication from the agent address assigned to the remittance.
+    /// Requires Settler role.
     pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<(), ContractError> {
         // Centralized validation before business logic
         let mut remittance = validate_confirm_payout_request(&env, remittance_id)?;
 
         remittance.agent.require_auth();
+        
+        // Require Settler role
+        require_role_settler(&env, &remittance.agent)?;
 
         if remittance.status != RemittanceStatus::Pending {
             return Err(ContractError::InvalidStatus);
@@ -916,6 +925,31 @@ impl SwiftRemitContract {
     /// Tuple of (current_requests, max_requests, window_seconds)
     pub fn get_rate_limit_status(env: Env, address: Address) -> (u32, u32, u64) {
         get_rate_limit_status(&env, &address)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Role-Based Authorization Functions
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Assigns a role to an address (Admin only)
+    pub fn assign_role(env: Env, caller: Address, address: Address, role: Role) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_role_admin(&env, &caller)?;
+        assign_role(&env, &address, &role);
+        Ok(())
+    }
+
+    /// Removes a role from an address (Admin only)
+    pub fn remove_role(env: Env, caller: Address, address: Address, role: Role) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_role_admin(&env, &caller)?;
+        remove_role(&env, &address, &role);
+        Ok(())
+    }
+
+    /// Checks if an address has a specific role
+    pub fn has_role(env: Env, address: Address, role: Role) -> bool {
+        has_role(&env, &address, &role)
     }
 }
 

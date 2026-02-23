@@ -30,6 +30,9 @@ enum DataKey {
     /// Counter for tracking number of admins
     AdminCount,
 
+    /// Role assignment indexed by (address, role) (persistent storage)
+    RoleAssignment(Address, crate::Role),
+
     /// USDC token contract address used for all remittance transactions
     UsdcToken,
 
@@ -482,7 +485,6 @@ pub fn set_token_whitelisted(env: &Env, token: &Address, whitelisted: bool) {
         .set(&DataKey::TokenWhitelisted(token.clone()), &whitelisted);
 }
 
-<<<<<<< HEAD
 // === Settlement Event Emission Tracking ===
 
 /// Checks if the settlement completion event has been emitted for a remittance.
@@ -619,4 +621,45 @@ pub fn set_escrow(env: &Env, transfer_id: u64, escrow: &crate::Escrow) {
     env.storage()
         .persistent()
         .set(&DataKey::Escrow(transfer_id), escrow);
+}
+
+
+// === Role-Based Authorization ===
+
+/// Assigns a role to an address
+pub fn assign_role(env: &Env, address: &Address, role: &crate::Role) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::RoleAssignment(address.clone(), role.clone()), &true);
+}
+
+/// Removes a role from an address
+pub fn remove_role(env: &Env, address: &Address, role: &crate::Role) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::RoleAssignment(address.clone(), role.clone()));
+}
+
+/// Checks if an address has a specific role
+pub fn has_role(env: &Env, address: &Address, role: &crate::Role) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::RoleAssignment(address.clone(), role.clone()))
+        .unwrap_or(false)
+}
+
+/// Requires that the caller has Admin role
+pub fn require_role_admin(env: &Env, address: &Address) -> Result<(), ContractError> {
+    if !has_role(env, address, &crate::Role::Admin) {
+        return Err(ContractError::Unauthorized);
+    }
+    Ok(())
+}
+
+/// Requires that the caller has Settler role
+pub fn require_role_settler(env: &Env, address: &Address) -> Result<(), ContractError> {
+    if !has_role(env, address, &crate::Role::Settler) {
+        return Err(ContractError::Unauthorized);
+    }
+    Ok(())
 }
