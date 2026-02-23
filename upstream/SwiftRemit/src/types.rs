@@ -13,6 +13,37 @@ pub enum Role {
     Settler,
 }
 
+/// Transfer state for on-chain registry
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TransferState {
+    Initiated,
+    Processing,
+    Completed,
+    Refunded,
+}
+
+impl TransferState {
+    /// Validates if transition to new state is allowed
+    pub fn can_transition_to(&self, new_state: &TransferState) -> bool {
+        match (self, new_state) {
+            // From Initiated
+            (TransferState::Initiated, TransferState::Processing) => true,
+            (TransferState::Initiated, TransferState::Refunded) => true,
+            // From Processing
+            (TransferState::Processing, TransferState::Completed) => true,
+            (TransferState::Processing, TransferState::Refunded) => true,
+            // Terminal states cannot transition
+            (TransferState::Completed, _) => false,
+            (TransferState::Refunded, _) => false,
+            // Same state is allowed (idempotent)
+            (a, b) if a == b => true,
+            // All other transitions invalid
+            _ => false,
+        }
+    }
+}
+
 /// Status of a remittance transaction.
 ///
 /// Remittances progress through these states:

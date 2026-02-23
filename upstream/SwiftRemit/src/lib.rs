@@ -20,7 +20,9 @@ mod test;
 #[cfg(test)]
 mod test_escrow;
 #[cfg(test)]
-mod test_roles_simple; 
+mod test_roles_simple;
+#[cfg(test)]
+mod test_transfer_state; 
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec, String};
 
@@ -277,6 +279,9 @@ impl SwiftRemitContract {
 
     set_remittance(&env, remittance_id, &remittance);
     set_remittance_counter(&env, remittance_id);
+    
+    // Set initial transfer state
+    set_transfer_state(&env, remittance_id, TransferState::Initiated)?;
 
     Ok(remittance_id)  // ← capital O
 }
@@ -313,6 +318,9 @@ impl SwiftRemitContract {
         
         // Require Settler role
         require_role_settler(&env, &remittance.agent)?;
+        
+        // Transition to Processing state
+        set_transfer_state(&env, remittance_id, TransferState::Processing)?;
 
         if remittance.status != RemittanceStatus::Pending {
             return Err(ContractError::InvalidStatus);
@@ -358,6 +366,9 @@ impl SwiftRemitContract {
 
         remittance.status = RemittanceStatus::Settled;
         set_remittance(&env, remittance_id, &remittance);
+        
+        // Transition to Completed state
+        set_transfer_state(&env, remittance_id, TransferState::Completed)?;
 
         // Mark settlement as executed to prevent duplicates
         set_settlement_hash(&env, remittance_id);
@@ -428,6 +439,9 @@ impl SwiftRemitContract {
 
         remittance.status = RemittanceStatus::Failed;
         set_remittance(&env, remittance_id, &remittance);
+        
+        // Transition to Refunded state
+        set_transfer_state(&env, remittance_id, TransferState::Refunded)?;
 
         // Event: Remittance cancelled - Fires when sender cancels a pending remittance and receives full refund
         // Used by off-chain systems to track cancellations and update transaction status
@@ -950,6 +964,15 @@ impl SwiftRemitContract {
     /// Checks if an address has a specific role
     pub fn has_role(env: Env, address: Address, role: Role) -> bool {
         has_role(&env, &address, &role)
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Transfer State Registry (Read-Only for Indexers)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /// Gets the current state of a transfer (read-only for indexers)
+    pub fn get_transfer_state(env: Env, transfer_id: u64) -> Option<TransferState> {
+        get_transfer_state(&env, transfer_id)
     }
 }
 

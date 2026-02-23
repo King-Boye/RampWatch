@@ -107,6 +107,10 @@ enum DataKey {
     
     /// Escrow record indexed by transfer ID (persistent storage)
     Escrow(u64),
+    
+    // === Transfer State Registry ===
+    /// Transfer state indexed by transfer ID (persistent storage)
+    TransferState(u64),
 }
 
 /// Checks if the contract has an admin configured.
@@ -661,5 +665,41 @@ pub fn require_role_settler(env: &Env, address: &Address) -> Result<(), Contract
     if !has_role(env, address, &crate::Role::Settler) {
         return Err(ContractError::Unauthorized);
     }
+    Ok(())
+}
+
+
+// === Transfer State Registry ===
+
+/// Gets the current state of a transfer
+pub fn get_transfer_state(env: &Env, transfer_id: u64) -> Option<crate::TransferState> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::TransferState(transfer_id))
+}
+
+/// Sets the transfer state with validation
+pub fn set_transfer_state(
+    env: &Env,
+    transfer_id: u64,
+    new_state: crate::TransferState,
+) -> Result<(), ContractError> {
+    // Get current state if exists
+    if let Some(current_state) = get_transfer_state(env, transfer_id) {
+        // Validate transition
+        if !current_state.can_transition_to(&new_state) {
+            return Err(ContractError::InvalidStateTransition);
+        }
+        // Skip write if same state (storage-efficient)
+        if current_state == new_state {
+            return Ok(());
+        }
+    }
+    
+    // Write new state
+    env.storage()
+        .persistent()
+        .set(&DataKey::TransferState(transfer_id), &new_state);
+    
     Ok(())
 }
