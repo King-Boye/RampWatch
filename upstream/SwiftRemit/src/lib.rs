@@ -5,14 +5,16 @@
 
 #![no_std]
 
+mod asset_verification;
 mod errors;
 mod events;
 mod storage;
 mod types;
 mod validation;
 
-use soroban_sdk::{contract, contractimpl, token, Address, Env};
+use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
 
+pub use asset_verification::*;
 pub use errors::ContractError;
 pub use events::*;
 pub use storage::*;
@@ -466,5 +468,130 @@ impl SwiftRemitContract {
     /// * `Err(ContractError::NotInitialized)` - Contract not initialized
     pub fn get_platform_fee_bps(env: Env) -> Result<u32, ContractError> {
         get_platform_fee_bps(&env)
+    }
+}
+
+    // ========== Asset Verification Functions ==========
+
+    /// Stores or updates asset verification data (admin only).
+    ///
+    /// This function is called by the off-chain verification service to store
+    /// verification results on-chain. The backend service performs checks against
+    /// Stellar Expert, stellar.toml, anchor registries, and transaction history.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `asset_code` - Asset code (e.g., "USDC")
+    /// * `issuer` - Issuer address
+    /// * `status` - Verification status (Verified, Unverified, Suspicious)
+    /// * `reputation_score` - Score from 0-100
+    /// * `trustline_count` - Number of trustlines
+    /// * `has_toml` - Whether asset has valid stellar.toml
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Verification data stored successfully
+    /// * `Err(ContractError::NotInitialized)` - Contract not initialized
+    /// * `Err(ContractError::InvalidReputationScore)` - Score not in 0-100 range
+    ///
+    /// # Authorization
+    ///
+    /// Requires authentication from the contract admin.
+    pub fn set_asset_verification(
+        env: Env,
+        asset_code: String,
+        issuer: Address,
+        status: VerificationStatus,
+        reputation_score: u32,
+        trustline_count: u64,
+        has_toml: bool,
+    ) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+
+        if reputation_score > 100 {
+            return Err(ContractError::InvalidReputationScore);
+        }
+
+        let verification = AssetVerification {
+            asset_code: asset_code.clone(),
+            issuer: issuer.clone(),
+            status,
+            reputation_score,
+            last_verified: env.ledger().timestamp(),
+            trustline_count,
+            has_toml,
+        };
+
+        set_asset_verification(&env, &verification);
+
+        Ok(())
+    }
+
+    /// Retrieves asset verification data.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `asset_code` - Asset code to look up
+    /// * `issuer` - Issuer address
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(AssetVerification)` - The verification record
+    /// * `Err(ContractError::AssetNotFound)` - Asset not found in verification database
+    pub fn get_asset_verification(
+        env: Env,
+        asset_code: String,
+        issuer: Address,
+    ) -> Result<AssetVerification, ContractError> {
+        get_asset_verification(&env, &asset_code, &issuer)
+    }
+
+    /// Checks if an asset has verification data stored.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `asset_code` - Asset code to check
+    /// * `issuer` - Issuer address
+    ///
+    /// # Returns
+    ///
+    /// * `true` - Asset has verification data
+    /// * `false` - Asset not found in verification database
+    pub fn has_asset_verification(env: Env, asset_code: String, issuer: Address) -> bool {
+        has_asset_verification(&env, &asset_code, &issuer)
+    }
+
+    /// Validates that an asset is safe to use (not suspicious).
+    ///
+    /// This can be called before creating remittances to ensure the asset
+    /// being used is not flagged as suspicious.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `asset_code` - Asset code to validate
+    /// * `issuer` - Issuer address
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Asset is safe to use
+    /// * `Err(ContractError::SuspiciousAsset)` - Asset is flagged as suspicious
+    /// * `Err(ContractError::AssetNotFound)` - Asset not in verification database
+    pub fn validate_asset_safety(
+        env: Env,
+        asset_code: String,
+        issuer: Address,
+    ) -> Result<(), ContractError> {
+        let verification = get_asset_verification(&env, &asset_code, &issuer)?;
+        
+        if verification.status == VerificationStatus::Suspicious {
+            return Err(ContractError::SuspiciousAsset);
+        }
+
+        Ok(())
     }
 }

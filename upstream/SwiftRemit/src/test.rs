@@ -858,3 +858,251 @@ fn test_duplicate_prevention_with_expiry() {
     // Even with valid expiry, duplicate should be prevented
     // (This would require manual status manipulation to test, covered by test_duplicate_settlement_prevention)
 }
+
+// ========== Asset Verification Tests ==========
+
+#[test]
+fn test_set_and_get_asset_verification() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    let asset_code = String::from_str(&env, "USDC");
+    let issuer = Address::generate(&env);
+
+    // Set verification
+    contract.set_asset_verification(
+        &asset_code,
+        &issuer,
+        &crate::VerificationStatus::Verified,
+        &95,
+        &15000,
+        &true,
+    );
+
+    // Get verification
+    let verification = contract.get_asset_verification(&asset_code, &issuer);
+
+    assert_eq!(verification.asset_code, asset_code);
+    assert_eq!(verification.issuer, issuer);
+    assert_eq!(verification.status, crate::VerificationStatus::Verified);
+    assert_eq!(verification.reputation_score, 95);
+    assert_eq!(verification.trustline_count, 15000);
+    assert_eq!(verification.has_toml, true);
+}
+
+#[test]
+fn test_has_asset_verification() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    let asset_code = String::from_str(&env, "USDC");
+    let issuer = Address::generate(&env);
+
+    // Should not exist initially
+    assert_eq!(contract.has_asset_verification(&asset_code, &issuer), false);
+
+    // Set verification
+    contract.set_asset_verification(
+        &asset_code,
+        &issuer,
+        &crate::VerificationStatus::Verified,
+        &95,
+        &15000,
+        &true,
+    );
+
+    // Should exist now
+    assert_eq!(contract.has_asset_verification(&asset_code, &issuer), true);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_set_asset_verification_invalid_score() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    let asset_code = String::from_str(&env, "USDC");
+    let issuer = Address::generate(&env);
+
+    // Should panic with InvalidReputationScore
+    contract.set_asset_verification(
+        &asset_code,
+        &issuer,
+        &crate::VerificationStatus::Verified,
+        &101, // Invalid: > 100
+        &15000,
+        &true,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn test_get_asset_verification_not_found() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    let asset_code = String::from_str(&env, "NOTFOUND");
+    let issuer = Address::generate(&env);
+
+    // Should panic with AssetNotFound
+    contract.get_asset_verification(&asset_code, &issuer);
+}
+
+#[test]
+fn test_validate_asset_safety_verified() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    let asset_code = String::from_str(&env, "USDC");
+    let issuer = Address::generate(&env);
+
+    // Set as verified
+    contract.set_asset_verification(
+        &asset_code,
+        &issuer,
+        &crate::VerificationStatus::Verified,
+        &95,
+        &15000,
+        &true,
+    );
+
+    // Should pass validation
+    contract.validate_asset_safety(&asset_code, &issuer);
+}
+
+#[test]
+fn test_validate_asset_safety_unverified() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    let asset_code = String::from_str(&env, "UNKNOWN");
+    let issuer = Address::generate(&env);
+
+    // Set as unverified
+    contract.set_asset_verification(
+        &asset_code,
+        &issuer,
+        &crate::VerificationStatus::Unverified,
+        &50,
+        &100,
+        &false,
+    );
+
+    // Should pass validation (unverified is not suspicious)
+    contract.validate_asset_safety(&asset_code, &issuer);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #15)")]
+fn test_validate_asset_safety_suspicious() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    let asset_code = String::from_str(&env, "SCAM");
+    let issuer = Address::generate(&env);
+
+    // Set as suspicious
+    contract.set_asset_verification(
+        &asset_code,
+        &issuer,
+        &crate::VerificationStatus::Suspicious,
+        &20,
+        &5,
+        &false,
+    );
+
+    // Should panic with SuspiciousAsset
+    contract.validate_asset_safety(&asset_code, &issuer);
+}
+
+#[test]
+fn test_update_asset_verification() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    let asset_code = String::from_str(&env, "USDC");
+    let issuer = Address::generate(&env);
+
+    // Initial verification
+    contract.set_asset_verification(
+        &asset_code,
+        &issuer,
+        &crate::VerificationStatus::Unverified,
+        &50,
+        &100,
+        &false,
+    );
+
+    let verification1 = contract.get_asset_verification(&asset_code, &issuer);
+    assert_eq!(verification1.reputation_score, 50);
+
+    // Update verification
+    contract.set_asset_verification(
+        &asset_code,
+        &issuer,
+        &crate::VerificationStatus::Verified,
+        &95,
+        &15000,
+        &true,
+    );
+
+    let verification2 = contract.get_asset_verification(&asset_code, &issuer);
+    assert_eq!(verification2.reputation_score, 95);
+    assert_eq!(verification2.status, crate::VerificationStatus::Verified);
+}

@@ -36,4 +36,10 @@ pub enum ContractError {
     SettlementExpired = 11,
     /// Settlement has already been executed for this remittance
     DuplicateSettlement = 12,
+    /// Asset verification record not found
+    AssetNotFound = 13,
+    /// Reputation score must be between 0 and 100
+    InvalidReputationScore = 14,
+    /// Asset has been flagged as suspicious
+    SuspiciousAsset = 15,
 }
