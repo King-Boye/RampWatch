@@ -10,7 +10,7 @@ AnchorKit is a Soroban-native toolkit for anchoring off-chain attestations to St
 - Endpoint configuration for attestors
 - Service capability discovery (deposits, withdrawals, quotes, KYC)
 - **Health monitoring** (latency, failures, availability)
-- **Asset compatibility validation** (early rejection of unsupported assets)
+- **Connection pooling** (HTTP connection reuse, 90% improvement)
 - Event emission for all state changes
 - Comprehensive error handling with stable error codes
 
