@@ -1,6 +1,7 @@
 #![no_std]
 
 mod config;
+mod connection_pool;
 mod credentials;
 mod error_mapping;
 mod errors;
@@ -52,10 +53,14 @@ mod cross_platform_tests;
 
 mod zerocopy_tests;
 
+#[cfg(test)]
+mod connection_pool_tests;
+
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
+pub use connection_pool::{ConnectionPool, ConnectionPoolConfig, ConnectionStats};
 pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
 pub use errors::Error;
 pub use events::{
@@ -1163,4 +1168,54 @@ impl AnchorKitContract {
 
         Ok(())
     }
+
+    // ============ Connection Pooling ============
+
+    /// Configure connection pool. Only callable by admin.
+    pub fn configure_connection_pool(
+        env: Env,
+        max_connections: u32,
+        idle_timeout_seconds: u64,
+        connection_timeout_seconds: u64,
+        reuse_connections: bool,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        let config = ConnectionPoolConfig {
+            max_connections,
+            idle_timeout_seconds,
+            connection_timeout_seconds,
+            reuse_connections,
+        };
+
+        ConnectionPool::set_config(&env, &config);
+        Ok(())
+    }
+
+    /// Get connection pool configuration.
+    pub fn get_pool_config(env: Env) -> ConnectionPoolConfig {
+        ConnectionPool::get_config(&env)
+    }
+
+    /// Get connection pool statistics.
+    pub fn get_pool_stats(env: Env) -> ConnectionStats {
+        ConnectionPool::get_stats(&env)
+    }
+
+    /// Reset connection pool statistics.
+    pub fn reset_pool_stats(env: Env) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        ConnectionPool::reset_stats(&env);
+        Ok(())
+    }
+
+    /// Get pooled connection for endpoint.
+    pub fn get_pooled_connection(env: Env, endpoint: String) -> Result<(), Error> {
+        ConnectionPool::get_connection(&env, &endpoint);
+        Ok(())
+    }
 }
+
