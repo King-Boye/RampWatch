@@ -5,6 +5,7 @@ mod credentials;
 mod error_mapping;
 mod errors;
 mod events;
+mod metadata_cache;
 mod retry;
 mod serialization;
 mod storage;
@@ -52,6 +53,9 @@ mod cross_platform_tests;
 
 mod zerocopy_tests;
 
+#[cfg(test)]
+mod metadata_cache_tests;
+
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
@@ -63,6 +67,7 @@ pub use events::{
     OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
     SettlementConfirmed, TransferInitiated,
 };
+pub use metadata_cache::{CachedCapabilities, CachedMetadata, MetadataCache};
 pub use storage::Storage;
 pub use types::{
     AnchorMetadata, AnchorOption, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
@@ -892,6 +897,63 @@ impl AnchorKitContract {
     /// Get metadata for an anchor.
     pub fn get_anchor_metadata(env: Env, anchor: Address) -> Result<AnchorMetadata, Error> {
         Storage::get_anchor_metadata(&env, &anchor).ok_or(Error::AnchorMetadataNotFound)
+    }
+
+    /// Cache anchor metadata with TTL. Only callable by admin.
+    pub fn cache_metadata(
+        env: Env,
+        anchor: Address,
+        metadata: AnchorMetadata,
+        ttl_seconds: u64,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        MetadataCache::set_metadata(&env, &anchor, &metadata, ttl_seconds);
+        Ok(())
+    }
+
+    /// Get cached metadata for an anchor.
+    pub fn get_cached_metadata(env: Env, anchor: Address) -> Result<AnchorMetadata, Error> {
+        MetadataCache::get_metadata(&env, &anchor)
+    }
+
+    /// Refresh (invalidate) cached metadata for an anchor. Only callable by admin.
+    pub fn refresh_metadata_cache(env: Env, anchor: Address) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        MetadataCache::invalidate_metadata(&env, &anchor);
+        Ok(())
+    }
+
+    /// Cache anchor capabilities (TOML) with TTL. Only callable by admin.
+    pub fn cache_capabilities(
+        env: Env,
+        anchor: Address,
+        toml_url: String,
+        capabilities: String,
+        ttl_seconds: u64,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        MetadataCache::set_capabilities(&env, &anchor, toml_url, capabilities, ttl_seconds);
+        Ok(())
+    }
+
+    /// Get cached capabilities for an anchor.
+    pub fn get_cached_capabilities(env: Env, anchor: Address) -> Result<CachedCapabilities, Error> {
+        MetadataCache::get_capabilities(&env, &anchor)
+    }
+
+    /// Refresh (invalidate) cached capabilities for an anchor. Only callable by admin.
+    pub fn refresh_capabilities_cache(env: Env, anchor: Address) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        MetadataCache::invalidate_capabilities(&env, &anchor);
+        Ok(())
     }
 
     /// Get list of all registered anchors.
