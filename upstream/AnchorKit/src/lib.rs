@@ -34,6 +34,9 @@ mod retry_tests;
 #[cfg(test)]
 mod error_mapping_tests;
 
+#[cfg(test)]
+mod streaming_flow_tests;
+
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
