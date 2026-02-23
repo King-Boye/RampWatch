@@ -10,7 +10,7 @@ AnchorKit is a Soroban-native toolkit for anchoring off-chain attestations to St
 - Endpoint configuration for attestors
 - Service capability discovery (deposits, withdrawals, quotes, KYC)
 - **Health monitoring** (latency, failures, availability)
-- **Request ID propagation** (UUID per flow with tracing)
+- **Fallback anchor selection** (automatic rerouting on failure)
 - Event emission for all state changes
 - Comprehensive error handling with stable error codes
 
@@ -102,7 +102,7 @@ const auditLog = await contract.get_audit_log(0);
 - **[SESSION_TRACEABILITY.md](./SESSION_TRACEABILITY.md)** - Complete feature guide with usage patterns
 - **[SECURE_CREDENTIALS.md](./SECURE_CREDENTIALS.md)** - Secure credential injection and management
 - **[HEALTH_MONITORING.md](./HEALTH_MONITORING.md)** - Anchor health monitoring interface
-- **[REQUEST_ID_PROPAGATION.md](./REQUEST_ID_PROPAGATION.md)** - Request ID tracking and tracing
+- **[FALLBACK_SELECTION.md](./FALLBACK_SELECTION.md)** - Automatic fallback anchor selection
 - **[API_SPEC.md](./API_SPEC.md)** - API specification and error codes
 
 ### Technical Documentation

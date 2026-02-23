@@ -5,7 +5,7 @@ mod credentials;
 mod error_mapping;
 mod errors;
 mod events;
-mod request_id;
+mod fallback;
 mod retry;
 mod serialization;
 mod storage;
@@ -54,7 +54,7 @@ mod cross_platform_tests;
 mod zerocopy_tests;
 
 #[cfg(test)]
-mod request_id_tests;
+mod fallback_tests;
 
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
@@ -67,7 +67,7 @@ pub use events::{
     OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
     SettlementConfirmed, TransferInitiated,
 };
-pub use request_id::{RequestId, RequestTracker, TracingSpan};
+pub use fallback::{AnchorFailureState, FallbackConfig, FallbackSelector};
 pub use storage::Storage;
 pub use types::{
     AnchorMetadata, AnchorOption, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
@@ -1200,120 +1200,113 @@ impl AnchorKitContract {
         Ok(())
     }
 
-    // ============ Request ID Propagation ============
+    // ============ Fallback Anchor Selection ============
 
-    /// Generate a unique request ID for flow tracking.
-    pub fn generate_request_id(env: Env) -> RequestId {
-        RequestId::generate(&env)
-    }
-
-    /// Submit attestation with request ID tracking.
-    pub fn submit_with_request_id(
+    /// Configure fallback anchor order. Only callable by admin.
+    pub fn configure_fallback(
         env: Env,
-        request_id: RequestId,
-        issuer: Address,
-        subject: Address,
-        timestamp: u64,
-        payload_hash: BytesN<32>,
-        signature: Bytes,
-    ) -> Result<u64, Error> {
-        issuer.require_auth();
+        anchor_order: Vec<Address>,
+        max_retries: u32,
+        failure_threshold: u32,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
 
-        let start_time = env.ledger().timestamp();
+        if anchor_order.is_empty() {
+            return Err(Error::InvalidConfig);
+        }
 
-        // Perform attestation
-        let result = if timestamp == 0 {
-            Err(Error::InvalidTimestamp)
-        } else if !Storage::is_attestor(&env, &issuer) {
-            Err(Error::UnauthorizedAttestor)
-        } else if Storage::is_hash_used(&env, &payload_hash) {
-            Err(Error::ReplayAttack)
-        } else {
-            Self::verify_signature(&env, &issuer, &subject, timestamp, &payload_hash, &signature)?;
-
-            let id = Storage::get_and_increment_counter(&env);
-            let attestation = Attestation {
-                id,
-                issuer: issuer.clone(),
-                subject: subject.clone(),
-                timestamp,
-                payload_hash: payload_hash.clone(),
-                signature,
-            };
-
-            Storage::set_attestation(&env, id, &attestation);
-            Storage::mark_hash_used(&env, &payload_hash);
-            AttestationRecorded::publish(&env, id, &subject, timestamp, payload_hash);
-
-            Ok(id)
+        let config = FallbackConfig {
+            anchor_order,
+            max_retries,
+            failure_threshold,
         };
 
-        // Store tracing span
-        let span = TracingSpan {
-            request_id: request_id.clone(),
-            operation: soroban_sdk::String::from_str(&env, "submit_attestation"),
-            actor: issuer,
-            started_at: start_time,
-            completed_at: env.ledger().timestamp(),
-            status: if result.is_ok() {
-                soroban_sdk::String::from_str(&env, "success")
-            } else {
-                soroban_sdk::String::from_str(&env, "failed")
-            },
-        };
-        RequestTracker::store_span(&env, &span);
-
-        result
+        FallbackSelector::set_config(&env, &config);
+        Ok(())
     }
 
-    /// Get tracing span by request ID.
-    pub fn get_tracing_span(env: Env, request_id: BytesN<16>) -> Option<TracingSpan> {
-        RequestTracker::get_span(&env, &request_id)
+    /// Get fallback configuration.
+    pub fn get_fallback_config(env: Env) -> Option<FallbackConfig> {
+        FallbackSelector::get_config(&env)
     }
 
-    /// Submit quote with request ID tracking.
-    pub fn quote_with_request_id(
+    /// Record anchor failure.
+    pub fn record_anchor_failure(env: Env, anchor: Address) -> Result<(), Error> {
+        let config = FallbackSelector::get_config(&env).ok_or(Error::InvalidConfig)?;
+        FallbackSelector::record_failure(&env, &anchor, config.failure_threshold);
+        Ok(())
+    }
+
+    /// Record anchor success (clears failure state).
+    pub fn record_anchor_success(env: Env, anchor: Address) -> Result<(), Error> {
+        FallbackSelector::record_success(&env, &anchor);
+        Ok(())
+    }
+
+    /// Get anchor failure state.
+    pub fn get_anchor_failure_state(env: Env, anchor: Address) -> Option<AnchorFailureState> {
+        FallbackSelector::get_failure_state(&env, &anchor)
+    }
+
+    /// Select next available anchor from fallback order.
+    pub fn select_fallback_anchor(
         env: Env,
-        request_id: RequestId,
-        anchor: Address,
-        base_asset: soroban_sdk::String,
-        quote_asset: soroban_sdk::String,
+        failed_anchor: Option<Address>,
+    ) -> Result<Address, Error> {
+        let config = FallbackSelector::get_config(&env).ok_or(Error::InvalidConfig)?;
+        FallbackSelector::select_next_anchor(&env, &config, failed_anchor.as_ref())
+    }
+
+    /// Submit quote with automatic fallback on failure.
+    pub fn submit_quote_with_fallback(
+        env: Env,
+        base_asset: String,
+        quote_asset: String,
         rate: u64,
         fee_percentage: u32,
         minimum_amount: u64,
         maximum_amount: u64,
         valid_until: u64,
     ) -> Result<u64, Error> {
-        anchor.require_auth();
+        let config = FallbackSelector::get_config(&env).ok_or(Error::InvalidConfig)?;
 
-        let start_time = env.ledger().timestamp();
-
-        let result = Self::submit_quote(
-            env.clone(),
-            anchor.clone(),
-            base_asset,
-            quote_asset,
-            rate,
-            fee_percentage,
-            minimum_amount,
-            maximum_amount,
-            valid_until,
-        );
-
-        let span = TracingSpan {
-            request_id: request_id.clone(),
-            operation: soroban_sdk::String::from_str(&env, "submit_quote"),
-            actor: anchor,
-            started_at: start_time,
-            completed_at: env.ledger().timestamp(),
-            status: if result.is_ok() {
-                soroban_sdk::String::from_str(&env, "success")
+        for retry in 0..config.max_retries {
+            let anchor = if retry == 0 {
+                config.anchor_order.get(0).ok_or(Error::NoAnchorsAvailable)?
             } else {
-                soroban_sdk::String::from_str(&env, "failed")
-            },
-        };
-        RequestTracker::store_span(&env, &span);
+                FallbackSelector::select_next_anchor(&env, &config, None)?
+            };
 
-        result
+            anchor.require_auth();
+
+            let result = Self::submit_quote(
+                env.clone(),
+                anchor.clone(),
+                base_asset.clone(),
+                quote_asset.clone(),
+                rate,
+                fee_percentage,
+                minimum_amount,
+                maximum_amount,
+                valid_until,
+            );
+
+            match result {
+                Ok(quote_id) => {
+                    FallbackSelector::record_success(&env, &anchor);
+                    return Ok(quote_id);
+                }
+                Err(_) => {
+                    FallbackSelector::record_failure(&env, &anchor, config.failure_threshold);
+                    if retry == config.max_retries - 1 {
+                        return Err(Error::NoAnchorsAvailable);
+                    }
+                }
+            }
+        }
+
+        Err(Error::NoAnchorsAvailable)
     }
 }
+
