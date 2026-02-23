@@ -71,7 +71,6 @@ pub enum ContractError {
     DuplicateSettlement = 12,
     
     /// Contract is paused. Settlements are temporarily disabled.
-    /// Cause: Attempting confirm_payout() while contract is in paused state.
     ContractPaused = 13,
     
     RateLimitExceeded = 14,

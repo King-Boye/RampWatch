@@ -3,7 +3,39 @@
 ## Overview
 Successfully implemented comprehensive lifecycle transition enforcement for the SwiftRemit remittance contract, meeting all acceptance criteria.
 
-## Changes Made
+## Task Completion Status
+
+### ✅ Completed Tasks
+
+1. **Canonical Hash Input Ordering Specification**
+   - Defined exact field ordering in `DETERMINISTIC_HASHING_SPEC.md`
+   - Fields ordered as: remittance_id, sender, agent, amount, fee, expiry
+   - All integers use big-endian encoding
+   - Addresses use Stellar XDR encoding
+   - Optional fields (expiry) use 0x0000000000000000 when None
+
+2. **Deterministic Serializer Implementation**
+   - Implemented in `src/hashing.rs`
+   - Function: `compute_settlement_id()`
+   - Uses SHA-256 for hashing
+   - Produces 32-byte deterministic settlement IDs
+   - Includes comprehensive test suite
+
+3. **Public API Exposure**
+   - Added `compute_settlement_hash()` function in `src/lib.rs`
+   - Allows external systems to compute settlement hashes
+   - Returns `Result<BytesN<32>, ContractError>`
+   - Fully documented with examples
+
+4. **Cross-Platform Reference Implementation**
+   - JavaScript/Node.js implementation in `examples/settlement-id-generator.js`
+   - Includes helper functions for USDC conversion
+   - Provides usage examples and verification functions
+   - Compatible with Stellar SDK
+
+## Implementation Details
+
+### Core Hashing Module (`src/hashing.rs`)
 
 ### 1. Enhanced State Model (`src/types.rs`)
 - ✅ Expanded `RemittanceStatus` enum from 3 to 5 states

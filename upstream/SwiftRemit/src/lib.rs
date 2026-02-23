@@ -575,6 +575,47 @@ impl SwiftRemitContract {
         get_platform_fee_bps(&env)
     }
 
+    /// Computes the deterministic settlement hash for a remittance.
+    /// 
+    /// This function allows external systems (banks, anchors, APIs) to compute
+    /// the same settlement hash that the contract uses internally. The hash is
+    /// computed using the canonical ordering specified in DETERMINISTIC_HASHING_SPEC.md.
+    /// 
+    /// External systems can use this to:
+    /// - Pre-compute settlement IDs before submission
+    /// - Verify on-chain settlement IDs match expected values
+    /// - Enable cross-system reconciliation using deterministic IDs
+    /// 
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `remittance_id` - The remittance ID to compute hash for
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(BytesN<32>)` - The 32-byte SHA-256 settlement hash
+    /// * `Err(ContractError::RemittanceNotFound)` - Remittance ID does not exist
+    /// 
+    /// # Hash Input Ordering (Canonical)
+    /// 
+    /// 1. remittance_id (u64, big-endian)
+    /// 2. sender (Address, XDR-encoded)
+    /// 3. agent (Address, XDR-encoded)
+    /// 4. amount (i128, big-endian)
+    /// 5. fee (i128, big-endian)
+    /// 6. expiry (u64, big-endian, 0 if None)
+    /// 
+    /// # Examples
+    /// 
+    /// ```ignore
+    /// let settlement_hash = contract.compute_settlement_hash(&env, remittance_id)?;
+    /// // External system can verify this matches their computed hash
+    /// ```
+    pub fn compute_settlement_hash(env: Env, remittance_id: u64) -> Result<soroban_sdk::BytesN<32>, ContractError> {
+        let remittance = get_remittance(&env, remittance_id)?;
+        Ok(compute_settlement_id_from_remittance(&env, &remittance))
+    }
+
     pub fn pause(env: Env) -> Result<(), ContractError> {
         let caller = get_admin(&env)?;
         require_admin(&env, &caller)?;

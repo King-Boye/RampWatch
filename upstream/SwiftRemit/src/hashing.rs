@@ -9,8 +9,8 @@
 //! Fields are serialized in this exact order, always:
 //!
 //! 1. `remittance_id`  — u64,  big-endian 8 bytes
-//! 2. `sender`         — Address, as raw bytes
-//! 3. `agent`          — Address, as raw bytes  
+//! 2. `sender`         — Address, XDR-encoded bytes
+//! 3. `agent`          — Address, XDR-encoded bytes  
 //! 4. `amount`         — i128, big-endian 16 bytes
 //! 5. `fee`            — i128, big-endian 16 bytes
 //! 6. `expiry`         — u64,  big-endian 8 bytes (0x0000000000000000 if None)
@@ -21,9 +21,18 @@
 //! ## Serialization Rules
 //!
 //! - All integers are big-endian (network byte order)
+//! - Addresses are XDR-encoded using Stellar's canonical encoding
 //! - Optional fields use 8 zero bytes when None
 //! - No separators between fields — fixed-width encoding eliminates ambiguity
 //! - Hash algorithm: SHA-256 via Soroban env.crypto().sha256()
+//!
+//! ## External System Integration
+//!
+//! External systems can reproduce settlement IDs by:
+//! 1. Collecting the same input parameters
+//! 2. Serializing in the exact order specified above
+//! 3. Computing SHA-256 hash of the serialized bytes
+//! 4. Using the resulting 32-byte hash as the settlement ID
 
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
@@ -101,8 +110,120 @@ pub fn compute_settlement_id_from_remittance(
 }
 
 /// Serialize an Address to its canonical byte representation.
-/// Uses Soroban's built-in address serialization via to_xdr.
+/// Uses Soroban's XDR encoding for deterministic, cross-platform compatibility.
+///
+/// External systems must use Stellar XDR encoding to reproduce this serialization.
 fn address_to_bytes(env: &Env, address: &Address) -> Bytes {
     use soroban_sdk::xdr::ToXdr;
     address.to_xdr(env)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Env};
+
+    #[test]
+    fn test_deterministic_hash_same_inputs() {
+        let env = Env::default();
+        let sender = Address::generate(&env);
+        let agent = Address::generate(&env);
+
+        let hash1 = compute_settlement_id(&env, 1, &sender, &agent, 1000, 25, Some(1234567890));
+        let hash2 = compute_settlement_id(&env, 1, &sender, &agent, 1000, 25, Some(1234567890));
+
+        assert_eq!(hash1, hash2, "Same inputs must produce identical hashes");
+    }
+
+    #[test]
+    fn test_deterministic_hash_different_inputs() {
+        let env = Env::default();
+        let sender = Address::generate(&env);
+        let agent = Address::generate(&env);
+
+        let hash1 = compute_settlement_id(&env, 1, &sender, &agent, 1000, 25, Some(1234567890));
+        let hash2 = compute_settlement_id(&env, 2, &sender, &agent, 1000, 25, Some(1234567890));
+
+        assert_ne!(hash1, hash2, "Different remittance IDs must produce different hashes");
+    }
+
+    #[test]
+    fn test_deterministic_hash_field_order_matters() {
+        let env = Env::default();
+        let sender = Address::generate(&env);
+        let agent = Address::generate(&env);
+
+        let hash1 = compute_settlement_id(&env, 1, &sender, &agent, 1000, 25, None);
+        let hash2 = compute_settlement_id(&env, 1, &agent, &sender, 1000, 25, None);
+
+        assert_ne!(hash1, hash2, "Field order must affect hash output");
+    }
+
+    #[test]
+    fn test_deterministic_hash_expiry_none_vs_zero() {
+        let env = Env::default();
+        let sender = Address::generate(&env);
+        let agent = Address::generate(&env);
+
+        let hash_none = compute_settlement_id(&env, 1, &sender, &agent, 1000, 25, None);
+        let hash_zero = compute_settlement_id(&env, 1, &sender, &agent, 1000, 25, Some(0));
+
+        assert_eq!(hash_none, hash_zero, "None and Some(0) must produce identical hashes");
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Env};
+
+    #[test]
+    fn test_deterministic_hash_same_inputs() {
+        let env = Env::default();
+        let sender = Address::generate(&env);
+        let agent = Address::generate(&env);
+
+        let hash1 = compute_settlement_id(&env, 1, &sender, &agent, 1000, 25, Some(1234567890));
+        let hash2 = compute_settlement_id(&env, 1, &sender, &agent, 1000, 25, Some(1234567890));
+
+        assert_eq!(hash1, hash2, "Same inputs must produce identical hashes");
+    }
+
+    #[test]
+    fn test_deterministic_hash_different_inputs() {
+        let env = Env::default();
+        let sender = Address::generate(&env);
+        let agent = Address::generate(&env);
+
+        let hash1 = compute_settlement_id(&env, 1, &sender, &agent, 1000, 25, Some(1234567890));
+        let hash2 = compute_settlement_id(&env, 2, &sender, &agent, 1000, 25, Some(1234567890));
+
+        assert_ne!(hash1, hash2, "Different remittance IDs must produce different hashes");
+    }
+
+    #[test]
+    fn test_deterministic_hash_field_order_matters() {
+        let env = Env::default();
+        let sender = Address::generate(&env);
+        let agent = Address::generate(&env);
+
+        // Swapping sender and agent should produce different hash
+        let hash1 = compute_settlement_id(&env, 1, &sender, &agent, 1000, 25, None);
+        let hash2 = compute_settlement_id(&env, 1, &agent, &sender, 1000, 25, None);
+
+        assert_ne!(hash1, hash2, "Field order must affect hash output");
+    }
+
+    #[test]
+    fn test_deterministic_hash_expiry_none_vs_zero() {
+        let env = Env::default();
+        let sender = Address::generate(&env);
+        let agent = Address::generate(&env);
+
+        let hash_none = compute_settlement_id(&env, 1, &sender, &agent, 1000, 25, None);
+        let hash_zero = compute_settlement_id(&env, 1, &sender, &agent, 1000, 25, Some(0));
+
+        assert_eq!(hash_none, hash_zero, "None and Some(0) must produce identical hashes");
+    }
 }
