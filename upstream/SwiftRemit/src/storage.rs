@@ -5,68 +5,125 @@
 //! Uses both instance storage (contract-level config) and persistent storage
 //! (per-entity data).
 
-use soroban_sdk::{contracttype, Address, Env};
+use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
-use crate::{ContractError, Remittance};
+use crate::{ContractError, Remittance, TransferRecord, DailyLimit};
 
 /// Storage keys for the SwiftRemit contract.
-/// 
+///
 /// Storage Layout:
-/// - Instance storage: Contract-level configuration and state (Admin, UsdcToken, PlatformFeeBps, 
+/// - Instance storage: Contract-level configuration and state (Admin, UsdcToken, PlatformFeeBps,
 ///   RemittanceCounter, AccumulatedFees)
-/// - Persistent storage: Per-entity data that needs long-term retention (Remittance records, 
+/// - Persistent storage: Per-entity data that needs long-term retention (Remittance records,
 ///   AgentRegistered status)
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
     // === Contract Configuration ===
     // Core contract settings stored in instance storage
-    
-    /// Contract administrator address with privileged access
+    /// Contract administrator address with privileged access (deprecated - use AdminRole)
     Admin,
-    
+
+    /// Admin role status indexed by address (persistent storage)
+    AdminRole(Address),
+
+    /// Counter for tracking number of admins
+    AdminCount,
+
+    /// Role assignment indexed by (address, role) (persistent storage)
+    RoleAssignment(Address, crate::Role),
+
     /// USDC token contract address used for all remittance transactions
     UsdcToken,
-    
+
     /// Platform fee in basis points (1 bps = 0.01%)
     PlatformFeeBps,
     
+    /// Protocol fee in basis points (1 bps = 0.01%)
+    ProtocolFeeBps,
+    
+    /// Treasury address for protocol fees
+    Treasury,
+
     // === Remittance Management ===
     // Keys for tracking and storing remittance transactions
-    
     /// Global counter for generating unique remittance IDs
     RemittanceCounter,
-    
+
     /// Individual remittance record indexed by ID (persistent storage)
     Remittance(u64),
-    
+
     // === Agent Management ===
     // Keys for tracking registered agents
-    
     /// Agent registration status indexed by agent address (persistent storage)
     AgentRegistered(Address),
-    
+
     // === Fee Tracking ===
     // Keys for managing platform fees
-    
     /// Total accumulated platform fees awaiting withdrawal
     AccumulatedFees,
-    
+
+    /// Integrator fee in basis points
+    IntegratorFeeBps,
+
+    /// Total accumulated integrator fees awaiting withdrawal
+    AccumulatedIntegratorFees,
+
+    /// Contract pause status for emergency halts
+    Paused,
+
     // === Settlement Deduplication ===
     // Keys for preventing duplicate settlement execution
-    
     /// Settlement hash for duplicate detection (persistent storage)
     SettlementHash(u64),
+
+    /// Combined settlement metadata (persistent storage)
+    /// Contains flags that were previously stored separately to reduce reads.
+    SettlementData(u64),
+    
+    // === Rate Limiting ===
+    // Keys for preventing abuse through rate limiting
+    /// Cooldown period in seconds between settlements per sender
+    RateLimitCooldown,
+    
+    /// Last settlement timestamp for a sender address (persistent storage)
+    LastSettlementTime(Address),
+    
+    // === Daily Limits ===
+    // Keys for tracking daily transfer limits
+    /// Daily limit configuration indexed by currency and country (persistent storage)
+    DailyLimit(String, String),
+    
+    /// User transfer records indexed by user address (persistent storage)
+    UserTransfers(Address),
+    
+    // === Token Whitelist ===
+    // Keys for managing whitelisted tokens
+    /// Token whitelist status indexed by token address (persistent storage)
+    TokenWhitelisted(Address),
+    
+    /// Settlement completion event emission tracking (persistent storage)
+    /// Tracks whether the completion event has been emitted for a settlement
+    SettlementEventEmitted(u64),
+
+    
+    /// Total number of successfully finalized settlements (instance storage)
+    /// Incremented atomically each time a settlement is successfully completed
+    SettlementCounter,
+
+    // === Escrow Management ===
+    /// Escrow counter for generating unique transfer IDs
+    EscrowCounter,
+    
+    /// Escrow record indexed by transfer ID (persistent storage)
+    Escrow(u64),
+    
+    // === Transfer State Registry ===
+    /// Transfer state indexed by transfer ID (persistent storage)
+    TransferState(u64),
 }
 
 /// Checks if the contract has an admin configured.
-///
-/// # Arguments
-///
-/// * `env` - The contract execution environment
-///
-/// # Returns
-///
 /// * `true` - Admin is configured
 /// * `false` - Admin is not configured (contract not initialized)
 pub fn has_admin(env: &Env) -> bool {
@@ -287,20 +344,461 @@ pub fn get_accumulated_fees(env: &Env) -> Result<i128, ContractError> {
 ///
 /// * `true` - Settlement has been executed
 /// * `false` - Settlement has not been executed
-pub fn has_settlement_hash(env: &Env, remittance_id: u64) -> bool {
+#[contracttype]
+#[derive(Clone)]
+pub struct SettlementData {
+    pub executed: bool,
+    pub event_emitted: bool,
+}
+
+/// Internal helper: load or migrate settlement metadata into a single key.
+fn load_or_migrate_settlement_data(env: &Env, remittance_id: u64) -> SettlementData {
+    // Try combined key first
+    if let Some(data) = env
+        .storage()
+        .persistent()
+        .get(&DataKey::SettlementData(remittance_id))
+    {
+        return data;
+    }
+
+    // Fallback: read legacy keys and migrate
+    let executed = env
+        .storage()
+        .persistent()
+        .get::<bool>(&DataKey::SettlementHash(remittance_id))
+        .unwrap_or(false);
+    let event_emitted = env
+        .storage()
+        .persistent()
+        .get::<bool>(&DataKey::SettlementEventEmitted(remittance_id))
+        .unwrap_or(false);
+
+    let data = SettlementData { executed, event_emitted };
+
+    // Write migrated combined key and remove legacy keys to reduce future reads
     env.storage()
         .persistent()
-        .has(&DataKey::SettlementHash(remittance_id))
+        .set(&DataKey::SettlementData(remittance_id), &data);
+    env.storage()
+        .persistent()
+        .remove(&DataKey::SettlementHash(remittance_id));
+    env.storage()
+        .persistent()
+        .remove(&DataKey::SettlementEventEmitted(remittance_id));
+
+    data
+}
+
+/// Checks if a settlement has already been executed (duplicate detection).
+pub fn has_settlement_hash(env: &Env, remittance_id: u64) -> bool {
+    let data = load_or_migrate_settlement_data(env, remittance_id);
+    data.executed
 }
 
 /// Marks a settlement as executed for duplicate prevention.
+pub fn set_settlement_hash(env: &Env, remittance_id: u64) {
+    let mut data = load_or_migrate_settlement_data(env, remittance_id);
+    if data.executed {
+        return;
+    }
+    data.executed = true;
+    env.storage()
+        .persistent()
+        .set(&DataKey::SettlementData(remittance_id), &data);
+}
+
+pub fn is_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+}
+
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&DataKey::Paused, &paused);
+}
+
+pub fn set_rate_limit_cooldown(env: &Env, cooldown_seconds: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::RateLimitCooldown, &cooldown_seconds);
+}
+
+pub fn get_rate_limit_cooldown(env: &Env) -> Result<u64, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::RateLimitCooldown)
+        .ok_or(ContractError::NotInitialized)
+}
+
+pub fn set_last_settlement_time(env: &Env, sender: &Address, timestamp: u64) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::LastSettlementTime(sender.clone()), &timestamp);
+}
+
+pub fn get_last_settlement_time(env: &Env, sender: &Address) -> Option<u64> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::LastSettlementTime(sender.clone()))
+}
+
+pub fn check_settlement_rate_limit(env: &Env, sender: &Address) -> Result<(), ContractError> {
+    let cooldown = get_rate_limit_cooldown(env)?;
+    
+    // If cooldown is 0, rate limiting is disabled
+    if cooldown == 0 {
+        return Ok(());
+    }
+    
+    if let Some(last_time) = get_last_settlement_time(env, sender) {
+        let current_time = env.ledger().timestamp();
+        let elapsed = current_time.saturating_sub(last_time);
+        
+        if elapsed < cooldown {
+            return Err(ContractError::RateLimitExceeded);
+        }
+    }
+    
+    Ok(())
+}
+
+pub fn set_daily_limit(env: &Env, currency: &String, country: &String, limit: i128) {
+    let daily_limit = DailyLimit {
+        currency: currency.clone(),
+        country: country.clone(),
+        limit,
+    };
+    env.storage()
+        .persistent()
+        .set(&DataKey::DailyLimit(currency.clone(), country.clone()), &daily_limit);
+}
+
+pub fn get_daily_limit(env: &Env, currency: &String, country: &String) -> Option<DailyLimit> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::DailyLimit(currency.clone(), country.clone()))
+}
+
+pub fn get_user_transfers(env: &Env, user: &Address) -> Vec<TransferRecord> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::UserTransfers(user.clone()))
+        .unwrap_or(Vec::new(env))
+}
+
+pub fn set_user_transfers(env: &Env, user: &Address, transfers: &Vec<TransferRecord>) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::UserTransfers(user.clone()), transfers);
+}
+
+// === Admin Role Management ===
+
+pub fn is_admin(env: &Env, address: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::AdminRole(address.clone()))
+        .unwrap_or(false)
+}
+
+pub fn set_admin_role(env: &Env, address: &Address, is_admin: bool) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::AdminRole(address.clone()), &is_admin);
+}
+
+pub fn get_admin_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::AdminCount)
+        .unwrap_or(0)
+}
+
+pub fn set_admin_count(env: &Env, count: u32) {
+    env.storage().instance().set(&DataKey::AdminCount, &count);
+}
+
+pub fn require_admin(env: &Env, address: &Address) -> Result<(), ContractError> {
+    address.require_auth();
+
+    if !is_admin(env, address) {
+        return Err(ContractError::Unauthorized);
+    }
+
+    Ok(())
+}
+
+// === Token Whitelist Management ===
+
+pub fn is_token_whitelisted(env: &Env, token: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::TokenWhitelisted(token.clone()))
+        .unwrap_or(false)
+}
+
+pub fn set_token_whitelisted(env: &Env, token: &Address, whitelisted: bool) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::TokenWhitelisted(token.clone()), &whitelisted);
+}
+
+// === Settlement Event Emission Tracking ===
+
+/// Checks if the settlement completion event has been emitted for a remittance.
+///
+/// This function is used to ensure exactly-once event emission per finalized settlement,
+/// preventing duplicate events in cases of re-entry, retries, or repeated calls.
 ///
 /// # Arguments
 ///
 /// * `env` - The contract execution environment
-/// * `remittance_id` - Remittance ID to mark as settled
-pub fn set_settlement_hash(env: &Env, remittance_id: u64) {
+/// * `remittance_id` - The unique ID of the remittance/settlement
+///
+/// # Returns
+///
+/// * `true` - Event has been emitted for this settlement
+/// * `false` - Event has not been emitted yet
+pub fn has_settlement_event_emitted(env: &Env, remittance_id: u64) -> bool {
+    let data = load_or_migrate_settlement_data(env, remittance_id);
+    data.event_emitted
+}
+
+/// Marks that the settlement completion event has been emitted for a remittance.
+///
+/// This function should be called immediately after emitting the settlement completion
+/// event to prevent duplicate emissions. It provides a persistent record that the
+/// event was successfully emitted.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `remittance_id` - The unique ID of the remittance/settlement
+///
+/// # Guarantees
+///
+/// - Idempotent: Can be called multiple times safely
+/// - Persistent: Survives contract upgrades and restarts
+/// - Deterministic: Always produces the same result for the same input
+pub fn set_settlement_event_emitted(env: &Env, remittance_id: u64) {
+    let mut data = load_or_migrate_settlement_data(env, remittance_id);
+    if data.event_emitted {
+        return;
+    }
+    data.event_emitted = true;
     env.storage()
         .persistent()
-        .set(&DataKey::SettlementHash(remittance_id), &true);
+        .set(&DataKey::SettlementData(remittance_id), &data);
+}
+
+
+// === Settlement Counter ===
+
+/// Retrieves the total number of successfully finalized settlements.
+///
+/// This function performs an O(1) read directly from instance storage without
+/// iteration or recomputation. The counter is incremented atomically each time
+/// a settlement is successfully finalized.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+///
+/// # Returns
+///
+/// * `u64` - Total number of settlements processed (defaults to 0 if not initialized)
+///
+/// # Performance
+///
+/// - O(1) constant-time operation
+/// - Single storage read
+/// - No iteration or computation
+///
+/// # Guarantees
+///
+/// - Read-only: Cannot modify storage
+/// - Deterministic: Always returns same value for same state
+/// - Consistent: Reflects all successfully finalized settlements
+pub fn get_settlement_counter(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::SettlementCounter)
+        .unwrap_or(0)
+}
+
+/// Increments the settlement counter atomically.
+///
+/// This function should only be called after a settlement is successfully finalized
+/// and all state transitions are committed. It increments the counter by 1 and
+/// stores the new value in instance storage.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+///
+/// # Returns
+///
+/// * `Ok(())` - Counter incremented successfully
+/// * `Err(ContractError::SettlementCounterOverflow)` - Counter would overflow u64::MAX
+///
+/// # Guarantees
+///
+/// - Atomic: Increment and store happen together
+/// - Internal-only: Not exposed as public contract function
+/// - Deterministic: Always increments by exactly 1
+/// - Consistent: Only called after successful finalization
+pub fn increment_settlement_counter(env: &Env) -> Result<(), ContractError> {
+    let current = get_settlement_counter(env);
+    let new_count = current
+        .checked_add(1)
+        .ok_or(ContractError::SettlementCounterOverflow)?;
+    env.storage()
+        .instance()
+        .set(&DataKey::SettlementCounter, &new_count);
+    Ok(())
+}
+
+// === Escrow Management ===
+
+pub fn get_escrow_counter(env: &Env) -> Result<u64, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::EscrowCounter)
+        .ok_or(ContractError::NotInitialized)
+}
+
+pub fn set_escrow_counter(env: &Env, counter: u64) {
+    env.storage().instance().set(&DataKey::EscrowCounter, &counter);
+}
+
+pub fn get_escrow(env: &Env, transfer_id: u64) -> Result<crate::Escrow, ContractError> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Escrow(transfer_id))
+        .ok_or(ContractError::EscrowNotFound)
+}
+
+pub fn set_escrow(env: &Env, transfer_id: u64, escrow: &crate::Escrow) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Escrow(transfer_id), escrow);
+}
+
+
+// === Role-Based Authorization ===
+
+/// Assigns a role to an address
+pub fn assign_role(env: &Env, address: &Address, role: &crate::Role) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::RoleAssignment(address.clone(), role.clone()), &true);
+}
+
+/// Removes a role from an address
+pub fn remove_role(env: &Env, address: &Address, role: &crate::Role) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::RoleAssignment(address.clone(), role.clone()));
+}
+
+/// Checks if an address has a specific role
+pub fn has_role(env: &Env, address: &Address, role: &crate::Role) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::RoleAssignment(address.clone(), role.clone()))
+        .unwrap_or(false)
+}
+
+/// Requires that the caller has Admin role
+pub fn require_role_admin(env: &Env, address: &Address) -> Result<(), ContractError> {
+    if !has_role(env, address, &crate::Role::Admin) {
+        return Err(ContractError::Unauthorized);
+    }
+    Ok(())
+}
+
+/// Requires that the caller has Settler role
+pub fn require_role_settler(env: &Env, address: &Address) -> Result<(), ContractError> {
+    if !has_role(env, address, &crate::Role::Settler) {
+        return Err(ContractError::Unauthorized);
+    }
+    Ok(())
+}
+
+
+// === Transfer State Registry ===
+
+/// Gets the current state of a transfer
+pub fn get_transfer_state(env: &Env, transfer_id: u64) -> Option<crate::TransferState> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::TransferState(transfer_id))
+}
+
+/// Sets the transfer state with validation
+pub fn set_transfer_state(
+    env: &Env,
+    transfer_id: u64,
+    new_state: crate::TransferState,
+) -> Result<(), ContractError> {
+    // Get current state if exists
+    if let Some(current_state) = get_transfer_state(env, transfer_id) {
+        // Validate transition
+        if !current_state.can_transition_to(&new_state) {
+            return Err(ContractError::InvalidStateTransition);
+        }
+        // Skip write if same state (storage-efficient)
+        if current_state == new_state {
+            return Ok(());
+        }
+    }
+    
+    // Write new state
+    env.storage()
+        .persistent()
+        .set(&DataKey::TransferState(transfer_id), &new_state);
+    
+    Ok(())
+}
+
+
+// === Protocol Fee Management ===
+
+/// Maximum protocol fee (200 bps = 2%)
+pub const MAX_PROTOCOL_FEE_BPS: u32 = 200;
+
+/// Gets the protocol fee in basis points
+pub fn get_protocol_fee_bps(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::ProtocolFeeBps)
+        .unwrap_or(0)
+}
+
+/// Sets the protocol fee in basis points (max 200 bps)
+pub fn set_protocol_fee_bps(env: &Env, fee_bps: u32) -> Result<(), ContractError> {
+    if fee_bps > MAX_PROTOCOL_FEE_BPS {
+        return Err(ContractError::InvalidFeeBps);
+    }
+    env.storage()
+        .instance()
+        .set(&DataKey::ProtocolFeeBps, &fee_bps);
+    Ok(())
+}
+
+/// Gets the treasury address
+pub fn get_treasury(env: &Env) -> Result<Address, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::Treasury)
+        .ok_or(ContractError::NotInitialized)
+}
+
+/// Sets the treasury address
+pub fn set_treasury(env: &Env, treasury: &Address) {
+    env.storage()
+        .instance()
+        .set(&DataKey::Treasury, treasury);
 }
