@@ -359,6 +359,16 @@ impl SwiftRemitContract {
         // Update last settlement time for rate limiting
         set_last_settlement_time(&env, &remittance.sender, current_time);
 
+
+        // Increment settlement counter atomically after successful finalization
+        increment_settlement_counter(&env)?;
+
+
+        // Increment settlement counter atomically after successful finalization
+        increment_settlement_counter(&env);
+
+
+
         // Emit settlement completion event exactly once
         // This event is emitted after all state transitions are committed
         // and includes safeguards to prevent duplicate emission
@@ -561,12 +571,53 @@ impl SwiftRemitContract {
         get_platform_fee_bps(&env)
     }
 
+
+    /// Retrieves the total number of successfully finalized settlements.
+    ///
+    /// This is a read-only method that performs an O(1) constant-time read directly
+    /// from instance storage without iteration or recomputation. The counter is
+    /// incremented atomically each time a settlement is successfully finalized.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    ///
+    /// # Returns
+    ///
+    /// * `u64` - Total number of settlements processed (0 if none)
+    ///
+    /// # Performance
+    ///
+    /// - O(1) constant-time operation
+    /// - Single storage read
+    /// - No iteration or computation
+    ///
+    /// # Guarantees
+    ///
+    /// - Read-only: Cannot modify storage
+    /// - Deterministic: Always returns same value for same state
+    /// - Consistent: Reflects all successfully finalized settlements
+    /// - Cannot be modified externally (no public setter)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let total = contract.get_total_settlements_count(&env);
+    /// println!("Total settlements processed: {}", total);
+    /// ```
+    pub fn get_total_settlements_count(env: Env) -> u64 {
+        get_settlement_counter(&env)
+
+
+
     pub fn get_integrator_fee_bps(env: Env) -> Result<u32, ContractError> {
         get_integrator_fee_bps(&env)
     }
 
     pub fn get_accumulated_integrator_fees(env: Env) -> Result<i128, ContractError> {
         get_accumulated_integrator_fees(&env)
+
+
     }
 
     pub fn pause(env: Env) -> Result<(), ContractError> {
@@ -762,6 +813,17 @@ impl SwiftRemitContract {
             set_remittance(&env, remittance.id, &remittance);
             set_settlement_hash(&env, remittance.id);
             settled_ids.push_back(remittance.id);
+
+
+            // Increment settlement counter atomically for each successful settlement
+            increment_settlement_counter(&env)?;
+
+
+
+            // Increment settlement counter atomically for each successful settlement
+            increment_settlement_counter(&env);
+
+          
 
             // Calculate payout amount for this remittance
             let payout_amount = remittance
@@ -1019,6 +1081,7 @@ impl SwiftRemitContract {
     /// # Errors
     /// - InvalidAmount: If limit is negative
     /// - Unauthorized: If caller is not admin
+    /// - InvalidSymbol: If currency or country code is malformed
     pub fn set_daily_limit(
         env: Env,
         currency: String,
@@ -1032,10 +1095,8 @@ impl SwiftRemitContract {
             return Err(ContractError::InvalidAmount);
         }
 
-
-        let currency = normalize_symbol(&env, &currency);
-        let country = normalize_symbol(&env, &country);
-
+        let currency = normalize_symbol(&env, &currency)?;
+        let country = normalize_symbol(&env, &country)?;
 
         set_daily_limit(&env, &currency, &country, limit);
 
@@ -1049,13 +1110,13 @@ impl SwiftRemitContract {
     /// - `country`: Country code (e.g., "US", "UK")
     /// 
     /// # Returns
-    /// - `Some(DailyLimit)`: If a limit is configured
-    /// - `None`: If no limit is configured (unlimited)
-    pub fn get_daily_limit(env: Env, currency: String, country: String) -> Option<DailyLimit> {
+    /// - `Ok(Some(DailyLimit))`: If a limit is configured
+    /// - `Ok(None)`: If no limit is configured (unlimited)
+    /// - `Err(ContractError::InvalidSymbol)`: If currency or country code is malformed
+    pub fn get_daily_limit(env: Env, currency: String, country: String) -> Result<Option<DailyLimit>, ContractError> {
+        let currency = normalize_symbol(&env, &currency)?;
+        let country = normalize_symbol(&env, &country)?;
 
-    let currency = normalize_symbol(&env, &currency);
-    let country = normalize_symbol(&env, &country);
-
-        get_daily_limit(&env, &currency, &country)
+        Ok(get_daily_limit(&env, &currency, &country))
     }
 }
