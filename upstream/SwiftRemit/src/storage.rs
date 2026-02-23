@@ -5,7 +5,7 @@
 //! Uses both instance storage (contract-level config) and persistent storage
 //! (per-entity data).
 
-use soroban_sdk::{contracttype, Address, Env};
+use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 use crate::{ContractError, Remittance, TransferRecord, DailyLimit};
 
@@ -368,6 +368,11 @@ pub fn check_rate_limit(env: &Env, sender: &Address) -> Result<(), ContractError
         if elapsed < cooldown {
             return Err(ContractError::RateLimitExceeded);
         }
+    }
+    
+    Ok(())
+}
+
 pub fn set_daily_limit(env: &Env, currency: &String, country: &String, limit: i128) {
     let daily_limit = DailyLimit {
         currency: currency.clone(),
@@ -396,6 +401,8 @@ pub fn set_user_transfers(env: &Env, user: &Address, transfers: &Vec<TransferRec
     env.storage()
         .persistent()
         .set(&DataKey::UserTransfers(user.clone()), transfers);
+}
+
 // === Admin Role Management ===
 
 pub fn is_admin(env: &Env, address: &Address) -> bool {
@@ -445,5 +452,4 @@ pub fn set_token_whitelisted(env: &Env, token: &Address, whitelisted: bool) {
     env.storage()
         .persistent()
         .set(&DataKey::TokenWhitelisted(token.clone()), &whitelisted);
->>>>>> origin/main
 }

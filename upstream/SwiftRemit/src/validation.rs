@@ -3,7 +3,7 @@
 //! This module provides validation functions for Stellar addresses used in
 //! contract operations.
 
-use soroban_sdk::Address;
+use soroban_sdk::{Address, Env, String};
 
 use crate::{ContractError, is_agent_registered, is_paused, get_remittance, RemittanceStatus};
 

@@ -251,32 +251,31 @@ impl SwiftRemitContract {
             .checked_div(10000)
             .ok_or(ContractError::Overflow)?;
 
-            let fee_bps = get_platform_fee_bps(&env)?;
-            let fee = amount
-                .checked_mul(fee_bps as i128)
-                .ok_or(ContractError::Overflow)?
-                .checked_div(10000)
-                .ok_or(ContractError::Overflow)?;
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&sender, &env.current_contract_address(), &amount);
 
-            let usdc_token = get_usdc_token(&env)?;
-            let token_client = token::Client::new(&env, &usdc_token);
-            token_client.transfer(&sender, &env.current_contract_address(), &amount);
+        let counter = get_remittance_counter(&env)?;
+        let remittance_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
 
-            let counter = get_remittance_counter(&env)?;
-            let remittance_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
+        let remittance = Remittance {
+            id: remittance_id,
+            sender: sender.clone(),
+            agent: agent.clone(),
+            amount,
+            fee,
+            status: RemittanceStatus::Pending,
+            expiry,
+        };
 
-            let remittance = Remittance {
-                id: remittance_id,
-                sender: sender.clone(),
-                agent: agent.clone(),
-                amount,
-                fee,
-                status: RemittanceStatus::Pending,
-                expiry,
-            };
+        set_remittance(&env, remittance_id, &remittance);
+        set_remittance_counter(&env, remittance_id);
 
-            set_remittance(&env, remittance_id, &remittance);
-            set_remittance_counter(&env, remittance_id);
+        // Event: RemittanceCreated
+        emit_remittance_created(&env, remittance_id, sender, agent, amount, fee);
+
+        Ok(remittance_id)
+    }
 
     /// Confirms a remittance payout to the agent.
     ///
@@ -453,18 +452,6 @@ impl SwiftRemitContract {
     ///
     /// Requires authentication from the contract admin.
     pub fn withdraw_fees(env: Env, to: Address) -> Result<(), ContractError> {
-        let admin = get_admin(&env)?;
-        admin.require_auth();
-
-        remittance.status = RemittanceStatus::Failed;
-        set_remittance(&env, remittance_id, &remittance);
-
-        log_cancel_remittance(&env, remittance_id);
-
-        Ok(())
-    }
-
-    pub fn withdraw_fees(env: Env, to: Address) -> Result<(), ContractError> {
         // Centralized validation before business logic
         let fees = validate_withdraw_fees_request(&env, &to)?;
         
@@ -535,6 +522,47 @@ impl SwiftRemitContract {
         get_platform_fee_bps(&env)
     }
 
+    /// Computes the deterministic settlement hash for a remittance.
+    /// 
+    /// This function allows external systems (banks, anchors, APIs) to compute
+    /// the same settlement hash that the contract uses internally. The hash is
+    /// computed using the canonical ordering specified in DETERMINISTIC_HASHING_SPEC.md.
+    /// 
+    /// External systems can use this to:
+    /// - Pre-compute settlement IDs before submission
+    /// - Verify on-chain settlement IDs match expected values
+    /// - Enable cross-system reconciliation using deterministic IDs
+    /// 
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `remittance_id` - The remittance ID to compute hash for
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(BytesN<32>)` - The 32-byte SHA-256 settlement hash
+    /// * `Err(ContractError::RemittanceNotFound)` - Remittance ID does not exist
+    /// 
+    /// # Hash Input Ordering (Canonical)
+    /// 
+    /// 1. remittance_id (u64, big-endian)
+    /// 2. sender (Address, XDR-encoded)
+    /// 3. agent (Address, XDR-encoded)
+    /// 4. amount (i128, big-endian)
+    /// 5. fee (i128, big-endian)
+    /// 6. expiry (u64, big-endian, 0 if None)
+    /// 
+    /// # Examples
+    /// 
+    /// ```ignore
+    /// let settlement_hash = contract.compute_settlement_hash(&env, remittance_id)?;
+    /// // External system can verify this matches their computed hash
+    /// ```
+    pub fn compute_settlement_hash(env: Env, remittance_id: u64) -> Result<soroban_sdk::BytesN<32>, ContractError> {
+        let remittance = get_remittance(&env, remittance_id)?;
+        Ok(compute_settlement_id_from_remittance(&env, &remittance))
+    }
+
     pub fn pause(env: Env) -> Result<(), ContractError> {
         let caller = get_admin(&env)?;
         require_admin(&env, &caller)?;
@@ -583,6 +611,7 @@ impl SwiftRemitContract {
     
     pub fn get_last_settlement_time(env: Env, sender: Address) -> Option<u64> {
         get_last_settlement_time(&env, &sender)
+    }
 
     pub fn get_version(env: Env) -> soroban_sdk::String {
         soroban_sdk::String::from_str(&env, env!("CARGO_PKG_VERSION"))
@@ -807,43 +836,6 @@ impl SwiftRemitContract {
     /// - `max_requests`: Maximum number of requests allowed per window
     /// - `window_seconds`: Time window in seconds
     /// - `enabled`: Whether rate limiting is enabled
-    /// 
-    /// # Example
-    /// ```ignore
-    /// // Set rate limit to 50 requests per 30 seconds
-    /// contract.update_rate_limit(&admin, 50, 30, true)?;
-    /// ```
-    pub fn update_rate_limit(
-        env: Env,
-        caller: Address,
-        max_requests: u32,
-        window_seconds: u64,
-        enabled: bool,
-    ) -> Result<(), ContractError> {
-        require_admin(&env, &caller)?;
-
-        let config = RateLimitConfig {
-            max_requests,
-            window_seconds,
-            enabled,
-        };
-
-        set_rate_limit_config(&env, config);
-
-        log_update_rate_limit(&env, max_requests, window_seconds, enabled);
-
-        Ok(())
-    }
-
-    /// Get current rate limit configuration
-    /// 
-    /// # Returns
-    /// Tuple of (max_requests, window_seconds, enabled)
-    pub fn get_rate_limit_config(env: Env) -> (u32, u64, bool) {
-        let config = get_rate_limit_config(&env);
-        (config.max_requests, config.window_seconds, config.enabled)
-    }
-
     /// Get rate limit status for a specific address
     /// 
     /// # Parameters
