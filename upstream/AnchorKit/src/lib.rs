@@ -1,5 +1,6 @@
 #![no_std]
 
+mod asset_validator;
 mod config;
 mod credentials;
 mod error_mapping;
@@ -52,9 +53,13 @@ mod cross_platform_tests;
 
 mod zerocopy_tests;
 
+#[cfg(test)]
+mod asset_validator_tests;
+
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
+pub use asset_validator::{AssetConfig, AssetValidator};
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
 pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
 pub use errors::Error;
@@ -1163,4 +1168,73 @@ impl AnchorKitContract {
 
         Ok(())
     }
+
+    // ============ Asset Compatibility Validation ============
+
+    /// Configure supported assets for an anchor. Only callable by admin or anchor.
+    pub fn set_supported_assets(
+        env: Env,
+        anchor: Address,
+        assets: Vec<String>,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+
+        AssetValidator::set_supported_assets(&env, &anchor, assets);
+        Ok(())
+    }
+
+    /// Get supported assets for an anchor.
+    pub fn get_supported_assets(env: Env, anchor: Address) -> Option<Vec<String>> {
+        AssetValidator::get_supported_assets(&env, &anchor)
+    }
+
+    /// Check if asset is supported by anchor.
+    pub fn is_asset_supported(env: Env, anchor: Address, asset: String) -> bool {
+        AssetValidator::is_asset_supported(&env, &anchor, &asset)
+    }
+
+    /// Validate asset pair before operation.
+    pub fn validate_asset_pair(
+        env: Env,
+        anchor: Address,
+        base_asset: String,
+        quote_asset: String,
+    ) -> Result<(), Error> {
+        AssetValidator::validate_asset_pair(&env, &anchor, &base_asset, &quote_asset)
+    }
+
+    /// Submit quote with asset validation.
+    pub fn submit_quote_validated(
+        env: Env,
+        anchor: Address,
+        base_asset: String,
+        quote_asset: String,
+        rate: u64,
+        fee_percentage: u32,
+        minimum_amount: u64,
+        maximum_amount: u64,
+        valid_until: u64,
+    ) -> Result<u64, Error> {
+        // Validate assets first
+        AssetValidator::validate_asset_pair(&env, &anchor, &base_asset, &quote_asset)?;
+
+        // Proceed with quote submission
+        Self::submit_quote(
+            env,
+            anchor,
+            base_asset,
+            quote_asset,
+            rate,
+            fee_percentage,
+            minimum_amount,
+            maximum_amount,
+            valid_until,
+        )
+    }
 }
+
