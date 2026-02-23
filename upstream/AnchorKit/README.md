@@ -48,6 +48,20 @@ if contract.supports_service(&anchor, &ServiceType::Deposits) {
 }
 ```
 
+## CLI Example
+
+See complete deposit/withdraw workflow:
+
+```bash
+# Run bash demo
+./examples/cli_example.sh
+
+# Or run Rust example
+cargo run --example cli_example
+```
+
+See **[CLI_EXAMPLE.md](./CLI_EXAMPLE.md)** for full documentation.
+
 ## Key Features
 
 - **Attestation Management**: Register attestors, submit and retrieve attestations
@@ -102,6 +116,7 @@ const auditLog = await contract.get_audit_log(0);
 - **[SESSION_TRACEABILITY.md](./SESSION_TRACEABILITY.md)** - Complete feature guide with usage patterns
 - **[SECURE_CREDENTIALS.md](./SECURE_CREDENTIALS.md)** - Secure credential injection and management
 - **[HEALTH_MONITORING.md](./HEALTH_MONITORING.md)** - Anchor health monitoring interface
+- **[ASSET_VALIDATOR.md](./ASSET_VALIDATOR.md)** - Asset compatibility validation
 - **[API_SPEC.md](./API_SPEC.md)** - API specification and error codes
 
 ### Technical Documentation
