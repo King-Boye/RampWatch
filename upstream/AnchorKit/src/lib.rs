@@ -40,6 +40,9 @@ mod streaming_flow_tests;
 #[cfg(test)]
 mod routing_tests;
 
+#[cfg(test)]
+mod timeout_tests;
+
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
