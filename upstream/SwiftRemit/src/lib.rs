@@ -24,7 +24,9 @@ mod test_roles_simple;
 #[cfg(test)]
 mod test_transfer_state;
 #[cfg(test)]
-mod test_protocol_fee; 
+mod test_protocol_fee;
+#[cfg(test)]
+mod test_property; 
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec, String};
 
