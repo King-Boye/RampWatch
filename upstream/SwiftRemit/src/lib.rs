@@ -509,32 +509,16 @@ impl SwiftRemitContract {
         get_remittance(&env, remittance_id)
     }
 
-    /// Retrieves the ledger timestamp when a settlement was created.
-    ///
-    /// Returns the exact ledger timestamp captured during settlement creation
-    /// (when confirm_payout was executed). Useful for audit trails, compliance
-    /// reporting, and time-based analytics.
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The contract execution environment
-    /// * `remittance_id` - ID of the remittance/settlement
-    ///
-    /// # Returns
-    ///
-    /// * `Some(u64)` - The settlement creation timestamp (Unix seconds)
-    /// * `None` - Settlement timestamp not found (settlement not yet created or old data)
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let timestamp = contract.get_settlement_timestamp(env, 123);
-    /// if let Some(ts) = timestamp {
-    ///     // Use timestamp for audit or compliance
-    /// }
-    /// ```
-    pub fn get_settlement_timestamp(env: Env, remittance_id: u64) -> Option<u64> {
-        get_settlement_timestamp(&env, remittance_id)
+    /// Query a remittance with a standardized response wrapper and request ID.
+    pub fn query_remittance(
+        env: Env,
+        remittance_id: u64,
+        request_id: soroban_sdk::String,
+    ) -> crate::response::Response<Remittance> {
+        match get_remittance(&env, remittance_id) {
+            Ok(remittance) => crate::response::Response::ok(remittance, request_id),
+            Err(e) => crate::response::Response::err(e as u32, request_id),
+        }
     }
 
 
