@@ -22,7 +22,9 @@ mod test_escrow;
 #[cfg(test)]
 mod test_roles_simple;
 #[cfg(test)]
-mod test_transfer_state; 
+mod test_transfer_state;
+#[cfg(test)]
+mod test_protocol_fee; 
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec, String};
 
@@ -83,6 +85,8 @@ impl SwiftRemitContract {
         usdc_token: Address,
         fee_bps: u32,
         rate_limit_cooldown: u64,
+        protocol_fee_bps: u32,
+        treasury: Address,
     ) -> Result<(), ContractError> {
         // Centralized validation before business logic
         validate_initialize_request(&env, &admin, &usdc_token, fee_bps)?;
@@ -103,6 +107,10 @@ impl SwiftRemitContract {
         set_accumulated_fees(&env, 0);
         set_rate_limit_cooldown(&env, rate_limit_cooldown);
         set_escrow_counter(&env, 0);
+        
+        // Initialize protocol fee and treasury
+        set_protocol_fee_bps(&env, protocol_fee_bps)?;
+        set_treasury(&env, &treasury);
 
         // Initialize rate limiting with default configuration
         init_rate_limit(&env);
@@ -345,18 +353,42 @@ impl SwiftRemitContract {
         // Validate the agent address before transfer
         validate_address(&remittance.agent)?;
 
+        // Calculate protocol fee
+        let protocol_fee_bps = get_protocol_fee_bps(&env);
+        let protocol_fee = remittance
+            .amount
+            .checked_mul(protocol_fee_bps as i128)
+            .ok_or(ContractError::Overflow)?
+            .checked_div(10000)
+            .ok_or(ContractError::Overflow)?;
+
+        // Calculate payout after platform and protocol fees
         let payout_amount = remittance
             .amount
             .checked_sub(remittance.fee)
+            .ok_or(ContractError::Overflow)?
+            .checked_sub(protocol_fee)
             .ok_or(ContractError::Overflow)?;
 
         let usdc_token = get_usdc_token(&env)?;
         let token_client = token::Client::new(&env, &usdc_token);
+        
+        // Transfer payout to agent
         token_client.transfer(
             &env.current_contract_address(),
             &remittance.agent,
             &payout_amount,
         );
+        
+        // Transfer protocol fee to treasury
+        if protocol_fee > 0 {
+            let treasury = get_treasury(&env)?;
+            token_client.transfer(
+                &env.current_contract_address(),
+                &treasury,
+                &protocol_fee,
+            );
+        }
 
         let current_fees = get_accumulated_fees(&env)?;
         let new_fees = current_fees
@@ -939,6 +971,36 @@ impl SwiftRemitContract {
     /// Tuple of (current_requests, max_requests, window_seconds)
     pub fn get_rate_limit_status(env: Env, address: Address) -> (u32, u32, u64) {
         get_rate_limit_status(&env, &address)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Protocol Fee Management
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Updates the protocol fee (Admin only, max 200 bps)
+    pub fn update_protocol_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_admin(&env, &caller)?;
+        set_protocol_fee_bps(&env, fee_bps)?;
+        Ok(())
+    }
+
+    /// Updates the treasury address (Admin only)
+    pub fn update_treasury(env: Env, caller: Address, treasury: Address) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_admin(&env, &caller)?;
+        set_treasury(&env, &treasury);
+        Ok(())
+    }
+
+    /// Gets the current protocol fee in basis points
+    pub fn get_protocol_fee_bps(env: Env) -> u32 {
+        get_protocol_fee_bps(&env)
+    }
+
+    /// Gets the treasury address
+    pub fn get_treasury(env: Env) -> Result<Address, ContractError> {
+        get_treasury(&env)
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

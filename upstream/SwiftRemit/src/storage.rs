@@ -38,6 +38,12 @@ enum DataKey {
 
     /// Platform fee in basis points (1 bps = 0.01%)
     PlatformFeeBps,
+    
+    /// Protocol fee in basis points (1 bps = 0.01%)
+    ProtocolFeeBps,
+    
+    /// Treasury address for protocol fees
+    Treasury,
 
     // === Remittance Management ===
     // Keys for tracking and storing remittance transactions
@@ -702,4 +708,44 @@ pub fn set_transfer_state(
         .set(&DataKey::TransferState(transfer_id), &new_state);
     
     Ok(())
+}
+
+
+// === Protocol Fee Management ===
+
+/// Maximum protocol fee (200 bps = 2%)
+pub const MAX_PROTOCOL_FEE_BPS: u32 = 200;
+
+/// Gets the protocol fee in basis points
+pub fn get_protocol_fee_bps(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::ProtocolFeeBps)
+        .unwrap_or(0)
+}
+
+/// Sets the protocol fee in basis points (max 200 bps)
+pub fn set_protocol_fee_bps(env: &Env, fee_bps: u32) -> Result<(), ContractError> {
+    if fee_bps > MAX_PROTOCOL_FEE_BPS {
+        return Err(ContractError::InvalidFeeBps);
+    }
+    env.storage()
+        .instance()
+        .set(&DataKey::ProtocolFeeBps, &fee_bps);
+    Ok(())
+}
+
+/// Gets the treasury address
+pub fn get_treasury(env: &Env) -> Result<Address, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::Treasury)
+        .ok_or(ContractError::NotInitialized)
+}
+
+/// Sets the treasury address
+pub fn set_treasury(env: &Env, treasury: &Address) {
+    env.storage()
+        .instance()
+        .set(&DataKey::Treasury, treasury);
 }
