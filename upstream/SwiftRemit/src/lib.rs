@@ -16,9 +16,13 @@ mod storage;
 mod types;
 mod validation;
 #[cfg(test)]
-mod test; 
+mod test;
+#[cfg(test)]
+mod test_escrow;
+#[cfg(test)]
+mod test_roles_simple; 
 
-use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec, String};
 
 pub use debug::*;
 pub use error_handler::*;
@@ -31,6 +35,9 @@ pub use rate_limit::*;
 pub use storage::*;
 pub use types::*;
 pub use validation::*;
+
+/// Maximum number of remittances that can be settled in a single batch
+const MAX_BATCH_SIZE: u32 = 100;
 
 /// The main SwiftRemit contract for managing cross-border remittances.
 ///
@@ -85,12 +92,15 @@ impl SwiftRemitContract {
         set_admin_role(&env, &admin, true);
         set_admin_count(&env, 1);
         
+        // Assign Admin role to initial admin
+        assign_role(&env, &admin, &Role::Admin);
+        
         set_usdc_token(&env, &usdc_token);
         set_platform_fee_bps(&env, fee_bps);
-        set_integrator_fee_bps(&env, 0);
         set_remittance_counter(&env, 0);
         set_accumulated_fees(&env, 0);
         set_rate_limit_cooldown(&env, rate_limit_cooldown);
+        set_escrow_counter(&env, 0);
 
         // Initialize rate limiting with default configuration
         init_rate_limit(&env);
@@ -124,9 +134,13 @@ impl SwiftRemitContract {
 
         set_agent_registered(&env, &agent, true);
 
+        emit_agent_registered(&env, agent.clone(), caller.clone());
+
+        
         // Event: Agent registered - Fires when admin adds a new agent to the approved list
         // Used by off-chain systems to track which addresses can confirm payouts
-        emit_agent_registered(&env, agent);
+        emit_agent_registered(&env, agent, caller.clone());
+
 
         Ok(())
     }
@@ -290,11 +304,15 @@ impl SwiftRemitContract {
     /// # Authorization
     ///
     /// Requires authentication from the agent address assigned to the remittance.
+    /// Requires Settler role.
     pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<(), ContractError> {
         // Centralized validation before business logic
         let mut remittance = validate_confirm_payout_request(&env, remittance_id)?;
 
         remittance.agent.require_auth();
+        
+        // Require Settler role
+        require_role_settler(&env, &remittance.agent)?;
 
         if remittance.status != RemittanceStatus::Pending {
             return Err(ContractError::InvalidStatus);
@@ -314,7 +332,7 @@ impl SwiftRemitContract {
         }
 
         // Check rate limit for sender
-        check_rate_limit(&env, &remittance.sender)?;
+        check_settlement_rate_limit(&env, &remittance.sender)?;
 
         // Validate the agent address before transfer
         validate_address(&remittance.agent)?;
@@ -322,8 +340,6 @@ impl SwiftRemitContract {
         let payout_amount = remittance
             .amount
             .checked_sub(remittance.fee)
-            .ok_or(ContractError::Overflow)?
-            .checked_sub(remittance.integrator_fee)
             .ok_or(ContractError::Overflow)?;
 
         let usdc_token = get_usdc_token(&env)?;
@@ -340,53 +356,23 @@ impl SwiftRemitContract {
             .ok_or(ContractError::Overflow)?;
         set_accumulated_fees(&env, new_fees);
 
-        let current_integrator_fees = get_accumulated_integrator_fees(&env)?;
-        let new_integrator_fees = current_integrator_fees
-            .checked_add(remittance.integrator_fee)
-            .ok_or(ContractError::Overflow)?;
-        set_accumulated_integrator_fees(&env, new_integrator_fees);
-
         remittance.status = RemittanceStatus::Settled;
         set_remittance(&env, remittance_id, &remittance);
 
         // Mark settlement as executed to prevent duplicates
         set_settlement_hash(&env, remittance_id);
         
-        // Capture ledger timestamp for settlement creation
-        let current_time = env.ledger().timestamp();
-        set_settlement_timestamp(&env, remittance_id, current_time);
-        
         // Update last settlement time for rate limiting
+        let current_time = env.ledger().timestamp();
         set_last_settlement_time(&env, &remittance.sender, current_time);
-
-
-        // Increment settlement counter atomically after successful finalization
-        increment_settlement_counter(&env)?;
-
-
-        // Increment settlement counter atomically after successful finalization
-        increment_settlement_counter(&env);
-
-
-
-        // Emit settlement completion event exactly once
-        // This event is emitted after all state transitions are committed
-        // and includes safeguards to prevent duplicate emission
-        if !has_settlement_event_emitted(&env, remittance_id) {
-            emit_settlement_completed(
-                &env,
-                remittance_id,
-                remittance.sender.clone(),
-                remittance.agent.clone(),
-                usdc_token.clone(),
-                payout_amount
-            );
-            set_settlement_event_emitted(&env, remittance_id);
-        }
 
         // Event: Remittance completed - Fires when agent confirms fiat payout and USDC is released
         // Used by off-chain systems to track successful settlements and update transaction status
-        emit_remittance_completed(&env, remittance_id, remittance.agent.clone(), payout_amount);
+        emit_remittance_completed(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), payout_amount);
+        
+        // Event: Settlement completed - Fires with final executed settlement values
+        // Used by off-chain systems for reconciliation and audit trails of completed transactions
+        emit_settlement_completed(&env, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), payout_amount);
 
         log_confirm_payout(&env, remittance_id, payout_amount);
 
@@ -487,7 +473,7 @@ impl SwiftRemitContract {
 
         // Event: Fees withdrawn - Fires when admin withdraws accumulated platform fees
         // Used by off-chain systems to track revenue collection and maintain financial records
-        emit_fees_withdrawn(&env, to.clone(), fees);
+        emit_fees_withdrawn(&env, caller.clone(), to.clone(), usdc_token.clone(), fees);
 
         log_withdraw_fees(&env, &to, fees);
 
@@ -507,18 +493,6 @@ impl SwiftRemitContract {
     /// * `Err(ContractError::RemittanceNotFound)` - Remittance ID does not exist
     pub fn get_remittance(env: Env, remittance_id: u64) -> Result<Remittance, ContractError> {
         get_remittance(&env, remittance_id)
-    }
-
-    /// Query a remittance with a standardized response wrapper and request ID.
-    pub fn query_remittance(
-        env: Env,
-        remittance_id: u64,
-        request_id: soroban_sdk::String,
-    ) -> crate::response::Response<Remittance> {
-        match get_remittance(&env, remittance_id) {
-            Ok(remittance) => crate::response::Response::ok(remittance, request_id),
-            Err(e) => crate::response::Response::err(e as u32, request_id),
-        }
     }
 
 
@@ -555,55 +529,6 @@ impl SwiftRemitContract {
         get_platform_fee_bps(&env)
     }
 
-
-    /// Retrieves the total number of successfully finalized settlements.
-    ///
-    /// This is a read-only method that performs an O(1) constant-time read directly
-    /// from instance storage without iteration or recomputation. The counter is
-    /// incremented atomically each time a settlement is successfully finalized.
-    ///
-    /// # Arguments
-    ///
-    /// * `env` - The contract execution environment
-    ///
-    /// # Returns
-    ///
-    /// * `u64` - Total number of settlements processed (0 if none)
-    ///
-    /// # Performance
-    ///
-    /// - O(1) constant-time operation
-    /// - Single storage read
-    /// - No iteration or computation
-    ///
-    /// # Guarantees
-    ///
-    /// - Read-only: Cannot modify storage
-    /// - Deterministic: Always returns same value for same state
-    /// - Consistent: Reflects all successfully finalized settlements
-    /// - Cannot be modified externally (no public setter)
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let total = contract.get_total_settlements_count(&env);
-    /// println!("Total settlements processed: {}", total);
-    /// ```
-    pub fn get_total_settlements_count(env: Env) -> u64 {
-        get_settlement_counter(&env)
-
-
-
-    pub fn get_integrator_fee_bps(env: Env) -> Result<u32, ContractError> {
-        get_integrator_fee_bps(&env)
-    }
-
-    pub fn get_accumulated_integrator_fees(env: Env) -> Result<i128, ContractError> {
-        get_accumulated_integrator_fees(&env)
-
-
-    }
-
     pub fn pause(env: Env) -> Result<(), ContractError> {
         let caller = get_admin(&env)?;
         require_admin(&env, &caller)?;
@@ -621,6 +546,91 @@ impl SwiftRemitContract {
         emit_unpaused(&env, caller);
         Ok(())
     }
+
+    // ── Escrow Functions ───────────────────────────────────────────
+
+    pub fn create_escrow(
+        env: Env,
+        sender: Address,
+        recipient: Address,
+        amount: i128,
+    ) -> Result<u64, ContractError> {
+        sender.require_auth();
+        
+        if amount <= 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&sender, &env.current_contract_address(), &amount);
+
+        let counter = get_escrow_counter(&env)?;
+        let transfer_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
+
+        let escrow = Escrow {
+            transfer_id,
+            sender: sender.clone(),
+            recipient: recipient.clone(),
+            amount,
+            status: EscrowStatus::Pending,
+        };
+
+        set_escrow(&env, transfer_id, &escrow);
+        set_escrow_counter(&env, transfer_id);
+
+        emit_escrow_created(&env, transfer_id, sender, recipient, amount);
+
+        Ok(transfer_id)
+    }
+
+    pub fn release_escrow(env: Env, transfer_id: u64) -> Result<(), ContractError> {
+        let mut escrow = get_escrow(&env, transfer_id)?;
+        
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
+
+        if escrow.status != EscrowStatus::Pending {
+            return Err(ContractError::InvalidEscrowStatus);
+        }
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&env.current_contract_address(), &escrow.recipient, &escrow.amount);
+
+        escrow.status = EscrowStatus::Released;
+        set_escrow(&env, transfer_id, &escrow);
+
+        emit_escrow_released(&env, transfer_id, escrow.recipient, escrow.amount);
+
+        Ok(())
+    }
+
+    pub fn refund_escrow(env: Env, transfer_id: u64) -> Result<(), ContractError> {
+        let mut escrow = get_escrow(&env, transfer_id)?;
+        
+        escrow.sender.require_auth();
+
+        if escrow.status != EscrowStatus::Pending {
+            return Err(ContractError::InvalidEscrowStatus);
+        }
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&env.current_contract_address(), &escrow.sender, &escrow.amount);
+
+        escrow.status = EscrowStatus::Refunded;
+        set_escrow(&env, transfer_id, &escrow);
+
+        emit_escrow_refunded(&env, transfer_id, escrow.sender, escrow.amount);
+
+        Ok(())
+    }
+
+    pub fn get_escrow(env: Env, transfer_id: u64) -> Result<Escrow, ContractError> {
+        get_escrow(&env, transfer_id)
+    }
+
 
     pub fn is_paused(env: Env) -> bool {
         crate::storage::is_paused(&env)
@@ -786,6 +796,9 @@ impl SwiftRemitContract {
                 .checked_add(transfer.total_fees)
                 .ok_or(ContractError::Overflow)?;
             set_accumulated_fees(&env, new_fees);
+
+            // Emit settlement event
+            emit_settlement_completed(&env, from, to, usdc_token.clone(), payout_amount);
         }
 
         // Mark all remittances as completed and set settlement hashes
@@ -798,38 +811,11 @@ impl SwiftRemitContract {
             set_settlement_hash(&env, remittance.id);
             settled_ids.push_back(remittance.id);
 
-
-            // Increment settlement counter atomically for each successful settlement
-            increment_settlement_counter(&env)?;
-
-
-
-            // Increment settlement counter atomically for each successful settlement
-            increment_settlement_counter(&env);
-
-          
-
-            // Calculate payout amount for this remittance
+            // Emit individual remittance completion event
             let payout_amount = remittance
                 .amount
                 .checked_sub(remittance.fee)
                 .ok_or(ContractError::Overflow)?;
-
-            // Emit settlement completion event exactly once per remittance
-            // This ensures each finalized settlement has exactly one completion event
-            if !has_settlement_event_emitted(&env, remittance.id) {
-                emit_settlement_completed(
-                    &env,
-                    remittance.id,
-                    remittance.sender.clone(),
-                    remittance.agent.clone(),
-                    usdc_token.clone(),
-                    payout_amount,
-                );
-                set_settlement_event_emitted(&env, remittance.id);
-            }
-
-            // Emit individual remittance completion event
             emit_remittance_completed(
                 &env,
                 remittance.id,
@@ -886,6 +872,89 @@ impl SwiftRemitContract {
         is_token_whitelisted(&env, &token)
     }
 
+    /// Update rate limit configuration. Only admins can call this.
+    /// 
+    /// # Parameters
+    /// - `caller`: Admin address (must be authorized)
+    /// - `max_requests`: Maximum number of requests allowed per window
+    /// - `window_seconds`: Time window in seconds
+    /// - `enabled`: Whether rate limiting is enabled
+    /// 
+    /// # Example
+    /// ```ignore
+    /// // Set rate limit to 50 requests per 30 seconds
+    /// contract.update_rate_limit_config(&admin, 50, 30, true)?;
+    /// ```
+    pub fn update_rate_limit_config(
+        env: Env,
+        caller: Address,
+        max_requests: u32,
+        window_seconds: u64,
+        enabled: bool,
+    ) -> Result<(), ContractError> {
+        require_admin(&env, &caller)?;
+
+        let config = RateLimitConfig {
+            max_requests,
+            window_seconds,
+            enabled,
+        };
+
+        set_rate_limit_config(&env, config);
+
+        log_update_rate_limit(&env, max_requests, window_seconds, enabled);
+
+        Ok(())
+    }
+
+    /// Get current rate limit configuration
+    /// 
+    /// # Returns
+    /// Tuple of (max_requests, window_seconds, enabled)
+    pub fn get_rate_limit_config(env: Env) -> (u32, u64, bool) {
+        let config = get_rate_limit_config(&env);
+        (config.max_requests, config.window_seconds, config.enabled)
+    }
+
+    /// Get rate limit status for a specific address
+    /// 
+    /// # Parameters
+    /// - `address`: Address to check
+    /// 
+    /// # Returns
+    /// Tuple of (current_requests, max_requests, window_seconds)
+    pub fn get_rate_limit_status(env: Env, address: Address) -> (u32, u32, u64) {
+        get_rate_limit_status(&env, &address)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Role-Based Authorization Functions
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Assigns a role to an address (Admin only)
+    pub fn assign_role(env: Env, caller: Address, address: Address, role: Role) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_role_admin(&env, &caller)?;
+        assign_role(&env, &address, &role);
+        Ok(())
+    }
+
+    /// Removes a role from an address (Admin only)
+    pub fn remove_role(env: Env, caller: Address, address: Address, role: Role) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_role_admin(&env, &caller)?;
+        remove_role(&env, &address, &role);
+        Ok(())
+    }
+
+    /// Checks if an address has a specific role
+    pub fn has_role(env: Env, address: Address, role: Role) -> bool {
+        has_role(&env, &address, &role)
+    }
+}
+
+#[contractimpl]
+impl SwiftRemitContract {
     // ═══════════════════════════════════════════════════════════════════════════
     // Migration Functions
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1065,7 +1134,6 @@ impl SwiftRemitContract {
     /// # Errors
     /// - InvalidAmount: If limit is negative
     /// - Unauthorized: If caller is not admin
-    /// - InvalidSymbol: If currency or country code is malformed
     pub fn set_daily_limit(
         env: Env,
         currency: String,
@@ -1079,9 +1147,6 @@ impl SwiftRemitContract {
             return Err(ContractError::InvalidAmount);
         }
 
-        let currency = normalize_symbol(&env, &currency)?;
-        let country = normalize_symbol(&env, &country)?;
-
         set_daily_limit(&env, &currency, &country, limit);
 
         Ok(())
@@ -1094,13 +1159,9 @@ impl SwiftRemitContract {
     /// - `country`: Country code (e.g., "US", "UK")
     /// 
     /// # Returns
-    /// - `Ok(Some(DailyLimit))`: If a limit is configured
-    /// - `Ok(None)`: If no limit is configured (unlimited)
-    /// - `Err(ContractError::InvalidSymbol)`: If currency or country code is malformed
-    pub fn get_daily_limit(env: Env, currency: String, country: String) -> Result<Option<DailyLimit>, ContractError> {
-        let currency = normalize_symbol(&env, &currency)?;
-        let country = normalize_symbol(&env, &country)?;
-
-        Ok(get_daily_limit(&env, &currency, &country))
+    /// - `Some(DailyLimit)`: If a limit is configured
+    /// - `None`: If no limit is configured (unlimited)
+    pub fn get_daily_limit(env: Env, currency: String, country: String) -> Option<DailyLimit> {
+        get_daily_limit(&env, &currency, &country)
     }
 }

@@ -74,12 +74,10 @@ pub enum ContractError {
     /// Cause: Attempting confirm_payout() while contract is in paused state.
     ContractPaused = 13,
     
-    /// Rate limit exceeded. Sender must wait before submitting another settlement.
-    /// Cause: Attempting confirm_payout() before cooldown period has elapsed.
     RateLimitExceeded = 14,
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // Authorization Errors (15-17)
+    // Authorization Errors (15-18)
     // ═══════════════════════════════════════════════════════════════════════════
     
     /// Caller is not authorized to perform admin operations.
@@ -96,7 +94,6 @@ pub enum ContractError {
     
     /// Cannot remove the last admin from the system.
     /// Cause: Attempting to remove the only remaining admin.
-
     CannotRemoveLastAdmin = 18,
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -123,26 +120,6 @@ pub enum ContractError {
     /// Cause: Attempting to start migration when one is already active.
     MigrationInProgress = 22,
     
-
-    CannotRemoveLastAdmin = 17,
-
-    /// Token is not whitelisted for use in the system.
-    /// Cause: Attempting to initialize contract with non-whitelisted token.
-    TokenNotWhitelisted = 18,
-
-    /// Token is already whitelisted in the system.
-    /// Cause: Attempting to add a token that is already whitelisted.
-    TokenAlreadyWhitelisted = 19,
-
-    /// Migration hash verification failed.
-    /// Cause: Snapshot hash doesn't match computed hash (data tampering or corruption).
-    InvalidMigrationHash = 20,
-
-    /// Migration already in progress or completed.
-    /// Cause: Attempting to start migration when one is already active.
-    MigrationInProgress = 21,
-
-
     /// Migration batch out of order or invalid.
     /// Cause: Importing batches in wrong order or invalid batch number.
     InvalidMigrationBatch = 23,
@@ -214,4 +191,16 @@ pub enum ContractError {
     /// Symbol is invalid or malformed.
     /// Cause: Symbol contains invalid characters or exceeds length limits.
     InvalidSymbol = 35,
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Escrow Errors (36-37)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /// Escrow not found.
+    /// Cause: Querying or operating on non-existent escrow ID.
+    EscrowNotFound = 36,
+    
+    /// Invalid escrow status for this operation.
+    /// Cause: Attempting operation on escrow in wrong status.
+    InvalidEscrowStatus = 37,
 }
