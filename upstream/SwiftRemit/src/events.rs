@@ -1,5 +1,19 @@
 use soroban_sdk::{symbol_short, Address, Env};
 
+// ============================================================================
+// Event Schema Version
+// ============================================================================
+//
+// SCHEMA_VERSION: Event schema version for tracking event format changes
+// - This constant is included in all emitted events to help indexers and
+//   off-chain systems understand the event structure
+// - Current value: 1 (initial schema)
+// - When to increment: Increment this value whenever the structure of any
+//   event changes (e.g., adding/removing fields, changing field types)
+// - This allows event consumers to handle different schema versions gracefully
+//   and perform migrations when the event format evolves
+// ============================================================================
+
 const SCHEMA_VERSION: u32 = 1;
 
 // ── Remittance Events ──────────────────────────────────────────────
@@ -163,5 +177,3 @@ pub fn emit_unpaused(env: &Env, admin: Address) {
         ),
     );
 }
-
-```

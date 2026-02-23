@@ -1,5 +1,41 @@
 #![cfg(test)]
 
+// ============================================================================
+// Test Configuration Guidance
+// ============================================================================
+//
+// Tests in this module use hardcoded values for simplicity and determinism.
+// However, you can configure test behavior using environment variables if needed.
+//
+// Example: Configuring test fee_bps via environment variable
+//
+// ```rust
+// fn get_test_fee_bps() -> u32 {
+//     std::env::var("TEST_FEE_BPS")
+//         .ok()
+//         .and_then(|s| s.parse().ok())
+//         .unwrap_or(250)  // Default to 250 if not set
+// }
+// ```
+//
+// Usage in tests:
+// ```rust
+// let fee_bps = get_test_fee_bps();
+// contract.initialize(&admin, &token.address, &fee_bps);
+// ```
+//
+// This pattern allows you to:
+// - Run tests with different fee configurations without modifying code
+// - Test edge cases by setting TEST_FEE_BPS=0 or TEST_FEE_BPS=10000
+// - Maintain deterministic defaults when environment variable is not set
+//
+// Other configurable test values:
+// - TEST_INITIAL_AMOUNT: Initial token mint amount for test accounts
+// - TEST_REMITTANCE_AMOUNT: Default remittance amount in tests
+// - TEST_TIMEOUT: Timeout values for expiry testing
+//
+// ============================================================================
+
 use crate::{SwiftRemitContract, SwiftRemitContractClient};
 use soroban_sdk::{
     symbol_short, testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events},

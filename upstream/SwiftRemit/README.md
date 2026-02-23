@@ -158,6 +158,51 @@ soroban contract invoke \
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment instructions.
 
+## Configuration
+
+SwiftRemit uses environment variables for configuration. This allows you to easily configure the system for different environments (local development, testnet, mainnet) without modifying code.
+
+### Quick Setup
+
+1. Copy the example environment file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit `.env` and fill in your configuration:
+   ```bash
+   # Required for client operations
+   SWIFTREMIT_CONTRACT_ID=your_contract_id_here
+   USDC_TOKEN_ID=your_usdc_token_id_here
+   
+   # Optional: customize other settings
+   NETWORK=testnet
+   DEFAULT_FEE_BPS=250
+   ```
+
+3. Your configuration is automatically loaded when running client code or deployment scripts
+
+### Configuration Files
+
+- **`.env`**: Your local environment configuration (gitignored, never commit this)
+- **`.env.example`**: Template with all available configuration options
+- **`examples/config.js`**: JavaScript configuration module that loads and validates environment variables
+
+### Key Configuration Variables
+
+- `NETWORK`: Network to connect to (`testnet` or `mainnet`)
+- `RPC_URL`: Soroban RPC endpoint URL
+- `SWIFTREMIT_CONTRACT_ID`: Deployed contract address
+- `USDC_TOKEN_ID`: USDC token contract address
+- `DEFAULT_FEE_BPS`: Platform fee in basis points (0-10000)
+- `INITIAL_FEE_BPS`: Initial fee for contract deployment (0-10000)
+- `DEPLOYER_IDENTITY`: Soroban CLI identity for deployment
+
+### Documentation
+
+- **[CONFIGURATION.md](CONFIGURATION.md)**: Complete configuration reference with all variables, validation rules, and examples
+- **[MIGRATION.md](MIGRATION.md)**: Migration guide for existing developers
+
 ## Usage Flow
 
 1. **Admin Setup**
@@ -238,65 +283,4 @@ Contributions welcome! Please ensure:
 - [ ] Dispute resolution mechanism
 - [ ] Time-locked escrow options
 - [ ] Integration with fiat on/off ramps
-
-SwiftRemit is a Soroban smart contract built in Rust that enables secure, escrow-based USDC remittances on the Stellar network.
-
-The contract allows users to send USDC into escrow, assigns registered payout agents, and releases funds once off-chain fiat payment is confirmed. A configurable platform fee is automatically deducted and retained by the protocol.
-
-This project is designed for emerging markets where stablecoin remittance rails can significantly reduce cross-border payment costs.
-
----
-
-## Overview
-
-SwiftRemit implements a simple escrow flow:
-
-1. A sender creates a remittance by depositing USDC.
-2. A registered agent pays the recipient in local fiat off-chain.
-3. The agent confirms payout on-chain.
-4. The contract releases USDC to the agent minus a platform fee.
-5. The platform accumulates fees for withdrawal by the admin.
-
-The system is designed to be secure, transparent, and modular.
-
----
-
-## Key Features
-
-- Escrow-based remittance logic
-- Agent registration system
-- Configurable platform fee (basis points model)
-- Secure authorization using Soroban Address auth
-- Protection against double confirmation
-- Cancellation mechanism for pending remittances
-- Accumulated fee withdrawal by admin
-- Full unit test coverage
-
----
-
-## Contract Architecture
-
-The contract stores:
-
-- Remittance records
-- Registered agents
-- Admin address
-- Platform fee configuration
-- Accumulated platform fees
-- USDC token address
-
-Each remittance includes:
-
-- Unique ID
-- Sender address
-- Agent address
-- Amount
-- Fee
-- Status (Pending, Completed, Cancelled)
-
----
-
-## Fee Model
-
-Platform fees are calculated using basis points:
 

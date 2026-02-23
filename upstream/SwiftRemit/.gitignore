@@ -6,3 +6,9 @@ Cargo.lock
 .kiro
 # scratch/audit workfiles
 *.txt
+
+# Environment variables (may contain secrets)
+.env
+.env.local
+examples/.env
+examples/.env.local
