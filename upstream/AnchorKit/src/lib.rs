@@ -5,6 +5,7 @@ mod credentials;
 mod error_mapping;
 mod errors;
 mod events;
+mod fallback;
 mod retry;
 mod serialization;
 mod storage;
@@ -52,6 +53,9 @@ mod cross_platform_tests;
 
 mod zerocopy_tests;
 
+#[cfg(test)]
+mod fallback_tests;
+
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
@@ -63,6 +67,7 @@ pub use events::{
     OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
     SettlementConfirmed, TransferInitiated,
 };
+pub use fallback::{AnchorFailureState, FallbackConfig, FallbackSelector};
 pub use storage::Storage;
 pub use types::{
     AnchorMetadata, AnchorOption, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
@@ -1163,4 +1168,114 @@ impl AnchorKitContract {
 
         Ok(())
     }
+
+    // ============ Fallback Anchor Selection ============
+
+    /// Configure fallback anchor order. Only callable by admin.
+    pub fn configure_fallback(
+        env: Env,
+        anchor_order: Vec<Address>,
+        max_retries: u32,
+        failure_threshold: u32,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        if anchor_order.is_empty() {
+            return Err(Error::InvalidConfig);
+        }
+
+        let config = FallbackConfig {
+            anchor_order,
+            max_retries,
+            failure_threshold,
+        };
+
+        FallbackSelector::set_config(&env, &config);
+        Ok(())
+    }
+
+    /// Get fallback configuration.
+    pub fn get_fallback_config(env: Env) -> Option<FallbackConfig> {
+        FallbackSelector::get_config(&env)
+    }
+
+    /// Record anchor failure.
+    pub fn record_anchor_failure(env: Env, anchor: Address) -> Result<(), Error> {
+        let config = FallbackSelector::get_config(&env).ok_or(Error::InvalidConfig)?;
+        FallbackSelector::record_failure(&env, &anchor, config.failure_threshold);
+        Ok(())
+    }
+
+    /// Record anchor success (clears failure state).
+    pub fn record_anchor_success(env: Env, anchor: Address) -> Result<(), Error> {
+        FallbackSelector::record_success(&env, &anchor);
+        Ok(())
+    }
+
+    /// Get anchor failure state.
+    pub fn get_anchor_failure_state(env: Env, anchor: Address) -> Option<AnchorFailureState> {
+        FallbackSelector::get_failure_state(&env, &anchor)
+    }
+
+    /// Select next available anchor from fallback order.
+    pub fn select_fallback_anchor(
+        env: Env,
+        failed_anchor: Option<Address>,
+    ) -> Result<Address, Error> {
+        let config = FallbackSelector::get_config(&env).ok_or(Error::InvalidConfig)?;
+        FallbackSelector::select_next_anchor(&env, &config, failed_anchor.as_ref())
+    }
+
+    /// Submit quote with automatic fallback on failure.
+    pub fn submit_quote_with_fallback(
+        env: Env,
+        base_asset: String,
+        quote_asset: String,
+        rate: u64,
+        fee_percentage: u32,
+        minimum_amount: u64,
+        maximum_amount: u64,
+        valid_until: u64,
+    ) -> Result<u64, Error> {
+        let config = FallbackSelector::get_config(&env).ok_or(Error::InvalidConfig)?;
+
+        for retry in 0..config.max_retries {
+            let anchor = if retry == 0 {
+                config.anchor_order.get(0).ok_or(Error::NoAnchorsAvailable)?
+            } else {
+                FallbackSelector::select_next_anchor(&env, &config, None)?
+            };
+
+            anchor.require_auth();
+
+            let result = Self::submit_quote(
+                env.clone(),
+                anchor.clone(),
+                base_asset.clone(),
+                quote_asset.clone(),
+                rate,
+                fee_percentage,
+                minimum_amount,
+                maximum_amount,
+                valid_until,
+            );
+
+            match result {
+                Ok(quote_id) => {
+                    FallbackSelector::record_success(&env, &anchor);
+                    return Ok(quote_id);
+                }
+                Err(_) => {
+                    FallbackSelector::record_failure(&env, &anchor, config.failure_threshold);
+                    if retry == config.max_retries - 1 {
+                        return Err(Error::NoAnchorsAvailable);
+                    }
+                }
+            }
+        }
+
+        Err(Error::NoAnchorsAvailable)
+    }
 }
+
