@@ -71,7 +71,9 @@ pub enum Error {
     ProtocolRateLimitExceeded = 46,   // Rate limiting (retryable)
     ProtocolComplianceViolation = 47, // Compliance/KYC errors
 
-    /// Asset validation errors
-    UnsupportedAsset = 48,
-    AssetNotConfigured = 49,
+    /// Cache errors
+    CacheExpired = 48,
+    CacheNotFound = 49,
+    /// Rate limiter errors
+    RateLimitExceeded = 48,
 }
