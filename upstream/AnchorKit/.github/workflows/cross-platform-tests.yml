@@ -1,0 +1,293 @@
+name: Cross-Platform Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test-matrix:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: [stable]
+        include:
+          - os: ubuntu-latest
+            script_ext: sh
+            path_sep: /
+          - os: windows-latest
+            script_ext: ps1
+            path_sep: \
+          - os: macos-latest
+            script_ext: sh
+            path_sep: /
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: ${{ matrix.rust }}
+        override: true
+        components: rustfmt, clippy
+
+    - name: Cache cargo registry
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo index
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo build
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install jsonschema toml
+
+    - name: Check formatting
+      run: cargo fmt -- --check
+
+    - name: Run clippy
+      run: cargo clippy -- -D warnings
+
+    - name: Build
+      run: cargo build --verbose
+
+    - name: Run Rust tests
+      run: cargo test --verbose
+
+    - name: Run cross-platform path tests
+      run: cargo test cross_platform --verbose
+
+    - name: Run Python validation tests
+      run: python test_config_validation.py --test
+
+    - name: Validate configurations (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        chmod +x validate_all.sh
+        ./validate_all.sh
+
+    - name: Validate configurations (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        PowerShell -ExecutionPolicy Bypass -File .\validate_all.ps1
+
+    - name: Test WASM build
+      run: |
+        rustup target add wasm32-unknown-unknown
+        cargo build --target wasm32-unknown-unknown --release
+
+  test-path-separators:
+    name: Path Separator Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+
+    - name: Test path construction
+      run: |
+        cargo test test_path_construction_is_platform_agnostic -- --nocapture
+
+    - name: Test file operations
+      run: |
+        cargo test test_file_operations_with_path -- --nocapture
+
+    - name: Test directory operations
+      run: |
+        cargo test test_directory_iteration -- --nocapture
+
+  validate-configs:
+    name: Config Validation on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install jsonschema toml
+
+    - name: Validate all configs
+      run: python validate_config.py
+
+    - name: Test strict validation
+      run: |
+        python validate_config_strict.py configs/stablecoin-issuer.json config_schema.json
+        python validate_config_strict.py configs/remittance-anchor.json config_schema.json
+        python validate_config_strict.py configs/fiat-on-off-ramp.json config_schema.json
+
+  build-matrix:
+    name: Build on ${{ matrix.os }} - ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: wasm32-unknown-unknown
+          
+          # Windows
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            target: wasm32-unknown-unknown
+          
+          # macOS
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: wasm32-unknown-unknown
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        target: ${{ matrix.target }}
+        override: true
+
+    - name: Build for ${{ matrix.target }}
+      run: cargo build --target ${{ matrix.target }} --release
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: anchorkit-${{ matrix.os }}-${{ matrix.target }}
+        path: |
+          target/${{ matrix.target }}/release/anchorkit*
+          target/${{ matrix.target }}/release/*.wasm
+
+  integration-tests:
+    name: Integration Tests on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+
+    - name: Install Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install jsonschema toml
+
+    - name: Run integration tests
+      run: cargo test --test '*' --verbose
+
+    - name: Test config loading
+      run: cargo test config_tests --verbose
+
+    - name: Test validation
+      run: cargo test validation --verbose
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+
+    - name: Run security audit
+      run: cargo audit
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+
+    - name: Install tarpaulin
+      run: cargo install cargo-tarpaulin
+
+    - name: Generate coverage
+      run: cargo tarpaulin --out Xml --verbose
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./cobertura.xml
+        fail_ci_if_error: false

@@ -133,11 +133,41 @@ const auditLog = await contract.get_audit_log(0);
 - `SessionCreated` - Emitted when session is created
 - `OperationLogged` - Emitted when operation is logged
 
+## Platform Support
+
+AnchorKit is designed to work seamlessly across all major platforms:
+
+- ✅ **Linux** (Ubuntu, Debian, Fedora, etc.)
+- ✅ **macOS** (Intel and Apple Silicon)
+- ✅ **Windows** (10/11 with PowerShell)
+
+### Cross-Platform Features
+
+- **Path Handling**: All file operations use platform-agnostic APIs (`std::path::Path` in Rust, `pathlib.Path` in Python)
+- **Scripts**: Both bash (Unix) and PowerShell (Windows) versions provided
+- **Testing**: Comprehensive cross-platform test suite included
+- **CI/CD**: Automated testing on Linux, macOS, and Windows
+
+### Platform-Specific Setup
+
+- **Linux/macOS**: See main setup instructions below
+- **Windows**: See [WINDOWS_SETUP.md](./WINDOWS_SETUP.md) for detailed Windows-specific guide
+
 ## Building
+
+### Linux/macOS
 
 ```bash
 cargo build --release
 ```
+
+### Windows
+
+```powershell
+cargo build --release
+```
+
+For detailed Windows setup instructions, including IDE configuration and troubleshooting, see [WINDOWS_SETUP.md](./WINDOWS_SETUP.md).
 
 ## CLI Usage
 
@@ -221,10 +251,50 @@ Each command includes:
 
 ## Testing
 
-The contract includes comprehensive tests for all functionality:
+The contract includes comprehensive tests for all functionality, including cross-platform compatibility:
 
+### Linux/macOS
 ```bash
+# Run all tests
 cargo test
+
+# Run cross-platform path tests
+cargo test cross_platform
+
+# Run with verbose output
+cargo test --verbose
+```
+
+### Windows
+```powershell
+# Run all tests
+cargo test
+
+# Run cross-platform path tests
+cargo test cross_platform
+
+# Run with verbose output
+cargo test --verbose
+```
+
+### Configuration Validation
+
+#### Linux/macOS
+```bash
+# Validate all configurations
+./validate_all.sh
+
+# Pre-deployment validation
+./pre_deploy_validate.sh
+```
+
+#### Windows
+```powershell
+# Validate all configurations
+.\validate_all.ps1
+
+# Pre-deployment validation
+.\pre_deploy_validate.ps1
 ```
 
 ## Backward Compatibility
