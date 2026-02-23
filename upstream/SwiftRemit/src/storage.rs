@@ -30,6 +30,9 @@ enum DataKey {
     /// Counter for tracking number of admins
     AdminCount,
 
+    /// Role assignment indexed by (address, role) (persistent storage)
+    RoleAssignment(Address, crate::Role),
+
     /// USDC token contract address used for all remittance transactions
     UsdcToken,
 
@@ -98,16 +101,15 @@ enum DataKey {
     /// Incremented atomically each time a settlement is successfully completed
     SettlementCounter,
 
+    // === Escrow Management ===
+    /// Escrow counter for generating unique transfer IDs
+    EscrowCounter,
+    
+    /// Escrow record indexed by transfer ID (persistent storage)
+    Escrow(u64),
 }
 
 /// Checks if the contract has an admin configured.
-///
-/// # Arguments
-///
-/// * `env` - The contract execution environment
-///
-/// # Returns
-///
 /// * `true` - Admin is configured
 /// * `false` - Admin is not configured (contract not initialized)
 pub fn has_admin(env: &Env) -> bool {
@@ -382,7 +384,7 @@ pub fn get_last_settlement_time(env: &Env, sender: &Address) -> Option<u64> {
         .get(&DataKey::LastSettlementTime(sender.clone()))
 }
 
-pub fn check_rate_limit(env: &Env, sender: &Address) -> Result<(), ContractError> {
+pub fn check_settlement_rate_limit(env: &Env, sender: &Address) -> Result<(), ContractError> {
     let cooldown = get_rate_limit_cooldown(env)?;
     
     // If cooldown is 0, rate limiting is disabled
@@ -573,16 +575,10 @@ pub fn get_settlement_counter(env: &Env) -> u64 {
 ///
 /// * `env` - The contract execution environment
 ///
-
 /// # Returns
 ///
 /// * `Ok(())` - Counter incremented successfully
 /// * `Err(ContractError::SettlementCounterOverflow)` - Counter would overflow u64::MAX
-
-/// # Panics
-///
-/// Panics if the counter would overflow u64::MAX (extremely unlikely in practice)
-
 ///
 /// # Guarantees
 ///
@@ -590,7 +586,6 @@ pub fn get_settlement_counter(env: &Env) -> u64 {
 /// - Internal-only: Not exposed as public contract function
 /// - Deterministic: Always increments by exactly 1
 /// - Consistent: Only called after successful finalization
-
 pub fn increment_settlement_counter(env: &Env) -> Result<(), ContractError> {
     let current = get_settlement_counter(env);
     let new_count = current
@@ -600,12 +595,71 @@ pub fn increment_settlement_counter(env: &Env) -> Result<(), ContractError> {
         .instance()
         .set(&DataKey::SettlementCounter, &new_count);
     Ok(())
+}
 
-pub fn increment_settlement_counter(env: &Env) {
-    let current = get_settlement_counter(env);
-    let new_count = current.checked_add(1).expect("Settlement counter overflow");
+// === Escrow Management ===
+
+pub fn get_escrow_counter(env: &Env) -> Result<u64, ContractError> {
     env.storage()
         .instance()
-        .set(&DataKey::SettlementCounter, &new_count);
+        .get(&DataKey::EscrowCounter)
+        .ok_or(ContractError::NotInitialized)
+}
 
+pub fn set_escrow_counter(env: &Env, counter: u64) {
+    env.storage().instance().set(&DataKey::EscrowCounter, &counter);
+}
+
+pub fn get_escrow(env: &Env, transfer_id: u64) -> Result<crate::Escrow, ContractError> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Escrow(transfer_id))
+        .ok_or(ContractError::EscrowNotFound)
+}
+
+pub fn set_escrow(env: &Env, transfer_id: u64, escrow: &crate::Escrow) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::Escrow(transfer_id), escrow);
+}
+
+
+// === Role-Based Authorization ===
+
+/// Assigns a role to an address
+pub fn assign_role(env: &Env, address: &Address, role: &crate::Role) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::RoleAssignment(address.clone(), role.clone()), &true);
+}
+
+/// Removes a role from an address
+pub fn remove_role(env: &Env, address: &Address, role: &crate::Role) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::RoleAssignment(address.clone(), role.clone()));
+}
+
+/// Checks if an address has a specific role
+pub fn has_role(env: &Env, address: &Address, role: &crate::Role) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::RoleAssignment(address.clone(), role.clone()))
+        .unwrap_or(false)
+}
+
+/// Requires that the caller has Admin role
+pub fn require_role_admin(env: &Env, address: &Address) -> Result<(), ContractError> {
+    if !has_role(env, address, &crate::Role::Admin) {
+        return Err(ContractError::Unauthorized);
+    }
+    Ok(())
+}
+
+/// Requires that the caller has Settler role
+pub fn require_role_settler(env: &Env, address: &Address) -> Result<(), ContractError> {
+    if !has_role(env, address, &crate::Role::Settler) {
+        return Err(ContractError::Unauthorized);
+    }
+    Ok(())
 }

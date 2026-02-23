@@ -278,3 +278,29 @@ pub fn emit_settlement_completed(
     );
 }
 
+
+// ── Escrow Events ──────────────────────────────────────────────────
+
+/// Emits an event when escrow is created
+pub fn emit_escrow_created(env: &Env, transfer_id: u64, sender: Address, recipient: Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("escrow"), symbol_short!("created")),
+        (SCHEMA_VERSION, env.ledger().sequence(), env.ledger().timestamp(), transfer_id, sender, recipient, amount),
+    );
+}
+
+/// Emits an event when escrow funds are released
+pub fn emit_escrow_released(env: &Env, transfer_id: u64, recipient: Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("escrow"), symbol_short!("released")),
+        (SCHEMA_VERSION, env.ledger().sequence(), env.ledger().timestamp(), transfer_id, recipient, amount),
+    );
+}
+
+/// Emits an event when escrow funds are refunded
+pub fn emit_escrow_refunded(env: &Env, transfer_id: u64, sender: Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("escrow"), symbol_short!("refunded")),
+        (SCHEMA_VERSION, env.ledger().sequence(), env.ledger().timestamp(), transfer_id, sender, amount),
+    );
+}
