@@ -76,6 +76,10 @@ enum DataKey {
     // Keys for preventing duplicate settlement execution
     /// Settlement hash for duplicate detection (persistent storage)
     SettlementHash(u64),
+
+    /// Combined settlement metadata (persistent storage)
+    /// Contains flags that were previously stored separately to reduce reads.
+    SettlementData(u64),
     
     // === Rate Limiting ===
     // Keys for preventing abuse through rate limiting
@@ -340,22 +344,68 @@ pub fn get_accumulated_fees(env: &Env) -> Result<i128, ContractError> {
 ///
 /// * `true` - Settlement has been executed
 /// * `false` - Settlement has not been executed
-pub fn has_settlement_hash(env: &Env, remittance_id: u64) -> bool {
+#[contracttype]
+#[derive(Clone)]
+pub struct SettlementData {
+    pub executed: bool,
+    pub event_emitted: bool,
+}
+
+/// Internal helper: load or migrate settlement metadata into a single key.
+fn load_or_migrate_settlement_data(env: &Env, remittance_id: u64) -> SettlementData {
+    // Try combined key first
+    if let Some(data) = env
+        .storage()
+        .persistent()
+        .get(&DataKey::SettlementData(remittance_id))
+    {
+        return data;
+    }
+
+    // Fallback: read legacy keys and migrate
+    let executed = env
+        .storage()
+        .persistent()
+        .get::<bool>(&DataKey::SettlementHash(remittance_id))
+        .unwrap_or(false);
+    let event_emitted = env
+        .storage()
+        .persistent()
+        .get::<bool>(&DataKey::SettlementEventEmitted(remittance_id))
+        .unwrap_or(false);
+
+    let data = SettlementData { executed, event_emitted };
+
+    // Write migrated combined key and remove legacy keys to reduce future reads
     env.storage()
         .persistent()
-        .has(&DataKey::SettlementHash(remittance_id))
+        .set(&DataKey::SettlementData(remittance_id), &data);
+    env.storage()
+        .persistent()
+        .remove(&DataKey::SettlementHash(remittance_id));
+    env.storage()
+        .persistent()
+        .remove(&DataKey::SettlementEventEmitted(remittance_id));
+
+    data
+}
+
+/// Checks if a settlement has already been executed (duplicate detection).
+pub fn has_settlement_hash(env: &Env, remittance_id: u64) -> bool {
+    let data = load_or_migrate_settlement_data(env, remittance_id);
+    data.executed
 }
 
 /// Marks a settlement as executed for duplicate prevention.
-///
-/// # Arguments
-///
-/// * `env` - The contract execution environment
-/// * `remittance_id` - Remittance ID to mark as settled
 pub fn set_settlement_hash(env: &Env, remittance_id: u64) {
+    let mut data = load_or_migrate_settlement_data(env, remittance_id);
+    if data.executed {
+        return;
+    }
+    data.executed = true;
     env.storage()
         .persistent()
-        .set(&DataKey::SettlementHash(remittance_id), &true);
+        .set(&DataKey::SettlementData(remittance_id), &data);
 }
 
 pub fn is_paused(env: &Env) -> bool {
@@ -512,10 +562,8 @@ pub fn set_token_whitelisted(env: &Env, token: &Address, whitelisted: bool) {
 /// * `true` - Event has been emitted for this settlement
 /// * `false` - Event has not been emitted yet
 pub fn has_settlement_event_emitted(env: &Env, remittance_id: u64) -> bool {
-    env.storage()
-        .persistent()
-        .get(&DataKey::SettlementEventEmitted(remittance_id))
-        .unwrap_or(false)
+    let data = load_or_migrate_settlement_data(env, remittance_id);
+    data.event_emitted
 }
 
 /// Marks that the settlement completion event has been emitted for a remittance.
@@ -535,9 +583,14 @@ pub fn has_settlement_event_emitted(env: &Env, remittance_id: u64) -> bool {
 /// - Persistent: Survives contract upgrades and restarts
 /// - Deterministic: Always produces the same result for the same input
 pub fn set_settlement_event_emitted(env: &Env, remittance_id: u64) {
+    let mut data = load_or_migrate_settlement_data(env, remittance_id);
+    if data.event_emitted {
+        return;
+    }
+    data.event_emitted = true;
     env.storage()
         .persistent()
-        .set(&DataKey::SettlementEventEmitted(remittance_id), &true);
+        .set(&DataKey::SettlementData(remittance_id), &data);
 }
 
 
