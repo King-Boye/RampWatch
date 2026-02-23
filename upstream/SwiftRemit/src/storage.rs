@@ -92,6 +92,12 @@ enum DataKey {
     /// Settlement completion event emission tracking (persistent storage)
     /// Tracks whether the completion event has been emitted for a settlement
     SettlementEventEmitted(u64),
+    
+    // === Settlement Timestamp Tracking ===
+    // Keys for tracking settlement creation timestamps
+    /// Settlement creation timestamp indexed by remittance ID (persistent storage)
+    /// Stores the ledger timestamp when a settlement was created/confirmed
+    SettlementTimestamp(u64),
 }
 
 /// Checks if the contract has an admin configured.
@@ -520,4 +526,64 @@ pub fn set_settlement_event_emitted(env: &Env, remittance_id: u64) {
     env.storage()
         .persistent()
         .set(&DataKey::SettlementEventEmitted(remittance_id), &true);
+}
+
+// === Settlement Timestamp Management ===
+
+/// Stores the ledger timestamp when a settlement is created.
+///
+/// This function captures the exact ledger timestamp at the moment of settlement
+/// creation for audit trails, compliance, and traceability purposes.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `remittance_id` - The unique ID of the remittance/settlement
+/// * `timestamp` - The ledger timestamp (Unix seconds) when settlement was created
+///
+/// # Storage
+///
+/// Uses persistent storage to ensure the timestamp survives contract upgrades
+/// and is available for long-term audit and compliance requirements.
+pub fn set_settlement_timestamp(env: &Env, remittance_id: u64, timestamp: u64) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::SettlementTimestamp(remittance_id), &timestamp);
+}
+
+/// Retrieves the ledger timestamp when a settlement was created.
+///
+/// Returns the exact ledger timestamp captured during settlement creation,
+/// useful for audit trails, compliance reporting, and time-based analytics.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `remittance_id` - The unique ID of the remittance/settlement
+///
+/// # Returns
+///
+/// * `Some(u64)` - The settlement creation timestamp (Unix seconds)
+/// * `None` - Settlement timestamp not found (settlement not yet created or old data)
+pub fn get_settlement_timestamp(env: &Env, remittance_id: u64) -> Option<u64> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::SettlementTimestamp(remittance_id))
+}
+
+/// Checks if a settlement timestamp exists for a given remittance.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `remittance_id` - The unique ID of the remittance/settlement
+///
+/// # Returns
+///
+/// * `true` - Settlement timestamp has been recorded
+/// * `false` - Settlement timestamp not found
+pub fn has_settlement_timestamp(env: &Env, remittance_id: u64) -> bool {
+    env.storage()
+        .persistent()
+        .has(&DataKey::SettlementTimestamp(remittance_id))
 }
