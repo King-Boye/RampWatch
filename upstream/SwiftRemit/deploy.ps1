@@ -1,14 +1,24 @@
 # SwiftRemit Deployment Script for Windows (PowerShell)
 
 param (
-    [string]$Network = "testnet"
+    [string]$Network = $null
 )
 
 $ErrorActionPreference = "Stop"
 
-# Configuration
-$Deployer = "deployer"
+# Configuration - Read from environment with defaults
+if (-not $Network) {
+    $Network = if ($env:NETWORK) { $env:NETWORK } else { "testnet" }
+}
+$Deployer = if ($env:DEPLOYER_IDENTITY) { $env:DEPLOYER_IDENTITY } else { "deployer" }
+$InitialFeeBps = if ($env:INITIAL_FEE_BPS) { [int]$env:INITIAL_FEE_BPS } else { 250 }
 $WasmPath = "target/wasm32-unknown-unknown/release/swiftremit.optimized.wasm"
+
+# Validate INITIAL_FEE_BPS range (0-10000)
+if ($InitialFeeBps -lt 0 -or $InitialFeeBps -gt 10000) {
+    Write-Host "❌ Error: INITIAL_FEE_BPS must be between 0 and 10000, got: $InitialFeeBps" -ForegroundColor Red
+    exit 1
+}
 
 Write-Host "🚀 SwiftRemit Deployment Script" -ForegroundColor Cyan
 Write-Host "Network: $Network" -ForegroundColor Gray
@@ -82,7 +92,7 @@ soroban contract invoke `
   initialize `
   --admin $Address `
   --usdc_token $UsdcId `
-  --fee_bps 250
+  --fee_bps $InitialFeeBps
 
 Write-Host ""
 Write-Host "🎉 Deployment Complete!" -ForegroundColor Cyan

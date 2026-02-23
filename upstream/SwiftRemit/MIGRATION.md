@@ -1,611 +1,237 @@
-# Secure Contract Migration System
+# Configuration Migration Guide
 
-## Overview
+This guide helps existing developers migrate to the new environment-based configuration system.
 
-The SwiftRemit migration system enables safe state transfer from a non-upgradable contract deployment to a new deployment without introducing trust assumptions. The system uses cryptographic verification to ensure data integrity, deterministic encoding for consistency, and replay protection to prevent duplicate imports.
+## What Changed?
 
-## Problem Statement
+The SwiftRemit codebase has been refactored to eliminate hardcoded configuration values and use environment variables instead. This improves:
 
-Soroban smart contracts are non-upgradable by design. When bugs are discovered or new features are needed, a new contract must be deployed. However, migrating state (remittances, balances, configuration) from the old contract to the new one is challenging:
+- **Maintainability**: Configuration is centralized in one place
+- **Flexibility**: Easy to configure for different environments
+- **Security**: Secrets are no longer in code
+- **Deployment**: Simplified deployment to multiple environments
 
-- **Trust**: How do users verify the migration was done correctly?
-- **Integrity**: How to prevent tampering or partial transfers?
-- **Completeness**: How to ensure all data was migrated?
-- **Verification**: How to prove the new contract has identical state?
+## Migration Steps
 
-## Solution: Cryptographic Verification
+### Step 1: Create Your Environment File
 
-The migration system solves these problems through:
+Copy the example environment file to create your local configuration:
 
-1. **Export Function**: Creates a complete snapshot of contract state
-2. **Verification Hash**: SHA-256 hash of all data for integrity checking
-3. **Import Function**: Restores state with hash verification
-4. **Batch Support**: Handles large datasets through incremental migration
-5. **Replay Protection**: Prevents duplicate imports
-
-## Architecture
-
-### Core Components
-
-#### 1. Migration Snapshot
-
-Complete state snapshot with cryptographic verification:
-
-```rust
-struct MigrationSnapshot {
-    version: u32,              // Schema version
-    timestamp: u64,            // Creation time
-    ledger_sequence: u32,      // Ledger number
-    instance_data: InstanceData,
-    persistent_data: PersistentData,
-    verification_hash: BytesN<32>, // SHA-256 hash
-}
+```bash
+cp .env.example .env
 ```
 
-#### 2. Instance Data
+### Step 2: Fill In Required Values
 
-Contract-level configuration:
+Edit the `.env` file and provide values for required variables:
 
-```rust
-struct InstanceData {
-    admin: Address,
-    usdc_token: Address,
-    platform_fee_bps: u32,
-    remittance_counter: u64,
-    accumulated_fees: i128,
-    paused: bool,
-    admin_count: u32,
-}
+```bash
+# Required for client operations
+SWIFTREMIT_CONTRACT_ID=your_contract_id_here
+USDC_TOKEN_ID=your_usdc_token_id_here
 ```
 
-#### 3. Persistent Data
+If you were previously using hardcoded values in `examples/client-example.js`, copy those values to your `.env` file.
 
-Per-entity data:
+### Step 3: Customize Optional Settings (If Needed)
 
-```rust
-struct PersistentData {
-    remittances: Vec<Remittance>,
-    agents: Vec<Address>,
-    admin_roles: Vec<Address>,
-    settlement_hashes: Vec<u64>,
-    whitelisted_tokens: Vec<Address>,
-}
+Most optional settings have sensible defaults, but you can customize them:
+
+```bash
+# Network configuration
+NETWORK=testnet
+RPC_URL=https://soroban-testnet.stellar.org:443
+
+# Fee configuration
+DEFAULT_FEE_BPS=250
+
+# Transaction configuration
+TRANSACTION_FEE=100000
+TRANSACTION_TIMEOUT=30
+POLL_INTERVAL_MS=1000
+
+# Token configuration
+USDC_DECIMALS=7
+
+# Deployment configuration
+DEPLOYER_IDENTITY=deployer
+INITIAL_FEE_BPS=250
+
+# Feature flags
+ENABLE_DEBUG_LOG=true
 ```
 
-#### 4. Migration Batch
+### Step 4: Verify Configuration
 
-For incremental migration:
+Test that your configuration loads correctly:
 
-```rust
-struct MigrationBatch {
-    batch_number: u32,
-    total_batches: u32,
-    remittances: Vec<Remittance>,
-    batch_hash: BytesN<32>,
-}
+```bash
+cd examples
+node config.js
 ```
 
-## Migration Process
+If there are no errors, your configuration is valid.
 
-### Full Migration (Small Datasets)
+### Step 5: Update Your Workflow
 
-For contracts with < 100 remittances:
+#### Running Client Code
 
-```rust
-// 1. Export from old contract
-let snapshot = old_contract.export_migration_state(&admin)?;
+No changes needed! The client code now automatically loads configuration from `.env`:
 
-// 2. Verify integrity (optional but recommended)
-let verification = old_contract.verify_migration_snapshot(snapshot.clone())?;
-assert!(verification.valid);
-
-// 3. Deploy new contract
-let new_contract = deploy_new_contract();
-
-// 4. Import state
-new_contract.import_migration_state(&admin, snapshot)?;
-
-// 5. Verify import (optional)
-let new_snapshot = new_contract.export_migration_state(&admin)?;
-assert_eq!(snapshot.verification_hash, new_snapshot.verification_hash);
+```bash
+cd examples
+node client-example.js
 ```
 
-### Batch Migration (Large Datasets)
+#### Deploying Contracts
 
-For contracts with > 100 remittances:
+Deployment scripts now read from environment variables. You can either:
 
-```rust
-// 1. Determine batch size
-let batch_size = 50;
-let total_remittances = old_contract.get_remittance_counter()?;
-let total_batches = (total_remittances + batch_size - 1) / batch_size;
-
-// 2. Export batches
-let mut batches = Vec::new();
-for batch_num in 0..total_batches {
-    let batch = old_contract.export_migration_batch(
-        &admin,
-        batch_num,
-        batch_size
-    )?;
-    batches.push(batch);
-}
-
-// 3. Deploy new contract and initialize
-let new_contract = deploy_new_contract();
-new_contract.initialize(&admin, &token, &fee_bps)?;
-
-// 4. Import batches in order
-for batch in batches {
-    new_contract.import_migration_batch(&admin, batch)?;
-}
-
-// 5. Verify completeness
-assert_eq!(
-    new_contract.get_remittance_counter()?,
-    old_contract.get_remittance_counter()?
-);
+**Option A: Use environment variables**
+```bash
+export NETWORK=testnet
+export INITIAL_FEE_BPS=250
+./deploy.sh
 ```
 
-## Security Features
-
-### 1. Cryptographic Verification
-
-**Hash Algorithm**: SHA-256 of deterministically encoded data
-
-**What's Hashed**:
-- All instance data (admin, token, fees, counters)
-- All persistent data (remittances, agents, admins)
-- Timestamp and ledger sequence
-- Deterministic encoding (big-endian, consistent ordering)
-
-**Verification**:
-```rust
-// Compute hash during export
-let hash = sha256(serialize(instance_data) + serialize(persistent_data) + timestamp + ledger);
-
-// Verify hash during import
-let computed_hash = sha256(serialize(snapshot.instance_data) + ...);
-if computed_hash != snapshot.verification_hash {
-    return Err(InvalidMigrationHash);
-}
+**Option B: Use CLI overrides**
+```bash
+./deploy.sh testnet
 ```
 
-### 2. Replay Protection
+**Option C: Set in .env file**
+```bash
+# In .env
+NETWORK=testnet
+INITIAL_FEE_BPS=250
 
-**Problem**: Prevent importing the same snapshot multiple times
-
-**Solution**: Check if contract is already initialized
-
-```rust
-pub fn import_state(env: &Env, snapshot: MigrationSnapshot) -> Result<(), ContractError> {
-    // Prevent import if already initialized
-    if has_admin(env) {
-        return Err(AlreadyInitialized);
-    }
-    
-    // Verify hash
-    verify_hash(&snapshot)?;
-    
-    // Import data
-    restore_state(env, snapshot)?;
-    
-    Ok(())
-}
+# Then run
+./deploy.sh
 ```
 
-### 3. Atomic Operations
+## What Was Changed?
 
-**Guarantee**: All data imported or none (no partial state)
+### JavaScript Client Code
 
-**Implementation**: 
-- All storage operations in single transaction
-- If any operation fails, entire transaction reverts
-- No intermediate state visible
-
-### 4. Authorization
-
-**Export**: Only admin can export state
-**Import**: Only admin can import state (on new contract)
-
-```rust
-pub fn export_migration_state(
-    env: Env,
-    caller: Address,
-) -> Result<MigrationSnapshot, ContractError> {
-    require_admin(&env, &caller)?;
-    // ... export logic
-}
+**Before:**
+```javascript
+const CONFIG = {
+  network: 'testnet',
+  rpcUrl: 'https://soroban-testnet.stellar.org:443',
+  contractId: 'CAAAA...',
+  // ... hardcoded values
+};
 ```
 
-### 5. Deterministic Encoding
+**After:**
+```javascript
+const config = require('./config');
 
-**Requirement**: Same data always produces same hash
-
-**Implementation**:
-- Big-endian byte order for numbers
-- Consistent address serialization
-- Fixed enum encoding (Pending=0, Completed=1, Cancelled=2)
-- Ordered iteration (no random ordering)
-
-## Verification Process
-
-### Pre-Migration Verification
-
-Before migrating, verify the snapshot:
-
-```rust
-// 1. Export snapshot
-let snapshot = old_contract.export_migration_state(&admin)?;
-
-// 2. Verify hash
-let verification = old_contract.verify_migration_snapshot(snapshot.clone())?;
-
-// 3. Check verification result
-assert!(verification.valid, "Snapshot integrity check failed");
-assert_eq!(verification.expected_hash, verification.actual_hash);
-
-// 4. Inspect data
-println!("Remittances: {}", snapshot.persistent_data.remittances.len());
-println!("Accumulated fees: {}", snapshot.instance_data.accumulated_fees);
-println!("Platform fee: {} bps", snapshot.instance_data.platform_fee_bps);
+// Use config.network, config.rpcUrl, config.contractId, etc.
 ```
 
-### Post-Migration Verification
+### Deployment Scripts
 
-After migrating, verify completeness:
-
-```rust
-// 1. Export from both contracts
-let old_snapshot = old_contract.export_migration_state(&admin)?;
-let new_snapshot = new_contract.export_migration_state(&admin)?;
-
-// 2. Compare critical data
-assert_eq!(
-    old_snapshot.instance_data.remittance_counter,
-    new_snapshot.instance_data.remittance_counter
-);
-assert_eq!(
-    old_snapshot.instance_data.accumulated_fees,
-    new_snapshot.instance_data.accumulated_fees
-);
-assert_eq!(
-    old_snapshot.persistent_data.remittances.len(),
-    new_snapshot.persistent_data.remittances.len()
-);
-
-// 3. Spot check individual remittances
-for id in 1..=10 {
-    let old_rem = old_contract.get_remittance(&id)?;
-    let new_rem = new_contract.get_remittance(&id)?;
-    assert_eq!(old_rem, new_rem);
-}
+**Before (deploy.sh):**
+```bash
+NETWORK="testnet"
+DEPLOYER="deployer"
+# ... hardcoded values
 ```
 
-## Data Integrity Guarantees
-
-### What's Preserved
-
-✅ **All remittances** with exact amounts, fees, and status
-✅ **All balances** including accumulated fees
-✅ **All configuration** (admin, token, fee percentage)
-✅ **All counters** (remittance counter, admin count)
-✅ **All relationships** (agents, admins, settlement hashes)
-✅ **All state** (pause status, whitelisted tokens)
-
-### What's Verified
-
-✅ **Completeness**: All data included in snapshot
-✅ **Integrity**: No tampering or corruption
-✅ **Authenticity**: Hash matches original export
-✅ **Consistency**: Deterministic encoding ensures reproducibility
-
-### What's Protected
-
-✅ **Against tampering**: Hash verification detects any changes
-✅ **Against partial transfer**: Atomic operations ensure all-or-nothing
-✅ **Against replay**: Initialization check prevents duplicate imports
-✅ **Against corruption**: Hash mismatch rejects corrupted data
-
-## Error Handling
-
-### Error Codes
-
-| Code | Error | Description |
-|------|-------|-------------|
-| 1 | AlreadyInitialized | Contract already has data (replay protection) |
-| 3 | InvalidAmount | Batch size invalid (0 or > 100) |
-| 14 | Unauthorized | Caller is not admin |
-| 20 | InvalidMigrationHash | Hash verification failed (tampering detected) |
-| 21 | MigrationInProgress | Migration already active |
-| 22 | InvalidMigrationBatch | Batch number or order invalid |
-
-### Common Errors
-
-#### Error: InvalidMigrationHash
-
-**Cause**: Snapshot data doesn't match verification hash
-
-**Possible Reasons**:
-- Data was tampered with
-- Snapshot was corrupted during transfer
-- Incorrect serialization
-
-**Solution**:
-```rust
-// Re-export snapshot
-let snapshot = old_contract.export_migration_state(&admin)?;
-
-// Verify before using
-let verification = old_contract.verify_migration_snapshot(snapshot.clone())?;
-if !verification.valid {
-    panic!("Snapshot corrupted - re-export required");
-}
+**After (deploy.sh):**
+```bash
+NETWORK=${NETWORK:-testnet}
+DEPLOYER=${DEPLOYER_IDENTITY:-deployer}
+INITIAL_FEE_BPS=${INITIAL_FEE_BPS:-250}
+# ... reads from environment with defaults
 ```
 
-#### Error: AlreadyInitialized
+### Rust Contract Code
 
-**Cause**: Trying to import into already-initialized contract
+The Rust contract code remains largely unchanged. Constants like `MAX_FEE_BPS` and `FEE_DIVISOR` are still hardcoded in the contract for on-chain consistency, but they are now documented with comments explaining their purpose.
 
-**Solution**:
-```rust
-// Deploy fresh contract (don't call initialize)
-let new_contract = deploy_new_contract();
+## Breaking Changes
 
-// Import directly (don't initialize first)
-new_contract.import_migration_state(&admin, snapshot)?;
-```
+### None for Normal Usage
 
-## Best Practices
+If you were using the system normally, there are no breaking changes. The refactoring maintains backward compatibility:
 
-### 1. Verify Before Import
+- All existing functionality works the same way
+- Default values match previous hardcoded values
+- Tests continue to pass
 
-Always verify snapshot integrity before importing:
+### If You Modified Hardcoded Values
 
-```rust
-let snapshot = old_contract.export_migration_state(&admin)?;
-let verification = old_contract.verify_migration_snapshot(snapshot.clone())?;
+If you previously modified hardcoded values in the code, you now need to set them via environment variables instead:
 
-if !verification.valid {
-    return Err("Snapshot verification failed");
-}
-
-new_contract.import_migration_state(&admin, snapshot)?;
-```
-
-### 2. Pause Old Contract
-
-Pause the old contract before migration to prevent new transactions:
-
-```rust
-// 1. Pause old contract
-old_contract.pause(&admin)?;
-
-// 2. Export state
-let snapshot = old_contract.export_migration_state(&admin)?;
-
-// 3. Import to new contract
-new_contract.import_migration_state(&admin, snapshot)?;
-
-// 4. Verify new contract
-verify_migration_success(&old_contract, &new_contract)?;
-
-// 5. Announce new contract address to users
-```
-
-### 3. Use Batch Migration for Large Datasets
-
-For > 100 remittances, use batch migration:
-
-```rust
-let batch_size = 50; // Optimal size
-let total_batches = calculate_total_batches(remittance_count, batch_size);
-
-for batch_num in 0..total_batches {
-    let batch = old_contract.export_migration_batch(&admin, batch_num, batch_size)?;
-    new_contract.import_migration_batch(&admin, batch)?;
-}
-```
-
-### 4. Test Migration on Testnet
-
-Always test the migration process on testnet first:
-
-```rust
-// 1. Deploy test contracts
-let old_test = deploy_to_testnet(old_wasm);
-let new_test = deploy_to_testnet(new_wasm);
-
-// 2. Populate with test data
-populate_test_data(&old_test);
-
-// 3. Perform migration
-let snapshot = old_test.export_migration_state(&admin)?;
-new_test.import_migration_state(&admin, snapshot)?;
-
-// 4. Verify results
-verify_migration_success(&old_test, &new_test)?;
-
-// 5. If successful, proceed to mainnet
-```
-
-### 5. Document Migration
-
-Keep detailed records of the migration:
-
-```rust
-struct MigrationRecord {
-    old_contract_id: String,
-    new_contract_id: String,
-    migration_timestamp: u64,
-    snapshot_hash: BytesN<32>,
-    remittances_migrated: u64,
-    fees_migrated: i128,
-    verification_passed: bool,
-}
-```
-
-## Performance Considerations
-
-### Gas Costs
-
-| Operation | Estimated Gas | Notes |
-|-----------|--------------|-------|
-| Export snapshot (100 remittances) | ~500,000 | Scales with data size |
-| Import snapshot (100 remittances) | ~800,000 | Includes hash verification |
-| Verify snapshot | ~100,000 | Read-only operation |
-| Export batch (50 remittances) | ~250,000 | Per batch |
-| Import batch (50 remittances) | ~400,000 | Per batch |
-
-### Optimization Tips
-
-1. **Batch Size**: Use 50-100 items per batch for optimal gas efficiency
-2. **Parallel Export**: Export batches in parallel (read-only)
-3. **Sequential Import**: Import batches sequentially (write operations)
-4. **Verification**: Verify once before importing all batches
-
-## Migration Checklist
-
-### Pre-Migration
-
-- [ ] Test migration on testnet
-- [ ] Verify all tests pass on new contract
-- [ ] Announce migration to users
-- [ ] Pause old contract
-- [ ] Export state snapshot
-- [ ] Verify snapshot hash
-- [ ] Save snapshot securely
-
-### Migration
-
-- [ ] Deploy new contract
-- [ ] Import state snapshot
-- [ ] Verify import success
-- [ ] Spot check critical data
-- [ ] Test new contract functions
-- [ ] Verify balances match
-
-### Post-Migration
-
-- [ ] Announce new contract address
-- [ ] Update documentation
-- [ ] Update client applications
-- [ ] Monitor new contract
-- [ ] Keep old contract paused
-- [ ] Archive migration records
-
-## Example: Complete Migration
-
-```rust
-use soroban_sdk::{Env, Address};
-
-fn migrate_contract(
-    env: &Env,
-    old_contract: &SwiftRemitContractClient,
-    new_contract_wasm: &[u8],
-    admin: &Address,
-) -> Result<Address, Error> {
-    // 1. Pause old contract
-    old_contract.pause(admin)?;
-    println!("✓ Old contract paused");
-    
-    // 2. Export state
-    let snapshot = old_contract.export_migration_state(admin)?;
-    println!("✓ State exported: {} remittances", 
-        snapshot.persistent_data.remittances.len());
-    
-    // 3. Verify snapshot
-    let verification = old_contract.verify_migration_snapshot(snapshot.clone())?;
-    if !verification.valid {
-        return Err(Error::InvalidSnapshot);
-    }
-    println!("✓ Snapshot verified");
-    
-    // 4. Deploy new contract
-    let new_contract_id = env.deployer().deploy(new_contract_wasm);
-    let new_contract = SwiftRemitContractClient::new(env, &new_contract_id);
-    println!("✓ New contract deployed: {}", new_contract_id);
-    
-    // 5. Import state
-    new_contract.import_migration_state(admin, snapshot)?;
-    println!("✓ State imported");
-    
-    // 6. Verify import
-    let new_snapshot = new_contract.export_migration_state(admin)?;
-    assert_eq!(
-        snapshot.instance_data.remittance_counter,
-        new_snapshot.instance_data.remittance_counter
-    );
-    println!("✓ Import verified");
-    
-    // 7. Test new contract
-    let fee = new_contract.get_platform_fee_bps()?;
-    assert_eq!(fee, snapshot.instance_data.platform_fee_bps);
-    println!("✓ New contract functional");
-    
-    Ok(new_contract_id)
-}
-```
+1. Identify the values you changed
+2. Add them to your `.env` file
+3. Remove your code modifications
 
 ## Troubleshooting
 
-### Issue: Hash Verification Fails
+### "Missing required environment variable" Error
 
-**Symptoms**: `InvalidMigrationHash` error during import
+**Problem**: You're missing a required configuration value
 
-**Diagnosis**:
-```rust
-let verification = contract.verify_migration_snapshot(snapshot.clone())?;
-println!("Expected: {:?}", verification.expected_hash);
-println!("Actual: {:?}", verification.actual_hash);
-```
+**Solution**: Add the variable to your `.env` file. Check `.env.example` for the complete list of variables.
 
-**Solutions**:
-1. Re-export snapshot from old contract
-2. Check for data corruption during transfer
-3. Verify serialization is deterministic
+### "Configuration validation failed" Error
 
-### Issue: Import Fails with AlreadyInitialized
+**Problem**: A configuration value is invalid (wrong type, out of range, etc.)
 
-**Symptoms**: Cannot import into new contract
+**Solution**: Check the error message for details. Common issues:
+- Fee values must be 0-10000
+- URLs must be HTTPS
+- Network must be 'testnet' or 'mainnet'
+- Numeric values must be valid numbers
 
-**Diagnosis**:
-```rust
-let has_admin = new_contract.is_admin(admin.clone());
-println!("Contract initialized: {}", has_admin);
-```
+### Client Code Not Finding Configuration
 
-**Solutions**:
-1. Deploy fresh contract (don't call initialize)
-2. Use different contract instance
-3. Clear test environment between attempts
+**Problem**: Client code can't load configuration
 
-### Issue: Incomplete Migration
+**Solution**: 
+1. Ensure `.env` file exists in project root
+2. Ensure you're running from the correct directory
+3. Check that `dotenv` package is installed: `npm install`
 
-**Symptoms**: Some data missing after import
+### Deployment Script Not Using Environment Variables
 
-**Diagnosis**:
-```rust
-let old_count = old_contract.get_remittance_counter()?;
-let new_count = new_contract.get_remittance_counter()?;
-println!("Old: {}, New: {}", old_count, new_count);
-```
+**Problem**: Deployment script uses defaults instead of your values
 
-**Solutions**:
-1. Use batch migration for large datasets
-2. Verify all batches imported
-3. Check for errors during batch import
+**Solution**:
+1. Export variables before running script: `export NETWORK=testnet`
+2. Or set them in `.env` file
+3. Or use CLI overrides: `./deploy.sh testnet`
 
-## Conclusion
+## Getting Help
 
-The SwiftRemit migration system provides:
+If you encounter issues during migration:
 
-✅ **Trustless Migration**: Cryptographic verification eliminates trust assumptions
-✅ **Data Integrity**: SHA-256 hashing ensures no tampering
-✅ **Completeness**: All state preserved exactly
-✅ **Replay Protection**: Prevents duplicate imports
-✅ **Deterministic**: Same data always produces same hash
-✅ **Auditable**: Full verification before and after migration
-✅ **Scalable**: Batch support for large datasets
+1. Check the [Configuration Guide](CONFIGURATION.md) for detailed documentation
+2. Review error messages carefully - they indicate which variable is problematic
+3. Verify your `.env` file against `.env.example`
+4. Ensure all required variables are set
+5. Check that values are within valid ranges
 
-The system enables safe contract upgrades while maintaining complete data integrity and user trust.
+## Benefits of the New System
+
+After migration, you'll benefit from:
+
+1. **Easier Environment Management**: Switch between testnet and mainnet by changing one variable
+2. **Better Security**: Secrets are in `.env` (gitignored) instead of code
+3. **Simplified Deployment**: Deploy to multiple environments without code changes
+4. **Centralized Configuration**: All settings in one place
+5. **Validation**: Configuration errors caught at startup, not runtime
+6. **Documentation**: Clear documentation of all configuration options
+
+## Next Steps
+
+After completing migration:
+
+1. Delete any local modifications to hardcoded values
+2. Commit your updated code (but not `.env`!)
+3. Share `.env.example` with your team
+4. Update your deployment documentation
+5. Consider setting up environment-specific `.env` files (`.env.testnet`, `.env.mainnet`)

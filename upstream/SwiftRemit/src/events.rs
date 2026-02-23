@@ -6,7 +6,20 @@
 
 use soroban_sdk::{symbol_short, Address, Env};
 
-/// Schema version for event structure compatibility
+// ============================================================================
+// Event Schema Version
+// ============================================================================
+//
+// SCHEMA_VERSION: Event schema version for tracking event format changes
+// - This constant is included in all emitted events to help indexers and
+//   off-chain systems understand the event structure
+// - Current value: 1 (initial schema)
+// - When to increment: Increment this value whenever the structure of any
+//   event changes (e.g., adding/removing fields, changing field types)
+// - This allows event consumers to handle different schema versions gracefully
+//   and perform migrations when the event format evolves
+// ============================================================================
+
 const SCHEMA_VERSION: u32 = 1;
 
 // ── Admin Events ───────────────────────────────────────────────────
@@ -294,13 +307,5 @@ pub fn emit_escrow_released(env: &Env, transfer_id: u64, recipient: Address, amo
     env.events().publish(
         (symbol_short!("escrow"), symbol_short!("released")),
         (SCHEMA_VERSION, env.ledger().sequence(), env.ledger().timestamp(), transfer_id, recipient, amount),
-    );
-}
-
-/// Emits an event when escrow funds are refunded
-pub fn emit_escrow_refunded(env: &Env, transfer_id: u64, sender: Address, amount: i128) {
-    env.events().publish(
-        (symbol_short!("escrow"), symbol_short!("refunded")),
-        (SCHEMA_VERSION, env.ledger().sequence(), env.ledger().timestamp(), transfer_id, sender, amount),
     );
 }

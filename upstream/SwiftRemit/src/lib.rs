@@ -56,6 +56,33 @@ const MAX_BATCH_SIZE: u32 = 100;
 #[contract]
 pub struct SwiftRemitContract;
 
+// ============================================================================
+// Configuration Constants
+// ============================================================================
+//
+// These constants define validation limits and calculation parameters.
+// They are intentionally hardcoded in the contract to ensure consistent
+// on-chain behavior across all deployments.
+//
+// MAX_FEE_BPS: Maximum allowed fee in basis points (100% = 10000 bps)
+// - This limit prevents accidentally setting fees above 100%
+// - Used in initialize() and update_fee() for validation
+// - Value: 10000 (represents 100%)
+//
+// FEE_DIVISOR: Divisor for converting basis points to actual fee amount
+// - Formula: fee_amount = amount * fee_bps / FEE_DIVISOR
+// - Used in create_remittance() for fee calculation
+// - Value: 10000 (basis points scale)
+//
+// Configurable Values at Deployment:
+// - initial fee_bps: Set during initialize(), can be any value 0-10000
+//   This value can be configured via the INITIAL_FEE_BPS environment variable
+//   in deployment scripts (deploy.sh, deploy.ps1)
+//
+// Runtime Configurable Values:
+// - fee_bps: Can be updated by admin via update_fee()
+// ============================================================================
+
 #[contractimpl]
 impl SwiftRemitContract {
     /// Initializes the contract with admin, token, and fee configuration.
