@@ -3,6 +3,7 @@ use soroban_sdk::{Address, BytesN, Env, IntoVal, Vec};
 use crate::{
     config::{ContractConfig, SessionConfig},
     credentials::{CredentialPolicy, SecureCredential},
+    rate_limiter::RateLimitConfig,
     types::{
         AnchorMetadata, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
         InteractionSession, OperationContext, QuoteData,
@@ -35,6 +36,7 @@ enum StorageKey {
     SecureCredential(Address),
     AnchorMetadata(Address),
     AnchorList,
+    RateLimitConfig(Address),
 }
 
 impl StorageKey {
@@ -87,6 +89,9 @@ impl StorageKey {
                 (soroban_sdk::symbol_short!("ANCHMETA"), addr).into_val(env)
             }
             StorageKey::AnchorList => (soroban_sdk::symbol_short!("ANCHLIST"),).into_val(env),
+            StorageKey::RateLimitConfig(addr) => {
+                (soroban_sdk::symbol_short!("RATELCFG"), addr).into_val(env)
+            }
         }
     }
 }
@@ -506,5 +511,20 @@ impl Storage {
             .persistent()
             .get(&key)
             .unwrap_or(Vec::new(env))
+    }
+
+    pub fn set_rate_limit_config(env: &Env, anchor: &Address, config: &RateLimitConfig) {
+        let key = StorageKey::RateLimitConfig(anchor.clone()).to_storage_key(env);
+        env.storage().persistent().set(&key, config);
+        env.storage().persistent().extend_ttl(
+            &key,
+            Self::PERSISTENT_LIFETIME,
+            Self::PERSISTENT_LIFETIME,
+        );
+    }
+
+    pub fn get_rate_limit_config(env: &Env, anchor: &Address) -> Option<RateLimitConfig> {
+        let key = StorageKey::RateLimitConfig(anchor.clone()).to_storage_key(env);
+        env.storage().persistent().get(&key)
     }
 }
