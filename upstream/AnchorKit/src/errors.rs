@@ -70,4 +70,7 @@ pub enum Error {
     ProtocolInvalidPayload = 45,      // Invalid/malformed payload
     ProtocolRateLimitExceeded = 46,   // Rate limiting (retryable)
     ProtocolComplianceViolation = 47, // Compliance/KYC errors
+
+    /// Rate limiter errors
+    RateLimitExceeded = 48,
 }

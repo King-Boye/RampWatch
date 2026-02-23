@@ -5,6 +5,7 @@ mod credentials;
 mod error_mapping;
 mod errors;
 mod events;
+mod rate_limiter;
 mod retry;
 mod serialization;
 mod storage;
@@ -52,6 +53,9 @@ mod cross_platform_tests;
 
 mod zerocopy_tests;
 
+#[cfg(test)]
+mod rate_limiter_tests;
+
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
@@ -63,6 +67,7 @@ pub use events::{
     OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
     SettlementConfirmed, TransferInitiated,
 };
+pub use rate_limiter::{RateLimitConfig, RateLimitStrategy, RateLimiter};
 pub use storage::Storage;
 pub use types::{
     AnchorMetadata, AnchorOption, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
@@ -506,6 +511,11 @@ impl AnchorKitContract {
             return Err(Error::UnauthorizedAttestor);
         }
 
+        // Check rate limit if configured
+        if let Some(config) = Storage::get_rate_limit_config(&env, &anchor) {
+            RateLimiter::check_and_update(&env, &anchor, &config)?;
+        }
+
         if rate == 0 || valid_until <= env.ledger().timestamp() {
             return Err(Error::InvalidQuote);
         }
@@ -934,6 +944,32 @@ impl AnchorKitContract {
     /// Get health status for an anchor.
     pub fn get_health_status(env: Env, anchor: Address) -> Option<HealthStatus> {
         Storage::get_health_status(&env, &anchor)
+    }
+
+    /// Configure rate limiting for an anchor. Only callable by admin.
+    pub fn configure_rate_limit(
+        env: Env,
+        anchor: Address,
+        config: RateLimitConfig,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+
+        if config.max_requests == 0 || config.window_seconds == 0 {
+            return Err(Error::InvalidConfig);
+        }
+
+        Storage::set_rate_limit_config(&env, &anchor, &config);
+        Ok(())
+    }
+
+    /// Get rate limit configuration for an anchor.
+    pub fn get_rate_limit_config(env: Env, anchor: Address) -> Option<RateLimitConfig> {
+        Storage::get_rate_limit_config(&env, &anchor)
     }
 
     /// Route a transaction request to the best anchor based on strategy.
