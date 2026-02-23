@@ -16,9 +16,6 @@ mod storage;
 mod types;
 mod validation;
 #[cfg(test)]
-mod test;
-
-#[cfg(test)]
 mod test; 
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec};
@@ -127,13 +124,9 @@ impl SwiftRemitContract {
 
         set_agent_registered(&env, &agent, true);
 
-        emit_agent_registered(&env, agent.clone(), caller.clone());
-
-        
         // Event: Agent registered - Fires when admin adds a new agent to the approved list
         // Used by off-chain systems to track which addresses can confirm payouts
-        emit_agent_registered(&env, agent, caller.clone());
-
+        emit_agent_registered(&env, agent);
 
         Ok(())
     }
@@ -359,8 +352,11 @@ impl SwiftRemitContract {
         // Mark settlement as executed to prevent duplicates
         set_settlement_hash(&env, remittance_id);
         
-        // Update last settlement time for rate limiting
+        // Capture ledger timestamp for settlement creation
         let current_time = env.ledger().timestamp();
+        set_settlement_timestamp(&env, remittance_id, current_time);
+        
+        // Update last settlement time for rate limiting
         set_last_settlement_time(&env, &remittance.sender, current_time);
 
 
@@ -390,7 +386,7 @@ impl SwiftRemitContract {
 
         // Event: Remittance completed - Fires when agent confirms fiat payout and USDC is released
         // Used by off-chain systems to track successful settlements and update transaction status
-        emit_remittance_completed(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), payout_amount);
+        emit_remittance_completed(&env, remittance_id, remittance.agent.clone(), payout_amount);
 
         log_confirm_payout(&env, remittance_id, payout_amount);
 
@@ -477,18 +473,6 @@ impl SwiftRemitContract {
     ///
     /// Requires authentication from the contract admin.
     pub fn withdraw_fees(env: Env, to: Address) -> Result<(), ContractError> {
-        let admin = get_admin(&env)?;
-        admin.require_auth();
-
-        remittance.status = RemittanceStatus::Failed;
-        set_remittance(&env, remittance_id, &remittance);
-
-        log_cancel_remittance(&env, remittance_id);
-
-        Ok(())
-    }
-
-    pub fn withdraw_fees(env: Env, to: Address) -> Result<(), ContractError> {
         // Centralized validation before business logic
         let fees = validate_withdraw_fees_request(&env, &to)?;
         
@@ -503,7 +487,7 @@ impl SwiftRemitContract {
 
         // Event: Fees withdrawn - Fires when admin withdraws accumulated platform fees
         // Used by off-chain systems to track revenue collection and maintain financial records
-        emit_fees_withdrawn(&env, caller.clone(), to.clone(), usdc_token.clone(), fees);
+        emit_fees_withdrawn(&env, to.clone(), fees);
 
         log_withdraw_fees(&env, &to, fees);
 
@@ -523,6 +507,34 @@ impl SwiftRemitContract {
     /// * `Err(ContractError::RemittanceNotFound)` - Remittance ID does not exist
     pub fn get_remittance(env: Env, remittance_id: u64) -> Result<Remittance, ContractError> {
         get_remittance(&env, remittance_id)
+    }
+
+    /// Retrieves the ledger timestamp when a settlement was created.
+    ///
+    /// Returns the exact ledger timestamp captured during settlement creation
+    /// (when confirm_payout was executed). Useful for audit trails, compliance
+    /// reporting, and time-based analytics.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `remittance_id` - ID of the remittance/settlement
+    ///
+    /// # Returns
+    ///
+    /// * `Some(u64)` - The settlement creation timestamp (Unix seconds)
+    /// * `None` - Settlement timestamp not found (settlement not yet created or old data)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let timestamp = contract.get_settlement_timestamp(env, 123);
+    /// if let Some(ts) = timestamp {
+    ///     // Use timestamp for audit or compliance
+    /// }
+    /// ```
+    pub fn get_settlement_timestamp(env: Env, remittance_id: u64) -> Option<u64> {
+        get_settlement_timestamp(&env, remittance_id)
     }
 
 
@@ -888,61 +900,6 @@ impl SwiftRemitContract {
     /// Check if a token is whitelisted.
     pub fn is_token_whitelisted(env: Env, token: Address) -> bool {
         is_token_whitelisted(&env, &token)
-    }
-
-    /// Update rate limit configuration. Only admins can call this.
-    /// 
-    /// # Parameters
-    /// - `caller`: Admin address (must be authorized)
-    /// - `max_requests`: Maximum number of requests allowed per window
-    /// - `window_seconds`: Time window in seconds
-    /// - `enabled`: Whether rate limiting is enabled
-    /// 
-    /// # Example
-    /// ```ignore
-    /// // Set rate limit to 50 requests per 30 seconds
-    /// contract.update_rate_limit(&admin, 50, 30, true)?;
-    /// ```
-    pub fn update_rate_limit(
-        env: Env,
-        caller: Address,
-        max_requests: u32,
-        window_seconds: u64,
-        enabled: bool,
-    ) -> Result<(), ContractError> {
-        require_admin(&env, &caller)?;
-
-        let config = RateLimitConfig {
-            max_requests,
-            window_seconds,
-            enabled,
-        };
-
-        set_rate_limit_config(&env, config);
-
-        log_update_rate_limit(&env, max_requests, window_seconds, enabled);
-
-        Ok(())
-    }
-
-    /// Get current rate limit configuration
-    /// 
-    /// # Returns
-    /// Tuple of (max_requests, window_seconds, enabled)
-    pub fn get_rate_limit_config(env: Env) -> (u32, u64, bool) {
-        let config = get_rate_limit_config(&env);
-        (config.max_requests, config.window_seconds, config.enabled)
-    }
-
-    /// Get rate limit status for a specific address
-    /// 
-    /// # Parameters
-    /// - `address`: Address to check
-    /// 
-    /// # Returns
-    /// Tuple of (current_requests, max_requests, window_seconds)
-    pub fn get_rate_limit_status(env: Env, address: Address) -> (u32, u32, u64) {
-        get_rate_limit_status(&env, &address)
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

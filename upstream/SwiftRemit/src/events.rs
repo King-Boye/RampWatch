@@ -47,17 +47,6 @@ pub fn emit_unpaused(env: &Env, admin: Address) {
     );
 }
 
-/// Event emission functions for the SwiftRemit contract.
-///
-/// This module provides functions to emit structured events for all significant
-/// contract operations. Events include schema versioning and ledger metadata
-/// for comprehensive audit trails.
-
-use soroban_sdk::{symbol_short, Address, Env};
-
-/// Schema version for event structure compatibility
-const SCHEMA_VERSION: u32 = 1;
-
 // ── Remittance Events ──────────────────────────────────────────────
 
 /// Emits an event when a new remittance is created.
