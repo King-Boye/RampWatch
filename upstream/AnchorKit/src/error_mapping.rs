@@ -5,16 +5,16 @@ pub fn map_http_status_to_error(status_code: u32) -> Error {
     match status_code {
         // Auth errors
         401 | 403 => Error::TransportUnauthorized,
-        
+
         // Timeout errors
         408 | 504 => Error::TransportTimeout,
-        
+
         // Rate limiting
         429 => Error::ProtocolRateLimitExceeded,
 
         // All other 4xx and 5xx errors map to generic TransportError
         _ if status_code >= 400 => Error::TransportError,
-        
+
         // Success/redirect codes shouldn't be errors
         _ => Error::TransportError,
     }
@@ -27,7 +27,7 @@ pub fn map_anchor_error_to_protocol(anchor_error_code: &str) -> Error {
         "invalid_payload" | "malformed_request" | "missing_field" | "required_field_missing" => {
             Error::ProtocolInvalidPayload
         }
-        
+
         // Rate limiting (retryable)
         "rate_limit_exceeded" | "too_many_requests" => Error::ProtocolRateLimitExceeded,
 
@@ -99,7 +99,9 @@ pub fn get_error_severity(error: &Error) -> u32 {
         Error::UnauthorizedAttestor | Error::TransportUnauthorized => 3,
 
         // Medium severity
-        Error::TransportError | Error::ProtocolError | Error::ProtocolInvalidPayload
+        Error::TransportError
+        | Error::ProtocolError
+        | Error::ProtocolInvalidPayload
         | Error::InvalidConfig => 2,
 
         // Low severity (transient/recoverable)

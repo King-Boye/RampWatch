@@ -29,8 +29,8 @@ fn test_exponential_backoff_with_multiplier_3() {
     // Verify exponential growth with multiplier 3: 0, 50, 150, 450, 1350
     assert_eq!(config.calculate_delay(0), 0);
     assert_eq!(config.calculate_delay(1), 50);
-    assert_eq!(config.calculate_delay(2), 150);  // 50 * 3^1
-    assert_eq!(config.calculate_delay(3), 450);  // 50 * 3^2
+    assert_eq!(config.calculate_delay(2), 150); // 50 * 3^1
+    assert_eq!(config.calculate_delay(3), 450); // 50 * 3^2
     assert_eq!(config.calculate_delay(4), 1350); // 50 * 3^3
 }
 
@@ -317,8 +317,8 @@ fn test_delay_calculation_large_multiplier() {
 
     assert_eq!(config.calculate_delay(0), 0);
     assert_eq!(config.calculate_delay(1), 10);
-    assert_eq!(config.calculate_delay(2), 100);   // 10 * 10^1
-    assert_eq!(config.calculate_delay(3), 1000);  // 10 * 10^2
+    assert_eq!(config.calculate_delay(2), 100); // 10 * 10^1
+    assert_eq!(config.calculate_delay(3), 1000); // 10 * 10^2
     assert_eq!(config.calculate_delay(4), 10000); // 10 * 10^3, capped at max
 }
 
@@ -365,12 +365,12 @@ fn test_complex_retry_scenario() {
         attempt_count += 1;
 
         match attempt {
-            0 => Err(Error::EndpointNotFound),      // Retry
-            1 => Err(Error::QuoteNotFound),          // Retry
-            2 => Err(Error::StaleQuote),             // Retry
-            3 => Err(Error::NoQuotesAvailable),      // Retry
-            4 => Ok("finally succeeded"),            // Success
-            _ => Err(Error::InvalidConfig),          // Should not reach
+            0 => Err(Error::EndpointNotFound),  // Retry
+            1 => Err(Error::QuoteNotFound),     // Retry
+            2 => Err(Error::StaleQuote),        // Retry
+            3 => Err(Error::NoQuotesAvailable), // Retry
+            4 => Ok("finally succeeded"),       // Success
+            _ => Err(Error::InvalidConfig),     // Should not reach
         }
     });
 

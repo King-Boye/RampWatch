@@ -477,7 +477,7 @@ fn test_complex_quote_request() {
         anchor: anchor.clone(),
         base_asset: base_asset.clone(),
         quote_asset: quote_asset.clone(),
-        rate: 10025, // 1.0025 (0.25% markup)
+        rate: 10025,        // 1.0025 (0.25% markup)
         fee_percentage: 15, // 0.15%
         minimum_amount: 1000,
         maximum_amount: 1000000,

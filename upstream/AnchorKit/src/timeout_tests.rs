@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::{
-    retry::{RetryConfig, RetryEngine, is_retryable_error},
+    retry::{is_retryable_error, RetryConfig, RetryEngine},
     Error,
 };
 
@@ -47,7 +47,8 @@ fn test_timeout_with_exponential_backoff() {
     let config = RetryConfig::new(4, 100, 5000, 2);
     let engine = RetryEngine::new(config);
 
-    let result: crate::retry::RetryResult<i32> = engine.execute(|_| Err(Error::ServicesNotConfigured));
+    let result: crate::retry::RetryResult<i32> =
+        engine.execute(|_| Err(Error::ServicesNotConfigured));
 
     assert!(result.is_failure());
     assert_eq!(result.attempts, 4);
@@ -119,9 +120,9 @@ fn test_retry_with_alternating_errors() {
     let result = engine.execute(|_| {
         attempt += 1;
         match attempt {
-            1 => Err(Error::QuoteNotFound),      // Retryable
-            2 => Err(Error::EndpointNotFound),   // Retryable
-            3 => Ok(999),                         // Success
+            1 => Err(Error::QuoteNotFound),    // Retryable
+            2 => Err(Error::EndpointNotFound), // Retryable
+            3 => Ok(999),                      // Success
             _ => Err(Error::InvalidConfig),
         }
     });
@@ -147,11 +148,11 @@ fn test_all_retries_exhausted() {
 fn test_timeout_delay_calculation() {
     let config = RetryConfig::new(5, 200, 10000, 3);
 
-    assert_eq!(config.calculate_delay(0), 0);     // No delay
-    assert_eq!(config.calculate_delay(1), 200);   // 200 * 3^0
-    assert_eq!(config.calculate_delay(2), 600);   // 200 * 3^1
-    assert_eq!(config.calculate_delay(3), 1800);  // 200 * 3^2
-    assert_eq!(config.calculate_delay(4), 5400);  // 200 * 3^3
+    assert_eq!(config.calculate_delay(0), 0); // No delay
+    assert_eq!(config.calculate_delay(1), 200); // 200 * 3^0
+    assert_eq!(config.calculate_delay(2), 600); // 200 * 3^1
+    assert_eq!(config.calculate_delay(3), 1800); // 200 * 3^2
+    assert_eq!(config.calculate_delay(4), 5400); // 200 * 3^3
 }
 
 #[test]

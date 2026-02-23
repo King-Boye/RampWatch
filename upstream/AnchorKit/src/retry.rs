@@ -90,44 +90,44 @@ pub fn is_retryable_error(error: &Error) -> bool {
         Error::EndpointNotFound => true,
         Error::InvalidEndpointFormat => false, // Configuration error, not retryable
         Error::EndpointAlreadyExists => false, // Logic error, not retryable
-        
+
         // Network/availability errors (retryable)
         Error::ServicesNotConfigured => true,
-        
+
         // Authentication/authorization errors (not retryable)
         Error::UnauthorizedAttestor => false,
         Error::AttestorNotRegistered => false,
-        
+
         // Data validation errors (not retryable)
         Error::InvalidConfig => false,
         Error::InvalidQuote => false,
         Error::InvalidTimestamp => false,
         Error::InvalidTransactionIntent => false,
-        
+
         // State errors (not retryable)
         Error::AlreadyInitialized => false,
         Error::AttestorAlreadyRegistered => false,
         Error::ReplayAttack => false,
         Error::SessionReplayAttack => false,
-        
+
         // Not found errors (retryable - might be temporary)
         Error::AttestationNotFound => true,
         Error::QuoteNotFound => true,
         Error::SessionNotFound => true,
-        
+
         // Stale data (retryable - can fetch fresh data)
         Error::StaleQuote => true,
         Error::NoQuotesAvailable => true,
         Error::NoAnchorsAvailable => true,
-        
+
         // Compliance errors (not retryable)
         Error::ComplianceNotMet => false,
-        
+
         // Credential errors (not retryable)
         Error::CredentialNotFound => false,
         Error::CredentialExpired => false,
         Error::InsecureCredentialStorage => false,
-        
+
         // Other errors
         _ => false, // Default to not retryable for safety
     }
@@ -183,7 +183,11 @@ impl RetryEngine {
         }
 
         // Should never reach here, but return failure just in case
-        RetryResult::failure(Error::InvalidConfig, self.config.max_attempts, total_delay_ms)
+        RetryResult::failure(
+            Error::InvalidConfig,
+            self.config.max_attempts,
+            total_delay_ms,
+        )
     }
 
     pub fn get_config(&self) -> &RetryConfig {
