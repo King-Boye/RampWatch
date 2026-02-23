@@ -47,7 +47,11 @@ mod timeout_tests;
 mod signature_tests;
 
 #[cfg(test)]
+
+mod cross_platform_tests;
+
 mod zerocopy_tests;
+
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
