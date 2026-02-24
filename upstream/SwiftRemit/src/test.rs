@@ -1196,6 +1196,49 @@ fn test_settlement_hash_storage_efficiency() {
 }
 
 #[test]
+fn test_settlement_completed_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    contract.confirm_payout(&remittance_id);
+
+    // Get all events and find the settlement completed event
+    let events = env.events().all();
+    let settlement_event = events
+        .iter()
+        .find(|e| {
+            e.topics.get(0).unwrap() == symbol_short!("settled").into_val(&env)
+        })
+        .expect("Settlement completed event should be emitted");
+
+    // Verify event topic
+    assert_eq!(
+        settlement_event.topics,
+        (symbol_short!("settled"),).into_val(&env)
+    );
+
+    // Verify event data contains correct fields
+    let event_data: (Address, Address, Address, i128) = settlement_event.data.clone().try_into_val(&env).unwrap();
+    assert_eq!(event_data.0, sender);
+    assert_eq!(event_data.1, agent);
+    assert_eq!(event_data.2, token.address);
+    assert_eq!(event_data.3, 975); // payout_amount = 1000 - 25 (fee)
+}
+
+#[test]
 fn test_duplicate_prevention_with_expiry() {
     let env = Env::default();
     env.mock_all_auths();
