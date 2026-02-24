@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
-use crate::Error;
+use crate::errors::Error;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -43,14 +43,14 @@ impl AssetValidator {
         quote_asset: &String,
     ) -> Result<(), Error> {
         let assets = Self::get_supported_assets(env, anchor)
-            .ok_or(Error::AssetNotConfigured)?;
+            .ok_or(Error::ServicesNotConfigured)?;
 
         if !assets.contains(base_asset) {
-            return Err(Error::UnsupportedAsset);
+            return Err(Error::InvalidServiceType);
         }
 
         if !assets.contains(quote_asset) {
-            return Err(Error::UnsupportedAsset);
+            return Err(Error::InvalidServiceType);
         }
 
         Ok(())

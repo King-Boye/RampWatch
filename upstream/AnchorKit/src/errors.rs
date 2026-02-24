@@ -47,10 +47,14 @@ pub enum Error {
     AnchorMetadataNotFound = 27,
     NoAnchorsAvailable = 28,
 
-    /// Rate limiter errors
-    RateLimitExceeded = 29,
+    /// Cache errors
+    CacheExpired = 48,
+    CacheNotFound = 49,
     
-    /// Asset validator errors
-    AssetNotConfigured = 30,
-    UnsupportedAsset = 31,
+    /// Rate limiter errors
+    RateLimitExceeded = 50,
+    
+    /// Asset validation errors
+    AssetNotConfigured = 51,
+    UnsupportedAsset = 52,
 }

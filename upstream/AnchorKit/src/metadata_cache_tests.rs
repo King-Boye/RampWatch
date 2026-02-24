@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod metadata_cache_tests {
     use crate::{AnchorKitContract, AnchorKitContractClient, AnchorMetadata, Error};
-    use soroban_sdk::{testutils::Address as _, Address, Env, String};
+    use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env, String};
 
     #[test]
     fn test_cache_and_retrieve_metadata() {

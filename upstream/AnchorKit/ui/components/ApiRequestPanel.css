@@ -1,0 +1,286 @@
+/* API Request Panel Styles - Following AnchorKit 8pt Grid System */
+
+.api-request-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+}
+
+/* Panel Section */
+.panel-section {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fafafa;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #f3f4f6;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-content {
+  padding: 16px;
+  background: #ffffff;
+  position: relative;
+}
+
+/* Method Badge */
+.method-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.method-badge[data-method="GET"] {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.method-badge[data-method="POST"] {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.method-badge[data-method="PUT"] {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.method-badge[data-method="DELETE"] {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.method-badge[data-method="PATCH"] {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+/* Endpoint Section */
+.endpoint-section .section-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.endpoint-url {
+  flex: 1;
+  padding: 8px 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-size: 13px;
+  color: #374151;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+/* Code Block */
+.code-block {
+  margin: 0;
+  padding: 16px;
+  background: #1f2937;
+  border-radius: 6px;
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.code-block code {
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #e5e7eb;
+}
+
+.curl-block code {
+  color: #10b981;
+}
+
+/* Copy Button */
+.copy-button {
+  padding: 6px 12px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.copy-button:hover {
+  background: #2563eb;
+  transform: translateY(-1px);
+}
+
+.copy-button:active {
+  transform: translateY(0);
+}
+
+.copy-icon {
+  font-size: 16px;
+}
+
+/* Skeleton Loader */
+.skeleton-loader {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton-line {
+  height: 16px;
+  background: linear-gradient(
+    90deg,
+    #e5e7eb 0%,
+    #f3f4f6 50%,
+    #e5e7eb 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+.skeleton-line.short {
+  width: 60%;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Error Message */
+.error-message {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  color: #991b1b;
+  font-size: 14px;
+}
+
+.error-icon {
+  font-size: 20px;
+}
+
+/* Empty State */
+.empty-state {
+  padding: 32px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 14px;
+  font-style: italic;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .api-request-panel {
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .endpoint-section .section-content {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .copy-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .code-block {
+    font-size: 12px;
+    padding: 12px;
+  }
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+  .api-request-panel {
+    background: #1f2937;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .panel-section {
+    border-color: #374151;
+    background: #111827;
+  }
+
+  .section-header {
+    background: #1f2937;
+    border-bottom-color: #374151;
+  }
+
+  .section-header h3 {
+    color: #f9fafb;
+  }
+
+  .section-content {
+    background: #111827;
+  }
+
+  .endpoint-url {
+    background: #1f2937;
+    border-color: #374151;
+    color: #e5e7eb;
+  }
+
+  .code-block {
+    background: #0f172a;
+  }
+
+  .error-message {
+    background: #450a0a;
+    border-color: #7f1d1d;
+    color: #fca5a5;
+  }
+
+  .empty-state {
+    color: #6b7280;
+  }
+}
