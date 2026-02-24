@@ -14,12 +14,10 @@ pub enum Error {
     ReplayAttack = 6,
     InvalidTimestamp = 7,
     AttestationNotFound = 8,
-    InvalidPublicKey = 9,
-    InvalidEndpointFormat = 10,
-    EndpointNotFound = 11,
-    EndpointAlreadyExists = 12,
-    ServicesNotConfigured = 13,
-    InvalidServiceType = 14,
+    InvalidEndpointFormat = 9,
+    EndpointNotFound = 10,
+    ServicesNotConfigured = 11,
+    InvalidServiceType = 12,
 
     /// Session-related errors
     SessionNotFound = 16,
@@ -31,8 +29,8 @@ pub enum Error {
     NoQuotesAvailable = 21,
 
     /// Transaction intent / compliance errors
-    InvalidTransactionIntent = 23,
-    ComplianceNotMet = 24,
+    InvalidTransactionIntent = 19,
+    ComplianceNotMet = 20,
 
     /// Configuration validation errors
     InvalidConfig = 25,

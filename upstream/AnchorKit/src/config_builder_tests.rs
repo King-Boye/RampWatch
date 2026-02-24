@@ -6,7 +6,7 @@
 //! at compile time using Rust's type system. Invalid builds should fail to compile.
 
 use crate::{config::*, Error};
-use soroban_sdk::{Env, String};
+use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 // ============================================================================
 // Type-State Builder Pattern Tests
@@ -37,7 +37,7 @@ fn test_attestor_config_builder_valid() {
 
     let config = AttestorConfig::new(
         String::from_str(&env, "kyc-provider"),
-        String::from_str(&env, "GBBD6A7KNZF5WNWQEPZP5DYJD2AYUTLXRB6VXJ4RCX4RTNPPQVNF3GQ"),
+        Address::generate(&env),
         String::from_str(&env, "https://api.example.com/verify"),
         String::from_str(&env, "kyc-issuer"),
         true,
@@ -87,13 +87,13 @@ fn test_incomplete_contract_config_compile_fail() {}
 ///
 /// ```compile_fail
 /// use anchorkit::config::AttestorConfig;
-/// use soroban_sdk::{Env, String};
+/// use soroban_sdk::{Env, String, Address};
 ///
 /// let env = Env::default();
 /// // Missing required fields - should not compile
 /// let config = AttestorConfig {
 ///     name: String::from_str(&env, "attestor"),
-///     address: String::from_str(&env, "GBBD6A7KNZF5WNWQEPZP5DYJD2AYUTLXRB6VXJ4RCX4RTNPPQVNF3GQ"),
+///     address: Address::generate(&env),
 ///     // endpoint, role, enabled missing
 /// };
 /// ```
@@ -206,7 +206,7 @@ fn test_attestor_config_builder_invalid_endpoint() {
 
     let result = AttestorConfig::new(
         String::from_str(&env, "kyc-provider"),
-        String::from_str(&env, "GBBD6A7KNZF5WNWQEPZP5DYJD2AYUTLXRB6VXJ4RCX4RTNPPQVNF3GQ"),
+        Address::generate(&env),
         String::from_str(&env, "bad"),
         String::from_str(&env, "kyc-issuer"),
         true,
@@ -222,7 +222,7 @@ fn test_attestor_config_builder_invalid_role() {
     // Empty role
     let result = AttestorConfig::new(
         String::from_str(&env, "kyc-provider"),
-        String::from_str(&env, "GBBD6A7KNZF5WNWQEPZP5DYJD2AYUTLXRB6VXJ4RCX4RTNPPQVNF3GQ"),
+        Address::generate(&env),
         String::from_str(&env, "https://api.example.com/verify"),
         String::from_str(&env, ""),
         true,
@@ -232,7 +232,7 @@ fn test_attestor_config_builder_invalid_role() {
     // Role too long
     let result = AttestorConfig::new(
         String::from_str(&env, "kyc-provider"),
-        String::from_str(&env, "GBBD6A7KNZF5WNWQEPZP5DYJD2AYUTLXRB6VXJ4RCX4RTNPPQVNF3GQ"),
+        Address::generate(&env),
         String::from_str(&env, "https://api.example.com/verify"),
         String::from_str(&env, &"r".repeat(33)),
         true,

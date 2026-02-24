@@ -238,95 +238,20 @@ pub struct AnchorOption {
     pub metadata: AnchorMetadata,
 }
 
-/// SDK Configuration for client applications
+/// Represents the public profile of an Anchor for searching
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SdkConfig {
-    pub network: NetworkType,
-    pub anchor_domain: String,
-    pub timeout_seconds: u64,
-    pub custom_headers: Vec<HttpHeader>,
+pub struct AnchorProfile {
+    pub name: String,
+    pub region: String,
+    pub assets: Vec<String>,
 }
 
-/// Network type for SDK configuration
-#[contracttype]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[repr(u32)]
-pub enum NetworkType {
-    Testnet = 1,
-    Mainnet = 2,
-}
-
-/// HTTP header for custom SDK requests
+/// The query object used by developers to filter anchors
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct HttpHeader {
-    pub key: String,
-    pub value: String,
+pub struct AnchorSearchQuery {
+    pub name: Option<String>,
+    pub region: Option<String>,
+    pub asset: Option<String>,
 }
-
-impl SdkConfig {
-    /// Validates SDK configuration
-    pub fn validate(&self) -> bool {
-        // Validate anchor domain (must be non-empty and reasonable length)
-        let domain_len = self.anchor_domain.len();
-        if domain_len < 3 || domain_len > 253 {
-            return false;
-        }
-
-        // Validate timeout (1 second to 5 minutes)
-        if self.timeout_seconds < 1 || self.timeout_seconds > 300 {
-            return false;
-        }
-
-        // Validate custom headers (max 20 headers)
-        if self.custom_headers.len() > 20 {
-            return false;
-        }
-
-        // Validate each header
-        for header in self.custom_headers.iter() {
-            let key_len = header.key.len();
-            let value_len = header.value.len();
-
-            // Header key: 1-64 chars
-            if key_len < 1 || key_len > 64 {
-                return false;
-            }
-
-            // Header value: 0-1024 chars
-            if value_len > 1024 {
-                return false;
-            }
-        }
-
-        true
-    }
-}
-
-
-/// Webhook event for monitoring and debugging
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct WebhookEvent {
-    pub event_id: u64,
-    pub event_type: WebhookEventType,
-    pub timestamp: u64,
-    pub payload_hash: BytesN<32>,
-}
-
-/// Types of webhook events
-#[contracttype]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[repr(u32)]
-pub enum WebhookEventType {
-    Deposit = 1,
-    Withdrawal = 2,
-    KycUpdate = 3,
-    QuoteReceived = 4,
-    TransferInitiated = 5,
-    SettlementConfirmed = 6,
-    SessionCreated = 7,
-    AttestationRecorded = 8,
-}
-
