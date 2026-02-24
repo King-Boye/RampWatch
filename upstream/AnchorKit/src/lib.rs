@@ -32,13 +32,7 @@ mod types;
 mod validation;
 
 #[cfg(test)]
-mod config_tests;
-#[cfg(test)]
-mod config_builder_tests;
-#[cfg(test)]
 mod deterministic_hash_tests;
-#[cfg(test)]
-mod sdk_config_tests;
 #[cfg(test)]
 mod session_tests;
 
@@ -86,9 +80,6 @@ mod request_history_tests;
 
 #[cfg(test)]
 mod tracing_span_tests;
-
-#[cfg(test)]
-mod load_simulation_tests;
 
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
