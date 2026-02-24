@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, String, Vec};
 
-use crate::Error;
+use crate::errors::Error;
 
 /// Validated configuration for contract initialization
 #[contracttype]

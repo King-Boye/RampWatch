@@ -21,7 +21,11 @@ mod validation;
 #[cfg(test)]
 mod config_tests;
 #[cfg(test)]
+mod config_builder_tests;
+#[cfg(test)]
 mod deterministic_hash_tests;
+#[cfg(test)]
+mod sdk_config_tests;
 #[cfg(test)]
 mod session_tests;
 
@@ -55,10 +59,13 @@ mod signature_tests;
 #[cfg(test)]
 mod cross_platform_tests;
 
+#[cfg(test)]
 mod zerocopy_tests;
 
 #[cfg(test)]
 mod metadata_cache_tests;
+
+#[cfg(test)]
 mod request_id_tests;
 
 #[cfg(test)]

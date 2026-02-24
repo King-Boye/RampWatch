@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, Address, Env};
 
-use crate::Error;
+use crate::errors::Error;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]

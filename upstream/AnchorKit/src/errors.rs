@@ -74,6 +74,11 @@ pub enum Error {
     /// Cache errors
     CacheExpired = 48,
     CacheNotFound = 49,
+    
     /// Rate limiter errors
-    RateLimitExceeded = 48,
+    RateLimitExceeded = 50,
+    
+    /// Asset validation errors
+    AssetNotConfigured = 51,
+    UnsupportedAsset = 52,
 }

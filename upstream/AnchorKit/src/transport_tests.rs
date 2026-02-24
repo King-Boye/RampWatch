@@ -5,7 +5,7 @@ use crate::{
     types::{HealthStatus, QuoteData, ServiceType},
     Error,
 };
-use soroban_sdk::{testutils::Address as _, Address, Bytes, Env, String};
+use soroban_sdk::{testutils::Address as _, vec, Address, Bytes, Env, String, Vec};
 
 /// Test Goal 1: Ensure requests pass through abstraction
 #[test]

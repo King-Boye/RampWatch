@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::errors::Error;
 
 /// Retry configuration with exponential backoff
 #[derive(Clone, Debug)]
