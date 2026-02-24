@@ -144,6 +144,26 @@ fn test_get_transaction_status_skeleton_not_found() {
 }
 
 #[test]
+fn test_get_transaction_status_skeleton_with_session() {
+    let env = Env::default();
+    env.mock_all_auths();
+    
+    let contract_id = env.register_contract(None, AnchorKitContract);
+    let client = AnchorKitContractClient::new(&env, &contract_id);
+    
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    
+    let initiator = Address::generate(&env);
+    let session_id = client.create_session(&initiator);
+    
+    let result = client.get_transaction_status_skeleton(&session_id);
+    
+    assert!(result.is_loading);
+    assert_eq!(result.transaction_id, session_id);
+}
+
+#[test]
 fn test_get_auth_validation_skeleton_not_registered() {
     let env = Env::default();
     env.mock_all_auths();

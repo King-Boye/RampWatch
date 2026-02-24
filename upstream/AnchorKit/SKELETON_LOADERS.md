@@ -119,34 +119,33 @@ if (skeleton.is_loading) {
 
 ### get_transaction_status_skeleton
 
-Get the loading state for transaction status with progress.
+Get the loading state for transaction status based on session progress.
 
 ```rust
 pub fn get_transaction_status_skeleton(
     env: Env,
-    intent_id: u64,
+    session_id: u64,
 ) -> Result<TransactionStatusSkeleton, Error>
 ```
 
 **Returns:**
-- `loading_with_progress` - If transaction is in progress (calculates progress based on time)
-- `error` - If transaction not found or expired
+- `loading_with_progress` - If session exists and has operations
+- `error` - If session not found
 
 **Progress Calculation:**
-Progress is calculated based on elapsed time vs. total TTL:
-```
-progress = (current_time - created_at) / (expires_at - created_at) * 10000
-```
+Progress is calculated based on session operation count:
+- 10% if session just created (no operations)
+- 50% if operations are being processed
 
 **Example:**
 ```javascript
-const skeleton = await contract.get_transaction_status_skeleton(intentId);
+const skeleton = await contract.get_transaction_status_skeleton(sessionId);
 
 if (skeleton.is_loading) {
     const progressPercent = skeleton.progress_percentage / 100;
     // Show progress bar: progressPercent%
 } else if (skeleton.has_error) {
-    // Show error (expired or not found)
+    // Show error (session not found)
     console.error(skeleton.error_message);
 }
 ```
@@ -220,10 +219,10 @@ async function loadAnchorInfo(anchorAddress) {
 ### Pattern 2: Progress Tracking
 
 ```javascript
-// Monitor transaction progress
-async function monitorTransaction(intentId) {
+// Monitor session progress
+async function monitorSession(sessionId) {
     const interval = setInterval(async () => {
-        const skeleton = await contract.get_transaction_status_skeleton(intentId);
+        const skeleton = await contract.get_transaction_status_skeleton(sessionId);
         
         if (skeleton.is_loading) {
             updateProgressBar(skeleton.progress_percentage / 100);
@@ -302,12 +301,12 @@ function AnchorInfo({ anchorAddress }) {
 ### Progress Bar Example
 
 ```jsx
-function TransactionProgress({ intentId }) {
+function SessionProgress({ sessionId }) {
     const [skeleton, setSkeleton] = useState(null);
     
     useEffect(() => {
         const interval = setInterval(async () => {
-            const skel = await contract.get_transaction_status_skeleton(intentId);
+            const skel = await contract.get_transaction_status_skeleton(sessionId);
             setSkeleton(skel);
             
             if (!skel.is_loading) {
@@ -316,7 +315,7 @@ function TransactionProgress({ intentId }) {
         }, 1000);
         
         return () => clearInterval(interval);
-    }, [intentId]);
+    }, [sessionId]);
     
     if (!skeleton) return null;
     

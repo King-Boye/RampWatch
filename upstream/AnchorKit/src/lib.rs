@@ -1300,36 +1300,34 @@ impl AnchorKitContract {
     }
 
     /// Get skeleton loader state for transaction status.
+    /// Note: This checks session operations since transaction intents are ephemeral.
     pub fn get_transaction_status_skeleton(
         env: Env,
-        intent_id: u64,
+        session_id: u64,
     ) -> Result<TransactionStatusSkeleton, Error> {
-        // Check if transaction intent exists
-        match Storage::get_transaction_intent(&env, intent_id) {
-            Ok(intent) => {
-                // Calculate progress based on timestamps
+        // Check if session exists
+        match Storage::get_session(&env, session_id) {
+            Ok(session) => {
+                // Calculate progress based on operation count
+                let operation_count = Storage::get_session_operation_count(&env, session_id);
                 let current_time = env.ledger().timestamp();
-                if current_time >= intent.expires_at {
-                    Ok(TransactionStatusSkeleton::error(
-                        intent_id,
-                        String::from_str(&env, "Transaction expired"),
-                    ))
+                
+                // Simple progress: if operations exist, show progress
+                let progress = if operation_count > 0 {
+                    // Show 50% progress if operations are being processed
+                    5000u32
                 } else {
-                    let elapsed = current_time.saturating_sub(intent.created_at);
-                    let total_duration = intent.expires_at.saturating_sub(intent.created_at);
-                    let progress = if total_duration > 0 {
-                        ((elapsed as u128 * 10000) / total_duration as u128) as u32
-                    } else {
-                        0
-                    };
-                    Ok(TransactionStatusSkeleton::loading_with_progress(
-                        intent_id, progress,
-                    ))
-                }
+                    // Just started
+                    1000u32
+                };
+                
+                Ok(TransactionStatusSkeleton::loading_with_progress(
+                    session_id, progress,
+                ))
             }
             Err(_) => Ok(TransactionStatusSkeleton::error(
-                intent_id,
-                String::from_str(&env, "Transaction not found"),
+                session_id,
+                String::from_str(&env, "Session not found"),
             )),
         }
     }
