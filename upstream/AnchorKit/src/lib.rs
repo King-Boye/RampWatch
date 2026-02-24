@@ -8,6 +8,7 @@ mod error_mapping;
 mod errors;
 mod events;
 mod metadata_cache;
+mod rate_limiter;
 mod request_id;
 mod retry;
 mod serialization;
@@ -60,6 +61,9 @@ mod zerocopy_tests;
 mod metadata_cache_tests;
 mod request_id_tests;
 
+#[cfg(test)]
+mod tracing_span_tests;
+
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
@@ -74,6 +78,7 @@ pub use events::{
     SettlementConfirmed, TransferInitiated,
 };
 pub use metadata_cache::{CachedCapabilities, CachedMetadata, MetadataCache};
+pub use rate_limiter::{RateLimitConfig, RateLimiter};
 pub use request_id::{RequestId, RequestTracker, TracingSpan};
 pub use storage::Storage;
 pub use types::{
@@ -1311,6 +1316,120 @@ impl AnchorKitContract {
     pub fn get_pooled_connection(env: Env, endpoint: String) -> Result<(), Error> {
         ConnectionPool::get_connection(&env, &endpoint);
         Ok(())
+    }
+
+    // ============ Request ID & Tracing ============
+
+    /// Generate a new request ID for tracing.
+    pub fn generate_request_id(env: Env) -> RequestId {
+        RequestId::generate(&env)
+    }
+
+    /// Submit attestation with request ID for tracing.
+    pub fn submit_with_request_id(
+        env: Env,
+        request_id: RequestId,
+        issuer: Address,
+        subject: Address,
+        timestamp: u64,
+        payload_hash: BytesN<32>,
+        signature: Bytes,
+    ) -> Result<u64, Error> {
+        issuer.require_auth();
+
+        let started_at = env.ledger().timestamp();
+        let result = Self::submit_attestation_internal(&env, &issuer, &subject, timestamp, &payload_hash, &signature);
+        let completed_at = env.ledger().timestamp();
+
+        let status = if result.is_ok() { String::from_str(&env, "success") } else { String::from_str(&env, "failed") };
+        let span = TracingSpan {
+            request_id: request_id.clone(),
+            operation: String::from_str(&env, "submit_attestation"),
+            actor: issuer.clone(),
+            started_at,
+            completed_at,
+            status,
+        };
+        RequestTracker::store_span(&env, &span);
+
+        result
+    }
+
+    /// Submit quote with request ID for tracing.
+    pub fn quote_with_request_id(
+        env: Env,
+        request_id: RequestId,
+        anchor: Address,
+        base_asset: String,
+        quote_asset: String,
+        rate: u64,
+        fee_percentage: u32,
+        minimum_amount: u64,
+        maximum_amount: u64,
+        valid_until: u64,
+    ) -> Result<u64, Error> {
+        anchor.require_auth();
+
+        let started_at = env.ledger().timestamp();
+        let result = Self::submit_quote(env.clone(), anchor.clone(), base_asset, quote_asset, rate, fee_percentage, minimum_amount, maximum_amount, valid_until);
+        let completed_at = env.ledger().timestamp();
+
+        let status = if result.is_ok() { String::from_str(&env, "success") } else { String::from_str(&env, "failed") };
+        let span = TracingSpan {
+            request_id: request_id.clone(),
+            operation: String::from_str(&env, "submit_quote"),
+            actor: anchor.clone(),
+            started_at,
+            completed_at,
+            status,
+        };
+        RequestTracker::store_span(&env, &span);
+
+        result
+    }
+
+    /// Get tracing span by request ID.
+    pub fn get_tracing_span(env: Env, request_id: BytesN<16>) -> Option<TracingSpan> {
+        RequestTracker::get_span(&env, &request_id)
+    }
+
+    fn submit_attestation_internal(
+        env: &Env,
+        issuer: &Address,
+        subject: &Address,
+        timestamp: u64,
+        payload_hash: &BytesN<32>,
+        signature: &Bytes,
+    ) -> Result<u64, Error> {
+        if timestamp == 0 {
+            return Err(Error::InvalidTimestamp);
+        }
+
+        if !Storage::is_attestor(env, issuer) {
+            return Err(Error::UnauthorizedAttestor);
+        }
+
+        if Storage::is_hash_used(env, payload_hash) {
+            return Err(Error::ReplayAttack);
+        }
+
+        Self::verify_signature(env, issuer, subject, timestamp, payload_hash, signature)?;
+
+        let id = Storage::get_and_increment_counter(env);
+        let attestation = Attestation {
+            id,
+            issuer: issuer.clone(),
+            subject: subject.clone(),
+            timestamp,
+            payload_hash: payload_hash.clone(),
+            signature: signature.clone(),
+        };
+
+        Storage::set_attestation(env, id, &attestation);
+        Storage::mark_hash_used(env, payload_hash);
+        AttestationRecorded::publish(env, id, subject, timestamp, payload_hash.clone());
+
+        Ok(id)
     }
 }
 
