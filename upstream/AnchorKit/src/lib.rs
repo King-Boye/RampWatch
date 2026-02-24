@@ -2,6 +2,7 @@
 extern crate alloc;
 
 mod anchor_adapter;
+mod anchor_info_discovery;
 mod asset_validator;
 mod config;
 mod connection_pool;
@@ -77,6 +78,9 @@ mod request_history_tests;
 
 #[cfg(test)]
 mod tracing_span_tests;
+
+#[cfg(test)]
+mod anchor_info_discovery_tests;
 
 #[cfg(test)]
 mod load_simulation_tests;
@@ -996,6 +1000,103 @@ impl AnchorKitContract {
         MetadataCache::invalidate_capabilities(&env, &anchor);
         Ok(())
     }
+
+    // ========== Anchor Info Discovery ==========
+
+    /// Fetch and cache stellar.toml from anchor domain
+    pub fn fetch_anchor_info(
+        env: Env,
+        anchor: Address,
+        domain: String,
+        ttl_seconds: Option<u64>,
+    ) -> Result<anchor_info_discovery::StellarToml, Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        anchor_info_discovery::AnchorInfoDiscovery::fetch_and_cache(&env, &anchor, domain, ttl_seconds)
+    }
+
+    /// Get cached stellar.toml for an anchor
+    pub fn get_anchor_toml(env: Env, anchor: Address) -> Result<anchor_info_discovery::StellarToml, Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::get_cached(&env, &anchor)
+    }
+
+    /// Refresh cached stellar.toml for an anchor
+    pub fn refresh_anchor_info(env: Env, anchor: Address, domain: String) -> Result<anchor_info_discovery::StellarToml, Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        anchor_info_discovery::AnchorInfoDiscovery::refresh_cache(&env, &anchor, domain)
+    }
+
+    /// Get supported assets from cached stellar.toml
+    pub fn get_anchor_assets(env: Env, anchor: Address) -> Result<Vec<String>, Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::get_supported_assets(&env, &anchor)
+    }
+
+    /// Get asset info by code
+    pub fn get_anchor_asset_info(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> Result<anchor_info_discovery::AssetInfo, Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::get_asset_info(&env, &anchor, &asset_code)
+    }
+
+    /// Get deposit limits for an asset
+    pub fn get_anchor_deposit_limits(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> Result<(u64, u64), Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::get_deposit_limits(&env, &anchor, &asset_code)
+    }
+
+    /// Get withdrawal limits for an asset
+    pub fn get_anchor_withdrawal_limits(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> Result<(u64, u64), Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::get_withdrawal_limits(&env, &anchor, &asset_code)
+    }
+
+    /// Get deposit fees for an asset
+    pub fn get_anchor_deposit_fees(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> Result<(u64, u32), Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::get_deposit_fees(&env, &anchor, &asset_code)
+    }
+
+    /// Get withdrawal fees for an asset
+    pub fn get_anchor_withdrawal_fees(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> Result<(u64, u32), Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::get_withdrawal_fees(&env, &anchor, &asset_code)
+    }
+
+    /// Check if asset supports deposits
+    pub fn anchor_supports_deposits(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> Result<bool, Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::supports_deposits(&env, &anchor, &asset_code)
+    }
+
+    /// Check if asset supports withdrawals
+    pub fn anchor_supports_withdrawals(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> Result<bool, Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::supports_withdrawals(&env, &anchor, &asset_code)
+    }
+
 
     /// Get list of all registered anchors.
     pub fn get_all_anchors(env: Env) -> Vec<Address> {
