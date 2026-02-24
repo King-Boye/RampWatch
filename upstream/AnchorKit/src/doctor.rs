@@ -29,16 +29,14 @@ impl CheckResult {
 
 /// Run all health checks and return results
 pub fn run_diagnostics() -> Vec<CheckResult> {
-    let mut results = Vec::new();
-
-    results.push(check_rust_toolchain());
-    results.push(check_wasm_target());
-    results.push(check_wallet_config());
-    results.push(check_rpc_endpoint());
-    results.push(check_config_files());
-    results.push(check_network_connectivity());
-
-    results
+    vec![
+        check_rust_toolchain(),
+        check_wasm_target(),
+        check_wallet_config(),
+        check_rpc_endpoint(),
+        check_config_files(),
+        check_network_connectivity(),
+    ]
 }
 
 /// Check if Rust toolchain is installed
