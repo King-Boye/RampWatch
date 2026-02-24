@@ -109,7 +109,7 @@ mod asset_validator_tests {
             &String::from_str(&env, "USDC"),
         );
 
-        assert_eq!(result, Err(Ok(Error::UnsupportedAsset)));
+        assert_eq!(result, Err(Ok(Error::InvalidServiceType)));
     }
 
     #[test]
@@ -135,7 +135,7 @@ mod asset_validator_tests {
             &String::from_str(&env, "USDC"),
         );
 
-        assert_eq!(result, Err(Ok(Error::UnsupportedAsset)));
+        assert_eq!(result, Err(Ok(Error::InvalidServiceType)));
     }
 
     #[test]
@@ -159,7 +159,7 @@ mod asset_validator_tests {
             &String::from_str(&env, "USDC"),
         );
 
-        assert_eq!(result, Err(Ok(Error::AssetNotConfigured)));
+        assert_eq!(result, Err(Ok(Error::ServicesNotConfigured)));
     }
 
     #[test]
@@ -229,6 +229,6 @@ mod asset_validator_tests {
             &(env.ledger().timestamp() + 3600),
         );
 
-        assert_eq!(result, Err(Ok(Error::UnsupportedAsset)));
+        assert_eq!(result, Err(Ok(Error::InvalidServiceType)));
     }
 }

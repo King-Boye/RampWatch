@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod request_id_tests {
     use crate::{AnchorKitContract, AnchorKitContractClient, RequestId, ServiceType};
-    use soroban_sdk::{testutils::Address as _, vec, Address, Bytes, BytesN, Env};
+    use soroban_sdk::{testutils::{Address as _, Ledger}, vec, Address, Bytes, BytesN, Env};
 
     #[test]
     fn test_generate_request_id() {
@@ -23,7 +23,7 @@ mod request_id_tests {
 
         let id1 = client.generate_request_id();
         
-        env.ledger().with_mut(|li| li.sequence += 1);
+        env.ledger().with_mut(|li| li.sequence_number += 1);
         
         let id2 = client.generate_request_id();
         
