@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, String};
+use soroban_sdk::{contracttype, Address, String};
 
 use crate::errors::Error;
 
@@ -98,7 +98,7 @@ pub const MAX_DESCRIPTION_LEN: u32 = 256;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttestorConfig {
     pub name: String,
-    pub address: String,
+    pub address: Address,
     pub endpoint: String,
     pub role: String,
     pub enabled: bool,
@@ -179,10 +179,8 @@ impl AttestorConfig {
             return Err(Error::InvalidConfig);
         }
 
-        let addr_len = self.address.len();
-        if addr_len < STELLAR_ADDR_MIN || addr_len > STELLAR_ADDR_MAX {
-            return Err(Error::InvalidConfig);
-        }
+        // Address type in Soroban is already validated at creation time/binding.
+        // We no longer need to check length here.
 
         let endpoint_len = self.endpoint.len();
         if endpoint_len < MIN_ENDPOINT_LEN || endpoint_len > MAX_ENDPOINT_LEN {
@@ -200,7 +198,7 @@ impl AttestorConfig {
     /// Type-safe builder for attestor config
     pub fn new(
         name: String,
-        address: String,
+        address: Address,
         endpoint: String,
         role: String,
         enabled: bool,
