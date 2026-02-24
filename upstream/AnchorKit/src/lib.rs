@@ -1,4 +1,5 @@
 #![no_std]
+extern crate alloc;
 
 mod asset_validator;
 mod config;
@@ -65,6 +66,9 @@ mod request_id_tests;
 
 #[cfg(test)]
 mod tracing_span_tests;
+
+#[cfg(test)]
+mod load_simulation_tests;
 
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
@@ -139,7 +143,7 @@ impl AnchorKitContract {
                 continue;
             }
 
-            let attestor_addr = Address::from_string(&config.address);
+            let attestor_addr = config.address.clone();
 
             if Storage::is_attestor(&env, &attestor_addr) {
                 return Err(Error::AttestorAlreadyRegistered);
@@ -556,6 +560,8 @@ impl AnchorKitContract {
         };
 
         Storage::set_quote(&env, &quote);
+        Storage::set_latest_quote(&env, &anchor, quote_id);
+
         QuoteSubmitted::publish(
             &env,
             &anchor,
@@ -583,7 +589,8 @@ impl AnchorKitContract {
         let current_timestamp = env.ledger().timestamp();
         let mut valid_quotes: Vec<QuoteData> = Vec::new(&env);
 
-        for anchor in anchors.iter() {
+        for i in 0..anchors.len() {
+            let anchor = anchors.get(i).unwrap();
             if let Some(quote) = Self::get_latest_quote_for_anchor(&env, &anchor, &request) {
                 if quote.valid_until > current_timestamp
                     && quote.base_asset == request.base_asset
@@ -704,12 +711,12 @@ impl AnchorKitContract {
     }
 
     fn get_latest_quote_for_anchor(
-        _env: &Env,
-        _anchor: &Address,
+        env: &Env,
+        anchor: &Address,
         _request: &QuoteRequest,
     ) -> Option<QuoteData> {
-        // This requires additional quote indexing in storage.
-        None
+        let quote_id = Storage::get_latest_quote(env, anchor)?;
+        Storage::get_quote(env, anchor, quote_id)
     }
 
     fn validate_endpoint_url(url: &String) -> Result<(), Error> {
