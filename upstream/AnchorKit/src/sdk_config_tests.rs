@@ -88,9 +88,9 @@ mod sdk_config_tests {
         let env = Env::default();
         
         let mut headers = Vec::new(&env);
-        for i in 0..21 {
+        for _i in 0..21 {
             headers.push_back(HttpHeader {
-                key: String::from_str(&env, &format!("Header-{}", i)),
+                key: String::from_str(&env, "Header"),
                 value: String::from_str(&env, "value"),
             });
         }

@@ -42,8 +42,17 @@ fn test_attestor_config_validation() {
     };
     assert!(valid.validate().is_ok());
 
-    // We no longer have an easy "invalid address" for the Address type itself in this context,
-    // so we can skip the invalid address length/format test or test something else.
+    let invalid_address = AttestorConfig {
+        name: String::from_str(&env, "kyc-provider"),
+        address: String::from_str(&env, "INVALID"),
+        endpoint: String::from_str(&env, "https://api.example.com/verify"),
+        role: String::from_str(&env, "kyc-issuer"),
+        enabled: true,
+    };
+    assert_eq!(
+        invalid_address.validate(),
+        Err(Error::InvalidConfig)
+    );
 
     let invalid_endpoint = AttestorConfig {
         name: String::from_str(&env, "kyc-provider"),
@@ -108,6 +117,6 @@ fn test_batch_attestor_validation() {
     let empty_attestors = Vec::new(&env);
     assert_eq!(
         validate_attestor_batch(&empty_attestors),
-        Err(Error::NoEnabledAttestors)
+        Err(Error::InvalidConfig)
     );
 }

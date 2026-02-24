@@ -1,6 +1,7 @@
 #![no_std]
 extern crate alloc;
 
+mod anchor_adapter;
 mod asset_validator;
 mod config;
 mod connection_pool;
@@ -14,6 +15,7 @@ mod rate_limiter;
 mod request_history;
 mod request_id;
 mod retry;
+mod sep24_adapter;
 mod serialization;
 mod storage;
 mod transport;
@@ -207,7 +209,7 @@ impl AnchorKitContract {
         receiver.require_auth();
 
         // Use your existing storage method
-        let quote = Storage::get_quote(&env, &anchor, quote_id).ok_or(Error::QuoteNotFound)?;
+        let quote = Storage::get_quote(&env, &anchor, quote_id).ok_or(Error::InvalidQuote)?;
 
         // Emit the event
         QuoteReceived::publish(&env, quote_id, &receiver, env.ledger().timestamp());
@@ -341,7 +343,7 @@ impl AnchorKitContract {
 
         if builder.quote_id != 0 {
             let quote = Storage::get_quote(&env, &builder.anchor, builder.quote_id)
-                .ok_or(Error::QuoteNotFound)?;
+                .ok_or(Error::InvalidQuote)?;
 
             if quote.valid_until <= now {
                 return Err(Error::StaleQuote);
@@ -590,7 +592,7 @@ impl AnchorKitContract {
 
     /// Get a specific quote by anchor and quote ID.
     pub fn get_quote(env: Env, anchor: Address, quote_id: u64) -> Result<QuoteData, Error> {
-        Storage::get_quote(&env, &anchor, quote_id).ok_or(Error::QuoteNotFound)
+        Storage::get_quote(&env, &anchor, quote_id).ok_or(Error::InvalidQuote)
     }
 
     /// Compare rates for specific anchors and return the best option.
@@ -812,7 +814,7 @@ impl AnchorKitContract {
             .unwrap_or_else(|| CredentialManager::create_default_policy(attestor.clone()));
 
         if policy.require_encryption && policy.allow_plaintext_storage {
-            return Err(Error::InsecureCredentialStorage);
+            return Err(Error::InvalidCredentialFormat);
         }
 
         let credential = SecureCredential {
@@ -1074,7 +1076,7 @@ impl AnchorKitContract {
         let anchors = Storage::get_anchor_list(&env);
 
         if anchors.is_empty() {
-            return Err(Error::NoAnchorsAvailable);
+            return Err(Error::AnchorMetadataNotFound);
         }
 
         let mut options: Vec<AnchorOption> = Vec::new(&env);

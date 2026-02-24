@@ -179,8 +179,10 @@ impl AttestorConfig {
             return Err(Error::InvalidConfig);
         }
 
-        // Address type in Soroban is already validated at creation time/binding.
-        // We no longer need to check length here.
+        let addr_len = self.address.len();
+        if addr_len < STELLAR_ADDR_MIN || addr_len > STELLAR_ADDR_MAX {
+            return Err(Error::InvalidConfig);
+        }
 
         let endpoint_len = self.endpoint.len();
         if endpoint_len < MIN_ENDPOINT_LEN || endpoint_len > MAX_ENDPOINT_LEN {

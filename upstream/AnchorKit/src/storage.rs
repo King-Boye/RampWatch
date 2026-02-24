@@ -334,7 +334,7 @@ impl Storage {
             .ok_or(Error::SessionNotFound)?;
 
         if stored_nonce != nonce {
-            return Err(Error::SessionReplayAttack);
+            return Err(Error::ReplayAttack);
         }
         Ok(())
     }

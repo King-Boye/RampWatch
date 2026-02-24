@@ -247,7 +247,7 @@ pub fn validate_attestors(attestors: &Vec<AttestorConfig>) -> Result<(), Error> 
     }
     
     if !has_enabled {
-        return Err(Error::NoEnabledAttestors);
+        return Err(Error::InvalidConfig);
     }
     
     Ok(())

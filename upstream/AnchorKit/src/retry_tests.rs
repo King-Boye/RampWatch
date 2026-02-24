@@ -97,7 +97,7 @@ fn test_stops_after_max_attempts_with_different_configs() {
     let mut count1 = 0;
     let result1: RetryResult<i32> = engine1.execute(|_| {
         count1 += 1;
-        Err(Error::QuoteNotFound)
+        Err(Error::InvalidQuote)
     });
 
     assert_eq!(result1.attempts, 1);
@@ -224,11 +224,11 @@ fn test_retryable_vs_non_retryable_classification() {
     assert!(is_retryable_error(&Error::EndpointNotFound));
     assert!(is_retryable_error(&Error::ServicesNotConfigured));
     assert!(is_retryable_error(&Error::AttestationNotFound));
-    assert!(is_retryable_error(&Error::QuoteNotFound));
+    assert!(is_retryable_error(&Error::InvalidQuote));
     assert!(is_retryable_error(&Error::SessionNotFound));
     assert!(is_retryable_error(&Error::StaleQuote));
     assert!(is_retryable_error(&Error::NoQuotesAvailable));
-    assert!(is_retryable_error(&Error::NoAnchorsAvailable));
+    assert!(is_retryable_error(&Error::AnchorMetadataNotFound));
 
     // Non-retryable errors (permanent/logic errors)
     assert!(!is_retryable_error(&Error::InvalidConfig));
@@ -237,7 +237,7 @@ fn test_retryable_vs_non_retryable_classification() {
     assert!(!is_retryable_error(&Error::AttestorNotRegistered));
     assert!(!is_retryable_error(&Error::AttestorAlreadyRegistered));
     assert!(!is_retryable_error(&Error::ReplayAttack));
-    assert!(!is_retryable_error(&Error::SessionReplayAttack));
+    assert!(!is_retryable_error(&Error::ReplayAttack));
     assert!(!is_retryable_error(&Error::InvalidQuote));
     assert!(!is_retryable_error(&Error::InvalidTimestamp));
     assert!(!is_retryable_error(&Error::ComplianceNotMet));
@@ -366,7 +366,7 @@ fn test_complex_retry_scenario() {
 
         match attempt {
             0 => Err(Error::EndpointNotFound),  // Retry
-            1 => Err(Error::QuoteNotFound),     // Retry
+            1 => Err(Error::InvalidQuote),     // Retry
             2 => Err(Error::StaleQuote),        // Retry
             3 => Err(Error::NoQuotesAvailable), // Retry
             4 => Ok("finally succeeded"),       // Success
@@ -391,7 +391,7 @@ fn test_all_attempts_fail_retryable() {
 
     let errors = alloc::vec![
         Error::EndpointNotFound,
-        Error::QuoteNotFound,
+        Error::InvalidQuote,
         Error::StaleQuote,
     ];
 

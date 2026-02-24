@@ -1,7 +1,7 @@
 use soroban_sdk::contracterror;
 
 /// Error codes for AnchorKit contract operations.
-/// Consolidated to stay within Soroban's 32 error variant limit.
+/// Consolidated to stay within Soroban's contracterror limit.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -20,32 +20,40 @@ pub enum Error {
     InvalidServiceType = 12,
 
     /// Session-related errors
-    SessionNotFound = 13,
-    InvalidSessionId = 14,
+    SessionNotFound = 16,
+    InvalidSessionId = 17,
 
     /// Quote-related errors
-    InvalidQuote = 15,
-    StaleQuote = 16,
-    NoQuotesAvailable = 17,
-    QuoteNotFound = 18,
+    InvalidQuote = 19,
+    StaleQuote = 20,
+    NoQuotesAvailable = 21,
 
     /// Transaction intent / compliance errors
     InvalidTransactionIntent = 19,
     ComplianceNotMet = 20,
 
     /// Configuration validation errors
-    InvalidConfig = 21,
+    InvalidConfig = 25,
+    DuplicateAttestor = 26,
 
     /// Credential errors
-    InvalidCredentialFormat = 22,
-    CredentialNotFound = 23,
-    InsecureCredentialStorage = 24,
-    CredentialExpired = 25,
+    InvalidCredentialFormat = 34,
+    CredentialNotFound = 35,
+    CredentialExpired = 37,
 
     /// Anchor metadata errors
-    InvalidAnchorMetadata = 26,
-    AnchorMetadataNotFound = 27,
-    NoAnchorsAvailable = 28,
+    InvalidAnchorMetadata = 38,
+    AnchorMetadataNotFound = 39,
+
+    /// Transport errors (HTTP/Network layer)
+    TransportError = 41,
+    TransportTimeout = 42,
+    TransportUnauthorized = 43,
+
+    /// Protocol errors (Anchor validation layer)
+    ProtocolError = 44,
+    ProtocolInvalidPayload = 45,
+    ProtocolRateLimitExceeded = 46,
 
     /// Cache errors
     CacheExpired = 48,

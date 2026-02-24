@@ -129,7 +129,7 @@ fn test_contract_config_builder_invalid_name() {
         String::from_str(&env, "1.0.0"),
         String::from_str(&env, "testnet"),
     );
-    assert_eq!(result, Err(Error::InvalidConfigName));
+    assert_eq!(result, Err(Error::InvalidConfig));
 
     // Name too long
     let result = ContractConfig::new(
@@ -137,7 +137,7 @@ fn test_contract_config_builder_invalid_name() {
         String::from_str(&env, "1.0.0"),
         String::from_str(&env, "testnet"),
     );
-    assert_eq!(result, Err(Error::InvalidConfigName));
+    assert_eq!(result, Err(Error::InvalidConfig));
 }
 
 /// Test that builder rejects invalid version length
@@ -151,7 +151,7 @@ fn test_contract_config_builder_invalid_version() {
         String::from_str(&env, ""),
         String::from_str(&env, "testnet"),
     );
-    assert_eq!(result, Err(Error::InvalidConfigVersion));
+    assert_eq!(result, Err(Error::InvalidConfig));
 
     // Version too long
     let result = ContractConfig::new(
@@ -159,7 +159,7 @@ fn test_contract_config_builder_invalid_version() {
         String::from_str(&env, &"1".repeat(17)),
         String::from_str(&env, "testnet"),
     );
-    assert_eq!(result, Err(Error::InvalidConfigVersion));
+    assert_eq!(result, Err(Error::InvalidConfig));
 }
 
 /// Test that builder rejects invalid network length
@@ -173,7 +173,7 @@ fn test_contract_config_builder_invalid_network() {
         String::from_str(&env, "1.0.0"),
         String::from_str(&env, ""),
     );
-    assert_eq!(result, Err(Error::InvalidConfigNetwork));
+    assert_eq!(result, Err(Error::InvalidConfig));
 
     // Network too long
     let result = ContractConfig::new(
@@ -181,12 +181,23 @@ fn test_contract_config_builder_invalid_network() {
         String::from_str(&env, "1.0.0"),
         String::from_str(&env, &"n".repeat(33)),
     );
-    assert_eq!(result, Err(Error::InvalidConfigNetwork));
+    assert_eq!(result, Err(Error::InvalidConfig));
 }
 
 /// Test that attestor builder rejects invalid address
-// We skip this as Address type itself is validated during creation in Soroban.
-// Invalid strings can't be converted to Address anyway.
+#[test]
+fn test_attestor_config_builder_invalid_address() {
+    let env = Env::default();
+
+    let result = AttestorConfig::new(
+        String::from_str(&env, "kyc-provider"),
+        String::from_str(&env, "INVALID"),
+        String::from_str(&env, "https://api.example.com/verify"),
+        String::from_str(&env, "kyc-issuer"),
+        true,
+    );
+    assert_eq!(result, Err(Error::InvalidConfig));
+}
 
 /// Test that attestor builder rejects invalid endpoint
 #[test]
@@ -216,7 +227,7 @@ fn test_attestor_config_builder_invalid_role() {
         String::from_str(&env, ""),
         true,
     );
-    assert_eq!(result, Err(Error::InvalidAttestorRole));
+    assert_eq!(result, Err(Error::InvalidConfig));
 
     // Role too long
     let result = AttestorConfig::new(
@@ -226,7 +237,7 @@ fn test_attestor_config_builder_invalid_role() {
         String::from_str(&env, &"r".repeat(33)),
         true,
     );
-    assert_eq!(result, Err(Error::InvalidAttestorRole));
+    assert_eq!(result, Err(Error::InvalidConfig));
 }
 
 /// Test that session builder rejects invalid timeout

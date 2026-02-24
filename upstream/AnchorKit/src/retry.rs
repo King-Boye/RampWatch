@@ -108,17 +108,15 @@ pub fn is_retryable_error(error: &Error) -> bool {
         Error::AlreadyInitialized => false,
         Error::AttestorAlreadyRegistered => false,
         Error::ReplayAttack => false,
-        Error::SessionReplayAttack => false,
 
         // Not found errors (retryable - might be temporary)
         Error::AttestationNotFound => true,
-        Error::QuoteNotFound => true,
         Error::SessionNotFound => true,
 
         // Stale data (retryable - can fetch fresh data)
         Error::StaleQuote => true,
         Error::NoQuotesAvailable => true,
-        Error::NoAnchorsAvailable => true,
+        Error::AnchorMetadataNotFound => true,
 
         // Compliance errors (not retryable)
         Error::ComplianceNotMet => false,
@@ -126,7 +124,7 @@ pub fn is_retryable_error(error: &Error) -> bool {
         // Credential errors (not retryable)
         Error::CredentialNotFound => false,
         Error::CredentialExpired => false,
-        Error::InsecureCredentialStorage => false,
+        Error::InvalidCredentialFormat => false,
 
         // Other errors
         _ => false, // Default to not retryable for safety
@@ -252,7 +250,6 @@ mod tests {
         assert!(is_retryable_error(&Error::EndpointNotFound));
         assert!(is_retryable_error(&Error::ServicesNotConfigured));
         assert!(is_retryable_error(&Error::AttestationNotFound));
-        assert!(is_retryable_error(&Error::QuoteNotFound));
         assert!(is_retryable_error(&Error::StaleQuote));
         assert!(is_retryable_error(&Error::NoQuotesAvailable));
 
