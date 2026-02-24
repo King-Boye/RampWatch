@@ -30,7 +30,7 @@ fn test_retries_triggered_correctly() {
     let result = engine.execute(|attempt| {
         attempts += 1;
         if attempt < 2 {
-            Err(Error::InvalidQuote) // Retryable
+            Err(Error::TransportTimeout) // Retryable
         } else {
             Ok(42) // Success on 3rd attempt
         }
@@ -100,15 +100,17 @@ fn test_retryable_errors_classification() {
     // Retryable (transient failures)
     assert!(is_retryable_error(&Error::EndpointNotFound));
     assert!(is_retryable_error(&Error::ServicesNotConfigured));
-    assert!(is_retryable_error(&Error::InvalidQuote));
     assert!(is_retryable_error(&Error::StaleQuote));
     assert!(is_retryable_error(&Error::NoQuotesAvailable));
+    assert!(is_retryable_error(&Error::TransportError));
+    assert!(is_retryable_error(&Error::TransportTimeout));
 
     // Non-retryable (permanent failures)
     assert!(!is_retryable_error(&Error::InvalidConfig));
     assert!(!is_retryable_error(&Error::UnauthorizedAttestor));
     assert!(!is_retryable_error(&Error::ReplayAttack));
     assert!(!is_retryable_error(&Error::ComplianceNotMet));
+    assert!(!is_retryable_error(&Error::InvalidQuote));
 }
 
 #[test]
@@ -120,7 +122,7 @@ fn test_retry_with_alternating_errors() {
     let result = engine.execute(|_| {
         attempt += 1;
         match attempt {
-            1 => Err(Error::InvalidQuote),    // Retryable
+            1 => Err(Error::StaleQuote),       // Retryable
             2 => Err(Error::EndpointNotFound), // Retryable
             3 => Ok(999),                      // Success
             _ => Err(Error::InvalidConfig),

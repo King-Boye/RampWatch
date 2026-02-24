@@ -179,10 +179,7 @@ impl AttestorConfig {
             return Err(Error::InvalidConfig);
         }
 
-        let addr_len = self.address.len();
-        if addr_len < STELLAR_ADDR_MIN || addr_len > STELLAR_ADDR_MAX {
-            return Err(Error::InvalidConfig);
-        }
+        // Address validation is handled by Soroban SDK
 
         let endpoint_len = self.endpoint.len();
         if endpoint_len < MIN_ENDPOINT_LEN || endpoint_len > MAX_ENDPOINT_LEN {

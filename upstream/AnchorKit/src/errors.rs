@@ -29,8 +29,8 @@ pub enum Error {
     NoQuotesAvailable = 21,
 
     /// Transaction intent / compliance errors
-    InvalidTransactionIntent = 19,
-    ComplianceNotMet = 20,
+    InvalidTransactionIntent = 23,
+    ComplianceNotMet = 24,
 
     /// Configuration validation errors
     InvalidConfig = 25,
