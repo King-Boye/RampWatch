@@ -1,51 +1,100 @@
 #![no_std]
 
+mod asset_validator;
 mod config;
+mod connection_pool;
 mod credentials;
+mod error_mapping;
 mod errors;
 mod events;
 mod skeleton_loaders;
+mod metadata_cache;
+mod rate_limiter;
+mod request_id;
+mod retry;
+mod serialization;
 mod storage;
+mod transport;
 mod types;
 mod validation;
 
 #[cfg(test)]
 mod config_tests;
+#[cfg(test)]
+mod deterministic_hash_tests;
+#[cfg(test)]
+mod session_tests;
+
+#[cfg(test)]
+mod capability_detection_tests;
+
+#[cfg(test)]
+mod transport_tests;
+
+#[cfg(test)]
+mod serialization_tests;
+
+#[cfg(test)]
+mod retry_tests;
+
+#[cfg(test)]
+mod error_mapping_tests;
+
+#[cfg(test)]
+mod streaming_flow_tests;
+
+#[cfg(test)]
+mod routing_tests;
+
+#[cfg(test)]
+mod timeout_tests;
+
+#[cfg(test)]
+mod signature_tests;
+
+#[cfg(test)]
+
+mod cross_platform_tests;
+
+mod zerocopy_tests;
+
+#[cfg(test)]
+mod metadata_cache_tests;
+mod request_id_tests;
+
+#[cfg(test)]
+mod tracing_span_tests;
+
 
 #[cfg(test)]
 mod skeleton_loader_tests;
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
+pub use asset_validator::{AssetConfig, AssetValidator};
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
+pub use connection_pool::{ConnectionPool, ConnectionPoolConfig, ConnectionStats};
+pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
 pub use errors::Error;
 pub use events::{
-    AttestationRecorded,
-    AttestorAdded,
-    AttestorRemoved,
-    EndpointConfigured,
-    EndpointRemoved,
-    OperationLogged,
-    // --- Added the 3 new lifecycle events ---
-    QuoteReceived,
-    QuoteSubmitted,
-    ServicesConfigured,
-    SessionCreated,
-    SettlementConfirmed,
-    TransferInitiated,
+    AttestationRecorded, AttestorAdded, AttestorRemoved, EndpointConfigured, EndpointRemoved,
+    OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
+    SettlementConfirmed, TransferInitiated,
 };
 pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
 pub use skeleton_loaders::{
     AnchorInfoSkeleton, AuthValidationSkeleton, TransactionStatusSkeleton, ValidationStep,
 };
+pub use metadata_cache::{CachedCapabilities, CachedMetadata, MetadataCache};
+pub use rate_limiter::{RateLimitConfig, RateLimiter};
+pub use request_id::{RequestId, RequestTracker, TracingSpan};
 pub use storage::Storage;
 pub use types::{
-    AnchorMetadata, AnchorOption, AnchorServices, Attestation, AuditLog, Endpoint,
-    HealthStatus, InteractionSession, OperationContext, QuoteData, QuoteRequest, RateComparison,
-    RoutingRequest, RoutingResult, RoutingStrategy, ServiceType, TransactionIntent,
-    TransactionIntentBuilder,
+    AnchorMetadata, AnchorOption, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
+    InteractionSession, OperationContext, QuoteData, QuoteRequest, RateComparison, RoutingRequest,
+    RoutingResult, RoutingStrategy, ServiceType, TransactionIntent, TransactionIntentBuilder,
 };
-pub use validation::{validate_init_config, validate_attestor_batch, validate_session_config};
+pub use validation::{validate_attestor_batch, validate_init_config, validate_session_config};
 
 #[contract]
 pub struct AnchorKitContract;
@@ -75,18 +124,15 @@ impl AnchorKitContract {
         // Strict validation before initialization
         validate_init_config(&config)?;
         admin.require_auth();
-        
+
         Storage::set_admin(&env, &admin);
         Storage::set_contract_config(&env, &config);
-        
+
         Ok(())
     }
 
     /// Batch register attestors with strict validation
-    pub fn batch_register_attestors(
-        env: Env,
-        attestors: Vec<AttestorConfig>,
-    ) -> Result<(), Error> {
+    pub fn batch_register_attestors(env: Env, attestors: Vec<AttestorConfig>) -> Result<(), Error> {
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
@@ -100,7 +146,7 @@ impl AnchorKitContract {
             }
 
             let attestor_addr = Address::from_string(&config.address);
-            
+
             if Storage::is_attestor(&env, &attestor_addr) {
                 return Err(Error::AttestorAlreadyRegistered);
             }
@@ -113,10 +159,7 @@ impl AnchorKitContract {
     }
 
     /// Configure session settings with strict validation
-    pub fn configure_session_settings(
-        env: Env,
-        config: SessionConfig,
-    ) -> Result<(), Error> {
+    pub fn configure_session_settings(env: Env, config: SessionConfig) -> Result<(), Error> {
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
@@ -488,6 +531,11 @@ impl AnchorKitContract {
             return Err(Error::UnauthorizedAttestor);
         }
 
+        // Check rate limit if configured
+        if let Some(config) = Storage::get_rate_limit_config(&env, &anchor) {
+            RateLimiter::check_and_update(&env, &anchor, &config)?;
+        }
+
         if rate == 0 || valid_until <= env.ledger().timestamp() {
             return Err(Error::InvalidQuote);
         }
@@ -558,13 +606,22 @@ impl AnchorKitContract {
             return Err(Error::NoQuotesAvailable);
         }
 
-        let mut best_quote = valid_quotes.get(0).unwrap();
+        let mut best_quote = match valid_quotes.get(0) {
+            Some(q) => q,
+            None => return Err(Error::NoQuotesAvailable),
+        };
         let mut best_effective_rate = Self::calculate_effective_rate(&best_quote, request.amount);
 
         for i in 1..valid_quotes.len() {
-            let quote = valid_quotes.get(i).unwrap();
-            let effective_rate = Self::calculate_effective_rate(&quote, request.amount);
-
+            let quote = match valid_quotes.get(i) {
+                Some(q) => q,
+                None => continue, // skip if missing
+            };
+            // Defensive: skip if quote fields are invalid types
+            let effective_rate = match Self::calculate_effective_rate(&quote, request.amount) {
+                rate => rate,
+                // If calculation fails due to type, skip
+            };
             if effective_rate < best_effective_rate {
                 best_quote = quote;
                 best_effective_rate = effective_rate;
@@ -790,8 +847,8 @@ impl AnchorKitContract {
 
     /// Check if credential needs rotation based on policy.
     pub fn check_credential_rotation(env: Env, attestor: Address) -> Result<bool, Error> {
-        let credential = Storage::get_secure_credential(&env, &attestor)
-            .ok_or(Error::CredentialNotFound)?;
+        let credential =
+            Storage::get_secure_credential(&env, &attestor).ok_or(Error::CredentialNotFound)?;
 
         let policy = Storage::get_credential_policy(&env, &attestor)
             .unwrap_or_else(|| CredentialManager::create_default_policy(attestor.clone()));
@@ -867,6 +924,63 @@ impl AnchorKitContract {
         Storage::get_anchor_metadata(&env, &anchor).ok_or(Error::AnchorMetadataNotFound)
     }
 
+    /// Cache anchor metadata with TTL. Only callable by admin.
+    pub fn cache_metadata(
+        env: Env,
+        anchor: Address,
+        metadata: AnchorMetadata,
+        ttl_seconds: u64,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        MetadataCache::set_metadata(&env, &anchor, &metadata, ttl_seconds);
+        Ok(())
+    }
+
+    /// Get cached metadata for an anchor.
+    pub fn get_cached_metadata(env: Env, anchor: Address) -> Result<AnchorMetadata, Error> {
+        MetadataCache::get_metadata(&env, &anchor)
+    }
+
+    /// Refresh (invalidate) cached metadata for an anchor. Only callable by admin.
+    pub fn refresh_metadata_cache(env: Env, anchor: Address) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        MetadataCache::invalidate_metadata(&env, &anchor);
+        Ok(())
+    }
+
+    /// Cache anchor capabilities (TOML) with TTL. Only callable by admin.
+    pub fn cache_capabilities(
+        env: Env,
+        anchor: Address,
+        toml_url: String,
+        capabilities: String,
+        ttl_seconds: u64,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        MetadataCache::set_capabilities(&env, &anchor, toml_url, capabilities, ttl_seconds);
+        Ok(())
+    }
+
+    /// Get cached capabilities for an anchor.
+    pub fn get_cached_capabilities(env: Env, anchor: Address) -> Result<CachedCapabilities, Error> {
+        MetadataCache::get_capabilities(&env, &anchor)
+    }
+
+    /// Refresh (invalidate) cached capabilities for an anchor. Only callable by admin.
+    pub fn refresh_capabilities_cache(env: Env, anchor: Address) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        MetadataCache::invalidate_capabilities(&env, &anchor);
+        Ok(())
+    }
+
     /// Get list of all registered anchors.
     pub fn get_all_anchors(env: Env) -> Vec<Address> {
         Storage::get_anchor_list(&env)
@@ -907,6 +1021,32 @@ impl AnchorKitContract {
     /// Get health status for an anchor.
     pub fn get_health_status(env: Env, anchor: Address) -> Option<HealthStatus> {
         Storage::get_health_status(&env, &anchor)
+    }
+
+    /// Configure rate limiting for an anchor. Only callable by admin.
+    pub fn configure_rate_limit(
+        env: Env,
+        anchor: Address,
+        config: RateLimitConfig,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+
+        if config.max_requests == 0 || config.window_seconds == 0 {
+            return Err(Error::InvalidConfig);
+        }
+
+        Storage::set_rate_limit_config(&env, &anchor, &config);
+        Ok(())
+    }
+
+    /// Get rate limit configuration for an anchor.
+    pub fn get_rate_limit_config(env: Env, anchor: Address) -> Option<RateLimitConfig> {
+        Storage::get_rate_limit_config(&env, &anchor)
     }
 
     /// Route a transaction request to the best anchor based on strategy.
@@ -953,7 +1093,10 @@ impl AnchorKitContract {
                 Err(_) => continue,
             };
 
-            if !services.services.contains(&routing_request.request.operation_type) {
+            if !services
+                .services
+                .contains(&routing_request.request.operation_type)
+            {
                 continue;
             }
 
@@ -963,11 +1106,9 @@ impl AnchorKitContract {
             }
 
             // Try to get a quote from this anchor
-            if let Some(quote) = Self::get_latest_quote_for_anchor(
-                &env,
-                &anchor,
-                &routing_request.request,
-            ) {
+            if let Some(quote) =
+                Self::get_latest_quote_for_anchor(&env, &anchor, &routing_request.request)
+            {
                 // Validate quote
                 if quote.valid_until > current_timestamp
                     && quote.base_asset == routing_request.request.base_asset
@@ -1113,8 +1254,8 @@ impl AnchorKitContract {
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
-        let mut metadata = Storage::get_anchor_metadata(&env, &anchor)
-            .ok_or(Error::AnchorMetadataNotFound)?;
+        let mut metadata =
+            Storage::get_anchor_metadata(&env, &anchor).ok_or(Error::AnchorMetadataNotFound)?;
 
         metadata.is_active = false;
         Storage::set_anchor_metadata(&env, &metadata);
@@ -1127,8 +1268,8 @@ impl AnchorKitContract {
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
-        let mut metadata = Storage::get_anchor_metadata(&env, &anchor)
-            .ok_or(Error::AnchorMetadataNotFound)?;
+        let mut metadata =
+            Storage::get_anchor_metadata(&env, &anchor).ok_or(Error::AnchorMetadataNotFound)?;
 
         metadata.is_active = true;
         Storage::set_anchor_metadata(&env, &metadata);
@@ -1252,5 +1393,167 @@ impl AnchorKitContract {
                 attestor, steps,
             ))
         }
+    // ============ Connection Pooling ============
+
+    /// Configure connection pool. Only callable by admin.
+    pub fn configure_connection_pool(
+        env: Env,
+        max_connections: u32,
+        idle_timeout_seconds: u64,
+        connection_timeout_seconds: u64,
+        reuse_connections: bool,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        let config = ConnectionPoolConfig {
+            max_connections,
+            idle_timeout_seconds,
+            connection_timeout_seconds,
+            reuse_connections,
+        };
+
+        ConnectionPool::set_config(&env, &config);
+        Ok(())
+    }
+
+    /// Get connection pool configuration.
+    pub fn get_pool_config(env: Env) -> ConnectionPoolConfig {
+        ConnectionPool::get_config(&env)
+    }
+
+    /// Get connection pool statistics.
+    pub fn get_pool_stats(env: Env) -> ConnectionStats {
+        ConnectionPool::get_stats(&env)
+    }
+
+    /// Reset connection pool statistics.
+    pub fn reset_pool_stats(env: Env) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        ConnectionPool::reset_stats(&env);
+        Ok(())
+    }
+
+    /// Get pooled connection for endpoint.
+    pub fn get_pooled_connection(env: Env, endpoint: String) -> Result<(), Error> {
+        ConnectionPool::get_connection(&env, &endpoint);
+        Ok(())
+    }
+
+    // ============ Request ID & Tracing ============
+
+    /// Generate a new request ID for tracing.
+    pub fn generate_request_id(env: Env) -> RequestId {
+        RequestId::generate(&env)
+    }
+
+    /// Submit attestation with request ID for tracing.
+    pub fn submit_with_request_id(
+        env: Env,
+        request_id: RequestId,
+        issuer: Address,
+        subject: Address,
+        timestamp: u64,
+        payload_hash: BytesN<32>,
+        signature: Bytes,
+    ) -> Result<u64, Error> {
+        issuer.require_auth();
+
+        let started_at = env.ledger().timestamp();
+        let result = Self::submit_attestation_internal(&env, &issuer, &subject, timestamp, &payload_hash, &signature);
+        let completed_at = env.ledger().timestamp();
+
+        let status = if result.is_ok() { String::from_str(&env, "success") } else { String::from_str(&env, "failed") };
+        let span = TracingSpan {
+            request_id: request_id.clone(),
+            operation: String::from_str(&env, "submit_attestation"),
+            actor: issuer.clone(),
+            started_at,
+            completed_at,
+            status,
+        };
+        RequestTracker::store_span(&env, &span);
+
+        result
+    }
+
+    /// Submit quote with request ID for tracing.
+    pub fn quote_with_request_id(
+        env: Env,
+        request_id: RequestId,
+        anchor: Address,
+        base_asset: String,
+        quote_asset: String,
+        rate: u64,
+        fee_percentage: u32,
+        minimum_amount: u64,
+        maximum_amount: u64,
+        valid_until: u64,
+    ) -> Result<u64, Error> {
+        anchor.require_auth();
+
+        let started_at = env.ledger().timestamp();
+        let result = Self::submit_quote(env.clone(), anchor.clone(), base_asset, quote_asset, rate, fee_percentage, minimum_amount, maximum_amount, valid_until);
+        let completed_at = env.ledger().timestamp();
+
+        let status = if result.is_ok() { String::from_str(&env, "success") } else { String::from_str(&env, "failed") };
+        let span = TracingSpan {
+            request_id: request_id.clone(),
+            operation: String::from_str(&env, "submit_quote"),
+            actor: anchor.clone(),
+            started_at,
+            completed_at,
+            status,
+        };
+        RequestTracker::store_span(&env, &span);
+
+        result
+    }
+
+    /// Get tracing span by request ID.
+    pub fn get_tracing_span(env: Env, request_id: BytesN<16>) -> Option<TracingSpan> {
+        RequestTracker::get_span(&env, &request_id)
+    }
+
+    fn submit_attestation_internal(
+        env: &Env,
+        issuer: &Address,
+        subject: &Address,
+        timestamp: u64,
+        payload_hash: &BytesN<32>,
+        signature: &Bytes,
+    ) -> Result<u64, Error> {
+        if timestamp == 0 {
+            return Err(Error::InvalidTimestamp);
+        }
+
+        if !Storage::is_attestor(env, issuer) {
+            return Err(Error::UnauthorizedAttestor);
+        }
+
+        if Storage::is_hash_used(env, payload_hash) {
+            return Err(Error::ReplayAttack);
+        }
+
+        Self::verify_signature(env, issuer, subject, timestamp, payload_hash, signature)?;
+
+        let id = Storage::get_and_increment_counter(env);
+        let attestation = Attestation {
+            id,
+            issuer: issuer.clone(),
+            subject: subject.clone(),
+            timestamp,
+            payload_hash: payload_hash.clone(),
+            signature: signature.clone(),
+        };
+
+        Storage::set_attestation(env, id, &attestation);
+        Storage::mark_hash_used(env, payload_hash);
+        AttestationRecorded::publish(env, id, subject, timestamp, payload_hash.clone());
+
+        Ok(id)
     }
 }
+

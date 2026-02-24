@@ -10,6 +10,8 @@ AnchorKit is a Soroban-native toolkit for anchoring off-chain attestations to St
 - Endpoint configuration for attestors
 - Service capability discovery (deposits, withdrawals, quotes, KYC)
 - **Health monitoring** (latency, failures, availability)
+- **Metadata caching** (TTL-based with manual refresh)
+- **Request ID propagation** (UUID per flow with tracing)
 - Event emission for all state changes
 - Comprehensive error handling with stable error codes
 
@@ -46,6 +48,20 @@ if contract.supports_service(&anchor, &ServiceType::Deposits) {
     // Process deposit
 }
 ```
+
+## CLI Example
+
+See complete deposit/withdraw workflow:
+
+```bash
+# Run bash demo
+./examples/cli_example.sh
+
+# Or run Rust example
+cargo run --example cli_example
+```
+
+See **[CLI_EXAMPLE.md](./CLI_EXAMPLE.md)** for full documentation.
 
 ## Key Features
 
@@ -101,6 +117,8 @@ const auditLog = await contract.get_audit_log(0);
 - **[SESSION_TRACEABILITY.md](./SESSION_TRACEABILITY.md)** - Complete feature guide with usage patterns
 - **[SECURE_CREDENTIALS.md](./SECURE_CREDENTIALS.md)** - Secure credential injection and management
 - **[HEALTH_MONITORING.md](./HEALTH_MONITORING.md)** - Anchor health monitoring interface
+- **[METADATA_CACHE.md](./METADATA_CACHE.md)** - Metadata and capabilities caching
+- **[REQUEST_ID_PROPAGATION.md](./REQUEST_ID_PROPAGATION.md)** - Request ID tracking and tracing
 - **[API_SPEC.md](./API_SPEC.md)** - API specification and error codes
 
 ### Technical Documentation
@@ -133,18 +151,188 @@ const auditLog = await contract.get_audit_log(0);
 - `SessionCreated` - Emitted when session is created
 - `OperationLogged` - Emitted when operation is logged
 
+## Platform Support
+
+AnchorKit is designed to work seamlessly across all major platforms:
+
+- ✅ **Linux** (Ubuntu, Debian, Fedora, etc.)
+- ✅ **macOS** (Intel and Apple Silicon)
+- ✅ **Windows** (10/11 with PowerShell)
+
+### Cross-Platform Features
+
+- **Path Handling**: All file operations use platform-agnostic APIs (`std::path::Path` in Rust, `pathlib.Path` in Python)
+- **Scripts**: Both bash (Unix) and PowerShell (Windows) versions provided
+- **Testing**: Comprehensive cross-platform test suite included
+- **CI/CD**: Automated testing on Linux, macOS, and Windows
+
+### Platform-Specific Setup
+
+- **Linux/macOS**: See main setup instructions below
+- **Windows**: See [WINDOWS_SETUP.md](./WINDOWS_SETUP.md) for detailed Windows-specific guide
+
 ## Building
+
+### Linux/macOS
 
 ```bash
 cargo build --release
 ```
 
-## Testing
+### Windows
 
-The contract includes comprehensive tests for all functionality:
+```powershell
+cargo build --release
+```
+
+For detailed Windows setup instructions, including IDE configuration and troubleshooting, see [WINDOWS_SETUP.md](./WINDOWS_SETUP.md).
+
+## CLI Usage
+
+AnchorKit now includes a comprehensive CLI tool for interacting with the smart contract. Each command includes helpful examples and clear descriptions.
+
+### Getting Help
+
+View all available commands:
+```bash
+anchorkit --help
+```
+
+Get detailed help for any command:
+```bash
+anchorkit deploy --help
+anchorkit register --help
+```
+
+### Common Workflows
+
+#### 1. Build and Deploy
+```bash
+# Build the contract
+anchorkit build --release
+
+# Deploy to testnet
+anchorkit deploy --network testnet
+
+# Initialize with admin account
+anchorkit init --admin GADMIN123...
+```
+
+#### 2. Register an Attestor
+```bash
+# Basic registration
+anchorkit register --address GANCHOR123...
+
+# Register with services
+anchorkit register --address GANCHOR123... \
+  --services deposits,withdrawals,kyc \
+  --endpoint https://anchor.example.com
+```
+
+#### 3. Submit Attestations
+```bash
+# Submit attestation
+anchorkit attest --subject GUSER123... --payload-hash abc123...
+
+# Submit with session tracking
+anchorkit attest --subject GUSER123... \
+  --payload-hash abc123... \
+  --session session-001
+```
+
+#### 4. Monitor Health
+```bash
+# Check all attestors
+anchorkit health
+
+# Monitor specific attestor
+anchorkit health --attestor GANCHOR123... --watch --interval 30
+```
+
+### Available Commands
+
+- `build` - Build the smart contract
+- `deploy` - Deploy to Stellar network
+- `init` - Initialize contract with admin
+- `register` - Register new attestor
+- `attest` - Submit attestation
+- `query` - Query attestation by ID
+- `health` - Check attestor health
+- `test` - Run contract tests
+- `validate` - Validate configuration files
+- `doctor` - Run environment diagnostics
+
+Each command includes:
+- Clear description of when to use it
+- Real-world usage examples
+- All available options and flags
+- Network selection support
+
+### Environment Diagnostics
+
+The `doctor` command helps troubleshoot environment setup issues:
 
 ```bash
+# Check your development environment
+anchorkit doctor
+```
+
+The doctor command checks:
+- ✅ Rust toolchain installation
+- ✅ WASM target availability
+- ✅ Wallet configuration
+- ✅ RPC endpoint connectivity
+- ✅ Config file validity
+- ✅ Network connectivity
+
+See **[DOCTOR_COMMAND.md](./DOCTOR_COMMAND.md)** for complete documentation.
+
+## Testing
+
+The contract includes comprehensive tests for all functionality, including cross-platform compatibility:
+
+### Linux/macOS
+```bash
+# Run all tests
 cargo test
+
+# Run cross-platform path tests
+cargo test cross_platform
+
+# Run with verbose output
+cargo test --verbose
+```
+
+### Windows
+```powershell
+# Run all tests
+cargo test
+
+# Run cross-platform path tests
+cargo test cross_platform
+
+# Run with verbose output
+cargo test --verbose
+```
+
+### Configuration Validation
+
+#### Linux/macOS
+```bash
+# Validate all configurations
+./validate_all.sh
+
+# Pre-deployment validation
+./pre_deploy_validate.sh
+```
+
+#### Windows
+```powershell
+# Validate all configurations
+.\validate_all.ps1
+
+# Pre-deployment validation
+.\pre_deploy_validate.ps1
 ```
 
 ## Backward Compatibility

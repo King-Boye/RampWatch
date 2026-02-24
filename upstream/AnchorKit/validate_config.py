@@ -94,7 +94,9 @@ def validate_json_config(file_path: Path) -> None:
     print(f"✓ {file_path.name} is valid")
 
 def main():
-    config_dir = Path(__file__).parent / "configs"
+    # Use pathlib for cross-platform path handling
+    script_dir = Path(__file__).resolve().parent
+    config_dir = script_dir.joinpath("configs")
     
     if not config_dir.exists():
         print(f"Error: configs directory not found at {config_dir}")
