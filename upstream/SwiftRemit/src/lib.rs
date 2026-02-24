@@ -4,8 +4,8 @@
 //! with built-in duplicate settlement protection and expiry mechanisms.
 
 #![no_std]
-mod debug;
-mod error_handler;
+
+mod asset_verification;
 mod errors;
 mod events;
 mod hashing;
@@ -28,10 +28,9 @@ mod test_protocol_fee;
 #[cfg(test)]
 mod test_property; 
 
-use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec, String};
+use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
 
-pub use debug::*;
-pub use error_handler::*;
+pub use asset_verification::*;
 pub use errors::ContractError;
 pub use events::*;
 pub use hashing::*;
@@ -1108,215 +1107,127 @@ impl SwiftRemitContract {
     }
 }
 
-#[contractimpl]
-impl SwiftRemitContract {
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Migration Functions
-    // ═══════════════════════════════════════════════════════════════════════════
+    // ========== Asset Verification Functions ==========
 
-    /// Export complete contract state for migration
-    /// 
-    /// Creates a cryptographically verified snapshot of all contract data including:
-    /// - Instance storage (admin, token, fees, counters)
-    /// - Persistent storage (remittances, agents, admins, settlement hashes)
-    /// - Verification hash for integrity checking
-    /// 
-    /// # Security
-    /// - Only callable by admin
-    /// - Generates deterministic SHA-256 hash
-    /// - Includes timestamp and ledger sequence for audit trail
-    /// - Prevents tampering through cryptographic verification
-    /// 
+    /// Stores or updates asset verification data (admin only).
+    ///
+    /// This function is called by the off-chain verification service to store
+    /// verification results on-chain. The backend service performs checks against
+    /// Stellar Expert, stellar.toml, anchor registries, and transaction history.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `asset_code` - Asset code (e.g., "USDC")
+    /// * `issuer` - Issuer address
+    /// * `status` - Verification status (Verified, Unverified, Suspicious)
+    /// * `reputation_score` - Score from 0-100
+    /// * `trustline_count` - Number of trustlines
+    /// * `has_toml` - Whether asset has valid stellar.toml
+    ///
     /// # Returns
-    /// MigrationSnapshot containing complete contract state
-    /// 
-    /// # Example
-    /// ```ignore
-    /// let snapshot = contract.export_migration_state(&admin)?;
-    /// // Verify hash before using
-    /// let verification = contract.verify_migration_snapshot(&snapshot)?;
-    /// assert!(verification.valid);
-    /// ```
-    pub fn export_migration_state(
-        env: Env,
-        caller: Address,
-    ) -> Result<MigrationSnapshot, ContractError> {
-        require_admin(&env, &caller)?;
-        migration::export_state(&env)
-    }
-
-    /// Import contract state from migration snapshot
-    /// 
-    /// Restores complete contract state from a verified snapshot including:
-    /// - Cryptographic hash verification
-    /// - Instance storage restoration
-    /// - Persistent storage restoration
-    /// - Replay protection
-    /// 
-    /// # Security
-    /// - Only callable by admin
-    /// - Verifies cryptographic hash before import
-    /// - Prevents import if contract already initialized
-    /// - Atomic operation (all or nothing)
-    /// - No trust assumptions (cryptographically verified)
-    /// 
-    /// # Parameters
-    /// - `caller`: Admin address (must be authorized)
-    /// - `snapshot`: Complete migration snapshot to import
-    /// 
-    /// # Returns
-    /// Ok(()) if import successful
-    /// 
-    /// # Errors
-    /// - AlreadyInitialized: Contract already has data
-    /// - InvalidMigrationHash: Hash verification failed
-    /// - Unauthorized: Caller is not admin
-    /// 
-    /// # Example
-    /// ```ignore
-    /// // On new contract deployment
-    /// let snapshot = get_snapshot_from_old_contract();
-    /// contract.import_migration_state(&admin, snapshot)?;
-    /// ```
-    pub fn import_migration_state(
-        env: Env,
-        caller: Address,
-        snapshot: MigrationSnapshot,
-    ) -> Result<(), ContractError> {
-        caller.require_auth();
-        migration::import_state(&env, snapshot)
-    }
-
-    /// Verify migration snapshot integrity without importing
-    /// 
-    /// Validates that a snapshot's cryptographic hash matches its contents.
-    /// Useful for pre-import validation and auditing.
-    /// 
-    /// # Parameters
-    /// - `snapshot`: Snapshot to verify
-    /// 
-    /// # Returns
-    /// MigrationVerification with:
-    /// - valid: Whether hash matches
-    /// - expected_hash: Hash from snapshot
-    /// - actual_hash: Computed hash
-    /// - timestamp: Verification time
-    /// 
-    /// # Example
-    /// ```ignore
-    /// let snapshot = get_snapshot();
-    /// let verification = contract.verify_migration_snapshot(&snapshot)?;
-    /// if !verification.valid {
-    ///     panic!("Snapshot integrity check failed!");
-    /// }
-    /// ```
-    pub fn verify_migration_snapshot(
-        env: Env,
-        snapshot: MigrationSnapshot,
-    ) -> MigrationVerification {
-        migration::verify_snapshot(&env, &snapshot)
-    }
-
-    /// Export state in batches for large datasets
-    /// 
-    /// For contracts with many remittances, export in batches to avoid
-    /// resource limits. Each batch includes its own hash for verification.
-    /// 
-    /// # Parameters
-    /// - `caller`: Admin address (must be authorized)
-    /// - `batch_number`: Which batch to export (0-indexed)
-    /// - `batch_size`: Number of items per batch (max 100)
-    /// 
-    /// # Returns
-    /// MigrationBatch containing subset of data with verification hash
-    /// 
-    /// # Example
-    /// ```ignore
-    /// // Export in batches of 50
-    /// let batch0 = contract.export_migration_batch(&admin, 0, 50)?;
-    /// let batch1 = contract.export_migration_batch(&admin, 1, 50)?;
-    /// ```
-    pub fn export_migration_batch(
-        env: Env,
-        caller: Address,
-        batch_number: u32,
-        batch_size: u32,
-    ) -> Result<MigrationBatch, ContractError> {
-        require_admin(&env, &caller)?;
-        migration::export_batch(&env, batch_number, batch_size)
-    }
-
-    /// Import state from batch
-    /// 
-    /// Import a single batch of remittances with hash verification.
-    /// Batches should be imported in order (0, 1, 2, ...) for consistency.
-    /// 
-    /// # Parameters
-    /// - `caller`: Admin address (must be authorized)
-    /// - `batch`: Batch to import with verification hash
-    /// 
-    /// # Returns
-    /// Ok(()) if import successful
-    /// 
-    /// # Errors
-    /// - InvalidMigrationHash: Batch hash verification failed
-    /// - Unauthorized: Caller is not admin
-    /// 
-    /// # Example
-    /// ```ignore
-    /// let batch = get_batch_from_old_contract(0);
-    /// contract.import_migration_batch(&admin, batch)?;
-    /// ```
-    pub fn import_migration_batch(
-        env: Env,
-        caller: Address,
-        batch: MigrationBatch,
-    ) -> Result<(), ContractError> {
-        require_admin(&env, &caller)?;
-        migration::import_batch(&env, batch)
-    }
-
-    /// Sets the daily send limit for a specific currency-country pair.
-    /// 
-    /// # Parameters
-    /// - `currency`: Currency code (e.g., "USD", "EUR")
-    /// - `country`: Country code (e.g., "US", "UK")
-    /// - `limit`: Maximum amount that can be sent in 24 hours
-    /// 
+    ///
+    /// * `Ok(())` - Verification data stored successfully
+    /// * `Err(ContractError::NotInitialized)` - Contract not initialized
+    /// * `Err(ContractError::InvalidReputationScore)` - Score not in 0-100 range
+    ///
     /// # Authorization
-    /// Requires admin authentication
-    /// 
-    /// # Errors
-    /// - InvalidAmount: If limit is negative
-    /// - Unauthorized: If caller is not admin
-    pub fn set_daily_limit(
+    ///
+    /// Requires authentication from the contract admin.
+    pub fn set_asset_verification(
         env: Env,
-        currency: String,
-        country: String,
-        limit: i128,
+        asset_code: String,
+        issuer: Address,
+        status: VerificationStatus,
+        reputation_score: u32,
+        trustline_count: u64,
+        has_toml: bool,
     ) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
 
-        if limit < 0 {
-            return Err(ContractError::InvalidAmount);
+        if reputation_score > 100 {
+            return Err(ContractError::InvalidReputationScore);
         }
 
-        set_daily_limit(&env, &currency, &country, limit);
+        let verification = AssetVerification {
+            asset_code: asset_code.clone(),
+            issuer: issuer.clone(),
+            status,
+            reputation_score,
+            last_verified: env.ledger().timestamp(),
+            trustline_count,
+            has_toml,
+        };
+
+        set_asset_verification(&env, &verification);
 
         Ok(())
     }
 
-    /// Gets the configured daily send limit for a currency-country pair.
-    /// 
-    /// # Parameters
-    /// - `currency`: Currency code (e.g., "USD", "EUR")
-    /// - `country`: Country code (e.g., "US", "UK")
-    /// 
+    /// Retrieves asset verification data.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `asset_code` - Asset code to look up
+    /// * `issuer` - Issuer address
+    ///
     /// # Returns
-    /// - `Some(DailyLimit)`: If a limit is configured
-    /// - `None`: If no limit is configured (unlimited)
-    pub fn get_daily_limit(env: Env, currency: String, country: String) -> Option<DailyLimit> {
-        get_daily_limit(&env, &currency, &country)
+    ///
+    /// * `Ok(AssetVerification)` - The verification record
+    /// * `Err(ContractError::AssetNotFound)` - Asset not found in verification database
+    pub fn get_asset_verification(
+        env: Env,
+        asset_code: String,
+        issuer: Address,
+    ) -> Result<AssetVerification, ContractError> {
+        get_asset_verification(&env, &asset_code, &issuer)
+    }
+
+    /// Checks if an asset has verification data stored.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `asset_code` - Asset code to check
+    /// * `issuer` - Issuer address
+    ///
+    /// # Returns
+    ///
+    /// * `true` - Asset has verification data
+    /// * `false` - Asset not found in verification database
+    pub fn has_asset_verification(env: Env, asset_code: String, issuer: Address) -> bool {
+        has_asset_verification(&env, &asset_code, &issuer)
+    }
+
+    /// Validates that an asset is safe to use (not suspicious).
+    ///
+    /// This can be called before creating remittances to ensure the asset
+    /// being used is not flagged as suspicious.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `asset_code` - Asset code to validate
+    /// * `issuer` - Issuer address
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Asset is safe to use
+    /// * `Err(ContractError::SuspiciousAsset)` - Asset is flagged as suspicious
+    /// * `Err(ContractError::AssetNotFound)` - Asset not in verification database
+    pub fn validate_asset_safety(
+        env: Env,
+        asset_code: String,
+        issuer: Address,
+    ) -> Result<(), ContractError> {
+        let verification = get_asset_verification(&env, &asset_code, &issuer)?;
+        
+        if verification.status == VerificationStatus::Suspicious {
+            return Err(ContractError::SuspiciousAsset);
+        }
+
+        Ok(())
     }
 }

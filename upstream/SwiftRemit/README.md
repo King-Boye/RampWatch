@@ -284,8 +284,39 @@ Contributions welcome! Please ensure:
 - New features include tests
 - Documentation is updated
 
+## Asset Verification System
+
+SwiftRemit now includes a comprehensive asset verification system that validates Stellar assets against multiple trusted sources. See [ASSET_VERIFICATION.md](ASSET_VERIFICATION.md) for complete documentation.
+
+### Features
+
+- ✅ Multi-source verification (Stellar Expert, TOML, trustlines, transaction history)
+- ✅ On-chain storage of verification results
+- ✅ RESTful API for verification queries
+- ✅ React component for visual trust indicators
+- ✅ Background job for periodic revalidation
+- ✅ Community reporting system
+- ✅ Reputation scoring (0-100)
+- ✅ Suspicious asset detection and warnings
+
+### Quick Start
+
+```bash
+# Start backend service
+cd backend
+npm install
+cp .env.example .env
+npm run dev
+
+# Use in React
+import { VerificationBadge } from './components/VerificationBadge';
+
+<VerificationBadge assetCode="USDC" issuer="GA5Z..." />
+```
+
 ## Roadmap
 
+- [x] Asset verification system
 - [ ] Multi-currency support
 - [ ] Batch remittance processing
 - [ ] Agent reputation system
