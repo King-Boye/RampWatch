@@ -5,7 +5,7 @@ use crate::{
     credentials::{CredentialPolicy, SecureCredential},
     rate_limiter::RateLimitConfig,
     types::{
-        AnchorMetadata, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
+        AnchorMetadata, AnchorProfile, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
         InteractionSession, OperationContext, QuoteData,
     },
     Error,
@@ -37,6 +37,7 @@ enum StorageKey {
     AnchorMetadata(Address),
     AnchorList,
     RateLimitConfig(Address),
+    AnchorProfile(Address), // <-- Added for Issue #98
 }
 
 impl StorageKey {
@@ -91,6 +92,9 @@ impl StorageKey {
             StorageKey::AnchorList => (soroban_sdk::symbol_short!("ANCHLIST"),).into_val(env),
             StorageKey::RateLimitConfig(addr) => {
                 (soroban_sdk::symbol_short!("RATELCFG"), addr).into_val(env)
+            }
+            StorageKey::AnchorProfile(addr) => {
+                (soroban_sdk::symbol_short!("ANCHPROF"), addr).into_val(env)
             }
         }
     }
@@ -525,6 +529,25 @@ impl Storage {
 
     pub fn get_rate_limit_config(env: &Env, anchor: &Address) -> Option<RateLimitConfig> {
         let key = StorageKey::RateLimitConfig(anchor.clone()).to_storage_key(env);
+        env.storage().persistent().get(&key)
+    }
+
+    // ============ Anchor Profile Storage (Issue #98) ============
+
+    /// Store public profile information for an anchor
+    pub fn set_anchor_profile(env: &Env, anchor: &Address, profile: &AnchorProfile) {
+        let key = StorageKey::AnchorProfile(anchor.clone()).to_storage_key(env);
+        env.storage().persistent().set(&key, profile);
+        env.storage().persistent().extend_ttl(
+            &key,
+            Self::PERSISTENT_LIFETIME,
+            Self::PERSISTENT_LIFETIME,
+        );
+    }
+
+    /// Retrieve public profile information for an anchor
+    pub fn get_anchor_profile(env: &Env, anchor: &Address) -> Option<AnchorProfile> {
+        let key = StorageKey::AnchorProfile(anchor.clone()).to_storage_key(env);
         env.storage().persistent().get(&key)
     }
 }
