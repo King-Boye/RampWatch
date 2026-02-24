@@ -1,7 +1,7 @@
 use soroban_sdk::contracterror;
 
 /// Error codes for AnchorKit contract operations.
-/// All error codes are in the range 100-130 for stable API compatibility.
+/// Consolidated to stay within Soroban's 32 error variant limit.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -14,66 +14,43 @@ pub enum Error {
     ReplayAttack = 6,
     InvalidTimestamp = 7,
     AttestationNotFound = 8,
-    InvalidPublicKey = 9,
-    InvalidEndpointFormat = 10,
-    EndpointNotFound = 11,
-    EndpointAlreadyExists = 12,
-    ServicesNotConfigured = 13,
-    InvalidServiceType = 14,
+    InvalidEndpointFormat = 9,
+    EndpointNotFound = 10,
+    ServicesNotConfigured = 11,
+    InvalidServiceType = 12,
 
     /// Session-related errors
-    SessionNotFound = 16,
-    InvalidSessionId = 17,
-    SessionReplayAttack = 18,
+    SessionNotFound = 13,
+    InvalidSessionId = 14,
 
     /// Quote-related errors
-    InvalidQuote = 19,
-    StaleQuote = 20,
-    NoQuotesAvailable = 21,
-    QuoteNotFound = 22,
+    InvalidQuote = 15,
+    StaleQuote = 16,
+    NoQuotesAvailable = 17,
+    QuoteNotFound = 18,
 
     /// Transaction intent / compliance errors
-    InvalidTransactionIntent = 23,
-    ComplianceNotMet = 24,
+    InvalidTransactionIntent = 19,
+    ComplianceNotMet = 20,
 
     /// Configuration validation errors
-    InvalidConfig = 25,
-    DuplicateAttestor = 26,
-    NoEnabledAttestors = 27,
-
-    /// Detailed config validation errors
-    InvalidConfigName = 28,
-    InvalidConfigVersion = 29,
-    InvalidConfigNetwork = 30,
-    InvalidAttestorName = 31,
-    InvalidAttestorAddress = 32,
-    InvalidAttestorRole = 33,
+    InvalidConfig = 21,
 
     /// Credential errors
-    InvalidCredentialFormat = 34,
-    CredentialNotFound = 35,
-    InsecureCredentialStorage = 36,
-    CredentialExpired = 37,
+    InvalidCredentialFormat = 22,
+    CredentialNotFound = 23,
+    InsecureCredentialStorage = 24,
+    CredentialExpired = 25,
 
     /// Anchor metadata errors
-    InvalidAnchorMetadata = 38,
-    AnchorMetadataNotFound = 39,
-    NoAnchorsAvailable = 40,
+    InvalidAnchorMetadata = 26,
+    AnchorMetadataNotFound = 27,
+    NoAnchorsAvailable = 28,
 
-    /// Transport errors (HTTP/Network layer)
-    TransportError = 41, // Generic transport/network error
-    TransportTimeout = 42,      // Timeout errors (408, 504)
-    TransportUnauthorized = 43, // Auth errors (401, 403)
-
-    /// Protocol errors (Anchor validation layer)
-    ProtocolError = 44, // Generic protocol error
-    ProtocolInvalidPayload = 45,      // Invalid/malformed payload
-    ProtocolRateLimitExceeded = 46,   // Rate limiting (retryable)
-    ProtocolComplianceViolation = 47, // Compliance/KYC errors
-
-    /// Cache errors
-    CacheExpired = 48,
-    CacheNotFound = 49,
     /// Rate limiter errors
-    RateLimitExceeded = 48,
+    RateLimitExceeded = 29,
+    
+    /// Asset validator errors
+    AssetNotConfigured = 30,
+    UnsupportedAsset = 31,
 }

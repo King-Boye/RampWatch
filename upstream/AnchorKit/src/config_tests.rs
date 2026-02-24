@@ -19,14 +19,14 @@ fn test_contract_config_validation() {
         version: String::from_str(&env, "1.0.0"),
         network: String::from_str(&env, "testnet"),
     };
-    assert_eq!(empty_name.validate(), Err(Error::InvalidConfigName));
+    assert_eq!(empty_name.validate(), Err(Error::InvalidConfig));
 
     let long_name = ContractConfig {
         name: String::from_str(&env, "a".repeat(65).as_str()),
         version: String::from_str(&env, "1.0.0"),
         network: String::from_str(&env, "testnet"),
     };
-    assert_eq!(long_name.validate(), Err(Error::InvalidConfigName));
+    assert_eq!(long_name.validate(), Err(Error::InvalidConfig));
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn test_attestor_config_validation() {
     };
     assert_eq!(
         invalid_address.validate(),
-        Err(Error::InvalidAttestorAddress)
+        Err(Error::InvalidConfig)
     );
 
     let invalid_endpoint = AttestorConfig {
