@@ -10,6 +10,7 @@ mod events;
 mod skeleton_loaders;
 mod metadata_cache;
 mod rate_limiter;
+mod request_history;
 mod request_id;
 mod retry;
 mod serialization;
@@ -69,6 +70,9 @@ mod metadata_cache_tests;
 mod request_id_tests;
 
 #[cfg(test)]
+mod request_history_tests;
+
+#[cfg(test)]
 mod tracing_span_tests;
 
 #[cfg(test)]
@@ -91,6 +95,7 @@ pub use skeleton_loaders::{
 };
 pub use metadata_cache::{CachedCapabilities, CachedMetadata, MetadataCache};
 pub use rate_limiter::{RateLimitConfig, RateLimiter};
+pub use request_history::{ApiCallDetails, ApiCallRecord, ApiCallStatus, RequestHistory, RequestHistoryPanel};
 pub use request_id::{RequestId, RequestTracker, TracingSpan};
 pub use storage::Storage;
 pub use types::{
@@ -1360,7 +1365,7 @@ impl AnchorKitContract {
         )));
 
         // Step 2: Check credential policy
-        let has_policy = Storage::get_credential_policy(&env, &attestor).is_ok();
+        let has_policy = Storage::get_credential_policy(&env, &attestor).is_some();
         if has_policy {
             steps.push_back(ValidationStep::complete(String::from_str(
                 &env,
@@ -1560,69 +1565,241 @@ impl AnchorKitContract {
         Ok(id)
     }
 
-    // ============ Anchor Discovery & Filtering ============
 
-    /// Set public profile information for an anchor (Name, Region, Assets)
-    pub fn set_anchor_profile(
+#[contractimpl]
+impl AnchorKitContract {
+    // ============ Request History Panel ============
+
+    /// Get request history panel data with recent API calls
+    /// Returns up to `limit` recent API calls with their status and details
+    pub fn get_request_history(env: Env, limit: u32) -> RequestHistoryPanel {
+        RequestHistory::get_panel_data(&env, limit)
+    }
+
+    /// Get detailed information about a specific API call
+    pub fn get_api_call_details(env: Env, call_id: u64) -> Option<ApiCallDetails> {
+        RequestHistory::get_call_details(&env, call_id)
+    }
+
+    /// Get a specific API call record by ID
+    pub fn get_api_call(env: Env, call_id: u64) -> Option<ApiCallRecord> {
+        RequestHistory::get_call(&env, call_id)
+    }
+
+    /// Submit attestation with automatic request history tracking
+    pub fn submit_attestation_tracked(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        timestamp: u64,
+        payload_hash: BytesN<32>,
+        signature: Bytes,
+    ) -> Result<u64, Error> {
+        issuer.require_auth();
+
+        let request_id = RequestId::generate(&env);
+        let call_id = RequestHistory::get_next_call_id(&env);
+        let started_at = env.ledger().timestamp();
+
+        let result = Self::submit_attestation_internal(
+            &env,
+            &issuer,
+            &subject,
+            timestamp,
+            &payload_hash,
+            &signature,
+        );
+
+        let completed_at = env.ledger().timestamp();
+        let duration_ms = (completed_at.saturating_sub(started_at)) * 1000;
+
+        let (status, error_code) = match &result {
+            Ok(_) => (ApiCallStatus::Success, None),
+            Err(e) => (ApiCallStatus::Failed, Some(Self::error_to_code(e))),
+        };
+
+        let mut record = ApiCallRecord::new(
+            &env,
+            call_id,
+            request_id.id.clone(),
+            String::from_str(&env, "submit_attestation"),
+            issuer.clone(),
+            status,
+            duration_ms,
+        );
+
+        if let Some(code) = error_code {
+            record = record.with_error(code);
+        }
+
+        RequestHistory::record_call(&env, &record);
+
+        // Store detailed information
+        if let Ok(attestation_id) = &result {
+            let details = ApiCallDetails {
+                record: record.clone(),
+                target_address: Some(subject.clone()),
+                amount: None,
+                result_data: None, // Store ID in amount field instead
+            };
+            RequestHistory::store_call_details(&env, &details);
+        }
+
+        result
+    }
+
+    /// Submit quote with automatic request history tracking
+    pub fn submit_quote_tracked(
         env: Env,
         anchor: Address,
-        name: String,
-        region: String,
-        assets: Vec<String>,
+        base_asset: String,
+        quote_asset: String,
+        rate: u64,
+        fee_percentage: u32,
+        minimum_amount: u64,
+        maximum_amount: u64,
+        valid_until: u64,
+    ) -> Result<u64, Error> {
+        anchor.require_auth();
+
+        let request_id = RequestId::generate(&env);
+        let call_id = RequestHistory::get_next_call_id(&env);
+        let started_at = env.ledger().timestamp();
+
+        let result = Self::submit_quote(
+            env.clone(),
+            anchor.clone(),
+            base_asset.clone(),
+            quote_asset.clone(),
+            rate,
+            fee_percentage,
+            minimum_amount,
+            maximum_amount,
+            valid_until,
+        );
+
+        let completed_at = env.ledger().timestamp();
+        let duration_ms = (completed_at.saturating_sub(started_at)) * 1000;
+
+        let (status, error_code) = match &result {
+            Ok(_) => (ApiCallStatus::Success, None),
+            Err(e) => (ApiCallStatus::Failed, Some(Self::error_to_code(e))),
+        };
+
+        let mut record = ApiCallRecord::new(
+            &env,
+            call_id,
+            request_id.id.clone(),
+            String::from_str(&env, "submit_quote"),
+            anchor.clone(),
+            status,
+            duration_ms,
+        );
+
+        if let Some(code) = error_code {
+            record = record.with_error(code);
+        }
+
+        RequestHistory::record_call(&env, &record);
+
+        // Store detailed information
+        if let Ok(quote_id) = &result {
+            let details = ApiCallDetails {
+                record: record.clone(),
+                target_address: Some(anchor.clone()),
+                amount: Some(rate),
+                result_data: None, // Store quote_id in amount field if needed
+            };
+            RequestHistory::store_call_details(&env, &details);
+        }
+
+        result
+    }
+
+    /// Register attestor with automatic request history tracking
+    pub fn register_attestor_tracked(
+        env: Env,
+        attestor: Address,
     ) -> Result<(), Error> {
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
-        if !Storage::is_attestor(&env, &anchor) {
-            return Err(Error::AttestorNotRegistered);
-        }
+        let request_id = RequestId::generate(&env);
+        let call_id = RequestHistory::get_next_call_id(&env);
+        let started_at = env.ledger().timestamp();
 
-        let profile = AnchorProfile {
-            name,
-            region,
-            assets,
+        let result = Self::register_attestor(env.clone(), attestor.clone());
+
+        let completed_at = env.ledger().timestamp();
+        let duration_ms = (completed_at.saturating_sub(started_at)) * 1000;
+
+        let (status, error_code) = match &result {
+            Ok(_) => (ApiCallStatus::Success, None),
+            Err(e) => (ApiCallStatus::Failed, Some(Self::error_to_code(e))),
         };
 
-        Storage::set_anchor_profile(&env, &anchor, &profile);
-        Ok(())
-    }
+        let mut record = ApiCallRecord::new(
+            &env,
+            call_id,
+            request_id.id.clone(),
+            String::from_str(&env, "register_attestor"),
+            admin.clone(),
+            status,
+            duration_ms,
+        );
 
-    /// Search and filter anchors based on provided criteria.
-    pub fn search_anchors(env: Env, query: AnchorSearchQuery) -> Vec<Address> {
-        let all_anchors = Storage::get_anchor_list(&env);
-        let mut results = Vec::new(&env);
-
-        for anchor in all_anchors.iter() {
-            if let Some(profile) = Storage::get_anchor_profile(&env, &anchor) {
-                let mut matches = true;
-
-                // 1. Filter by Name (Exact match for gas optimization)
-                if let Some(ref q_name) = query.name {
-                    if profile.name != *q_name {
-                        matches = false;
-                    }
-                }
-
-                // 2. Filter by Region
-                if let Some(ref q_region) = query.region {
-                    if profile.region != *q_region {
-                        matches = false;
-                    }
-                }
-
-                // 3. Filter by Asset
-                if let Some(ref q_asset) = query.asset {
-                    if !profile.assets.contains(q_asset) {
-                        matches = false;
-                    }
-                }
-
-                if matches {
-                    results.push_back(anchor);
-                }
-            }
+        if let Some(code) = error_code {
+            record = record.with_error(code);
         }
 
-        results
+        RequestHistory::record_call(&env, &record);
+
+        // Store detailed information
+        let details = ApiCallDetails {
+            record: record.clone(),
+            target_address: Some(attestor.clone()),
+            amount: None,
+            result_data: None,
+        };
+        RequestHistory::store_call_details(&env, &details);
+
+        result
+    }
+
+    /// Helper function to convert Error to error code
+    fn error_to_code(error: &Error) -> u32 {
+        match error {
+            Error::AlreadyInitialized => 1,
+            Error::NotInitialized => 2,
+            Error::UnauthorizedAttestor => 3,
+            Error::AttestorAlreadyRegistered => 4,
+            Error::AttestorNotRegistered => 5,
+            Error::ReplayAttack => 6,
+            Error::InvalidTimestamp => 7,
+            Error::AttestationNotFound => 8,
+            Error::InvalidEndpointFormat => 9,
+            Error::EndpointNotFound => 10,
+            Error::ServicesNotConfigured => 11,
+            Error::InvalidServiceType => 12,
+            Error::SessionNotFound => 13,
+            Error::InvalidSessionId => 14,
+            Error::InvalidQuote => 15,
+            Error::StaleQuote => 16,
+            Error::NoQuotesAvailable => 17,
+            Error::QuoteNotFound => 18,
+            Error::InvalidTransactionIntent => 19,
+            Error::ComplianceNotMet => 20,
+            Error::InvalidConfig => 21,
+            Error::InvalidCredentialFormat => 22,
+            Error::CredentialNotFound => 23,
+            Error::InsecureCredentialStorage => 24,
+            Error::CredentialExpired => 25,
+            Error::InvalidAnchorMetadata => 26,
+            Error::AnchorMetadataNotFound => 27,
+            Error::NoAnchorsAvailable => 28,
+            Error::RateLimitExceeded => 29,
+            Error::AssetNotConfigured => 30,
+            Error::UnsupportedAsset => 31,
+        }
     }
 }
