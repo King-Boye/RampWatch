@@ -57,7 +57,7 @@ mod timeout_tests;
 #[cfg(test)]
 mod signature_tests;
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(test)]
 mod cross_platform_tests;
 
 #[cfg(test)]
@@ -74,7 +74,6 @@ mod request_history_tests;
 
 #[cfg(test)]
 mod tracing_span_tests;
-
 
 #[cfg(test)]
 mod skeleton_loader_tests;
@@ -100,7 +99,7 @@ pub use request_history::{ApiCallDetails, ApiCallRecord, ApiCallStatus, RequestH
 pub use request_id::{RequestId, RequestTracker, TracingSpan};
 pub use storage::Storage;
 pub use types::{
-    AnchorMetadata, AnchorOption, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
+    AnchorMetadata, AnchorOption, AnchorProfile, AnchorSearchQuery, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
     InteractionSession, OperationContext, QuoteData, QuoteRequest, RateComparison, RoutingRequest,
     RoutingResult, RoutingStrategy, ServiceType, TransactionIntent, TransactionIntentBuilder,
 };
@@ -1565,7 +1564,6 @@ impl AnchorKitContract {
 
         Ok(id)
     }
-}
 
 
 #[contractimpl]
