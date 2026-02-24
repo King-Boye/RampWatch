@@ -21,6 +21,8 @@ mod validation;
 #[cfg(test)]
 mod config_tests;
 #[cfg(test)]
+mod config_builder_tests;
+#[cfg(test)]
 mod deterministic_hash_tests;
 #[cfg(test)]
 mod sdk_config_tests;

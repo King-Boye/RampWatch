@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod cross_platform_path_tests {
+    extern crate std;
     use std::path::{Path, PathBuf};
     use std::fs;
     use std::io::Write;
@@ -61,7 +62,7 @@ mod cross_platform_path_tests {
         let configs_dir = Path::new("configs");
         
         if configs_dir.exists() {
-            let entries: Vec<_> = fs::read_dir(configs_dir)
+            let entries: std::vec::Vec<_> = fs::read_dir(configs_dir)
                 .expect("Failed to read configs directory")
                 .filter_map(|e| e.ok())
                 .collect();
@@ -130,7 +131,7 @@ mod cross_platform_path_tests {
     fn test_path_components() {
         let path = Path::new("configs").join("subdir").join("file.json");
         
-        let components: Vec<_> = path.components().collect();
+        let components: std::vec::Vec<_> = path.components().collect();
         assert!(components.len() >= 3);
         
         // File name
@@ -194,7 +195,7 @@ mod cross_platform_path_tests {
         let configs_dir = Path::new("configs");
         
         if configs_dir.exists() {
-            let entries: Vec<_> = fs::read_dir(configs_dir)
+            let entries: std::vec::Vec<_> = fs::read_dir(configs_dir)
                 .expect("Failed to read directory")
                 .filter_map(|e| e.ok())
                 .filter(|e| {
@@ -220,6 +221,7 @@ mod cross_platform_path_tests {
 
 #[cfg(test)]
 mod cross_platform_io_tests {
+    extern crate std;
     use std::fs;
     use std::path::Path;
 
@@ -292,6 +294,7 @@ mod cross_platform_io_tests {
 
 #[cfg(test)]
 mod cross_platform_config_tests {
+    extern crate std;
     use std::path::Path;
 
     /// Test that config schema path is constructed correctly
