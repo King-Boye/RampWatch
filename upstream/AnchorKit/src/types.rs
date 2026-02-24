@@ -304,3 +304,29 @@ impl SdkConfig {
     }
 }
 
+
+/// Webhook event for monitoring and debugging
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WebhookEvent {
+    pub event_id: u64,
+    pub event_type: WebhookEventType,
+    pub timestamp: u64,
+    pub payload_hash: BytesN<32>,
+}
+
+/// Types of webhook events
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum WebhookEventType {
+    Deposit = 1,
+    Withdrawal = 2,
+    KycUpdate = 3,
+    QuoteReceived = 4,
+    TransferInitiated = 5,
+    SettlementConfirmed = 6,
+    SessionCreated = 7,
+    AttestationRecorded = 8,
+}
+

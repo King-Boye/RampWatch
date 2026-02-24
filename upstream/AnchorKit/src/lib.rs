@@ -54,14 +54,16 @@ mod timeout_tests;
 #[cfg(test)]
 mod signature_tests;
 
-#[cfg(test)]
-
+#[cfg(all(test, feature = "std"))]
 mod cross_platform_tests;
 
+#[cfg(test)]
 mod zerocopy_tests;
 
 #[cfg(test)]
 mod metadata_cache_tests;
+
+#[cfg(test)]
 mod request_id_tests;
 
 #[cfg(test)]
@@ -83,7 +85,6 @@ pub use events::{
     OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
     SettlementConfirmed, TransferInitiated,
 };
-pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
 pub use skeleton_loaders::{
     AnchorInfoSkeleton, AuthValidationSkeleton, TransactionStatusSkeleton, ValidationStep,
 };

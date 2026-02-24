@@ -1,5 +1,5 @@
 use crate::config::{AttestorConfig, ContractConfig, SessionConfig, MAX_ATTESTORS, MIN_ATTESTORS};
-use crate::Error;
+use crate::errors::Error;
 use soroban_sdk::Vec;
 
 /// Strict pre-runtime validation utilities
