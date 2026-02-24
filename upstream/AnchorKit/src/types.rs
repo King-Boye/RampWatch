@@ -237,3 +237,70 @@ pub struct AnchorOption {
     pub score: u64,
     pub metadata: AnchorMetadata,
 }
+
+/// SDK Configuration for client applications
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SdkConfig {
+    pub network: NetworkType,
+    pub anchor_domain: String,
+    pub timeout_seconds: u64,
+    pub custom_headers: Vec<HttpHeader>,
+}
+
+/// Network type for SDK configuration
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum NetworkType {
+    Testnet = 1,
+    Mainnet = 2,
+}
+
+/// HTTP header for custom SDK requests
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HttpHeader {
+    pub key: String,
+    pub value: String,
+}
+
+impl SdkConfig {
+    /// Validates SDK configuration
+    pub fn validate(&self) -> bool {
+        // Validate anchor domain (must be non-empty and reasonable length)
+        let domain_len = self.anchor_domain.len();
+        if domain_len < 3 || domain_len > 253 {
+            return false;
+        }
+
+        // Validate timeout (1 second to 5 minutes)
+        if self.timeout_seconds < 1 || self.timeout_seconds > 300 {
+            return false;
+        }
+
+        // Validate custom headers (max 20 headers)
+        if self.custom_headers.len() > 20 {
+            return false;
+        }
+
+        // Validate each header
+        for header in self.custom_headers.iter() {
+            let key_len = header.key.len();
+            let value_len = header.value.len();
+
+            // Header key: 1-64 chars
+            if key_len < 1 || key_len > 64 {
+                return false;
+            }
+
+            // Header value: 0-1024 chars
+            if value_len > 1024 {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+

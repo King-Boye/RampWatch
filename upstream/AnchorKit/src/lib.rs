@@ -23,6 +23,8 @@ mod config_tests;
 #[cfg(test)]
 mod deterministic_hash_tests;
 #[cfg(test)]
+mod sdk_config_tests;
+#[cfg(test)]
 mod session_tests;
 
 #[cfg(test)]
