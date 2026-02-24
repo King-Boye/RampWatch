@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, String, Vec};
 
-use crate::Error;
+use crate::errors::Error;
 
 /// Validated configuration for contract initialization
 #[contracttype]
@@ -57,31 +57,31 @@ impl ContractConfig {
         // Name validation
         let name_len = self.name.len();
         if name_len < MIN_NAME_LEN || name_len > MAX_NAME_LEN {
-            return Err(Error::InvalidConfigName);
+            return Err(Error::InvalidConfig);
         }
         
         if !Self::is_valid_name(&self.name) {
-            return Err(Error::InvalidConfigName);
+            return Err(Error::InvalidConfig);
         }
         
         // Version validation
         let version_len = self.version.len();
         if version_len < MIN_VERSION_LEN || version_len > MAX_VERSION_LEN {
-            return Err(Error::InvalidConfigVersion);
+            return Err(Error::InvalidConfig);
         }
         
         if !Self::is_valid_version(&self.version) {
-            return Err(Error::InvalidConfigVersion);
+            return Err(Error::InvalidConfig);
         }
         
         // Network validation
         let network_len = self.network.len();
         if network_len < MIN_NETWORK_LEN || network_len > MAX_NETWORK_LEN {
-            return Err(Error::InvalidConfigNetwork);
+            return Err(Error::InvalidConfig);
         }
         
         if !Self::is_valid_network(&self.network) {
-            return Err(Error::InvalidConfigNetwork);
+            return Err(Error::InvalidConfig);
         }
         
         Ok(())
@@ -135,20 +135,20 @@ impl AttestorConfig {
     pub fn validate(&self) -> Result<(), Error> {
         let name_len = self.name.len();
         if name_len < MIN_NAME_LEN || name_len > MAX_NAME_LEN {
-            return Err(Error::InvalidAttestorName);
+            return Err(Error::InvalidConfig);
         }
         
         if !Self::is_valid_name(&self.name) {
-            return Err(Error::InvalidAttestorName);
+            return Err(Error::InvalidConfig);
         }
         
         let addr_len = self.address.len();
         if addr_len < STELLAR_ADDR_MIN || addr_len > STELLAR_ADDR_MAX {
-            return Err(Error::InvalidAttestorAddress);
+            return Err(Error::InvalidConfig);
         }
         
         if !Self::is_valid_stellar_address(&self.address) {
-            return Err(Error::InvalidAttestorAddress);
+            return Err(Error::InvalidConfig);
         }
         
         let endpoint_len = self.endpoint.len();
@@ -162,11 +162,11 @@ impl AttestorConfig {
         
         let role_len = self.role.len();
         if role_len < MIN_ROLE_LEN || role_len > MAX_ROLE_LEN {
-            return Err(Error::InvalidAttestorRole);
+            return Err(Error::InvalidConfig);
         }
         
         if !Self::is_valid_role(&self.role) {
-            return Err(Error::InvalidAttestorRole);
+            return Err(Error::InvalidConfig);
         }
         
         Ok(())

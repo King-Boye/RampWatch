@@ -1,7 +1,7 @@
 extern crate alloc;
 
 use crate::types::{HealthStatus, QuoteData};
-use crate::Error;
+use crate::errors::Error;
 use soroban_sdk::{Bytes, Env, String};
 
 /// Transport request types

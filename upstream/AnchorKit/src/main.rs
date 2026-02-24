@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 
+mod doctor;
+
 /// AnchorKit - Soroban toolkit for anchoring off-chain attestations to Stellar
 ///
 /// AnchorKit enables smart contracts to verify real-world events such as KYC approvals,
@@ -209,6 +211,16 @@ enum Commands {
         #[arg(short, long)]
         strict: bool,
     },
+
+    /// Run environment diagnostics
+    ///
+    /// Performs automated checks to verify your development environment is properly configured.
+    /// Checks toolchain, wallet, RPC connectivity, and config files.
+    /// Non-destructive and safe to run anytime.
+    ///
+    /// Examples:
+    ///   anchorkit doctor
+    Doctor,
 }
 
 fn main() {
@@ -320,6 +332,13 @@ fn main() {
                 println!("Using strict validation mode");
             }
             println!("✓ Validation complete");
+        }
+        Commands::Doctor => {
+            let results = doctor::run_diagnostics();
+            let all_passed = doctor::print_results(&results);
+            
+            // Exit with appropriate code for CI/automation
+            std::process::exit(if all_passed { 0 } else { 1 });
         }
     }
 }

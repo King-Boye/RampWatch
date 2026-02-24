@@ -1,5 +1,5 @@
 use crate::config::{AttestorConfig, ContractConfig, SessionConfig, MAX_ATTESTORS, MIN_ATTESTORS};
-use crate::Error;
+use crate::errors::Error;
 use soroban_sdk::Vec;
 
 /// Strict pre-runtime validation utilities
@@ -16,7 +16,7 @@ pub fn validate_attestor_batch(attestors: &Vec<AttestorConfig>) -> Result<(), Er
     let len = attestors.len();
 
     if len < MIN_ATTESTORS {
-        return Err(Error::NoEnabledAttestors);
+        return Err(Error::InvalidConfig);
     }
 
     if len > MAX_ATTESTORS {
@@ -41,17 +41,17 @@ pub fn validate_attestor_batch(attestors: &Vec<AttestorConfig>) -> Result<(), Er
             let other = attestors.get(j).unwrap();
 
             if attestor.name == other.name {
-                return Err(Error::DuplicateAttestor);
+                return Err(Error::InvalidConfig);
             }
 
             if attestor.address == other.address {
-                return Err(Error::DuplicateAttestor);
+                return Err(Error::InvalidConfig);
             }
         }
     }
 
     if !has_enabled {
-        return Err(Error::NoEnabledAttestors);
+        return Err(Error::InvalidConfig);
     }
 
     Ok(())
@@ -100,7 +100,7 @@ mod tests {
             network: String::from_str(&env, "stellar-testnet"),
         };
 
-        assert_eq!(validate_init_config(&config), Err(Error::InvalidConfigName));
+        assert_eq!(validate_init_config(&config), Err(Error::InvalidConfig));
     }
 
     #[test]
@@ -132,7 +132,7 @@ mod tests {
 
         assert_eq!(
             validate_attestor_batch(&attestors),
-            Err(Error::DuplicateAttestor)
+            Err(Error::InvalidConfig)
         );
     }
 

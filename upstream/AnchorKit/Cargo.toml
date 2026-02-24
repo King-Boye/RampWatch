@@ -10,6 +10,12 @@ crate-type = ["cdylib", "rlib"]
 name = "anchorkit"
 path = "src/main.rs"
 
+[features]
+default = ["std"]
+std = []
+wasm = []
+mock-only = []
+
 [dependencies]
 soroban-sdk = "21.7.0"
 clap = { version = "4.5", features = ["derive"] }
