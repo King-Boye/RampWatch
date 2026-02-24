@@ -1,10 +1,5 @@
 use soroban_sdk::{testutils::Address as _, vec, Address, Bytes, BytesN, Env, String};
-
-mod lib {
-    pub use anchorkit::*;
-}
-
-use lib::{AnchorKitContract, AnchorKitContractClient, ServiceType};
+use anchorkit::{AnchorKitContract, ServiceType};
 
 fn main() {
     println!("🚀 AnchorKit CLI Example - Deposit/Withdraw Workflow");
@@ -15,7 +10,7 @@ fn main() {
     env.mock_all_auths();
 
     let contract_id = env.register_contract(None, AnchorKitContract);
-    let client = AnchorKitContractClient::new(&env, &contract_id);
+    let client = anchorkit::AnchorKitContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
     let anchor = Address::generate(&env);
