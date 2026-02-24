@@ -237,3 +237,21 @@ pub struct AnchorOption {
     pub score: u64,
     pub metadata: AnchorMetadata,
 }
+
+/// Represents the public profile of an Anchor for searching
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AnchorProfile {
+    pub name: String,
+    pub region: String,
+    pub assets: Vec<String>,
+}
+
+/// The query object used by developers to filter anchors
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AnchorSearchQuery {
+    pub name: Option<String>,
+    pub region: Option<String>,
+    pub asset: Option<String>,
+}

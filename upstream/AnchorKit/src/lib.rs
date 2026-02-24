@@ -52,7 +52,6 @@ mod timeout_tests;
 mod signature_tests;
 
 #[cfg(test)]
-
 mod cross_platform_tests;
 
 mod zerocopy_tests;
@@ -63,7 +62,6 @@ mod request_id_tests;
 
 #[cfg(test)]
 mod tracing_span_tests;
-
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
@@ -82,7 +80,7 @@ pub use rate_limiter::{RateLimitConfig, RateLimiter};
 pub use request_id::{RequestId, RequestTracker, TracingSpan};
 pub use storage::Storage;
 pub use types::{
-    AnchorMetadata, AnchorOption, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
+    AnchorMetadata, AnchorOption, AnchorProfile, AnchorSearchQuery, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
     InteractionSession, OperationContext, QuoteData, QuoteRequest, RateComparison, RoutingRequest,
     RoutingResult, RoutingStrategy, ServiceType, TransactionIntent, TransactionIntentBuilder,
 };
@@ -1431,5 +1429,70 @@ impl AnchorKitContract {
 
         Ok(id)
     }
-}
 
+    // ============ Anchor Discovery & Filtering ============
+
+    /// Set public profile information for an anchor (Name, Region, Assets)
+    pub fn set_anchor_profile(
+        env: Env,
+        anchor: Address,
+        name: String,
+        region: String,
+        assets: Vec<String>,
+    ) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+
+        let profile = AnchorProfile {
+            name,
+            region,
+            assets,
+        };
+
+        Storage::set_anchor_profile(&env, &anchor, &profile);
+        Ok(())
+    }
+
+    /// Search and filter anchors based on provided criteria.
+    pub fn search_anchors(env: Env, query: AnchorSearchQuery) -> Vec<Address> {
+        let all_anchors = Storage::get_anchor_list(&env);
+        let mut results = Vec::new(&env);
+
+        for anchor in all_anchors.iter() {
+            if let Some(profile) = Storage::get_anchor_profile(&env, &anchor) {
+                let mut matches = true;
+
+                // 1. Filter by Name (Exact match for gas optimization)
+                if let Some(ref q_name) = query.name {
+                    if profile.name != *q_name {
+                        matches = false;
+                    }
+                }
+
+                // 2. Filter by Region
+                if let Some(ref q_region) = query.region {
+                    if profile.region != *q_region {
+                        matches = false;
+                    }
+                }
+
+                // 3. Filter by Asset
+                if let Some(ref q_asset) = query.asset {
+                    if !profile.assets.contains(q_asset) {
+                        matches = false;
+                    }
+                }
+
+                if matches {
+                    results.push_back(anchor);
+                }
+            }
+        }
+
+        results
+    }
+}
