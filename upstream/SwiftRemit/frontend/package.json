@@ -1,0 +1,23 @@
+{
+  "name": "swiftremit-frontend",
+  "version": "1.0.0",
+  "description": "Frontend components for SwiftRemit",
+  "main": "src/components/VerificationBadge.tsx",
+  "scripts": {
+    "test": "vitest",
+    "lint": "eslint src --ext .ts,.tsx"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^14.1.2",
+    "@testing-library/jest-dom": "^6.1.5",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.4",
+    "eslint": "^8.56.0"
+  }
+}
