@@ -100,7 +100,6 @@ pub fn is_retryable_error(error: &Error) -> bool {
         // Retryable errors (transient failures)
         Error::EndpointNotFound => true,
         Error::InvalidEndpointFormat => false,
-        Error::EndpointAlreadyExists => false,
 
         // Network/availability errors (retryable)
         Error::ServicesNotConfigured => true,
