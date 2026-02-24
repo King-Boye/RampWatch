@@ -891,10 +891,7 @@ impl AnchorKitContract {
         Storage::remove_secure_credential(&env, &attestor);
         Ok(())
     }
-}
 
-#[contractimpl]
-impl AnchorKitContract {
     // ============ Multi-Anchor Routing ============
 
     /// Set metadata for an anchor. Only callable by admin or the anchor itself.
@@ -1572,9 +1569,6 @@ impl AnchorKitContract {
         Ok(id)
     }
 
-
-#[contractimpl]
-impl AnchorKitContract {
     // ============ Request History Panel ============
 
     /// Get request history panel data with recent API calls
