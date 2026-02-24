@@ -41,11 +41,11 @@ pub fn validate_attestor_batch(attestors: &Vec<AttestorConfig>) -> Result<(), Er
             let other = attestors.get(j).unwrap();
 
             if attestor.name == other.name {
-                return Err(Error::DuplicateAttestor);
+                return Err(Error::InvalidConfig);
             }
 
             if attestor.address == other.address {
-                return Err(Error::DuplicateAttestor);
+                return Err(Error::InvalidConfig);
             }
         }
     }
@@ -77,7 +77,7 @@ pub fn validate_session_config(config: &SessionConfig) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{Env, String};
+    use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
     #[test]
     fn test_validate_init_config_valid() {
@@ -108,12 +108,12 @@ mod tests {
         let env = Env::default();
         let mut attestors = Vec::new(&env);
 
+        let addr1 = Address::generate(&env);
+        let addr2 = Address::generate(&env);
+
         let attestor1 = AttestorConfig {
             name: String::from_str(&env, "attestor-1"),
-            address: String::from_str(
-                &env,
-                "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-            ),
+            address: addr1.clone(),
             endpoint: String::from_str(&env, "https://example.com"),
             role: String::from_str(&env, "kyc-issuer"),
             enabled: true,
@@ -121,10 +121,7 @@ mod tests {
 
         let attestor2 = AttestorConfig {
             name: String::from_str(&env, "attestor-1"), // Duplicate name
-            address: String::from_str(
-                &env,
-                "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-            ),
+            address: addr2.clone(),
             endpoint: String::from_str(&env, "https://example2.com"),
             role: String::from_str(&env, "attestor"),
             enabled: true,
@@ -135,7 +132,7 @@ mod tests {
 
         assert_eq!(
             validate_attestor_batch(&attestors),
-            Err(Error::DuplicateAttestor)
+            Err(Error::InvalidConfig)
         );
     }
 

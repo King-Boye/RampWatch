@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, String};
+use soroban_sdk::{contracttype, Address, String};
 
 use crate::errors::Error;
 
@@ -98,7 +98,7 @@ pub const MAX_DESCRIPTION_LEN: u32 = 256;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttestorConfig {
     pub name: String,
-    pub address: String,
+    pub address: Address,
     pub endpoint: String,
     pub role: String,
     pub enabled: bool,
@@ -200,7 +200,7 @@ impl AttestorConfig {
     /// Type-safe builder for attestor config
     pub fn new(
         name: String,
-        address: String,
+        address: Address,
         endpoint: String,
         role: String,
         enabled: bool,

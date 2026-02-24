@@ -5,7 +5,7 @@ use crate::{
     credentials::{CredentialPolicy, SecureCredential},
     rate_limiter::RateLimitConfig,
     types::{
-        AnchorMetadata, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
+        AnchorMetadata, AnchorProfile, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
         InteractionSession, OperationContext, QuoteData,
     },
     Error,
@@ -37,6 +37,7 @@ enum StorageKey {
     AnchorMetadata(Address),
     AnchorList,
     RateLimitConfig(Address),
+    LatestQuote(Address),
 }
 
 impl StorageKey {
@@ -91,6 +92,9 @@ impl StorageKey {
             StorageKey::AnchorList => (soroban_sdk::symbol_short!("ANCHLIST"),).into_val(env),
             StorageKey::RateLimitConfig(addr) => {
                 (soroban_sdk::symbol_short!("RATELCFG"), addr).into_val(env)
+            }
+            StorageKey::LatestQuote(addr) => {
+                (soroban_sdk::symbol_short!("LATESTQ"), addr).into_val(env)
             }
         }
     }
@@ -525,6 +529,21 @@ impl Storage {
 
     pub fn get_rate_limit_config(env: &Env, anchor: &Address) -> Option<RateLimitConfig> {
         let key = StorageKey::RateLimitConfig(anchor.clone()).to_storage_key(env);
+        env.storage().persistent().get(&key)
+    }
+
+    pub fn set_latest_quote(env: &Env, anchor: &Address, quote_id: u64) {
+        let key = StorageKey::LatestQuote(anchor.clone()).to_storage_key(env);
+        env.storage().persistent().set(&key, &quote_id);
+        env.storage().persistent().extend_ttl(
+            &key,
+            Self::PERSISTENT_LIFETIME,
+            Self::PERSISTENT_LIFETIME,
+        );
+    }
+
+    pub fn get_latest_quote(env: &Env, anchor: &Address) -> Option<u64> {
+        let key = StorageKey::LatestQuote(anchor.clone()).to_storage_key(env);
         env.storage().persistent().get(&key)
     }
 }

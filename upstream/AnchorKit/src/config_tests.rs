@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::{config::*, validation::validate_attestor_batch, Error};
-use soroban_sdk::{Env, String, Vec};
+use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 
 #[test]
 fn test_contract_config_validation() {
@@ -35,10 +35,7 @@ fn test_attestor_config_validation() {
 
     let valid = AttestorConfig {
         name: String::from_str(&env, "kyc-provider"),
-        address: String::from_str(
-            &env,
-            "GBBD6A7KNZF5WNWQEPZP5DYJD2AYUTLXRB6VXJ4RCX4RTNPPQVNF3GQ",
-        ),
+        address: Address::generate(&env),
         endpoint: String::from_str(&env, "https://api.example.com/verify"),
         role: String::from_str(&env, "kyc-issuer"),
         enabled: true,
@@ -59,10 +56,7 @@ fn test_attestor_config_validation() {
 
     let invalid_endpoint = AttestorConfig {
         name: String::from_str(&env, "kyc-provider"),
-        address: String::from_str(
-            &env,
-            "GBBD6A7KNZF5WNWQEPZP5DYJD2AYUTLXRB6VXJ4RCX4RTNPPQVNF3GQ",
-        ),
+        address: Address::generate(&env),
         endpoint: String::from_str(&env, "bad"),
         role: String::from_str(&env, "kyc-issuer"),
         enabled: true,
@@ -113,10 +107,7 @@ fn test_batch_attestor_validation() {
     let mut valid_attestors = Vec::new(&env);
     valid_attestors.push_back(AttestorConfig {
         name: String::from_str(&env, "attestor1"),
-        address: String::from_str(
-            &env,
-            "GBBD6A7KNZF5WNWQEPZP5DYJD2AYUTLXRB6VXJ4RCX4RTNPPQVNF3GQ",
-        ),
+        address: Address::generate(&env),
         endpoint: String::from_str(&env, "https://api1.example.com"),
         role: String::from_str(&env, "issuer"),
         enabled: true,
