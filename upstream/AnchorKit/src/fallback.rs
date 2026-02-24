@@ -100,6 +100,6 @@ impl FallbackSelector {
             }
         }
 
-        Err(Error::NoAnchorsAvailable)
+        Err(Error::AnchorMetadataNotFound)
     }
 }

@@ -33,7 +33,7 @@ pub fn map_anchor_error_to_protocol(anchor_error_code: &str) -> Error {
 
         // Compliance errors (critical)
         "kyc_required" | "kyc_not_verified" | "compliance_violation" | "sanctions_check_failed" => {
-            Error::ProtocolComplianceViolation
+            Error::ComplianceNotMet
         }
 
         // All other anchor errors
@@ -64,7 +64,7 @@ pub fn is_protocol_error(error: &Error) -> bool {
         Error::ProtocolError
             | Error::ProtocolInvalidPayload
             | Error::ProtocolRateLimitExceeded
-            | Error::ProtocolComplianceViolation
+            | Error::ComplianceNotMet
     )
 }
 
@@ -93,7 +93,7 @@ pub fn get_error_category(error: &Error) -> &'static str {
 pub fn get_error_severity(error: &Error) -> u32 {
     match error {
         // Critical errors
-        Error::ReplayAttack | Error::SessionReplayAttack | Error::ProtocolComplianceViolation => 4,
+        Error::ReplayAttack | Error::ReplayAttack | Error::ComplianceNotMet => 4,
 
         // High severity
         Error::UnauthorizedAttestor | Error::TransportUnauthorized => 3,

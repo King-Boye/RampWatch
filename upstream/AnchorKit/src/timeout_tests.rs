@@ -30,7 +30,7 @@ fn test_retries_triggered_correctly() {
     let result = engine.execute(|attempt| {
         attempts += 1;
         if attempt < 2 {
-            Err(Error::QuoteNotFound) // Retryable
+            Err(Error::InvalidQuote) // Retryable
         } else {
             Ok(42) // Success on 3rd attempt
         }
@@ -100,7 +100,7 @@ fn test_retryable_errors_classification() {
     // Retryable (transient failures)
     assert!(is_retryable_error(&Error::EndpointNotFound));
     assert!(is_retryable_error(&Error::ServicesNotConfigured));
-    assert!(is_retryable_error(&Error::QuoteNotFound));
+    assert!(is_retryable_error(&Error::InvalidQuote));
     assert!(is_retryable_error(&Error::StaleQuote));
     assert!(is_retryable_error(&Error::NoQuotesAvailable));
 
@@ -120,7 +120,7 @@ fn test_retry_with_alternating_errors() {
     let result = engine.execute(|_| {
         attempt += 1;
         match attempt {
-            1 => Err(Error::QuoteNotFound),    // Retryable
+            1 => Err(Error::InvalidQuote),    // Retryable
             2 => Err(Error::EndpointNotFound), // Retryable
             3 => Ok(999),                      // Success
             _ => Err(Error::InvalidConfig),
@@ -137,11 +137,11 @@ fn test_all_retries_exhausted() {
     let config = RetryConfig::new(2, 100, 5000, 2);
     let engine = RetryEngine::new(config);
 
-    let result: crate::retry::RetryResult<i32> = engine.execute(|_| Err(Error::NoAnchorsAvailable));
+    let result: crate::retry::RetryResult<i32> = engine.execute(|_| Err(Error::AnchorMetadataNotFound));
 
     assert!(result.is_failure());
     assert_eq!(result.attempts, 2);
-    assert_eq!(result.error, Some(Error::NoAnchorsAvailable));
+    assert_eq!(result.error, Some(Error::AnchorMetadataNotFound));
 }
 
 #[test]

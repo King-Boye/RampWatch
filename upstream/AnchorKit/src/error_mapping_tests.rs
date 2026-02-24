@@ -125,7 +125,7 @@ fn test_anchor_too_many_requests_error() {
 #[test]
 fn test_anchor_kyc_required_error() {
     let error = map_anchor_error_to_protocol("kyc_required");
-    assert_eq!(error, Error::ProtocolComplianceViolation);
+    assert_eq!(error, Error::ComplianceNotMet);
     assert!(is_protocol_error(&error));
     assert!(!is_protocol_error_retryable(&error));
 }
@@ -133,7 +133,7 @@ fn test_anchor_kyc_required_error() {
 #[test]
 fn test_anchor_compliance_violation_error() {
     let error = map_anchor_error_to_protocol("compliance_violation");
-    assert_eq!(error, Error::ProtocolComplianceViolation);
+    assert_eq!(error, Error::ComplianceNotMet);
     assert!(is_protocol_error(&error));
     assert_eq!(get_error_severity(&error), 4); // Critical severity
 }
@@ -141,7 +141,7 @@ fn test_anchor_compliance_violation_error() {
 #[test]
 fn test_anchor_sanctions_check_failed_error() {
     let error = map_anchor_error_to_protocol("sanctions_check_failed");
-    assert_eq!(error, Error::ProtocolComplianceViolation);
+    assert_eq!(error, Error::ComplianceNotMet);
     assert!(is_protocol_error(&error));
 }
 
@@ -199,7 +199,7 @@ fn test_all_protocol_errors_classified_correctly() {
         Error::ProtocolError,
         Error::ProtocolInvalidPayload,
         Error::ProtocolRateLimitExceeded,
-        Error::ProtocolComplianceViolation,
+        Error::ComplianceNotMet,
     ];
 
     for error in protocol_errors {
@@ -232,7 +232,7 @@ fn test_non_retryable_protocol_errors() {
     assert!(!is_protocol_error_retryable(&Error::ProtocolInvalidPayload));
     assert!(!is_protocol_error_retryable(&Error::ProtocolError));
     assert!(!is_protocol_error_retryable(
-        &Error::ProtocolComplianceViolation
+        &Error::ComplianceNotMet
     ));
 }
 
@@ -241,8 +241,8 @@ fn test_non_retryable_protocol_errors() {
 #[test]
 fn test_critical_severity_errors() {
     assert_eq!(get_error_severity(&Error::ReplayAttack), 4);
-    assert_eq!(get_error_severity(&Error::SessionReplayAttack), 4);
-    assert_eq!(get_error_severity(&Error::ProtocolComplianceViolation), 4);
+    assert_eq!(get_error_severity(&Error::ReplayAttack), 4);
+    assert_eq!(get_error_severity(&Error::ComplianceNotMet), 4);
 }
 
 #[test]
@@ -309,7 +309,7 @@ fn test_scenario_anchor_rate_limits_client() {
 #[test]
 fn test_scenario_anchor_compliance_failure() {
     let error = map_anchor_error_to_protocol("sanctions_check_failed");
-    assert_eq!(error, Error::ProtocolComplianceViolation);
+    assert_eq!(error, Error::ComplianceNotMet);
     assert!(!is_protocol_error_retryable(&error));
     assert_eq!(get_error_severity(&error), 4); // Critical
 }
@@ -350,7 +350,7 @@ fn test_anchor_to_protocol_error_mapping_comprehensive() {
     );
     assert_eq!(
         map_anchor_error_to_protocol("kyc_required"),
-        Error::ProtocolComplianceViolation
+        Error::ComplianceNotMet
     );
     assert_eq!(
         map_anchor_error_to_protocol("unknown_error"),

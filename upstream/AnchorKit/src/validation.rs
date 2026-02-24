@@ -16,7 +16,7 @@ pub fn validate_attestor_batch(attestors: &Vec<AttestorConfig>) -> Result<(), Er
     let len = attestors.len();
 
     if len < MIN_ATTESTORS {
-        return Err(Error::NoEnabledAttestors);
+        return Err(Error::InvalidConfig);
     }
 
     if len > MAX_ATTESTORS {
@@ -51,7 +51,7 @@ pub fn validate_attestor_batch(attestors: &Vec<AttestorConfig>) -> Result<(), Er
     }
 
     if !has_enabled {
-        return Err(Error::NoEnabledAttestors);
+        return Err(Error::InvalidConfig);
     }
 
     Ok(())
@@ -100,7 +100,7 @@ mod tests {
             network: String::from_str(&env, "stellar-testnet"),
         };
 
-        assert_eq!(validate_init_config(&config), Err(Error::InvalidConfigName));
+        assert_eq!(validate_init_config(&config), Err(Error::InvalidConfig));
     }
 
     #[test]
