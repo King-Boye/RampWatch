@@ -260,12 +260,32 @@ anchorkit health --attestor GANCHOR123... --watch --interval 30
 - `health` - Check attestor health
 - `test` - Run contract tests
 - `validate` - Validate configuration files
+- `doctor` - Run environment diagnostics
 
 Each command includes:
 - Clear description of when to use it
 - Real-world usage examples
 - All available options and flags
 - Network selection support
+
+### Environment Diagnostics
+
+The `doctor` command helps troubleshoot environment setup issues:
+
+```bash
+# Check your development environment
+anchorkit doctor
+```
+
+The doctor command checks:
+- ✅ Rust toolchain installation
+- ✅ WASM target availability
+- ✅ Wallet configuration
+- ✅ RPC endpoint connectivity
+- ✅ Config file validity
+- ✅ Network connectivity
+
+See **[DOCTOR_COMMAND.md](./DOCTOR_COMMAND.md)** for complete documentation.
 
 ## Testing
 
