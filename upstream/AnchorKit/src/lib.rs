@@ -1,4 +1,13 @@
 #![no_std]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(clippy::manual_range_contains)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::single_match)]
+#![allow(clippy::match_single_binding)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
 
 mod anchor_adapter;
 mod asset_validator;

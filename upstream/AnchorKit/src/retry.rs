@@ -2,6 +2,7 @@ use crate::errors::Error;
 
 /// Retry configuration with exponential backoff
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct RetryConfig {
     pub max_attempts: u32,
     pub initial_delay_ms: u64,
@@ -48,6 +49,7 @@ impl RetryConfig {
 
 /// Retry result tracking
 #[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
 pub struct RetryResult<T> {
     pub value: Option<T>,
     pub error: Option<Error>,
@@ -84,6 +86,7 @@ impl<T> RetryResult<T> {
 }
 
 /// Determine if an error is retryable
+#[allow(dead_code)]
 pub fn is_retryable_error(error: &Error) -> bool {
     match error {
         // Network failures (retryable)
@@ -147,6 +150,7 @@ pub fn is_retryable_error(error: &Error) -> bool {
 }
 
 /// Retry engine for executing operations with exponential backoff
+#[allow(dead_code)]
 pub struct RetryEngine {
     config: RetryConfig,
 }
