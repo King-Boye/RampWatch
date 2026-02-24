@@ -224,11 +224,20 @@ fn test_retryable_vs_non_retryable_classification() {
     assert!(is_retryable_error(&Error::EndpointNotFound));
     assert!(is_retryable_error(&Error::ServicesNotConfigured));
     assert!(is_retryable_error(&Error::AttestationNotFound));
-    assert!(is_retryable_error(&Error::InvalidQuote));
     assert!(is_retryable_error(&Error::SessionNotFound));
     assert!(is_retryable_error(&Error::StaleQuote));
     assert!(is_retryable_error(&Error::NoQuotesAvailable));
     assert!(is_retryable_error(&Error::AnchorMetadataNotFound));
+    assert!(is_retryable_error(&Error::CacheExpired));
+    assert!(is_retryable_error(&Error::CacheNotFound));
+    
+    // Network failures (retryable)
+    assert!(is_retryable_error(&Error::TransportError));
+    assert!(is_retryable_error(&Error::TransportTimeout));
+    
+    // Rate limiting (retryable)
+    assert!(is_retryable_error(&Error::RateLimitExceeded));
+    assert!(is_retryable_error(&Error::ProtocolRateLimitExceeded));
 
     // Non-retryable errors (permanent/logic errors)
     assert!(!is_retryable_error(&Error::InvalidConfig));
@@ -237,12 +246,14 @@ fn test_retryable_vs_non_retryable_classification() {
     assert!(!is_retryable_error(&Error::AttestorNotRegistered));
     assert!(!is_retryable_error(&Error::AttestorAlreadyRegistered));
     assert!(!is_retryable_error(&Error::ReplayAttack));
-    assert!(!is_retryable_error(&Error::ReplayAttack));
     assert!(!is_retryable_error(&Error::InvalidQuote));
     assert!(!is_retryable_error(&Error::InvalidTimestamp));
     assert!(!is_retryable_error(&Error::ComplianceNotMet));
     assert!(!is_retryable_error(&Error::CredentialExpired));
     assert!(!is_retryable_error(&Error::AlreadyInitialized));
+    assert!(!is_retryable_error(&Error::TransportUnauthorized));
+    assert!(!is_retryable_error(&Error::ProtocolError));
+    assert!(!is_retryable_error(&Error::ProtocolInvalidPayload));
 }
 
 /// Test: Mixed retryable and non-retryable errors
@@ -366,7 +377,7 @@ fn test_complex_retry_scenario() {
 
         match attempt {
             0 => Err(Error::EndpointNotFound),  // Retry
-            1 => Err(Error::InvalidQuote),     // Retry
+            1 => Err(Error::TransportTimeout),  // Retry
             2 => Err(Error::StaleQuote),        // Retry
             3 => Err(Error::NoQuotesAvailable), // Retry
             4 => Ok("finally succeeded"),       // Success
@@ -391,8 +402,8 @@ fn test_all_attempts_fail_retryable() {
 
     let errors = alloc::vec![
         Error::EndpointNotFound,
-        Error::InvalidQuote,
         Error::StaleQuote,
+        Error::TransportTimeout,
     ];
 
     let mut attempt_count = 0;
@@ -405,8 +416,8 @@ fn test_all_attempts_fail_retryable() {
     assert!(result.is_failure());
     assert_eq!(result.attempts, 3);
     assert_eq!(attempt_count, 3);
-    // Last error should be returned
-    assert_eq!(result.error, Some(Error::StaleQuote));
+    // Last error should be returned (attempt 2 % 3 = 2, which is TransportTimeout)
+    assert_eq!(result.error, Some(Error::TransportTimeout));
 }
 
 /// Test: Verify delay accumulation is correct
@@ -439,4 +450,230 @@ fn test_zero_max_attempts() {
     // Should not execute at all
     assert_eq!(attempt_count, 0);
     assert!(result.is_failure());
+}
+
+/// Test Goal 4: Network failures are retried
+
+#[test]
+fn test_network_failure_transport_error_retries() {
+    let config = RetryConfig::new(3, 100, 5000, 2);
+    let engine = RetryEngine::new(config);
+
+    let mut attempt_count = 0;
+    let result = engine.execute(|_| {
+        attempt_count += 1;
+        if attempt_count < 3 {
+            Err(Error::TransportError)
+        } else {
+            Ok("recovered")
+        }
+    });
+
+    assert!(result.is_success());
+    assert_eq!(result.attempts, 3);
+    assert_eq!(result.value, Some("recovered"));
+}
+
+#[test]
+fn test_network_failure_transport_timeout_retries() {
+    let config = RetryConfig::new(4, 50, 5000, 2);
+    let engine = RetryEngine::new(config);
+
+    let mut attempt_count = 0;
+    let result: RetryResult<i32> = engine.execute(|_| {
+        attempt_count += 1;
+        Err(Error::TransportTimeout)
+    });
+
+    assert!(result.is_failure());
+    assert_eq!(result.attempts, 4);
+    assert_eq!(attempt_count, 4);
+    assert_eq!(result.error, Some(Error::TransportTimeout));
+}
+
+#[test]
+fn test_network_failure_eventual_success() {
+    let config = RetryConfig::new(5, 100, 5000, 2);
+    let engine = RetryEngine::new(config);
+
+    let mut attempt_count = 0;
+    let result = engine.execute(|_| {
+        attempt_count += 1;
+        match attempt_count {
+            1 => Err(Error::TransportTimeout),
+            2 => Err(Error::TransportError),
+            3 => Err(Error::TransportTimeout),
+            _ => Ok(42),
+        }
+    });
+
+    assert!(result.is_success());
+    assert_eq!(result.attempts, 4);
+    assert_eq!(result.value, Some(42));
+}
+
+/// Test Goal 5: Rate limiting (429) is retried with backoff
+
+#[test]
+fn test_rate_limit_exceeded_retries() {
+    let config = RetryConfig::new(4, 100, 5000, 2);
+    let engine = RetryEngine::new(config);
+
+    let mut attempt_count = 0;
+    let result = engine.execute(|_| {
+        attempt_count += 1;
+        if attempt_count < 4 {
+            Err(Error::RateLimitExceeded)
+        } else {
+            Ok("success after rate limit")
+        }
+    });
+
+    assert!(result.is_success());
+    assert_eq!(result.attempts, 4);
+    assert_eq!(result.value, Some("success after rate limit"));
+    // Verify exponential backoff was applied: 0 + 100 + 200 + 400 = 700ms
+    assert_eq!(result.total_delay_ms, 700);
+}
+
+#[test]
+fn test_protocol_rate_limit_exceeded_retries() {
+    let config = RetryConfig::new(3, 200, 5000, 2);
+    let engine = RetryEngine::new(config);
+
+    let mut attempt_count = 0;
+    let result: RetryResult<i32> = engine.execute(|_| {
+        attempt_count += 1;
+        Err(Error::ProtocolRateLimitExceeded)
+    });
+
+    assert!(result.is_failure());
+    assert_eq!(result.attempts, 3);
+    assert_eq!(attempt_count, 3);
+    // Verify exponential backoff: 0 + 200 + 400 = 600ms
+    assert_eq!(result.total_delay_ms, 600);
+}
+
+#[test]
+fn test_rate_limit_with_exponential_backoff() {
+    let config = RetryConfig::new(5, 50, 10000, 3);
+    let engine = RetryEngine::new(config);
+
+    let mut attempt_count = 0;
+    let result = engine.execute(|_| {
+        attempt_count += 1;
+        if attempt_count < 4 {
+            Err(Error::RateLimitExceeded)
+        } else {
+            Ok("recovered")
+        }
+    });
+
+    assert!(result.is_success());
+    assert_eq!(result.attempts, 4);
+    // Backoff with multiplier 3: 0 + 50 + 150 + 450 = 650ms
+    assert_eq!(result.total_delay_ms, 650);
+}
+
+/// Test Goal 6: Mixed network and rate limit errors
+
+#[test]
+fn test_mixed_network_and_rate_limit_errors() {
+    let config = RetryConfig::new(6, 100, 5000, 2);
+    let engine = RetryEngine::new(config);
+
+    let mut attempt_count = 0;
+    let result = engine.execute(|_| {
+        attempt_count += 1;
+        match attempt_count {
+            1 => Err(Error::TransportTimeout),
+            2 => Err(Error::RateLimitExceeded),
+            3 => Err(Error::TransportError),
+            4 => Err(Error::ProtocolRateLimitExceeded),
+            5 => Ok("finally succeeded"),
+            _ => Err(Error::InvalidConfig),
+        }
+    });
+
+    assert!(result.is_success());
+    assert_eq!(result.attempts, 5);
+    assert_eq!(result.value, Some("finally succeeded"));
+}
+
+#[test]
+fn test_network_failure_then_non_retryable() {
+    let config = RetryConfig::new(5, 100, 5000, 2);
+    let engine = RetryEngine::new(config);
+
+    let mut attempt_count = 0;
+    let result: RetryResult<i32> = engine.execute(|_| {
+        attempt_count += 1;
+        match attempt_count {
+            1 => Err(Error::TransportError),
+            2 => Err(Error::RateLimitExceeded),
+            _ => Err(Error::TransportUnauthorized), // Non-retryable
+        }
+    });
+
+    assert!(result.is_failure());
+    assert_eq!(result.attempts, 3);
+    assert_eq!(result.error, Some(Error::TransportUnauthorized));
+}
+
+/// Test Goal 7: Configurable retry strategy
+
+#[test]
+fn test_configurable_aggressive_retry() {
+    // Aggressive: many attempts, short delays
+    let config = RetryConfig::new(10, 10, 1000, 2);
+    let engine = RetryEngine::new(config);
+
+    let mut attempt_count = 0;
+    let result: RetryResult<i32> = engine.execute(|_| {
+        attempt_count += 1;
+        Err(Error::TransportTimeout)
+    });
+
+    assert_eq!(result.attempts, 10);
+    assert_eq!(attempt_count, 10);
+}
+
+#[test]
+fn test_configurable_conservative_retry() {
+    // Conservative: few attempts, long delays
+    let config = RetryConfig::new(2, 1000, 10000, 3);
+    let engine = RetryEngine::new(config);
+
+    let mut attempt_count = 0;
+    let result: RetryResult<i32> = engine.execute(|_| {
+        attempt_count += 1;
+        Err(Error::RateLimitExceeded)
+    });
+
+    assert_eq!(result.attempts, 2);
+    assert_eq!(attempt_count, 2);
+    // Delay: 0 + 1000 = 1000ms
+    assert_eq!(result.total_delay_ms, 1000);
+}
+
+#[test]
+fn test_configurable_custom_strategy() {
+    // Custom: moderate attempts, custom multiplier
+    let config = RetryConfig::new(4, 200, 5000, 4);
+    let engine = RetryEngine::new(config);
+
+    let mut attempt_count = 0;
+    let result = engine.execute(|_| {
+        attempt_count += 1;
+        if attempt_count < 3 {
+            Err(Error::TransportError)
+        } else {
+            Ok("success")
+        }
+    });
+
+    assert!(result.is_success());
+    assert_eq!(result.attempts, 3);
+    // Delay with multiplier 4: 0 + 200 + 800 = 1000ms
+    assert_eq!(result.total_delay_ms, 1000);
 }

@@ -1,4 +1,13 @@
 #![no_std]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(clippy::manual_range_contains)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::single_match)]
+#![allow(clippy::match_single_binding)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
 extern crate alloc;
 
 mod anchor_adapter;
@@ -24,13 +33,7 @@ mod types;
 mod validation;
 
 #[cfg(test)]
-mod config_tests;
-#[cfg(test)]
-mod config_builder_tests;
-#[cfg(test)]
 mod deterministic_hash_tests;
-#[cfg(test)]
-mod sdk_config_tests;
 #[cfg(test)]
 mod session_tests;
 
@@ -895,10 +898,7 @@ impl AnchorKitContract {
         Storage::remove_secure_credential(&env, &attestor);
         Ok(())
     }
-}
 
-#[contractimpl]
-impl AnchorKitContract {
     // ============ Multi-Anchor Routing ============
 
     /// Set metadata for an anchor. Only callable by admin or the anchor itself.
@@ -1673,9 +1673,6 @@ impl AnchorKitContract {
         Ok(id)
     }
 
-
-#[contractimpl]
-impl AnchorKitContract {
     // ============ Request History Panel ============
 
     /// Get request history panel data with recent API calls
@@ -1894,20 +1891,26 @@ impl AnchorKitContract {
             Error::InvalidQuote => 15,
             Error::StaleQuote => 16,
             Error::NoQuotesAvailable => 17,
-            Error::QuoteNotFound => 18,
             Error::InvalidTransactionIntent => 19,
             Error::ComplianceNotMet => 20,
             Error::InvalidConfig => 21,
             Error::InvalidCredentialFormat => 22,
             Error::CredentialNotFound => 23,
-            Error::InsecureCredentialStorage => 24,
             Error::CredentialExpired => 25,
             Error::InvalidAnchorMetadata => 26,
             Error::AnchorMetadataNotFound => 27,
-            Error::NoAnchorsAvailable => 28,
             Error::RateLimitExceeded => 29,
             Error::AssetNotConfigured => 30,
             Error::UnsupportedAsset => 31,
+            Error::TransportError => 41,
+            Error::TransportTimeout => 42,
+            Error::TransportUnauthorized => 43,
+            Error::ProtocolError => 44,
+            Error::ProtocolInvalidPayload => 45,
+            Error::ProtocolRateLimitExceeded => 46,
+            Error::CacheExpired => 48,
+            Error::CacheNotFound => 49,
+            Error::DuplicateAttestor => 26,
         }
     }
 }

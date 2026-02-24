@@ -1,6 +1,7 @@
 use crate::errors::Error;
 
 /// HTTP status code to transport error mapping
+#[allow(dead_code)]
 pub fn map_http_status_to_error(status_code: u32) -> Error {
     match status_code {
         // Auth errors
@@ -21,6 +22,7 @@ pub fn map_http_status_to_error(status_code: u32) -> Error {
 }
 
 /// Anchor error code to protocol error mapping
+#[allow(dead_code)]
 pub fn map_anchor_error_to_protocol(anchor_error_code: &str) -> Error {
     match anchor_error_code {
         // Validation errors
@@ -42,6 +44,7 @@ pub fn map_anchor_error_to_protocol(anchor_error_code: &str) -> Error {
 }
 
 /// Network error to transport error mapping
+#[allow(dead_code)]
 pub fn map_network_error_to_transport(error_type: &str) -> Error {
     match error_type {
         "timeout" | "request_timeout" => Error::TransportTimeout,
@@ -50,6 +53,7 @@ pub fn map_network_error_to_transport(error_type: &str) -> Error {
 }
 
 /// Determine if an error is a transport layer error
+#[allow(dead_code)]
 pub fn is_transport_error(error: &Error) -> bool {
     matches!(
         error,
@@ -58,6 +62,7 @@ pub fn is_transport_error(error: &Error) -> bool {
 }
 
 /// Determine if an error is a protocol layer error
+#[allow(dead_code)]
 pub fn is_protocol_error(error: &Error) -> bool {
     matches!(
         error,
@@ -69,16 +74,19 @@ pub fn is_protocol_error(error: &Error) -> bool {
 }
 
 /// Determine if a transport error is retryable
+#[allow(dead_code)]
 pub fn is_transport_error_retryable(error: &Error) -> bool {
     matches!(error, Error::TransportTimeout | Error::TransportError)
 }
 
 /// Determine if a protocol error is retryable
+#[allow(dead_code)]
 pub fn is_protocol_error_retryable(error: &Error) -> bool {
     matches!(error, Error::ProtocolRateLimitExceeded)
 }
 
 /// Get error category as string for logging
+#[allow(dead_code)]
 pub fn get_error_category(error: &Error) -> &'static str {
     if is_transport_error(error) {
         "transport"
@@ -90,10 +98,11 @@ pub fn get_error_category(error: &Error) -> &'static str {
 }
 
 /// Get error severity level (1=low, 2=medium, 3=high, 4=critical)
+#[allow(dead_code)]
 pub fn get_error_severity(error: &Error) -> u32 {
     match error {
         // Critical errors
-        Error::ReplayAttack | Error::ReplayAttack | Error::ComplianceNotMet => 4,
+        Error::ReplayAttack | Error::ComplianceNotMet => 4,
 
         // High severity
         Error::UnauthorizedAttestor | Error::TransportUnauthorized => 3,
