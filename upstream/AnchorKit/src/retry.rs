@@ -86,10 +86,18 @@ impl<T> RetryResult<T> {
 /// Determine if an error is retryable
 pub fn is_retryable_error(error: &Error) -> bool {
     match error {
+        // Network failures (retryable)
+        Error::TransportError => true,
+        Error::TransportTimeout => true,
+        
+        // Rate limiting (retryable with backoff)
+        Error::RateLimitExceeded => true,
+        Error::ProtocolRateLimitExceeded => true,
+        
         // Retryable errors (transient failures)
         Error::EndpointNotFound => true,
-        Error::InvalidEndpointFormat => false, // Configuration error, not retryable
-        Error::EndpointAlreadyExists => false, // Logic error, not retryable
+        Error::InvalidEndpointFormat => false,
+        Error::EndpointAlreadyExists => false,
 
         // Network/availability errors (retryable)
         Error::ServicesNotConfigured => true,
@@ -97,12 +105,14 @@ pub fn is_retryable_error(error: &Error) -> bool {
         // Authentication/authorization errors (not retryable)
         Error::UnauthorizedAttestor => false,
         Error::AttestorNotRegistered => false,
+        Error::TransportUnauthorized => false,
 
         // Data validation errors (not retryable)
         Error::InvalidConfig => false,
         Error::InvalidQuote => false,
         Error::InvalidTimestamp => false,
         Error::InvalidTransactionIntent => false,
+        Error::ProtocolInvalidPayload => false,
 
         // State errors (not retryable)
         Error::AlreadyInitialized => false,
@@ -117,6 +127,8 @@ pub fn is_retryable_error(error: &Error) -> bool {
         Error::StaleQuote => true,
         Error::NoQuotesAvailable => true,
         Error::AnchorMetadataNotFound => true,
+        Error::CacheExpired => true,
+        Error::CacheNotFound => true,
 
         // Compliance errors (not retryable)
         Error::ComplianceNotMet => false,
@@ -126,8 +138,11 @@ pub fn is_retryable_error(error: &Error) -> bool {
         Error::CredentialExpired => false,
         Error::InvalidCredentialFormat => false,
 
+        // Protocol errors (not retryable except rate limit)
+        Error::ProtocolError => false,
+
         // Other errors
-        _ => false, // Default to not retryable for safety
+        _ => false,
     }
 }
 
