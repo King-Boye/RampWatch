@@ -89,7 +89,7 @@ fn test_auth_validation_skeleton_validating() {
     let env = Env::default();
     let attestor = Address::generate(&env);
     
-    let skeleton = AuthValidationSkeleton::validating(attestor.clone());
+    let skeleton = AuthValidationSkeleton::validating(&env, attestor.clone());
     
     assert_eq!(skeleton.attestor, attestor);
     assert_eq!(skeleton.is_validating, true);
@@ -102,7 +102,7 @@ fn test_auth_validation_skeleton_validated() {
     let env = Env::default();
     let attestor = Address::generate(&env);
     
-    let skeleton = AuthValidationSkeleton::validated(attestor.clone());
+    let skeleton = AuthValidationSkeleton::validated(&env, attestor.clone());
     
     assert_eq!(skeleton.attestor, attestor);
     assert_eq!(skeleton.is_validating, false);

@@ -113,14 +113,14 @@ pub struct ValidationStep {
 }
 
 impl AuthValidationSkeleton {
-    pub fn validating(attestor: Address) -> Self {
+    pub fn validating(env: &soroban_sdk::Env, attestor: Address) -> Self {
         Self {
             attestor,
             is_validating: true,
             is_valid: false,
             has_error: false,
             error_message: None,
-            validation_steps: Vec::new(&soroban_sdk::Env::default()),
+            validation_steps: Vec::new(env),
         }
     }
 
@@ -135,25 +135,25 @@ impl AuthValidationSkeleton {
         }
     }
 
-    pub fn validated(attestor: Address) -> Self {
+    pub fn validated(env: &soroban_sdk::Env, attestor: Address) -> Self {
         Self {
             attestor,
             is_validating: false,
             is_valid: true,
             has_error: false,
             error_message: None,
-            validation_steps: Vec::new(&soroban_sdk::Env::default()),
+            validation_steps: Vec::new(env),
         }
     }
 
-    pub fn error(attestor: Address, message: String) -> Self {
+    pub fn error(env: &soroban_sdk::Env, attestor: Address, message: String) -> Self {
         Self {
             attestor,
             is_validating: false,
             is_valid: false,
             has_error: true,
             error_message: Some(message),
-            validation_steps: Vec::new(&soroban_sdk::Env::default()),
+            validation_steps: Vec::new(env),
         }
     }
 }

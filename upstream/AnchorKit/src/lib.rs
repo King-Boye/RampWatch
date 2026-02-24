@@ -1340,6 +1340,7 @@ impl AnchorKitContract {
         // Check if attestor is registered
         if !Storage::is_attestor(&env, &attestor) {
             return Ok(AuthValidationSkeleton::error(
+                &env,
                 attestor,
                 String::from_str(&env, "Attestor not registered"),
             ));
@@ -1385,12 +1386,13 @@ impl AnchorKitContract {
         // Determine overall validation state
         let all_complete = has_policy && has_endpoint;
         if all_complete {
-            Ok(AuthValidationSkeleton::validated(attestor))
+            Ok(AuthValidationSkeleton::validated(&env, attestor))
         } else {
             Ok(AuthValidationSkeleton::validating_with_steps(
                 attestor, steps,
             ))
         }
+    }
     // ============ Connection Pooling ============
 
     /// Configure connection pool. Only callable by admin.
