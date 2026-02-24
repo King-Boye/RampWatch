@@ -7,6 +7,7 @@ mod credentials;
 mod error_mapping;
 mod errors;
 mod events;
+mod skeleton_loaders;
 mod metadata_cache;
 mod rate_limiter;
 mod request_id;
@@ -63,6 +64,9 @@ mod request_id_tests;
 #[cfg(test)]
 mod tracing_span_tests;
 
+#[cfg(test)]
+mod skeleton_loader_tests;
+
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
 pub use asset_validator::{AssetConfig, AssetValidator};
@@ -74,6 +78,9 @@ pub use events::{
     AttestationRecorded, AttestorAdded, AttestorRemoved, EndpointConfigured, EndpointRemoved,
     OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
     SettlementConfirmed, TransferInitiated,
+};
+pub use skeleton_loaders::{
+    AnchorInfoSkeleton, AuthValidationSkeleton, TransactionStatusSkeleton, ValidationStep,
 };
 pub use metadata_cache::{CachedCapabilities, CachedMetadata, MetadataCache};
 pub use rate_limiter::{RateLimitConfig, RateLimiter};
@@ -1267,6 +1274,122 @@ impl AnchorKitContract {
         Ok(())
     }
 
+    // ========== Skeleton Loader Methods ==========
+
+    /// Get skeleton loader state for anchor information.
+    pub fn get_anchor_info_skeleton(
+        env: Env,
+        anchor: Address,
+    ) -> Result<AnchorInfoSkeleton, Error> {
+        // Check if anchor exists
+        if !Storage::is_attestor(&env, &anchor) {
+            return Ok(AnchorInfoSkeleton::error(
+                anchor,
+                String::from_str(&env, "Anchor not found"),
+            ));
+        }
+
+        // Check if metadata is available
+        match Storage::get_anchor_metadata(&env, &anchor) {
+            Some(_) => Ok(AnchorInfoSkeleton::loaded(anchor)),
+            None => Ok(AnchorInfoSkeleton::loading(anchor)),
+        }
+    }
+
+    /// Get skeleton loader state for transaction status.
+    /// Note: This checks session operations since transaction intents are ephemeral.
+    pub fn get_transaction_status_skeleton(
+        env: Env,
+        session_id: u64,
+    ) -> Result<TransactionStatusSkeleton, Error> {
+        // Check if session exists
+        match Storage::get_session(&env, session_id) {
+            Ok(session) => {
+                // Calculate progress based on operation count
+                let operation_count = Storage::get_session_operation_count(&env, session_id);
+                let current_time = env.ledger().timestamp();
+                
+                // Simple progress: if operations exist, show progress
+                let progress = if operation_count > 0 {
+                    // Show 50% progress if operations are being processed
+                    5000u32
+                } else {
+                    // Just started
+                    1000u32
+                };
+                
+                Ok(TransactionStatusSkeleton::loading_with_progress(
+                    session_id, progress,
+                ))
+            }
+            Err(_) => Ok(TransactionStatusSkeleton::error(
+                session_id,
+                String::from_str(&env, "Session not found"),
+            )),
+        }
+    }
+
+    /// Get skeleton loader state for authentication validation.
+    pub fn get_auth_validation_skeleton(
+        env: Env,
+        attestor: Address,
+    ) -> Result<AuthValidationSkeleton, Error> {
+        // Check if attestor is registered
+        if !Storage::is_attestor(&env, &attestor) {
+            return Ok(AuthValidationSkeleton::error(
+                &env,
+                attestor,
+                String::from_str(&env, "Attestor not registered"),
+            ));
+        }
+
+        // Build validation steps
+        let mut steps: Vec<ValidationStep> = Vec::new(&env);
+
+        // Step 1: Check registration
+        steps.push_back(ValidationStep::complete(String::from_str(
+            &env,
+            "Registration verified",
+        )));
+
+        // Step 2: Check credential policy
+        let has_policy = Storage::get_credential_policy(&env, &attestor).is_ok();
+        if has_policy {
+            steps.push_back(ValidationStep::complete(String::from_str(
+                &env,
+                "Credential policy verified",
+            )));
+        } else {
+            steps.push_back(ValidationStep::new(String::from_str(
+                &env,
+                "Checking credential policy",
+            )));
+        }
+
+        // Step 3: Check endpoint configuration
+        let has_endpoint = Storage::get_endpoint(&env, &attestor).is_ok();
+        if has_endpoint {
+            steps.push_back(ValidationStep::complete(String::from_str(
+                &env,
+                "Endpoint configured",
+            )));
+        } else {
+            steps.push_back(ValidationStep::new(String::from_str(
+                &env,
+                "Checking endpoint",
+            )));
+        }
+
+        // Determine overall validation state
+        let all_complete = has_policy && has_endpoint;
+        if all_complete {
+            Ok(AuthValidationSkeleton::validated(&env, attestor))
+        } else {
+            Ok(AuthValidationSkeleton::validating_with_steps(
+                attestor, steps,
+            ))
+        }
+    }
     // ============ Connection Pooling ============
 
     /// Configure connection pool. Only callable by admin.
