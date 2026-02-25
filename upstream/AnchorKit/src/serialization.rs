@@ -1,4 +1,4 @@
-use crate::types::{Attestation, QuoteData, QuoteRequest, ServiceType};
+use crate::types::ServiceType;
 use soroban_sdk::{Bytes, BytesN, Env, IntoVal, Val};
 
 /// Deterministic serialization utilities for signature generation
