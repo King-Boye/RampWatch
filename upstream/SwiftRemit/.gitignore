@@ -12,3 +12,4 @@ Cargo.lock
 .env.local
 examples/.env
 examples/.env.local
+/node_modules
