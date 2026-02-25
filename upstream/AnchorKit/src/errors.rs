@@ -65,4 +65,11 @@ pub enum Error {
     /// Asset validation errors
     AssetNotConfigured = 51,
     UnsupportedAsset = 52,
+
+    /// Webhook middleware errors
+    WebhookTimestampExpired = 53,
+    WebhookTimestampInFuture = 54,
+    WebhookPayloadTooLarge = 55,
+    WebhookSignatureInvalid = 56,
+    WebhookValidationFailed = 57,
 }

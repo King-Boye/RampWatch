@@ -34,6 +34,7 @@ mod storage;
 mod transport;
 mod types;
 mod validation;
+mod webhook_middleware;
 
 #[cfg(test)]
 mod deterministic_hash_tests;
@@ -91,6 +92,10 @@ mod tracing_span_tests;
 #[cfg(feature = "anchor_info_discovery_tests")]
 mod anchor_info_discovery_tests;
 
+#[cfg(test)]
+mod webhook_middleware_tests;
+
+
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
 pub use asset_validator::{AssetConfig, AssetValidator};
@@ -123,6 +128,11 @@ pub use types::{
     TransactionIntent, TransactionIntentBuilder,
 };
 pub use validation::{validate_attestor_batch, validate_init_config, validate_session_config};
+pub use webhook_middleware::{
+    ActivitySeverity, SignatureAlgorithm, SuspiciousActivityRecord, SuspiciousActivityType,
+    WebhookDeliveryRecord, WebhookDeliveryStatus, WebhookMiddleware, WebhookRequest,
+    WebhookSecurityConfig, WebhookValidationResult,
+};
 
 #[contract]
 pub struct AnchorKitContract;
@@ -2031,6 +2041,11 @@ impl AnchorKitContract {
             Error::CacheExpired => 48,
             Error::CacheNotFound => 49,
             Error::DuplicateAttestor => 26,
+            Error::WebhookTimestampExpired => 53,
+            Error::WebhookTimestampInFuture => 54,
+            Error::WebhookPayloadTooLarge => 55,
+            Error::WebhookSignatureInvalid => 56,
+            Error::WebhookValidationFailed => 57,
         }
     }
 
