@@ -353,12 +353,10 @@ pub struct SettlementData {
 
 /// Internal helper: load or migrate settlement metadata into a single key.
 fn load_or_migrate_settlement_data(env: &Env, remittance_id: u64) -> SettlementData {
+    let key = DataKey::SettlementData(remittance_id);
+    
     // Try combined key first
-    if let Some(data) = env
-        .storage()
-        .persistent()
-        .get(&DataKey::SettlementData(remittance_id))
-    {
+    if let Some(data) = env.storage().persistent().get(&key) {
         return data;
     }
 
@@ -377,15 +375,9 @@ fn load_or_migrate_settlement_data(env: &Env, remittance_id: u64) -> SettlementD
     let data = SettlementData { executed, event_emitted };
 
     // Write migrated combined key and remove legacy keys to reduce future reads
-    env.storage()
-        .persistent()
-        .set(&DataKey::SettlementData(remittance_id), &data);
-    env.storage()
-        .persistent()
-        .remove(&DataKey::SettlementHash(remittance_id));
-    env.storage()
-        .persistent()
-        .remove(&DataKey::SettlementEventEmitted(remittance_id));
+    env.storage().persistent().set(&key, &data);
+    env.storage().persistent().remove(&DataKey::SettlementHash(remittance_id));
+    env.storage().persistent().remove(&DataKey::SettlementEventEmitted(remittance_id));
 
     data
 }
@@ -398,14 +390,13 @@ pub fn has_settlement_hash(env: &Env, remittance_id: u64) -> bool {
 
 /// Marks a settlement as executed for duplicate prevention.
 pub fn set_settlement_hash(env: &Env, remittance_id: u64) {
+    let key = DataKey::SettlementData(remittance_id);
     let mut data = load_or_migrate_settlement_data(env, remittance_id);
     if data.executed {
-        return;
+        return; // Skip write if already set
     }
     data.executed = true;
-    env.storage()
-        .persistent()
-        .set(&DataKey::SettlementData(remittance_id), &data);
+    env.storage().persistent().set(&key, &data);
 }
 
 pub fn is_paused(env: &Env) -> bool {
@@ -583,14 +574,13 @@ pub fn has_settlement_event_emitted(env: &Env, remittance_id: u64) -> bool {
 /// - Persistent: Survives contract upgrades and restarts
 /// - Deterministic: Always produces the same result for the same input
 pub fn set_settlement_event_emitted(env: &Env, remittance_id: u64) {
+    let key = DataKey::SettlementData(remittance_id);
     let mut data = load_or_migrate_settlement_data(env, remittance_id);
     if data.event_emitted {
-        return;
+        return; // Skip write if already set
     }
     data.event_emitted = true;
-    env.storage()
-        .persistent()
-        .set(&DataKey::SettlementData(remittance_id), &data);
+    env.storage().persistent().set(&key, &data);
 }
 
 

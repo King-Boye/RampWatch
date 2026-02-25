@@ -172,13 +172,9 @@ impl SwiftRemitContract {
 
         set_agent_registered(&env, &agent, true);
 
-        emit_agent_registered(&env, agent.clone(), caller.clone());
-
-        
         // Event: Agent registered - Fires when admin adds a new agent to the approved list
         // Used by off-chain systems to track which addresses can confirm payouts
-        emit_agent_registered(&env, agent, caller.clone());
-
+        emit_agent_registered(&env, agent, caller);
 
         Ok(())
     }
@@ -207,13 +203,9 @@ impl SwiftRemitContract {
 
         set_agent_registered(&env, &agent, false);
 
-        emit_agent_removed(&env, agent.clone(), caller.clone());
-
-        
         // Event: Agent removed - Fires when admin removes an agent from the approved list
         // Used by off-chain systems to revoke payout confirmation privileges
-        emit_agent_removed(&env, agent, caller.clone());
-
+        emit_agent_removed(&env, agent, caller);
 
         Ok(())
     }
@@ -347,7 +339,7 @@ impl SwiftRemitContract {
     /// Requires authentication from the agent address assigned to the remittance.
     /// Requires Settler role.
     pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<(), ContractError> {
-        // Centralized validation before business logic
+        // Centralized validation before business logic (returns remittance to avoid re-read)
         let mut remittance = validate_confirm_payout_request(&env, remittance_id)?;
 
         remittance.agent.require_auth();
@@ -358,28 +350,8 @@ impl SwiftRemitContract {
         // Transition to Processing state
         set_transfer_state(&env, remittance_id, TransferState::Processing)?;
 
-        if remittance.status != RemittanceStatus::Pending {
-            return Err(ContractError::InvalidStatus);
-        }
-
-        // Check for duplicate settlement execution
-        if has_settlement_hash(&env, remittance_id) {
-            return Err(ContractError::DuplicateSettlement);
-        }
-
-        // Check if settlement has expired
-        if let Some(expiry_time) = remittance.expiry {
-            let current_time = env.ledger().timestamp();
-            if current_time > expiry_time {
-                return Err(ContractError::SettlementExpired);
-            }
-        }
-
         // Check rate limit for sender
         check_settlement_rate_limit(&env, &remittance.sender)?;
-
-        // Validate the agent address before transfer
-        validate_address(&remittance.agent)?;
 
         // Calculate protocol fee
         let protocol_fee_bps = get_protocol_fee_bps(&env);
@@ -398,7 +370,11 @@ impl SwiftRemitContract {
             .checked_sub(protocol_fee)
             .ok_or(ContractError::Overflow)?;
 
+        // Batch read storage values
         let usdc_token = get_usdc_token(&env)?;
+        let current_fees = get_accumulated_fees(&env)?;
+        let current_time = env.ledger().timestamp();
+        
         let token_client = token::Client::new(&env, &usdc_token);
         
         // Transfer payout to agent
@@ -408,7 +384,7 @@ impl SwiftRemitContract {
             &payout_amount,
         );
         
-        // Transfer protocol fee to treasury
+        // Transfer protocol fee to treasury if needed
         if protocol_fee > 0 {
             let treasury = get_treasury(&env)?;
             token_client.transfer(
@@ -418,13 +394,14 @@ impl SwiftRemitContract {
             );
         }
 
-        let current_fees = get_accumulated_fees(&env)?;
+        // Update accumulated fees
         let new_fees = current_fees
             .checked_add(remittance.fee)
             .ok_or(ContractError::Overflow)?;
         set_accumulated_fees(&env, new_fees);
 
-        remittance.status = RemittanceStatus::Settled;
+        // Update remittance status
+        remittance.status = RemittanceStatus::Completed;
         set_remittance(&env, remittance_id, &remittance);
         
         // Transition to Completed state
@@ -434,20 +411,19 @@ impl SwiftRemitContract {
         set_settlement_hash(&env, remittance_id);
         
         // Update last settlement time for rate limiting
-        let current_time = env.ledger().timestamp();
         set_last_settlement_time(&env, &remittance.sender, current_time);
 
         // Event: Remittance completed - Fires when agent confirms fiat payout and USDC is released
         // Used by off-chain systems to track successful settlements and update transaction status
-        emit_remittance_completed(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), payout_amount);
+        emit_remittance_completed(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone());
         
         // Event: Settlement completed - Fires with final executed settlement values
         // Used by off-chain systems for reconciliation and audit trails of completed transactions
-        emit_settlement_completed(&env, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), payout_amount);
+        emit_settlement_completed(&env, remittance_id, remittance.sender, remittance.agent, usdc_token, payout_amount);
 
         log_confirm_payout(&env, remittance_id, payout_amount);
 
-        Ok(remittance_id)
+        Ok(())
     }
 
     pub fn finalize_remittance(env: Env, caller: Address, remittance_id: u64) -> Result<(), ContractError> {
@@ -484,7 +460,7 @@ impl SwiftRemitContract {
     ///
     /// Requires authentication from the sender address who created the remittance.
     pub fn cancel_remittance(env: Env, remittance_id: u64) -> Result<(), ContractError> {
-        // Centralized validation before business logic
+        // Centralized validation before business logic (returns remittance to avoid re-read)
         let mut remittance = validate_cancel_remittance_request(&env, remittance_id)?;
 
         remittance.sender.require_auth();
@@ -505,7 +481,7 @@ impl SwiftRemitContract {
 
         // Event: Remittance cancelled - Fires when sender cancels a pending remittance and receives full refund
         // Used by off-chain systems to track cancellations and update transaction status
-        emit_remittance_cancelled(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), remittance.amount);
+        emit_remittance_cancelled(&env, remittance_id, remittance.sender, remittance.agent, usdc_token, remittance.amount);
 
         log_cancel_remittance(&env, remittance_id);
 
@@ -533,7 +509,7 @@ impl SwiftRemitContract {
     ///
     /// Requires authentication from the contract admin.
     pub fn withdraw_fees(env: Env, to: Address) -> Result<(), ContractError> {
-        // Centralized validation before business logic
+        // Centralized validation before business logic (returns fees to avoid re-read)
         let fees = validate_withdraw_fees_request(&env, &to)?;
         
         let caller = get_admin(&env)?;
@@ -547,7 +523,7 @@ impl SwiftRemitContract {
 
         // Event: Fees withdrawn - Fires when admin withdraws accumulated platform fees
         // Used by off-chain systems to track revenue collection and maintain financial records
-        emit_fees_withdrawn(&env, caller.clone(), to.clone(), usdc_token.clone(), fees);
+        emit_fees_withdrawn(&env, caller, to, usdc_token, fees);
 
         log_withdraw_fees(&env, &to, fees);
 
@@ -873,10 +849,13 @@ impl SwiftRemitContract {
         // Validate net settlement calculations
         validate_net_settlement(&remittances, &net_transfers)?;
 
-        // Execute net transfers
+        // Batch read storage values once
         let usdc_token = get_usdc_token(&env)?;
+        let mut current_fees = get_accumulated_fees(&env)?;
+        
         let token_client = token::Client::new(&env, &usdc_token);
 
+        // Execute net transfers
         for i in 0..net_transfers.len() {
             let transfer = net_transfers.get_unchecked(i);
 
@@ -898,30 +877,30 @@ impl SwiftRemitContract {
                 .ok_or(ContractError::Overflow)?;
 
             // Execute the net transfer from contract to recipient
-            // Note: The sender's funds are already in the contract from create_remittance
             token_client.transfer(
                 &env.current_contract_address(),
                 &to,
                 &payout_amount,
             );
 
-            // Accumulate fees
-            let current_fees = get_accumulated_fees(&env)?;
-            let new_fees = current_fees
+            // Accumulate fees in memory
+            current_fees = current_fees
                 .checked_add(transfer.total_fees)
                 .ok_or(ContractError::Overflow)?;
-            set_accumulated_fees(&env, new_fees);
 
             // Emit settlement event
             emit_settlement_completed(&env, from, to, usdc_token.clone(), payout_amount);
         }
+
+        // Write accumulated fees once at the end
+        set_accumulated_fees(&env, current_fees);
 
         // Mark all remittances as completed and set settlement hashes
         let mut settled_ids = Vec::new(&env);
 
         for i in 0..remittances.len() {
             let mut remittance = remittances.get_unchecked(i);
-            remittance.status = RemittanceStatus::Settled;
+            remittance.status = RemittanceStatus::Completed;
             set_remittance(&env, remittance.id, &remittance);
             set_settlement_hash(&env, remittance.id);
             settled_ids.push_back(remittance.id);
@@ -934,10 +913,8 @@ impl SwiftRemitContract {
             emit_remittance_completed(
                 &env,
                 remittance.id,
-                remittance.sender.clone(),
-                remittance.agent.clone(),
-                usdc_token.clone(),
-                payout_amount,
+                remittance.sender,
+                remittance.agent,
             );
         }
 
@@ -955,11 +932,6 @@ impl SwiftRemitContract {
 
         set_token_whitelisted(&env, &token, true);
         
-        // Event: Token whitelisted - Fires when admin adds a token to the approved list
-        // Used by off-chain systems to track which tokens can be used for remittances
-        emit_token_whitelisted(&env, caller.clone(), token.clone());
-        log_whitelist_token(&env, &token);
-
         Ok(())
     }
 
@@ -974,11 +946,6 @@ impl SwiftRemitContract {
 
         set_token_whitelisted(&env, &token, false);
         
-        // Event: Token removed - Fires when admin removes a token from the approved list
-        // Used by off-chain systems to track which tokens are no longer accepted for remittances
-        emit_token_removed(&env, caller.clone(), token.clone());
-        log_remove_whitelisted_token(&env, &token);
-
         Ok(())
     }
 
@@ -1016,8 +983,6 @@ impl SwiftRemitContract {
         };
 
         set_rate_limit_config(&env, config);
-
-        log_update_rate_limit(&env, max_requests, window_seconds, enabled);
 
         Ok(())
     }
@@ -1105,7 +1070,6 @@ impl SwiftRemitContract {
     pub fn get_transfer_state(env: Env, transfer_id: u64) -> Option<TransferState> {
         get_transfer_state(&env, transfer_id)
     }
-}
 
     // ========== Asset Verification Functions ==========
 

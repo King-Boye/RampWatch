@@ -59,7 +59,7 @@ pub enum ContractError {
     InvalidAddress = 10,
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // Settlement Errors (11-14)
+    // Settlement Errors (11-15)
     // ═══════════════════════════════════════════════════════════════════════════
     
     /// Settlement window has expired.
@@ -69,146 +69,146 @@ pub enum ContractError {
     /// Settlement has already been executed.
     /// Cause: Attempting to settle the same remittance twice (duplicate prevention).
     DuplicateSettlement = 12,
- feature/asset-verification-system
+    
     /// Asset verification record not found
     AssetNotFound = 13,
+    
     /// Reputation score must be between 0 and 100
     InvalidReputationScore = 14,
+    
     /// Asset has been flagged as suspicious
     SuspiciousAsset = 15,
-
     
     /// Contract is paused. Settlements are temporarily disabled.
-    ContractPaused = 13,
+    ContractPaused = 16,
     
-    RateLimitExceeded = 14,
+    RateLimitExceeded = 17,
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // Authorization Errors (15-18)
+    // Authorization Errors (18-21)
     // ═══════════════════════════════════════════════════════════════════════════
     
     /// Caller is not authorized to perform admin operations.
     /// Cause: Non-admin attempting to perform admin-only operations.
-    Unauthorized = 15,
+    Unauthorized = 18,
     
     /// Admin address already exists in the system.
     /// Cause: Attempting to add an admin that is already registered.
-    AdminAlreadyExists = 16,
+    AdminAlreadyExists = 19,
     
     /// Admin address does not exist in the system.
     /// Cause: Attempting to remove an admin that is not registered.
-    AdminNotFound = 17,
+    AdminNotFound = 20,
     
     /// Cannot remove the last admin from the system.
     /// Cause: Attempting to remove the only remaining admin.
-    CannotRemoveLastAdmin = 18,
+    CannotRemoveLastAdmin = 21,
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // Token Whitelist Errors (19-20)
+    // Token Whitelist Errors (22-23)
     // ═══════════════════════════════════════════════════════════════════════════
     
     /// Token is not whitelisted for use in the system.
     /// Cause: Attempting to initialize contract with non-whitelisted token.
-    TokenNotWhitelisted = 19,
+    TokenNotWhitelisted = 22,
     
     /// Token is already whitelisted in the system.
     /// Cause: Attempting to add a token that is already whitelisted.
-    TokenAlreadyWhitelisted = 20,
+    TokenAlreadyWhitelisted = 23,
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // Migration Errors (21-23)
+    // Migration Errors (24-26)
     // ═══════════════════════════════════════════════════════════════════════════
     
     /// Migration hash verification failed.
     /// Cause: Snapshot hash doesn't match computed hash (data tampering or corruption).
-    InvalidMigrationHash = 21,
+    InvalidMigrationHash = 24,
     
     /// Migration already in progress or completed.
     /// Cause: Attempting to start migration when one is already active.
-    MigrationInProgress = 22,
+    MigrationInProgress = 25,
     
     /// Migration batch out of order or invalid.
     /// Cause: Importing batches in wrong order or invalid batch number.
-    InvalidMigrationBatch = 23,
+    InvalidMigrationBatch = 26,
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // Rate Limiting Errors (24)
+    // Rate Limiting Errors (27)
     // ═══════════════════════════════════════════════════════════════════════════
     
     /// Daily send limit exceeded for this user.
     /// Cause: User's total transfers in the last 24 hours exceed the configured limit.
-    DailySendLimitExceeded = 24,
+    DailySendLimitExceeded = 27,
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // Arithmetic Errors (25-26)
+    // Arithmetic Errors (28-29)
     // ═══════════════════════════════════════════════════════════════════════════
     
     /// Arithmetic overflow occurred in calculation.
     /// Cause: Result of arithmetic operation exceeds maximum value for type.
-    Overflow = 25,
+    Overflow = 28,
     
     /// Arithmetic underflow occurred in calculation.
     /// Cause: Result of arithmetic operation is less than minimum value for type.
-    Underflow = 26,
+    Underflow = 29,
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // Data Integrity Errors (27-30)
+    // Data Integrity Errors (30-33)
     // ═══════════════════════════════════════════════════════════════════════════
     
     /// Net settlement validation failed.
     /// Cause: Net settlement calculations don't preserve fees or amounts correctly.
-    NetSettlementValidationFailed = 27,
+    NetSettlementValidationFailed = 30,
     
     /// Settlement counter overflow.
     /// Cause: Settlement counter would exceed u64::MAX (extremely unlikely).
-    SettlementCounterOverflow = 28,
+    SettlementCounterOverflow = 31,
     
     /// Invalid batch size.
     /// Cause: Batch size is zero or exceeds maximum allowed.
-    InvalidBatchSize = 29,
+    InvalidBatchSize = 32,
     
     /// Data corruption detected.
     /// Cause: Storage data is corrupted or inconsistent.
-    DataCorruption = 30,
+    DataCorruption = 33,
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // Collection Errors (31-33)
+    // Collection Errors (34-36)
     // ═══════════════════════════════════════════════════════════════════════════
     
     /// Index out of bounds.
     /// Cause: Attempting to access collection element at invalid index.
-    IndexOutOfBounds = 31,
+    IndexOutOfBounds = 34,
     
     /// Collection is empty.
     /// Cause: Attempting operation on empty collection that requires elements.
-    EmptyCollection = 32,
+    EmptyCollection = 35,
     
     /// Key not found in map.
     /// Cause: Attempting to access map value with non-existent key.
-    KeyNotFound = 33,
+    KeyNotFound = 36,
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // String/Symbol Errors (34-35)
+    // String/Symbol Errors (37-38)
     // ═══════════════════════════════════════════════════════════════════════════
     
     /// String conversion failed.
     /// Cause: Unable to convert between string types or invalid string format.
-    StringConversionFailed = 34,
+    StringConversionFailed = 37,
     
     /// Symbol is invalid or malformed.
     /// Cause: Symbol contains invalid characters or exceeds length limits.
-    InvalidSymbol = 35,
+    InvalidSymbol = 38,
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // Escrow Errors (36-37)
+    // Escrow Errors (39-40)
     // ═══════════════════════════════════════════════════════════════════════════
     
     /// Escrow not found.
     /// Cause: Querying or operating on non-existent escrow ID.
-    EscrowNotFound = 36,
+    EscrowNotFound = 39,
     
     /// Invalid escrow status for this operation.
     /// Cause: Attempting operation on escrow in wrong status.
-    InvalidEscrowStatus = 37,
- main
+    InvalidEscrowStatus = 40,
 }
