@@ -12,6 +12,7 @@ extern crate alloc;
 
 mod anchor_adapter;
 mod anchor_info_discovery;
+mod anchor_kit_error;
 mod asset_validator;
 mod config;
 mod connection_pool;
@@ -26,6 +27,7 @@ mod rate_limiter;
 mod request_history;
 mod request_id;
 mod retry;
+mod sep10_auth;
 mod sep24_adapter;
 mod serialization;
 mod storage;
@@ -89,6 +91,9 @@ mod tracing_span_tests;
 #[cfg(feature = "anchor_info_discovery_tests")]
 mod anchor_info_discovery_tests;
 
+// #[cfg(test)]
+// mod load_simulation_tests;
+
 #[cfg(test)]
 #[cfg(feature = "load_simulation")]
 mod load_simulation_tests;
@@ -100,6 +105,9 @@ pub use asset_validator::{AssetConfig, AssetValidator};
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
 pub use connection_pool::{ConnectionPool, ConnectionPoolConfig, ConnectionStats};
 pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
+pub use anchor_kit_error::{
+    AnchorKitError, ErrorCategory, ErrorCode, ErrorResponse, ErrorSeverity,
+};
 pub use errors::Error;
 pub use events::{
     AttestationRecorded, AttestorAdded, AttestorRemoved, EndpointConfigured, EndpointRemoved,
@@ -114,6 +122,7 @@ pub use metadata_cache::{CachedCapabilities, CachedMetadata, MetadataCache};
 pub use rate_limiter::{RateLimitConfig, RateLimiter};
 pub use request_history::{ApiCallDetails, ApiCallRecord, ApiCallStatus, RequestHistory, RequestHistoryPanel};
 pub use request_id::{RequestId, RequestTracker, TracingSpan};
+pub use sep10_auth::{Sep10Challenge, Sep10Session};
 pub use storage::Storage;
 pub use types::{
     AnchorMetadata, AnchorOption, AnchorProfile, AnchorSearchQuery, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
@@ -1947,5 +1956,81 @@ impl AnchorKitContract {
             Error::CacheNotFound => 49,
             Error::DuplicateAttestor => 26,
         }
+    }
+
+    // ============ SEP-10 Authentication ============
+
+    /// Fetch SEP-10 challenge from anchor
+    pub fn sep10_fetch_challenge(
+        env: Env,
+        anchor: Address,
+        client_account: Address,
+    ) -> Result<sep10_auth::Sep10Challenge, Error> {
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+        Ok(sep10_auth::fetch_challenge(&env, anchor, client_account))
+    }
+
+    /// Verify signature on SEP-10 challenge
+    pub fn sep10_verify_signature(
+        env: Env,
+        challenge: sep10_auth::Sep10Challenge,
+        signature: BytesN<64>,
+        public_key: BytesN<32>,
+    ) -> bool {
+        sep10_auth::verify_signature(&env, &challenge, signature, public_key)
+    }
+
+    /// Validate home domain for anchor
+    pub fn sep10_validate_domain(
+        env: Env,
+        anchor: Address,
+        home_domain: String,
+    ) -> Result<bool, Error> {
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+        Ok(sep10_auth::validate_home_domain(&env, anchor, home_domain))
+    }
+
+    /// Store SEP-10 session securely
+    pub fn sep10_store_session(
+        env: Env,
+        session: sep10_auth::Sep10Session,
+    ) -> Result<(), Error> {
+        if !Storage::is_attestor(&env, &session.anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+        sep10_auth::store_session(&env, session);
+        Ok(())
+    }
+
+    /// Get stored SEP-10 session
+    pub fn sep10_get_session(
+        env: Env,
+        anchor: Address,
+    ) -> Option<sep10_auth::Sep10Session> {
+        sep10_auth::get_session(&env, anchor)
+    }
+
+    /// Complete SEP-10 authentication flow
+    pub fn sep10_authenticate(
+        env: Env,
+        anchor: Address,
+        client_account: Address,
+        signature: BytesN<64>,
+        public_key: BytesN<32>,
+        home_domain: String,
+    ) -> Result<sep10_auth::Sep10Session, Error> {
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+        sep10_auth::authenticate(&env, anchor, client_account, signature, public_key, home_domain)
+            .map_err(|code| match code {
+                401 => Error::TransportUnauthorized,
+                403 => Error::ComplianceNotMet,
+                _ => Error::TransportError,
+            })
     }
 }
