@@ -20,6 +20,7 @@ mod credentials;
 mod error_mapping;
 mod errors;
 mod events;
+mod interactive_support;
 mod metadata_cache;
 mod rate_limiter;
 mod request_history;
@@ -111,6 +112,7 @@ pub use events::{
     OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
     SettlementConfirmed, TransferInitiated,
 };
+pub use interactive_support::{CallbackData, InteractiveSupport, InteractiveUrl, TransactionStatus};
 pub use metadata_cache::{CachedCapabilities, CachedMetadata, MetadataCache};
 pub use rate_limiter::{RateLimitConfig, RateLimiter};
 pub use request_history::{
