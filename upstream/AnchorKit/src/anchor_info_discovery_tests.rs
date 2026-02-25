@@ -236,10 +236,7 @@ fn test_multiple_assets() {
 
     assert_eq!(usdc_info.code, usdc);
     assert_eq!(xlm_info.code, xlm);
-    assert_ne!(
-        usdc_info.deposit_fee_fixed,
-        xlm_info.deposit_fee_fixed
-    );
+    assert_ne!(usdc_info.deposit_fee_fixed, xlm_info.deposit_fee_fixed);
 }
 
 #[test]
@@ -315,7 +312,8 @@ fn test_asset_limits_validation() {
 
     let usdc = String::from_str(&env, "USDC");
     let (dep_min, dep_max) = AnchorInfoDiscovery::get_deposit_limits(&env, &anchor, &usdc).unwrap();
-    let (with_min, with_max) = AnchorInfoDiscovery::get_withdrawal_limits(&env, &anchor, &usdc).unwrap();
+    let (with_min, with_max) =
+        AnchorInfoDiscovery::get_withdrawal_limits(&env, &anchor, &usdc).unwrap();
 
     assert!(dep_min < dep_max);
     assert!(with_min < with_max);
@@ -331,8 +329,10 @@ fn test_fee_structure() {
     AnchorInfoDiscovery::fetch_and_cache(&env, &anchor, domain, None).unwrap();
 
     let usdc = String::from_str(&env, "USDC");
-    let (dep_fixed, dep_percent) = AnchorInfoDiscovery::get_deposit_fees(&env, &anchor, &usdc).unwrap();
-    let (with_fixed, with_percent) = AnchorInfoDiscovery::get_withdrawal_fees(&env, &anchor, &usdc).unwrap();
+    let (dep_fixed, dep_percent) =
+        AnchorInfoDiscovery::get_deposit_fees(&env, &anchor, &usdc).unwrap();
+    let (with_fixed, with_percent) =
+        AnchorInfoDiscovery::get_withdrawal_fees(&env, &anchor, &usdc).unwrap();
 
     assert!(dep_fixed > 0);
     assert!(dep_percent > 0);

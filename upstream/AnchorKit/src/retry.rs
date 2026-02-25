@@ -92,11 +92,11 @@ pub fn is_retryable_error(error: &Error) -> bool {
         // Network failures (retryable)
         Error::TransportError => true,
         Error::TransportTimeout => true,
-        
+
         // Rate limiting (retryable with backoff)
         Error::RateLimitExceeded => true,
         Error::ProtocolRateLimitExceeded => true,
-        
+
         // Retryable errors (transient failures)
         Error::EndpointNotFound => true,
         Error::InvalidEndpointFormat => false,

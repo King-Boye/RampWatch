@@ -42,13 +42,8 @@ pub fn run_diagnostics() -> Vec<CheckResult> {
 /// Check if Rust toolchain is installed
 fn check_rust_toolchain() -> CheckResult {
     match Command::new("rustc").arg("--version").output() {
-        Ok(output) if output.status.success() => {
-            CheckResult::pass("Rust toolchain detected")
-        }
-        _ => CheckResult::fail(
-            "Rust toolchain not found",
-            "install from https://rustup.rs",
-        ),
+        Ok(output) if output.status.success() => CheckResult::pass("Rust toolchain detected"),
+        _ => CheckResult::fail("Rust toolchain not found", "install from https://rustup.rs"),
     }
 }
 
@@ -69,10 +64,7 @@ fn check_wasm_target() -> CheckResult {
                 )
             }
         }
-        _ => CheckResult::fail(
-            "Unable to check WASM target",
-            "ensure rustup is installed",
-        ),
+        _ => CheckResult::fail("Unable to check WASM target", "ensure rustup is installed"),
     }
 }
 
@@ -92,7 +84,7 @@ fn check_wallet_config() -> CheckResult {
             .join(".config")
             .join("soroban")
             .join("identity");
-        
+
         if stellar_config.exists() {
             return CheckResult::pass("Wallet configured");
         }
@@ -127,10 +119,9 @@ fn check_rpc_endpoint() -> CheckResult {
                     "RPC endpoint unreachable",
                     &format!("check ANCHORKIT_RPC_URL: {}", url),
                 ),
-                Err(e) => CheckResult::fail(
-                    "Unable to verify RPC endpoint",
-                    &format!("error: {}", e),
-                ),
+                Err(e) => {
+                    CheckResult::fail("Unable to verify RPC endpoint", &format!("error: {}", e))
+                }
             }
         }
         Err(_) => CheckResult::fail(
@@ -143,7 +134,7 @@ fn check_rpc_endpoint() -> CheckResult {
 /// Check if config files are valid
 fn check_config_files() -> CheckResult {
     let config_dir = std::path::Path::new("configs");
-    
+
     if !config_dir.exists() {
         return CheckResult::fail(
             "Config directory not found",
@@ -180,7 +171,10 @@ fn check_config_files() -> CheckResult {
                 }
 
                 if all_valid {
-                    CheckResult::pass(&format!("Config files valid ({} found)", config_files.len()))
+                    CheckResult::pass(&format!(
+                        "Config files valid ({} found)",
+                        config_files.len()
+                    ))
                 } else {
                     CheckResult::fail(
                         "Some config files are unreadable",
@@ -252,13 +246,17 @@ fn check_url_reachable(url: &str) -> Result<bool, String> {
 /// Print diagnostic results in a user-friendly format
 pub fn print_results(results: &[CheckResult]) -> bool {
     let start = Instant::now();
-    
+
     println!("\n🔍 Running AnchorKit diagnostics...\n");
 
     let mut all_passed = true;
     for result in results {
         let symbol = if result.passed { "✔" } else { "✖" };
-        let color = if result.passed { "\x1b[32m" } else { "\x1b[31m" };
+        let color = if result.passed {
+            "\x1b[32m"
+        } else {
+            "\x1b[31m"
+        };
         let reset = "\x1b[0m";
 
         print!("{}{} {}{}", color, symbol, result.name, reset);

@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod request_id_tests {
     use crate::{AnchorKitContract, AnchorKitContractClient, RequestId, ServiceType};
-    use soroban_sdk::{testutils::{Address as _, Ledger}, vec, Address, Bytes, BytesN, Env};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        vec, Address, Bytes, BytesN, Env,
+    };
 
     #[test]
     fn test_generate_request_id() {
@@ -13,7 +16,7 @@ mod request_id_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
 
         let request_id = client.generate_request_id();
-        
+
         assert_eq!(request_id.id.len(), 16);
         assert_eq!(request_id.created_at, 1000);
     }
@@ -25,20 +28,20 @@ mod request_id_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
 
         let id1 = client.generate_request_id();
-        
+
         env.ledger().with_mut(|li| li.sequence_number += 1);
-        
+
         let id2 = client.generate_request_id();
-        
+
         assert_ne!(id1.id, id2.id);
     }
 
     #[test]
     fn test_request_id_to_hex() {
         let env = Env::default();
-        
+
         let request_id = RequestId::generate(&env);
-        
+
         // Just verify ID is 16 bytes
         assert_eq!(request_id.id.len(), 16);
     }
@@ -79,7 +82,7 @@ mod request_id_tests {
         // Verify tracing span was stored
         let span = client.get_tracing_span(&request_id.id);
         assert!(span.is_some());
-        
+
         let span = span.unwrap();
         assert_eq!(span.request_id.id, request_id.id);
         assert_eq!(span.actor, attestor);
@@ -162,7 +165,7 @@ mod request_id_tests {
         // Verify tracing span
         let span = client.get_tracing_span(&request_id.id);
         assert!(span.is_some());
-        
+
         let span = span.unwrap();
         assert_eq!(span.actor, anchor);
     }
@@ -198,7 +201,7 @@ mod request_id_tests {
         );
 
         let span = client.get_tracing_span(&request_id.id).unwrap();
-        
+
         assert!(span.completed_at >= span.started_at);
     }
 }
