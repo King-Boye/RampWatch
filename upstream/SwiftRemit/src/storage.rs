@@ -124,6 +124,9 @@ enum DataKey {
     
     /// Fee strategy configuration (instance storage)
     FeeStrategy,
+    
+    /// Fee corridor configuration indexed by (from_country, to_country)
+    FeeCorridor(String, String),
 }
 
 /// Checks if the contract has an admin configured.
@@ -812,4 +815,37 @@ pub fn set_treasury(env: &Env, treasury: &Address) {
     env.storage()
         .instance()
         .set(&DataKey::Treasury, treasury);
+}
+
+// === Fee Corridor Management ===
+
+/// Sets a fee corridor configuration for a country pair
+pub fn set_fee_corridor(env: &Env, corridor: &crate::fee_service::FeeCorridor) {
+    let key = DataKey::FeeCorridor(
+        corridor.from_country.clone(),
+        corridor.to_country.clone(),
+    );
+    env.storage()
+        .persistent()
+        .set(&key, corridor);
+}
+
+/// Gets a fee corridor configuration for a country pair
+pub fn get_fee_corridor(
+    env: &Env,
+    from_country: &String,
+    to_country: &String,
+) -> Option<crate::fee_service::FeeCorridor> {
+    let key = DataKey::FeeCorridor(from_country.clone(), to_country.clone());
+    env.storage()
+        .persistent()
+        .get(&key)
+}
+
+/// Removes a fee corridor configuration
+pub fn remove_fee_corridor(env: &Env, from_country: &String, to_country: &String) {
+    let key = DataKey::FeeCorridor(from_country.clone(), to_country.clone());
+    env.storage()
+        .persistent()
+        .remove(&key);
 }
