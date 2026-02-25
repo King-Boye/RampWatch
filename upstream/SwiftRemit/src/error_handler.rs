@@ -10,8 +10,8 @@ use crate::ContractError;
 /// - Provides consistent error formatting
 /// - Prevents sensitive information leakage
 /// - Logs errors for debugging while keeping client responses clean
-
-/// Error severity levels for logging and monitoring
+///
+///   Error severity levels for logging and monitoring
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ErrorSeverity {
     /// Low severity - expected errors (validation failures, user errors)
@@ -308,6 +308,18 @@ impl ErrorHandler {
                 SorobanString::from_str(env, "Symbol is invalid or malformed"),
                 ErrorCategory::Validation,
                 ErrorSeverity::Low,
+            ),
+            ContractError::EscrowNotFound => (
+                36,
+                SorobanString::from_str(env, "Escrow not found"),
+                ErrorCategory::Resource,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::InvalidEscrowStatus => (
+                37,
+                SorobanString::from_str(env, "Invalid escrow status"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Medium,
             ),
         }
     }

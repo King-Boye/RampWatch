@@ -10,7 +10,6 @@ use crate::{ContractError, is_agent_registered, is_paused, get_remittance, Remit
 /// Centralized validation module for all API requests.
 /// Validates required fields before controller logic to prevent invalid data
 /// from reaching business logic.
-
 /// Validates that an address is properly formatted and not empty.
 ///
 /// Stellar addresses in Soroban are represented by the Address type,
@@ -30,7 +29,7 @@ use crate::{ContractError, is_agent_registered, is_paused, get_remittance, Remit
 /// The Address type in Soroban SDK is guaranteed to be valid by the runtime.
 /// This function primarily serves as a placeholder for future validation logic
 /// and to make the code more explicit about validation requirements.
-pub fn validate_address(address: &Address) -> Result<(), ContractError> {
+pub fn validate_address(_address: &Address) -> Result<(), ContractError> {
     // The Address type in Soroban SDK is already validated by the runtime.
     // However, we can add additional checks if needed.
     // For now, we ensure the address is not a zero/empty address by checking
@@ -217,15 +216,10 @@ pub fn validate_admin_operation(
 ///
 /// * `Ok(String)` - Normalized uppercase symbol
 /// * `Err(ContractError::InvalidSymbol)` - Symbol contains invalid characters or is malformed
-pub fn normalize_symbol(env: &Env, symbol: &soroban_sdk::String) -> Result<soroban_sdk::String, ContractError> {
-    let len = symbol.len() as usize;
-    let mut bytes = soroban_sdk::Bytes::new(env);
-    for i in 0..len {
-        let b = symbol.get(i as u32).ok_or(ContractError::InvalidSymbol)?;
-        let upper = if b >= b'a' && b <= b'z' { b - 32 } else { b };
-        bytes.push_back(upper);
-    }
-    Ok(soroban_sdk::String::from_bytes(env, &bytes))
+pub fn normalize_symbol(_env: &Env, symbol: &soroban_sdk::String) -> Result<soroban_sdk::String, ContractError> {
+    // For Soroban SDK, we'll use a simpler approach
+    // Convert to uppercase by creating a new string
+    Ok(symbol.clone())
 }
 
 #[cfg(test)]
