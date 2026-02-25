@@ -8,6 +8,7 @@
 mod asset_verification;
 mod errors;
 mod events;
+mod fee_strategy;
 mod hashing;
 mod migration;
 mod netting;
@@ -19,6 +20,8 @@ mod validation;
 mod test;
 #[cfg(test)]
 mod test_escrow;
+#[cfg(test)]
+mod test_fee_strategy;
 #[cfg(test)]
 mod test_roles_simple;
 #[cfg(test)]
@@ -33,6 +36,7 @@ use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
 pub use asset_verification::*;
 pub use errors::ContractError;
 pub use events::*;
+pub use fee_strategy::*;
 pub use hashing::*;
 pub use migration::*;
 pub use netting::*;
@@ -289,12 +293,9 @@ impl SwiftRemitContract {
 
     sender.require_auth();
 
-    let fee_bps = get_platform_fee_bps(&env)?;
-    let fee = amount
-        .checked_mul(fee_bps as i128)
-        .ok_or(ContractError::Overflow)?
-        .checked_div(10000)
-        .ok_or(ContractError::Overflow)?;
+    // Use configured fee strategy
+    let strategy = get_fee_strategy(&env);
+    let fee = calculate_fee(&env, &strategy, amount)?;
 
     let usdc_token = get_usdc_token(&env)?;
     let token_client = token::Client::new(&env, &usdc_token);
@@ -1095,6 +1096,44 @@ impl SwiftRemitContract {
     /// Checks if an address has a specific role
     pub fn has_role(env: Env, address: Address, role: Role) -> bool {
         has_role(&env, &address, &role)
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Fee Strategy Management
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /// Updates the fee strategy (Admin only)
+    /// 
+    /// Allows switching between different fee calculation methods:
+    /// - Percentage: Fee based on basis points (e.g., 250 = 2.5%)
+    /// - Flat: Fixed fee amount regardless of transaction size
+    /// - Dynamic: Tiered fee that decreases for larger amounts
+    /// 
+    /// # Arguments
+    /// * `caller` - Admin address (must be authorized)
+    /// * `strategy` - New fee strategy to apply
+    /// 
+    /// # Examples
+    /// ```ignore
+    /// // Set 2.5% percentage fee
+    /// contract.update_fee_strategy(&admin, FeeStrategy::Percentage(250))?;
+    /// 
+    /// // Set flat 100 USDC fee
+    /// contract.update_fee_strategy(&admin, FeeStrategy::Flat(100_0000000))?;
+    /// 
+    /// // Set dynamic tiered fee starting at 4%
+    /// contract.update_fee_strategy(&admin, FeeStrategy::Dynamic(400))?;
+    /// ```
+    pub fn update_fee_strategy(env: Env, caller: Address, strategy: FeeStrategy) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_admin(&env, &caller)?;
+        set_fee_strategy(&env, &strategy);
+        Ok(())
+    }
+    
+    /// Gets the current fee strategy
+    pub fn get_fee_strategy(env: Env) -> FeeStrategy {
+        get_fee_strategy(&env)
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

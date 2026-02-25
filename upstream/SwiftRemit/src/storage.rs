@@ -121,6 +121,9 @@ enum DataKey {
     // === Transfer State Registry ===
     /// Transfer state indexed by transfer ID (persistent storage)
     TransferState(u64),
+    
+    /// Fee strategy configuration (instance storage)
+    FeeStrategy,
 }
 
 /// Checks if the contract has an admin configured.
@@ -761,6 +764,24 @@ pub fn set_transfer_state(
         .set(&DataKey::TransferState(transfer_id), &new_state);
     
     Ok(())
+}
+
+
+// === Fee Strategy Management ===
+
+/// Gets the current fee strategy
+pub fn get_fee_strategy(env: &Env) -> crate::FeeStrategy {
+    env.storage()
+        .instance()
+        .get(&DataKey::FeeStrategy)
+        .unwrap_or(crate::FeeStrategy::Percentage(250)) // Default: 2.5%
+}
+
+/// Sets the fee strategy (admin only)
+pub fn set_fee_strategy(env: &Env, strategy: &crate::FeeStrategy) {
+    env.storage()
+        .instance()
+        .set(&DataKey::FeeStrategy, strategy);
 }
 
 
