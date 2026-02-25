@@ -236,9 +236,8 @@ impl SwiftRemitContract {
         let caller = get_admin(&env)?;
         require_admin(&env, &caller)?;
 
-        let old_fee = get_platform_fee_bps(&env)?;
         set_platform_fee_bps(&env, fee_bps);
-        emit_fee_updated(&env, caller.clone(), old_fee, fee_bps);
+        emit_fee_updated(&env, fee_bps);
 
         log_update_fee(&env, fee_bps);
 
@@ -428,15 +427,14 @@ impl SwiftRemitContract {
 
     pub fn finalize_remittance(env: Env, caller: Address, remittance_id: u64) -> Result<(), ContractError> {
         require_admin(&env, &caller)?;
-        let mut remittance = get_remittance(&env, remittance_id)?;
+        let remittance = get_remittance(&env, remittance_id)?;
 
-        if !remittance.status.can_transition_to(&RemittanceStatus::Finalized) {
+        // Verify remittance is in a valid state (Completed)
+        if remittance.status != RemittanceStatus::Completed {
             return Err(ContractError::InvalidStateTransition);
         }
 
-        remittance.status = RemittanceStatus::Finalized;
-        set_remittance(&env, remittance_id, &remittance);
-
+        // Remittance is already completed, no further action needed
         Ok(())
     }
 
@@ -473,7 +471,7 @@ impl SwiftRemitContract {
             &remittance.amount,
         );
 
-        remittance.status = RemittanceStatus::Failed;
+        remittance.status = RemittanceStatus::Cancelled;
         set_remittance(&env, remittance_id, &remittance);
         
         // Transition to Refunded state
@@ -731,10 +729,7 @@ impl SwiftRemitContract {
         let admin = get_admin(&env)?;
         admin.require_auth();
 
-        let old_cooldown = get_rate_limit_cooldown(&env)?;
         set_rate_limit_cooldown(&env, cooldown_seconds);
-        
-        emit_rate_limit_updated(&env, admin, old_cooldown, cooldown_seconds);
 
         Ok(())
     }
@@ -888,8 +883,14 @@ impl SwiftRemitContract {
                 .checked_add(transfer.total_fees)
                 .ok_or(ContractError::Overflow)?;
 
-            // Emit settlement event
-            emit_settlement_completed(&env, from, to, usdc_token.clone(), payout_amount);
+            // Emit settlement event (using remittance ID from the transfer)
+            // Note: In batch processing, we use the first remittance ID as reference
+            let remittance_id = if i < remittances.len() {
+                remittances.get_unchecked(i).id
+            } else {
+                0
+            };
+            emit_settlement_completed(&env, remittance_id, from, to, usdc_token.clone(), payout_amount);
         }
 
         // Write accumulated fees once at the end

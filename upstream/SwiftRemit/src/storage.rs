@@ -364,12 +364,12 @@ fn load_or_migrate_settlement_data(env: &Env, remittance_id: u64) -> SettlementD
     let executed = env
         .storage()
         .persistent()
-        .get::<bool>(&DataKey::SettlementHash(remittance_id))
+        .get(&DataKey::SettlementHash(remittance_id))
         .unwrap_or(false);
     let event_emitted = env
         .storage()
         .persistent()
-        .get::<bool>(&DataKey::SettlementEventEmitted(remittance_id))
+        .get(&DataKey::SettlementEventEmitted(remittance_id))
         .unwrap_or(false);
 
     let data = SettlementData { executed, event_emitted };

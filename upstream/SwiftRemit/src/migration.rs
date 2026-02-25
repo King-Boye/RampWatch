@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, Map, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, Vec, xdr::ToXdr};
 
 use crate::{ContractError, Remittance, RemittanceStatus};
 
@@ -306,8 +306,8 @@ fn compute_snapshot_hash(
     let mut data = Bytes::new(env);
     
     // Serialize instance data using to_xdr
-    data.append(&instance_data.admin.to_xdr(env));
-    data.append(&instance_data.usdc_token.to_xdr(env));
+    data.append(&instance_data.admin.clone().to_xdr(env));
+    data.append(&instance_data.usdc_token.clone().to_xdr(env));
     data.append(&Bytes::from_array(env, &instance_data.platform_fee_bps.to_be_bytes()));
     data.append(&Bytes::from_array(env, &instance_data.remittance_counter.to_be_bytes()));
     data.append(&Bytes::from_array(env, &instance_data.accumulated_fees.to_be_bytes()));
@@ -320,8 +320,8 @@ fn compute_snapshot_hash(
     for i in 0..persistent_data.remittances.len() {
         let r = persistent_data.remittances.get_unchecked(i);
         data.append(&Bytes::from_array(env, &r.id.to_be_bytes()));
-        data.append(&r.sender.to_xdr(env));
-        data.append(&r.agent.to_xdr(env));
+        data.append(&r.sender.clone().to_xdr(env));
+        data.append(&r.agent.clone().to_xdr(env));
         data.append(&Bytes::from_array(env, &r.amount.to_be_bytes()));
         data.append(&Bytes::from_array(env, &r.fee.to_be_bytes()));
         
@@ -340,13 +340,13 @@ fn compute_snapshot_hash(
     // Agents
     for i in 0..persistent_data.agents.len() {
         let agent = persistent_data.agents.get_unchecked(i);
-        data.append(&agent.to_xdr(env));
+        data.append(&agent.clone().to_xdr(env));
     }
     
     // Admin roles
     for i in 0..persistent_data.admin_roles.len() {
         let admin = persistent_data.admin_roles.get_unchecked(i);
-        data.append(&admin.to_xdr(env));
+        data.append(&admin.clone().to_xdr(env));
     }
     
     // Settlement hashes
@@ -358,7 +358,7 @@ fn compute_snapshot_hash(
     // Whitelisted tokens
     for i in 0..persistent_data.whitelisted_tokens.len() {
         let token = persistent_data.whitelisted_tokens.get_unchecked(i);
-        data.append(&token.to_xdr(env));
+        data.append(&token.clone().to_xdr(env));
     }
     
     // Add timestamp and ledger sequence
@@ -366,7 +366,7 @@ fn compute_snapshot_hash(
     data.append(&Bytes::from_array(env, &ledger_sequence.to_be_bytes()));
     
     // Compute SHA-256 hash
-    env.crypto().sha256(&data)
+    env.crypto().sha256(&data).into()
 }
 
 /// Verify migration snapshot integrity
@@ -422,7 +422,7 @@ pub fn export_batch(
     }
     
     let counter = crate::storage::get_remittance_counter(env)?;
-    let total_batches = (counter as u32 + batch_size - 1) / batch_size;
+    let total_batches = (counter as u32).div_ceil(batch_size);
     
     if batch_number >= total_batches {
         return Err(ContractError::InvalidAmount);
@@ -494,8 +494,8 @@ fn compute_batch_hash(
     for i in 0..remittances.len() {
         let r = remittances.get_unchecked(i);
         data.append(&Bytes::from_array(env, &r.id.to_be_bytes()));
-        data.append(&r.sender.to_xdr(env));
-        data.append(&r.agent.to_xdr(env));
+        data.append(&r.sender.clone().to_xdr(env));
+        data.append(&r.agent.clone().to_xdr(env));
         data.append(&Bytes::from_array(env, &r.amount.to_be_bytes()));
         data.append(&Bytes::from_array(env, &r.fee.to_be_bytes()));
         
@@ -511,7 +511,7 @@ fn compute_batch_hash(
         }
     }
     
-    env.crypto().sha256(&data)
+    env.crypto().sha256(&data).into()
 }
 
 #[cfg(test)]
