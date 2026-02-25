@@ -19,6 +19,7 @@ mod credentials;
 mod error_mapping;
 mod errors;
 mod events;
+mod interactive_support;
 mod skeleton_loaders;
 mod metadata_cache;
 mod rate_limiter;
@@ -34,6 +35,8 @@ mod validation;
 
 #[cfg(test)]
 mod deterministic_hash_tests;
+#[cfg(test)]
+mod interactive_support_tests;
 #[cfg(test)]
 mod session_tests;
 
@@ -83,9 +86,11 @@ mod request_history_tests;
 mod tracing_span_tests;
 
 #[cfg(test)]
+#[cfg(feature = "anchor_info_discovery_tests")]
 mod anchor_info_discovery_tests;
 
 #[cfg(test)]
+#[cfg(feature = "load_simulation")]
 mod load_simulation_tests;
 
 
@@ -101,6 +106,7 @@ pub use events::{
     OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
     SettlementConfirmed, TransferInitiated,
 };
+pub use interactive_support::{CallbackData, InteractiveSupport, InteractiveUrl, TransactionStatus};
 pub use skeleton_loaders::{
     AnchorInfoSkeleton, AuthValidationSkeleton, TransactionStatusSkeleton, ValidationStep,
 };
@@ -1869,6 +1875,35 @@ impl AnchorKitContract {
         RequestHistory::store_call_details(&env, &details);
 
         result
+    }
+
+    // ============ Interactive Support ============
+
+    /// Generate interactive URL with embedded token
+    pub fn generate_interactive_url(
+        env: Env,
+        anchor: Address,
+        token: String,
+        tx_id: String,
+    ) -> InteractiveUrl {
+        InteractiveSupport::generate_url(&env, &anchor, &token, &tx_id)
+    }
+
+    /// Handle callback from anchor
+    pub fn handle_anchor_callback(
+        env: Env,
+        tx_id: String,
+        status: String,
+    ) -> CallbackData {
+        InteractiveSupport::handle_callback(&env, &tx_id, &status)
+    }
+
+    /// Poll transaction status
+    pub fn poll_transaction_status(
+        env: Env,
+        tx_id: String,
+    ) -> TransactionStatus {
+        InteractiveSupport::poll_status(&env, &tx_id)
     }
 
     /// Helper function to convert Error to error code
