@@ -1,17 +1,16 @@
+use crate::error_mapping::{
+    get_error_category, get_error_severity, is_protocol_error, is_protocol_error_retryable,
+    is_transport_error, is_transport_error_retryable,
+};
 /// AnchorKitError: Custom error class with standardized error codes and consistent response format
-/// 
+///
 /// This module provides a comprehensive error handling system for AnchorKit that:
 /// 1. Wraps the base Error enum with additional context and metadata
 /// 2. Provides standardized error codes with semantic meaning
 /// 3. Ensures consistent response formatting across all operations
 /// 4. Enables rich error context for debugging and logging
 /// 5. Supports error classification and recovery strategies
-
 use crate::errors::Error;
-use crate::error_mapping::{
-    get_error_category, get_error_severity, is_protocol_error, is_protocol_error_retryable,
-    is_transport_error, is_transport_error_retryable,
-};
 
 /// Standardized error codes with semantic meaning
 /// These codes are stable and can be used for API contracts

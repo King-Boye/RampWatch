@@ -1,5 +1,5 @@
-use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, String};
 use crate::errors::Error;
+use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, String};
 
 /// Webhook signature algorithm types
 #[contracttype]
@@ -109,12 +109,12 @@ pub struct WebhookMiddleware;
 
 impl WebhookMiddleware {
     /// Verify webhook signature using configured algorithm
-    /// 
+    ///
     /// # Arguments
     /// * `env` - Soroban environment
     /// * `request` - Webhook request with payload and signature
     /// * `config` - Security configuration with secret key
-    /// 
+    ///
     /// # Returns
     /// * `Ok(true)` if signature is valid
     /// * `Err(Error)` if signature verification fails
@@ -135,50 +135,34 @@ impl WebhookMiddleware {
             SignatureAlgorithm::Sha512 => {
                 Self::verify_sha512(env, &message, &request.signature, &config.secret_key)
             }
-            SignatureAlgorithm::Ed25519 => {
-                Self::verify_ed25519(env, &message, &request.signature)
-            }
+            SignatureAlgorithm::Ed25519 => Self::verify_ed25519(env, &message, &request.signature),
         };
 
         Ok(is_valid)
     }
 
     /// Verify SHA256-based signature
-    fn verify_sha256(
-        env: &Env,
-        message: &Bytes,
-        signature: &Bytes,
-        _secret: &Bytes,
-    ) -> bool {
+    fn verify_sha256(env: &Env, message: &Bytes, signature: &Bytes, _secret: &Bytes) -> bool {
         // Compute SHA256 hash of message
         let hash = env.crypto().sha256(message);
         let hash_bytes = Bytes::from_array(env, &hash.to_array());
-        
+
         // Constant-time comparison
         Self::constant_time_compare(&hash_bytes, signature)
     }
 
     /// Verify SHA512-based signature
-    fn verify_sha512(
-        env: &Env,
-        message: &Bytes,
-        signature: &Bytes,
-        _secret: &Bytes,
-    ) -> bool {
+    fn verify_sha512(env: &Env, message: &Bytes, signature: &Bytes, _secret: &Bytes) -> bool {
         // Soroban doesn't support SHA512, use SHA256 instead
         let hash = env.crypto().sha256(message);
         let hash_bytes = Bytes::from_array(env, &hash.to_array());
-        
+
         // Constant-time comparison
         Self::constant_time_compare(&hash_bytes, signature)
     }
 
     /// Verify Ed25519 signature
-    fn verify_ed25519(
-        env: &Env,
-        message: &Bytes,
-        signature: &Bytes,
-    ) -> bool {
+    fn verify_ed25519(env: &Env, message: &Bytes, signature: &Bytes) -> bool {
         // Ed25519 verification using Soroban's crypto module
         // For now, use SHA256 as fallback
         let hash = env.crypto().sha256(message);
@@ -205,12 +189,12 @@ impl WebhookMiddleware {
     }
 
     /// Validate webhook timestamp to prevent replay attacks
-    /// 
+    ///
     /// # Arguments
     /// * `env` - Soroban environment
     /// * `webhook_timestamp` - Timestamp from webhook header
     /// * `tolerance_seconds` - Maximum age of webhook (default: 300 seconds)
-    /// 
+    ///
     /// # Returns
     /// * `Ok(true)` if timestamp is within acceptable range
     /// * `Err(Error)` if timestamp is too old or in the future
@@ -220,7 +204,7 @@ impl WebhookMiddleware {
         tolerance_seconds: u64,
     ) -> Result<bool, Error> {
         let current_time = env.ledger().timestamp();
-        
+
         // Check if timestamp is in the future (max 60 seconds clock skew tolerance)
         if webhook_timestamp > current_time + 60 {
             return Err(Error::WebhookTimestampInFuture);
@@ -236,12 +220,12 @@ impl WebhookMiddleware {
     }
 
     /// Check for replay attacks using hash-based deduplication
-    /// 
+    ///
     /// # Arguments
     /// * `env` - Soroban environment
     /// * `webhook_id` - Unique webhook identifier
     /// * `payload_hash` - SHA256 hash of the payload
-    /// 
+    ///
     /// # Returns
     /// * `Ok(true)` if this is a new webhook (not a replay)
     /// * `Err(Error::ReplayAttack)` if this webhook was already processed
@@ -271,18 +255,15 @@ impl WebhookMiddleware {
     }
 
     /// Validate payload size to prevent DoS attacks
-    /// 
+    ///
     /// # Arguments
     /// * `payload` - Webhook payload bytes
     /// * `max_size` - Maximum allowed payload size in bytes
-    /// 
+    ///
     /// # Returns
     /// * `Ok(true)` if payload size is acceptable
     /// * `Err(Error)` if payload exceeds maximum size
-    pub fn validate_payload_size(
-        payload: &Bytes,
-        max_size: u32,
-    ) -> Result<bool, Error> {
+    pub fn validate_payload_size(payload: &Bytes, max_size: u32) -> Result<bool, Error> {
         if payload.len() > max_size {
             return Err(Error::WebhookPayloadTooLarge);
         }
@@ -291,7 +272,7 @@ impl WebhookMiddleware {
     }
 
     /// Log suspicious activity for security monitoring
-    /// 
+    ///
     /// # Arguments
     /// * `env` - Soroban environment
     /// * `activity_type` - Type of suspicious activity
@@ -338,7 +319,7 @@ impl WebhookMiddleware {
     }
 
     /// Record webhook delivery attempt
-    /// 
+    ///
     /// # Arguments
     /// * `env` - Soroban environment
     /// * `webhook_id` - Webhook identifier
@@ -387,11 +368,7 @@ impl WebhookMiddleware {
 
     fn get_next_activity_id(env: &Env) -> u64 {
         let key = soroban_sdk::symbol_short!("SUSP_ID");
-        let current: u64 = env
-            .storage()
-            .temporary()
-            .get(&key)
-            .unwrap_or(0);
+        let current: u64 = env.storage().temporary().get(&key).unwrap_or(0);
         let next = current.saturating_add(1);
         env.storage().temporary().set(&key, &next);
         next
@@ -404,24 +381,20 @@ impl WebhookMiddleware {
             soroban_sdk::symbol_short!("ATTEMPT"),
             webhook_id,
         );
-        let current: u32 = env
-            .storage()
-            .temporary()
-            .get(&key)
-            .unwrap_or(0);
+        let current: u32 = env.storage().temporary().get(&key).unwrap_or(0);
         let next = current.saturating_add(1);
         env.storage().temporary().set(&key, &next);
         next
     }
 
     /// Comprehensive webhook validation pipeline
-    /// 
+    ///
     /// Performs all security checks in sequence:
     /// 1. Payload size validation
     /// 2. Timestamp validation
     /// 3. Signature verification
     /// 4. Replay attack detection
-    /// 
+    ///
     /// # Returns
     /// * `Ok(WebhookValidationResult)` with validation status
     pub fn validate_webhook(
@@ -448,7 +421,9 @@ impl WebhookMiddleware {
         }
 
         // Step 2: Validate timestamp
-        if Self::validate_timestamp(env, request.timestamp, config.timestamp_tolerance_seconds).is_err() {
+        if Self::validate_timestamp(env, request.timestamp, config.timestamp_tolerance_seconds)
+            .is_err()
+        {
             Self::log_suspicious_activity(
                 env,
                 SuspiciousActivityType::TimestampOutOfRange,
@@ -521,11 +496,11 @@ impl WebhookMiddleware {
     }
 
     /// Retrieve suspicious activity records for security audit
-    /// 
+    ///
     /// # Arguments
     /// * `env` - Soroban environment
     /// * `activity_id` - ID of the suspicious activity record
-    /// 
+    ///
     /// # Returns
     /// * `Some(SuspiciousActivityRecord)` if found
     /// * `None` if not found
@@ -544,12 +519,12 @@ impl WebhookMiddleware {
     }
 
     /// Retrieve webhook delivery record
-    /// 
+    ///
     /// # Arguments
     /// * `env` - Soroban environment
     /// * `webhook_id` - Webhook identifier
     /// * `attempt_number` - Attempt number to retrieve
-    /// 
+    ///
     /// # Returns
     /// * `Some(WebhookDeliveryRecord)` if found
     /// * `None` if not found

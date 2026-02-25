@@ -27,6 +27,7 @@ mod request_history;
 mod request_id;
 mod response_normalizer;
 mod retry;
+mod sdk_config;
 mod sep10_auth;
 mod sep24_adapter;
 mod serialization;
@@ -87,6 +88,9 @@ mod request_id_tests;
 mod request_history_tests;
 
 #[cfg(test)]
+mod sdk_config_tests;
+
+#[cfg(test)]
 mod tracing_span_tests;
 
 #[cfg(test)]
@@ -96,23 +100,24 @@ mod anchor_info_discovery_tests;
 #[cfg(test)]
 mod webhook_middleware_tests;
 
-
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
+pub use anchor_kit_error::{
+    AnchorKitError, ErrorCategory, ErrorCode, ErrorResponse, ErrorSeverity,
+};
 pub use asset_validator::{AssetConfig, AssetValidator};
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
 pub use connection_pool::{ConnectionPool, ConnectionPoolConfig, ConnectionStats};
 pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
-pub use anchor_kit_error::{
-    AnchorKitError, ErrorCategory, ErrorCode, ErrorResponse, ErrorSeverity,
-};
 pub use errors::Error;
 pub use events::{
     AttestationRecorded, AttestorAdded, AttestorRemoved, EndpointConfigured, EndpointRemoved,
     OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
     SettlementConfirmed, TransferInitiated,
 };
-pub use interactive_support::{CallbackData, InteractiveSupport, InteractiveUrl, TransactionStatus};
+pub use interactive_support::{
+    CallbackData, InteractiveSupport, InteractiveUrl, TransactionStatus,
+};
 pub use metadata_cache::{CachedCapabilities, CachedMetadata, MetadataCache};
 pub use rate_limiter::{RateLimitConfig, RateLimiter};
 pub use request_history::{
@@ -1987,19 +1992,12 @@ impl AnchorKitContract {
     }
 
     /// Handle callback from anchor
-    pub fn handle_anchor_callback(
-        env: Env,
-        tx_id: String,
-        status: String,
-    ) -> CallbackData {
+    pub fn handle_anchor_callback(env: Env, tx_id: String, status: String) -> CallbackData {
         InteractiveSupport::handle_callback(&env, &tx_id, &status)
     }
 
     /// Poll transaction status
-    pub fn poll_transaction_status(
-        env: Env,
-        tx_id: String,
-    ) -> TransactionStatus {
+    pub fn poll_transaction_status(env: Env, tx_id: String) -> TransactionStatus {
         InteractiveSupport::poll_status(&env, &tx_id)
     }
 
@@ -2088,10 +2086,7 @@ impl AnchorKitContract {
     }
 
     /// Store SEP-10 session securely
-    pub fn sep10_store_session(
-        env: Env,
-        session: sep10_auth::Sep10Session,
-    ) -> Result<(), Error> {
+    pub fn sep10_store_session(env: Env, session: sep10_auth::Sep10Session) -> Result<(), Error> {
         if !Storage::is_attestor(&env, &session.anchor) {
             return Err(Error::AttestorNotRegistered);
         }
@@ -2100,10 +2095,7 @@ impl AnchorKitContract {
     }
 
     /// Get stored SEP-10 session
-    pub fn sep10_get_session(
-        env: Env,
-        anchor: Address,
-    ) -> Option<sep10_auth::Sep10Session> {
+    pub fn sep10_get_session(env: Env, anchor: Address) -> Option<sep10_auth::Sep10Session> {
         sep10_auth::get_session(&env, anchor)
     }
 
@@ -2119,11 +2111,18 @@ impl AnchorKitContract {
         if !Storage::is_attestor(&env, &anchor) {
             return Err(Error::AttestorNotRegistered);
         }
-        sep10_auth::authenticate(&env, anchor, client_account, signature, public_key, home_domain)
-            .map_err(|code| match code {
-                401 => Error::TransportUnauthorized,
-                403 => Error::ComplianceNotMet,
-                _ => Error::TransportError,
-            })
+        sep10_auth::authenticate(
+            &env,
+            anchor,
+            client_account,
+            signature,
+            public_key,
+            home_domain,
+        )
+        .map_err(|code| match code {
+            401 => Error::TransportUnauthorized,
+            403 => Error::ComplianceNotMet,
+            _ => Error::TransportError,
+        })
     }
 }

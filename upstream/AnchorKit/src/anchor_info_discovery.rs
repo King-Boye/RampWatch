@@ -373,7 +373,7 @@ mod tests {
 
             let usdc = String::from_str(&env, "USDC");
             let asset = AnchorInfoDiscovery::get_asset_info(&env, &anchor, &usdc).unwrap();
-            
+
             assert_eq!(asset.code, usdc);
             assert_eq!(asset.issuer, String::from_str(&env, "GABC123"));
             assert!(asset.deposit_enabled);
@@ -411,7 +411,7 @@ mod tests {
 
             let usdc = String::from_str(&env, "USDC");
             let (min, max) = AnchorInfoDiscovery::get_deposit_limits(&env, &anchor, &usdc).unwrap();
-            
+
             assert_eq!(min, 1000);
             assert_eq!(max, 1000000);
         });
@@ -429,8 +429,9 @@ mod tests {
             AnchorInfoDiscovery::fetch_and_cache(&env, &anchor, domain, None).unwrap();
 
             let usdc = String::from_str(&env, "USDC");
-            let (min, max) = AnchorInfoDiscovery::get_withdrawal_limits(&env, &anchor, &usdc).unwrap();
-            
+            let (min, max) =
+                AnchorInfoDiscovery::get_withdrawal_limits(&env, &anchor, &usdc).unwrap();
+
             assert_eq!(min, 500);
             assert_eq!(max, 500000);
         });
@@ -448,8 +449,9 @@ mod tests {
             AnchorInfoDiscovery::fetch_and_cache(&env, &anchor, domain, None).unwrap();
 
             let usdc = String::from_str(&env, "USDC");
-            let (fixed, percent) = AnchorInfoDiscovery::get_deposit_fees(&env, &anchor, &usdc).unwrap();
-            
+            let (fixed, percent) =
+                AnchorInfoDiscovery::get_deposit_fees(&env, &anchor, &usdc).unwrap();
+
             assert_eq!(fixed, 100);
             assert_eq!(percent, 10);
         });
@@ -467,8 +469,9 @@ mod tests {
             AnchorInfoDiscovery::fetch_and_cache(&env, &anchor, domain, None).unwrap();
 
             let usdc = String::from_str(&env, "USDC");
-            let (fixed, percent) = AnchorInfoDiscovery::get_withdrawal_fees(&env, &anchor, &usdc).unwrap();
-            
+            let (fixed, percent) =
+                AnchorInfoDiscovery::get_withdrawal_fees(&env, &anchor, &usdc).unwrap();
+
             assert_eq!(fixed, 50);
             assert_eq!(percent, 5);
         });

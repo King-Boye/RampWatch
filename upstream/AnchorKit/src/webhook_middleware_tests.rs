@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod webhook_middleware_tests {
     use crate::webhook_middleware::*;
-    use soroban_sdk::{testutils::*, Address, Bytes, BytesN, Env, String};
     use alloc::vec;
+    use soroban_sdk::{testutils::*, Address, Bytes, BytesN, Env, String};
 
     fn create_test_env() -> Env {
         Env::default()
@@ -31,7 +31,7 @@ mod webhook_middleware_tests {
         } else {
             Bytes::new(env)
         };
-        
+
         WebhookRequest {
             payload: payload_bytes,
             signature: Bytes::from_array(env, &[0u8; 32]),
