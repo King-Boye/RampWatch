@@ -225,7 +225,7 @@ impl ErrorCode {
     }
 
     /// Convert ErrorCode back to base Error
-    fn to_base_error(&self) -> Error {
+    fn to_base_error(self) -> Error {
         match self {
             ErrorCode::AlreadyInitialized => Error::AlreadyInitialized,
             ErrorCode::NotInitialized => Error::NotInitialized,

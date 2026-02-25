@@ -1,6 +1,6 @@
 use crate::anchor_info_discovery::{AnchorInfoDiscovery, AssetInfo, StellarToml};
 use crate::errors::Error;
-use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
+use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env, String, Vec};
 
 #[test]
 fn test_fetch_and_cache_toml() {
