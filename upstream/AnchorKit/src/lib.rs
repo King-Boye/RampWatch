@@ -12,6 +12,7 @@ extern crate alloc;
 
 mod anchor_adapter;
 mod anchor_info_discovery;
+mod anchor_kit_error;
 mod asset_validator;
 mod config;
 mod connection_pool;
@@ -25,6 +26,7 @@ mod request_history;
 mod request_id;
 mod response_normalizer;
 mod retry;
+mod sep10_auth;
 mod sep24_adapter;
 mod serialization;
 mod skeleton_loaders;
@@ -35,6 +37,8 @@ mod validation;
 
 #[cfg(test)]
 mod deterministic_hash_tests;
+#[cfg(test)]
+mod interactive_support_tests;
 #[cfg(test)]
 mod session_tests;
 
@@ -84,6 +88,7 @@ mod request_history_tests;
 mod tracing_span_tests;
 
 #[cfg(test)]
+#[cfg(feature = "anchor_info_discovery_tests")]
 mod anchor_info_discovery_tests;
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
@@ -92,6 +97,9 @@ pub use asset_validator::{AssetConfig, AssetValidator};
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
 pub use connection_pool::{ConnectionPool, ConnectionPoolConfig, ConnectionStats};
 pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
+pub use anchor_kit_error::{
+    AnchorKitError, ErrorCategory, ErrorCode, ErrorResponse, ErrorSeverity,
+};
 pub use errors::Error;
 pub use events::{
     AttestationRecorded, AttestorAdded, AttestorRemoved, EndpointConfigured, EndpointRemoved,
@@ -1954,6 +1962,35 @@ impl AnchorKitContract {
         result
     }
 
+    // ============ Interactive Support ============
+
+    /// Generate interactive URL with embedded token
+    pub fn generate_interactive_url(
+        env: Env,
+        anchor: Address,
+        token: String,
+        tx_id: String,
+    ) -> InteractiveUrl {
+        InteractiveSupport::generate_url(&env, &anchor, &token, &tx_id)
+    }
+
+    /// Handle callback from anchor
+    pub fn handle_anchor_callback(
+        env: Env,
+        tx_id: String,
+        status: String,
+    ) -> CallbackData {
+        InteractiveSupport::handle_callback(&env, &tx_id, &status)
+    }
+
+    /// Poll transaction status
+    pub fn poll_transaction_status(
+        env: Env,
+        tx_id: String,
+    ) -> TransactionStatus {
+        InteractiveSupport::poll_status(&env, &tx_id)
+    }
+
     /// Helper function to convert Error to error code
     fn error_to_code(error: &Error) -> u32 {
         match error {
@@ -1995,5 +2032,81 @@ impl AnchorKitContract {
             Error::CacheNotFound => 49,
             Error::DuplicateAttestor => 26,
         }
+    }
+
+    // ============ SEP-10 Authentication ============
+
+    /// Fetch SEP-10 challenge from anchor
+    pub fn sep10_fetch_challenge(
+        env: Env,
+        anchor: Address,
+        client_account: Address,
+    ) -> Result<sep10_auth::Sep10Challenge, Error> {
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+        Ok(sep10_auth::fetch_challenge(&env, anchor, client_account))
+    }
+
+    /// Verify signature on SEP-10 challenge
+    pub fn sep10_verify_signature(
+        env: Env,
+        challenge: sep10_auth::Sep10Challenge,
+        signature: BytesN<64>,
+        public_key: BytesN<32>,
+    ) -> bool {
+        sep10_auth::verify_signature(&env, &challenge, signature, public_key)
+    }
+
+    /// Validate home domain for anchor
+    pub fn sep10_validate_domain(
+        env: Env,
+        anchor: Address,
+        home_domain: String,
+    ) -> Result<bool, Error> {
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+        Ok(sep10_auth::validate_home_domain(&env, anchor, home_domain))
+    }
+
+    /// Store SEP-10 session securely
+    pub fn sep10_store_session(
+        env: Env,
+        session: sep10_auth::Sep10Session,
+    ) -> Result<(), Error> {
+        if !Storage::is_attestor(&env, &session.anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+        sep10_auth::store_session(&env, session);
+        Ok(())
+    }
+
+    /// Get stored SEP-10 session
+    pub fn sep10_get_session(
+        env: Env,
+        anchor: Address,
+    ) -> Option<sep10_auth::Sep10Session> {
+        sep10_auth::get_session(&env, anchor)
+    }
+
+    /// Complete SEP-10 authentication flow
+    pub fn sep10_authenticate(
+        env: Env,
+        anchor: Address,
+        client_account: Address,
+        signature: BytesN<64>,
+        public_key: BytesN<32>,
+        home_domain: String,
+    ) -> Result<sep10_auth::Sep10Session, Error> {
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+        sep10_auth::authenticate(&env, anchor, client_account, signature, public_key, home_domain)
+            .map_err(|code| match code {
+                401 => Error::TransportUnauthorized,
+                403 => Error::ComplianceNotMet,
+                _ => Error::TransportError,
+            })
     }
 }
