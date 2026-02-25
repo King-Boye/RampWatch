@@ -2,15 +2,78 @@
 
 AnchorKit is a Soroban-native toolkit for anchoring off-chain attestations to Stellar. It enables smart contracts to verify real-world events such as KYC approvals, payment confirmations, and signed claims in a trust-minimized way.
 
+
+## Features
+
+- Attestation management with replay attack protection
+- Attestor registration and revocation
+- Endpoint configuration for attestors
+- Service capability discovery (deposits, withdrawals, quotes, KYC)
+- **Anchor Info Discovery** (fetch and parse stellar.toml, cache assets/fees/limits)
+- **Health monitoring** (latency, failures, availability)
+- **Metadata caching** (TTL-based with manual refresh)
+- **Request ID propagation** (UUID per flow with tracing)
+- Event emission for all state changes
+- Comprehensive error handling with stable error codes
+
+## Supported Services
+
+Anchors can configure which services they support:
+
+- **Deposits**: Accept incoming deposits from users
+- **Withdrawals**: Process withdrawal requests
+- **Quotes**: Provide exchange rate quotes
+- **KYC**: Perform Know Your Customer verification
+
+## Usage Example
+
+```rust
+// Initialize the contract
+contract.initialize(&admin);
+
+// Register an attestor/anchor
+contract.register_attestor(&anchor);
+
+// Configure supported services for the anchor
+let mut services = Vec::new(&env);
+services.push_back(ServiceType::Deposits);
+services.push_back(ServiceType::Withdrawals);
+services.push_back(ServiceType::KYC);
+contract.configure_services(&anchor, &services);
+
+// Query supported services
+let supported = contract.get_supported_services(&anchor);
+
+// Check if a specific service is supported
+if contract.supports_service(&anchor, &ServiceType::Deposits) {
+    // Process deposit
+}
+```
+
+## CLI Example
+
+See complete deposit/withdraw workflow:
+
+```bash
+# Run bash demo
+./examples/cli_example.sh
+
+# Or run Rust example
+cargo run --example cli_example
+```
+
+See **[CLI_EXAMPLE.md](./CLI_EXAMPLE.md)** for full documentation.
+
 ## Key Features
 
 - **Attestation Management**: Register attestors, submit and retrieve attestations
 - **Endpoint Configuration**: Manage attestor endpoints for off-chain integration
+- **Unified Anchor Adapter**: Consistent API for multiple anchor integrations
 - **Session Management**: Group operations into logical sessions for traceability
 - **Audit Trail**: Complete immutable record of all operations
 - **Reproducibility**: Deterministic operation replay for verification
 - **Replay Protection**: Multi-level protection against unauthorized replays
-- **Mock Anchor**: Built-in simulator for testing without external APIs
+- **Secure Credential Management**: Runtime credential injection with automatic rotation
 
 ## New: Session Traceability & Reproducibility
 
@@ -26,56 +89,46 @@ AnchorKit now includes comprehensive session management and operation tracing to
 
 ### Quick Example
 
-```rust
+```javascript
 // Create a session
-let session_id = contract.create_session(&user_address);
+const sessionId = await contract.create_session(userAddress);
 
 // Perform operations within the session
-let attestation_id = contract.submit_attestation_with_session(
-    &session_id,
-    &issuer,
-    &subject,
-    &timestamp,
-    &payload_hash,
-    &signature
+const attestationId = await contract.submit_attestation_with_session(
+    sessionId,
+    issuer,
+    subject,
+    timestamp,
+    payloadHash,
+    signature
 );
 
 // Verify session completeness
-let operation_count = contract.get_session_operation_count(&session_id);
+const operationCount = await contract.get_session_operation_count(sessionId);
 
 // Retrieve audit logs
-let audit_log = contract.get_audit_log(&0);
+const auditLog = await contract.get_audit_log(0);
 ```
-
-## Testing with Mock Anchor
-
-```rust
-use anchorkit::mock_anchor::MockAnchor;
-
-// Create mock attestation data
-let payload = Bytes::from_slice(&env, b"KYC approved");
-let payload_hash = MockAnchor::hash_payload(&env, &payload);
-let signature = MockAnchor::sign(&env, &issuer, &subject, timestamp, &payload_hash);
-
-// Submit to contract
-let id = contract.submit_attestation(&issuer, &subject, &timestamp, &payload_hash, &signature);
-```
-
-See [MOCK_ANCHOR.md](./MOCK_ANCHOR.md) for complete testing guide.
 
 ## Documentation
 
 ### Getting Started
 - **[QUICK_START.md](./QUICK_START.md)** - Quick reference guide with examples
-- **[MOCK_ANCHOR.md](./MOCK_ANCHOR.md)** - Mock anchor for testing without external APIs
 
 ### Feature Documentation
+- **[ANCHOR_INFO_DISCOVERY.md](./ANCHOR_INFO_DISCOVERY.md)** - Anchor info discovery service (stellar.toml)
+- **[ANCHOR_ADAPTER.md](./ANCHOR_ADAPTER.md)** - Unified anchor adapter interface
 - **[SESSION_TRACEABILITY.md](./SESSION_TRACEABILITY.md)** - Complete feature guide with usage patterns
+- **[SECURE_CREDENTIALS.md](./SECURE_CREDENTIALS.md)** - Secure credential injection and management
+- **[HEALTH_MONITORING.md](./HEALTH_MONITORING.md)** - Anchor health monitoring interface
+- **[METADATA_CACHE.md](./METADATA_CACHE.md)** - Metadata and capabilities caching
+- **[REQUEST_ID_PROPAGATION.md](./REQUEST_ID_PROPAGATION.md)** - Request ID tracking and tracing
 - **[API_SPEC.md](./API_SPEC.md)** - API specification and error codes
 
 ### Technical Documentation
 - **[IMPLEMENTATION_GUIDE.md](./IMPLEMENTATION_GUIDE.md)** - Technical implementation details
 - **[IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md)** - Implementation overview
+- **[DEPLOYMENT_WITH_CREDENTIALS.md](./DEPLOYMENT_WITH_CREDENTIALS.md)** - Deployment guide with secure credentials
 - **[VERIFICATION_CHECKLIST.md](./VERIFICATION_CHECKLIST.md)** - Verification and quality assurance
 
 ## New API Methods
@@ -102,18 +155,188 @@ See [MOCK_ANCHOR.md](./MOCK_ANCHOR.md) for complete testing guide.
 - `SessionCreated` - Emitted when session is created
 - `OperationLogged` - Emitted when operation is logged
 
+## Platform Support
+
+AnchorKit is designed to work seamlessly across all major platforms:
+
+- ✅ **Linux** (Ubuntu, Debian, Fedora, etc.)
+- ✅ **macOS** (Intel and Apple Silicon)
+- ✅ **Windows** (10/11 with PowerShell)
+
+### Cross-Platform Features
+
+- **Path Handling**: All file operations use platform-agnostic APIs (`std::path::Path` in Rust, `pathlib.Path` in Python)
+- **Scripts**: Both bash (Unix) and PowerShell (Windows) versions provided
+- **Testing**: Comprehensive cross-platform test suite included
+- **CI/CD**: Automated testing on Linux, macOS, and Windows
+
+### Platform-Specific Setup
+
+- **Linux/macOS**: See main setup instructions below
+- **Windows**: See [WINDOWS_SETUP.md](./WINDOWS_SETUP.md) for detailed Windows-specific guide
+
 ## Building
+
+### Linux/macOS
 
 ```bash
 cargo build --release
 ```
 
-## Testing
+### Windows
 
-The contract includes comprehensive tests for all functionality:
+```powershell
+cargo build --release
+```
+
+For detailed Windows setup instructions, including IDE configuration and troubleshooting, see [WINDOWS_SETUP.md](./WINDOWS_SETUP.md).
+
+## CLI Usage
+
+AnchorKit now includes a comprehensive CLI tool for interacting with the smart contract. Each command includes helpful examples and clear descriptions.
+
+### Getting Help
+
+View all available commands:
+```bash
+anchorkit --help
+```
+
+Get detailed help for any command:
+```bash
+anchorkit deploy --help
+anchorkit register --help
+```
+
+### Common Workflows
+
+#### 1. Build and Deploy
+```bash
+# Build the contract
+anchorkit build --release
+
+# Deploy to testnet
+anchorkit deploy --network testnet
+
+# Initialize with admin account
+anchorkit init --admin GADMIN123...
+```
+
+#### 2. Register an Attestor
+```bash
+# Basic registration
+anchorkit register --address GANCHOR123...
+
+# Register with services
+anchorkit register --address GANCHOR123... \
+  --services deposits,withdrawals,kyc \
+  --endpoint https://anchor.example.com
+```
+
+#### 3. Submit Attestations
+```bash
+# Submit attestation
+anchorkit attest --subject GUSER123... --payload-hash abc123...
+
+# Submit with session tracking
+anchorkit attest --subject GUSER123... \
+  --payload-hash abc123... \
+  --session session-001
+```
+
+#### 4. Monitor Health
+```bash
+# Check all attestors
+anchorkit health
+
+# Monitor specific attestor
+anchorkit health --attestor GANCHOR123... --watch --interval 30
+```
+
+### Available Commands
+
+- `build` - Build the smart contract
+- `deploy` - Deploy to Stellar network
+- `init` - Initialize contract with admin
+- `register` - Register new attestor
+- `attest` - Submit attestation
+- `query` - Query attestation by ID
+- `health` - Check attestor health
+- `test` - Run contract tests
+- `validate` - Validate configuration files
+- `doctor` - Run environment diagnostics
+
+Each command includes:
+- Clear description of when to use it
+- Real-world usage examples
+- All available options and flags
+- Network selection support
+
+### Environment Diagnostics
+
+The `doctor` command helps troubleshoot environment setup issues:
 
 ```bash
+# Check your development environment
+anchorkit doctor
+```
+
+The doctor command checks:
+- ✅ Rust toolchain installation
+- ✅ WASM target availability
+- ✅ Wallet configuration
+- ✅ RPC endpoint connectivity
+- ✅ Config file validity
+- ✅ Network connectivity
+
+See **[DOCTOR_COMMAND.md](./DOCTOR_COMMAND.md)** for complete documentation.
+
+## Testing
+
+The contract includes comprehensive tests for all functionality, including cross-platform compatibility:
+
+### Linux/macOS
+```bash
+# Run all tests
 cargo test
+
+# Run cross-platform path tests
+cargo test cross_platform
+
+# Run with verbose output
+cargo test --verbose
+```
+
+### Windows
+```powershell
+# Run all tests
+cargo test
+
+# Run cross-platform path tests
+cargo test cross_platform
+
+# Run with verbose output
+cargo test --verbose
+```
+
+### Configuration Validation
+
+#### Linux/macOS
+```bash
+# Validate all configurations
+./validate_all.sh
+
+# Pre-deployment validation
+./pre_deploy_validate.sh
+```
+
+#### Windows
+```powershell
+# Validate all configurations
+.\validate_all.ps1
+
+# Pre-deployment validation
+.\pre_deploy_validate.ps1
 ```
 
 ## Backward Compatibility
@@ -172,3 +395,4 @@ For questions or issues:
 1. Check the documentation files
 2. Review the API specification
 3. Examine the test cases in `src/lib.rs`
+

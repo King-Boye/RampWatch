@@ -1,43 +1,32 @@
-use soroban_sdk::{contracttype, Address, BytesN, Env, String};
+use crate::types::ServiceType;
+use soroban_sdk::{contracttype, symbol_short, Address, BytesN, Env, String, Vec};
 
-/// Event emitted when an attestor is added.
-/// Format: (Topic, SubjectAddr)
-/// Topic: ("attestor", "added")
-/// SubjectAddr: The attestor address
-/// Minimized for gas efficiency - no data payload
+// --- EXISTING ATTESTOR EVENTS ---
+
 pub struct AttestorAdded;
-
 impl AttestorAdded {
     pub fn publish(env: &Env, attestor: &Address) {
         env.events().publish(
-            (soroban_sdk::symbol_short!("attestor"), soroban_sdk::symbol_short!("added"), attestor),
+            (symbol_short!("attestor"), symbol_short!("added"), attestor),
             (),
         );
     }
 }
 
-/// Event emitted when an attestor is removed.
-/// Format: (Topic, SubjectAddr)
-/// Topic: ("attestor", "removed")
-/// SubjectAddr: The attestor address
-/// Minimized for gas efficiency - no data payload
 pub struct AttestorRemoved;
-
 impl AttestorRemoved {
     pub fn publish(env: &Env, attestor: &Address) {
         env.events().publish(
-            (soroban_sdk::symbol_short!("attestor"), soroban_sdk::symbol_short!("removed"), attestor),
+            (
+                symbol_short!("attestor"),
+                symbol_short!("removed"),
+                attestor,
+            ),
             (),
         );
     }
 }
 
-/// Event emitted when an attestation is recorded.
-/// Format: (Topic, AttestationID, SubjectAddr, Data)
-/// Topic: ("attest", "recorded")
-/// AttestationID: The unique attestation ID
-/// SubjectAddr: The subject address
-/// Data: Minimal data containing only timestamp and payload_hash
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttestationRecordedData {
@@ -46,11 +35,21 @@ pub struct AttestationRecordedData {
 }
 
 pub struct AttestationRecorded;
-
 impl AttestationRecorded {
-    pub fn publish(env: &Env, id: u64, subject: &Address, timestamp: u64, payload_hash: BytesN<32>) {
+    pub fn publish(
+        env: &Env,
+        id: u64,
+        subject: &Address,
+        timestamp: u64,
+        payload_hash: BytesN<32>,
+    ) {
         env.events().publish(
-            (soroban_sdk::symbol_short!("attest"), soroban_sdk::symbol_short!("recorded"), id, subject),
+            (
+                symbol_short!("attest"),
+                symbol_short!("recorded"),
+                id,
+                subject,
+            ),
             AttestationRecordedData {
                 timestamp,
                 payload_hash,
@@ -58,6 +57,8 @@ impl AttestationRecorded {
         );
     }
 }
+
+// --- CONFIGURATION EVENTS ---
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -69,7 +70,7 @@ pub struct EndpointConfigured {
 impl EndpointConfigured {
     pub fn publish(&self, env: &Env) {
         env.events().publish(
-            (soroban_sdk::symbol_short!("endpoint"), soroban_sdk::symbol_short!("config")),
+            (symbol_short!("endpoint"), symbol_short!("config")),
             self.clone(),
         );
     }
@@ -84,14 +85,65 @@ pub struct EndpointRemoved {
 impl EndpointRemoved {
     pub fn publish(&self, env: &Env) {
         env.events().publish(
-            (soroban_sdk::symbol_short!("endpoint"), soroban_sdk::symbol_short!("removed")),
+            (symbol_short!("endpoint"), symbol_short!("removed")),
             self.clone(),
         );
     }
 }
 
-/// Event emitted when a session is created.
-/// Enables tracing of all operations within the session.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ServicesConfigured {
+    pub anchor: Address,
+    pub services: Vec<ServiceType>,
+}
+
+impl ServicesConfigured {
+    pub fn publish(&self, env: &Env) {
+        env.events().publish(
+            (symbol_short!("services"), symbol_short!("config")),
+            self.clone(),
+        );
+    }
+}
+
+// --- QUOTE & SESSION EVENTS ---
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QuoteSubmitted {
+    pub anchor: Address,
+    pub quote_id: u64,
+    pub base_asset: String,
+    pub quote_asset: String,
+    pub rate: u64,
+    pub valid_until: u64,
+}
+
+impl QuoteSubmitted {
+    pub fn publish(
+        env: &Env,
+        anchor: &Address,
+        quote_id: u64,
+        base_asset: &String,
+        quote_asset: &String,
+        rate: u64,
+        valid_until: u64,
+    ) {
+        env.events().publish(
+            (symbol_short!("quote"), symbol_short!("submit"), quote_id),
+            QuoteSubmitted {
+                anchor: anchor.clone(),
+                quote_id,
+                base_asset: base_asset.clone(),
+                quote_asset: quote_asset.clone(),
+                rate,
+                valid_until,
+            },
+        );
+    }
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SessionCreated {
@@ -103,7 +155,11 @@ pub struct SessionCreated {
 impl SessionCreated {
     pub fn publish(env: &Env, session_id: u64, initiator: &Address, timestamp: u64) {
         env.events().publish(
-            (soroban_sdk::symbol_short!("session"), soroban_sdk::symbol_short!("created"), session_id),
+            (
+                symbol_short!("session"),
+                symbol_short!("created"),
+                session_id,
+            ),
             SessionCreated {
                 session_id,
                 initiator: initiator.clone(),
@@ -113,8 +169,6 @@ impl SessionCreated {
     }
 }
 
-/// Event emitted when an operation is recorded in a session.
-/// Provides full traceability of contract interactions.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OperationLogged {
@@ -126,15 +180,106 @@ pub struct OperationLogged {
 }
 
 impl OperationLogged {
-    pub fn publish(env: &Env, log_id: u64, session_id: u64, operation_index: u64, operation_type: &String, status: &String) {
+    pub fn publish(
+        env: &Env,
+        log_id: u64,
+        session_id: u64,
+        operation_index: u64,
+        operation_type: &String,
+        status: &String,
+    ) {
         env.events().publish(
-            (soroban_sdk::symbol_short!("audit"), soroban_sdk::symbol_short!("logged"), log_id),
+            (symbol_short!("audit"), symbol_short!("logged"), log_id),
             OperationLogged {
                 log_id,
                 session_id,
                 operation_index,
                 operation_type: operation_type.clone(),
                 status: status.clone(),
+            },
+        );
+    }
+}
+
+// --- NEW LIFECYCLE EVENTS ---
+
+/// Event emitted when an app or user receives/fetches a specific quote.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QuoteReceived {
+    pub quote_id: u64,
+    pub receiver: Address,
+    pub timestamp: u64,
+}
+
+impl QuoteReceived {
+    pub fn publish(env: &Env, quote_id: u64, receiver: &Address, timestamp: u64) {
+        env.events().publish(
+            (symbol_short!("quote"), symbol_short!("received"), quote_id),
+            QuoteReceived {
+                quote_id,
+                receiver: receiver.clone(),
+                timestamp,
+            },
+        );
+    }
+}
+
+/// Event emitted when a transfer operation starts.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransferInitiated {
+    pub transfer_id: u64,
+    pub sender: Address,
+    pub destination: Address,
+    pub amount: i128,
+}
+
+impl TransferInitiated {
+    pub fn publish(
+        env: &Env,
+        transfer_id: u64,
+        sender: &Address,
+        destination: &Address,
+        amount: i128,
+    ) {
+        env.events().publish(
+            (
+                symbol_short!("transfer"),
+                symbol_short!("init"),
+                transfer_id,
+            ),
+            TransferInitiated {
+                transfer_id,
+                sender: sender.clone(),
+                destination: destination.clone(),
+                amount,
+            },
+        );
+    }
+}
+
+/// Event emitted when the settlement of a transfer is finalized.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettlementConfirmed {
+    pub transfer_id: u64,
+    pub settlement_ref: BytesN<32>,
+    pub timestamp: u64,
+}
+
+impl SettlementConfirmed {
+    pub fn publish(env: &Env, transfer_id: u64, settlement_ref: BytesN<32>, timestamp: u64) {
+        env.events().publish(
+            (
+                symbol_short!("settle"),
+                symbol_short!("confirm"),
+                transfer_id,
+            ),
+            SettlementConfirmed {
+                transfer_id,
+                settlement_ref,
+                timestamp,
             },
         );
     }
