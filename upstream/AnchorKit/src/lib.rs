@@ -12,6 +12,7 @@ extern crate alloc;
 
 mod anchor_adapter;
 mod anchor_info_discovery;
+mod anchor_kit_error;
 mod asset_validator;
 mod config;
 mod connection_pool;
@@ -99,6 +100,9 @@ pub use asset_validator::{AssetConfig, AssetValidator};
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
 pub use connection_pool::{ConnectionPool, ConnectionPoolConfig, ConnectionStats};
 pub use credentials::{CredentialManager, CredentialPolicy, CredentialType, SecureCredential};
+pub use anchor_kit_error::{
+    AnchorKitError, ErrorCategory, ErrorCode, ErrorResponse, ErrorSeverity,
+};
 pub use errors::Error;
 pub use events::{
     AttestationRecorded, AttestorAdded, AttestorRemoved, EndpointConfigured, EndpointRemoved,

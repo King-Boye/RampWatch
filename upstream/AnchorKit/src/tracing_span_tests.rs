@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tracing_span_tests {
     use crate::{AnchorKitContract, AnchorKitContractClient};
-    use soroban_sdk::{testutils::Address as _, Address, Bytes, BytesN, Env};
+    use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Bytes, BytesN, Env};
 
     #[test]
     fn test_span_emits_request_id() {
@@ -31,6 +31,9 @@ mod tracing_span_tests {
     fn test_span_emits_operation_metadata() {
         let env = Env::default();
         env.mock_all_auths();
+        env.ledger().with_mut(|li| {
+            li.timestamp = 1000;
+        });
         let contract_id = env.register_contract(None, AnchorKitContract);
         let client = AnchorKitContractClient::new(&env, &contract_id);
 
