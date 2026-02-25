@@ -2,10 +2,6 @@ use crate::anchor_info_discovery::{AnchorInfoDiscovery, AssetInfo, StellarToml};
 use crate::errors::Error;
 use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env, String, Vec};
 
-// Note: These tests are disabled because AnchorInfoDiscovery uses Soroban storage
-// which requires contract context. These should be tested via integration tests
-// or with proper contract environment setup.
-
 #[test]
 #[ignore]
 fn test_fetch_and_cache_toml() {
