@@ -283,7 +283,7 @@ impl WebhookMiddleware {
         payload: &Bytes,
         max_size: u32,
     ) -> Result<bool, Error> {
-        if (payload.len() as u32) > max_size {
+        if payload.len() > max_size {
             return Err(Error::WebhookPayloadTooLarge);
         }
 
@@ -432,7 +432,7 @@ impl WebhookMiddleware {
         let validation_timestamp = env.ledger().timestamp();
 
         // Step 1: Validate payload size
-        if let Err(_) = Self::validate_payload_size(&request.payload, config.max_payload_size_bytes) {
+        if Self::validate_payload_size(&request.payload, config.max_payload_size_bytes).is_err() {
             Self::log_suspicious_activity(
                 env,
                 SuspiciousActivityType::PayloadTooLarge,
@@ -448,7 +448,7 @@ impl WebhookMiddleware {
         }
 
         // Step 2: Validate timestamp
-        if let Err(_) = Self::validate_timestamp(env, request.timestamp, config.timestamp_tolerance_seconds) {
+        if Self::validate_timestamp(env, request.timestamp, config.timestamp_tolerance_seconds).is_err() {
             Self::log_suspicious_activity(
                 env,
                 SuspiciousActivityType::TimestampOutOfRange,
@@ -488,7 +488,7 @@ impl WebhookMiddleware {
         if config.enable_replay_protection {
             let payload_hash_result = env.crypto().sha256(&request.payload);
             let payload_hash = BytesN::from_array(env, &payload_hash_result.to_array());
-            if let Err(_) = Self::check_replay_attack(env, request.webhook_id, &payload_hash) {
+            if Self::check_replay_attack(env, request.webhook_id, &payload_hash).is_err() {
                 Self::log_suspicious_activity(
                     env,
                     SuspiciousActivityType::ReplayAttack,
