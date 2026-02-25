@@ -21,7 +21,14 @@ mod tracing_span_tests {
         let payload_hash = BytesN::from_array(&env, &[1u8; 32]);
         let signature = Bytes::new(&env);
 
-        client.submit_with_request_id(&request_id, &attestor, &subject, &1000, &payload_hash, &signature);
+        client.submit_with_request_id(
+            &request_id,
+            &attestor,
+            &subject,
+            &1000,
+            &payload_hash,
+            &signature,
+        );
 
         let span = client.get_tracing_span(&request_id.id).unwrap();
         assert_eq!(span.request_id.id, request_id.id);
@@ -45,7 +52,14 @@ mod tracing_span_tests {
         let payload_hash = BytesN::from_array(&env, &[1u8; 32]);
         let signature = Bytes::new(&env);
 
-        client.submit_with_request_id(&request_id, &attestor, &subject, &1000, &payload_hash, &signature);
+        client.submit_with_request_id(
+            &request_id,
+            &attestor,
+            &subject,
+            &1000,
+            &payload_hash,
+            &signature,
+        );
 
         let span = client.get_tracing_span(&request_id.id).unwrap();
         assert_eq!(span.actor, attestor);
@@ -64,7 +78,7 @@ mod tracing_span_tests {
         let attestor = Address::generate(&env);
 
         client.initialize(&admin);
-        
+
         let request_id = client.generate_request_id();
         let original_id = request_id.id.clone();
 
@@ -92,7 +106,14 @@ mod tracing_span_tests {
         let payload_hash = BytesN::from_array(&env, &[1u8; 32]);
         let signature = Bytes::new(&env);
 
-        client.submit_with_request_id(&request_id, &attestor, &subject, &1000, &payload_hash, &signature);
+        client.submit_with_request_id(
+            &request_id,
+            &attestor,
+            &subject,
+            &1000,
+            &payload_hash,
+            &signature,
+        );
 
         let span = client.get_tracing_span(&request_id.id).unwrap();
         assert!(span.status.len() > 0);

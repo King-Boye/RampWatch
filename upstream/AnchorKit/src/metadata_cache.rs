@@ -42,13 +42,15 @@ impl MetadataCache {
         };
         let key = (soroban_sdk::symbol_short!("METACACHE"), anchor);
         env.storage().temporary().set(&key, &cached);
-        env.storage().temporary().extend_ttl(&key, ttl as u32, ttl as u32);
+        env.storage()
+            .temporary()
+            .extend_ttl(&key, ttl as u32, ttl as u32);
     }
 
     pub fn get_metadata(env: &Env, anchor: &Address) -> Result<AnchorMetadata, Error> {
         let key = (soroban_sdk::symbol_short!("METACACHE"), anchor);
         let cached: Option<CachedMetadata> = env.storage().temporary().get(&key);
-        
+
         match cached {
             Some(c) => {
                 if c.is_expired(env.ledger().timestamp()) {
@@ -66,7 +68,13 @@ impl MetadataCache {
         env.storage().temporary().remove(&key);
     }
 
-    pub fn set_capabilities(env: &Env, anchor: &Address, toml_url: String, capabilities: String, ttl: u64) {
+    pub fn set_capabilities(
+        env: &Env,
+        anchor: &Address,
+        toml_url: String,
+        capabilities: String,
+        ttl: u64,
+    ) {
         let cached = CachedCapabilities {
             toml_url,
             capabilities,
@@ -75,13 +83,15 @@ impl MetadataCache {
         };
         let key = (soroban_sdk::symbol_short!("CAPCACHE"), anchor);
         env.storage().temporary().set(&key, &cached);
-        env.storage().temporary().extend_ttl(&key, ttl as u32, ttl as u32);
+        env.storage()
+            .temporary()
+            .extend_ttl(&key, ttl as u32, ttl as u32);
     }
 
     pub fn get_capabilities(env: &Env, anchor: &Address) -> Result<CachedCapabilities, Error> {
         let key = (soroban_sdk::symbol_short!("CAPCACHE"), anchor);
         let cached: Option<CachedCapabilities> = env.storage().temporary().get(&key);
-        
+
         match cached {
             Some(c) => {
                 if c.is_expired(env.ledger().timestamp()) {

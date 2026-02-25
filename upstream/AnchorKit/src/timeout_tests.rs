@@ -139,7 +139,8 @@ fn test_all_retries_exhausted() {
     let config = RetryConfig::new(2, 100, 5000, 2);
     let engine = RetryEngine::new(config);
 
-    let result: crate::retry::RetryResult<i32> = engine.execute(|_| Err(Error::AnchorMetadataNotFound));
+    let result: crate::retry::RetryResult<i32> =
+        engine.execute(|_| Err(Error::AnchorMetadataNotFound));
 
     assert!(result.is_failure());
     assert_eq!(result.attempts, 2);

@@ -1,9 +1,6 @@
 #![cfg(test)]
 
-use crate::{
-    request_history::ApiCallStatus,
-    AnchorKitContract, AnchorKitContractClient,
-};
+use crate::{request_history::ApiCallStatus, AnchorKitContract, AnchorKitContractClient};
 use soroban_sdk::{testutils::Address as _, Address, Bytes, BytesN, Env, String};
 
 #[test]
@@ -135,8 +132,7 @@ fn test_get_api_call_details() {
     let payload_hash = BytesN::from_array(&env, &[1u8; 32]);
     let signature = Bytes::new(&env);
 
-    client
-        .submit_attestation_tracked(&attestor, &subject, &timestamp, &payload_hash, &signature);
+    client.submit_attestation_tracked(&attestor, &subject, &timestamp, &payload_hash, &signature);
 
     // Get request history
     let history = client.get_request_history(&10);
@@ -179,7 +175,10 @@ fn test_multiple_api_calls() {
 
     // Most recent call should be first
     let first_call = history.recent_calls.get(0).unwrap();
-    assert_eq!(first_call.operation, String::from_str(&env, "register_attestor"));
+    assert_eq!(
+        first_call.operation,
+        String::from_str(&env, "register_attestor")
+    );
 }
 
 #[test]
