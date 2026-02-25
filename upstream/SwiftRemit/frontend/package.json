@@ -2,8 +2,9 @@
   "name": "swiftremit-frontend",
   "version": "1.0.0",
   "description": "Frontend components for SwiftRemit",
-  "main": "src/components/VerificationBadge.tsx",
+  "main": "src/components/index.ts",
   "scripts": {
+    "build": "tsc --noEmit",
     "test": "vitest",
     "lint": "eslint src --ext .ts,.tsx"
   },
