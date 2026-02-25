@@ -33,3 +33,23 @@ export interface VerificationResult {
   trustline_count: number;
   has_toml: boolean;
 }
+
+export interface FxRate {
+  transaction_id: string;
+  rate: number;
+  provider: string;
+  timestamp: Date;
+  from_currency: string;
+  to_currency: string;
+}
+
+export interface FxRateRecord {
+  id: number;
+  transaction_id: string;
+  rate: number;
+  provider: string;
+  timestamp: Date;
+  from_currency: string;
+  to_currency: string;
+  created_at: Date;
+}
