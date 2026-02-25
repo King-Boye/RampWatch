@@ -22,6 +22,8 @@ mod errors;
 mod events;
 mod interactive_support;
 mod metadata_cache;
+#[cfg(feature = "mock-only")]
+mod mock_mode;
 mod rate_limiter;
 mod request_history;
 mod request_id;
@@ -99,6 +101,11 @@ mod anchor_info_discovery_tests;
 
 #[cfg(test)]
 mod webhook_middleware_tests;
+
+#[cfg(feature = "mock-only")]
+#[cfg(test)]
+mod mock_mode_tests;
+
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
