@@ -6,7 +6,6 @@
 #![no_std]
 
 mod asset_verification;
-mod debug;
 mod errors;
 mod events;
 mod fee_strategy;
@@ -24,8 +23,6 @@ mod test_escrow;
 #[cfg(test)]
 mod test_fee_strategy;
 #[cfg(test)]
-mod test_fx_rate;
-#[cfg(test)]
 mod test_roles_simple;
 #[cfg(test)]
 mod test_transfer_state;
@@ -34,10 +31,9 @@ mod test_protocol_fee;
 #[cfg(test)]
 mod test_property; 
 
-use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
 
 pub use asset_verification::*;
-pub use debug::*;
 pub use errors::ContractError;
 pub use events::*;
 pub use fee_strategy::*;
@@ -182,7 +178,7 @@ impl SwiftRemitContract {
 
         // Event: Agent registered - Fires when admin adds a new agent to the approved list
         // Used by off-chain systems to track which addresses can confirm payouts
-        emit_agent_registered(&env, agent);
+        emit_agent_registered(&env, agent, caller);
 
         Ok(())
     }
@@ -213,7 +209,7 @@ impl SwiftRemitContract {
 
         // Event: Agent removed - Fires when admin removes an agent from the approved list
         // Used by off-chain systems to revoke payout confirmation privileges
-        emit_agent_removed(&env, agent);
+        emit_agent_removed(&env, agent, caller);
 
         Ok(())
     }
@@ -283,8 +279,6 @@ impl SwiftRemitContract {
     agent: Address,
     amount: i128,
     expiry: Option<u64>,
-    fx_rate: Option<i128>,
-    fx_provider: Option<String>,
 ) -> Result<u64, ContractError> {
     validate_create_remittance_request(&env, &sender, &agent, amount)?;
 
@@ -301,17 +295,6 @@ impl SwiftRemitContract {
     let counter = get_remittance_counter(&env)?;
     let remittance_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
 
-    // Capture FX rate if provided
-    let fx_rate_data = if let (Some(rate), Some(provider)) = (fx_rate, fx_provider) {
-        Some(crate::FxRate {
-            rate,
-            provider,
-            timestamp: env.ledger().timestamp(),
-        })
-    } else {
-        None
-    };
-
     let remittance = Remittance {
         id: remittance_id,
         sender: sender.clone(),
@@ -320,7 +303,6 @@ impl SwiftRemitContract {
         fee,
         status: RemittanceStatus::Pending,
         expiry,
-        fx_rate: fx_rate_data,
     };
 
     set_remittance(&env, remittance_id, &remittance);
@@ -433,7 +415,7 @@ impl SwiftRemitContract {
 
         // Event: Remittance completed - Fires when agent confirms fiat payout and USDC is released
         // Used by off-chain systems to track successful settlements and update transaction status
-        emit_remittance_completed(&env, remittance_id, remittance.agent.clone(), payout_amount);
+        emit_remittance_completed(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone());
         
         // Event: Settlement completed - Fires with final executed settlement values
         // Used by off-chain systems for reconciliation and audit trails of completed transactions
@@ -498,7 +480,7 @@ impl SwiftRemitContract {
 
         // Event: Remittance cancelled - Fires when sender cancels a pending remittance and receives full refund
         // Used by off-chain systems to track cancellations and update transaction status
-        emit_remittance_cancelled(&env, remittance_id, remittance.sender, remittance.amount);
+        emit_remittance_cancelled(&env, remittance_id, remittance.sender, remittance.agent, usdc_token, remittance.amount);
 
         log_cancel_remittance(&env, remittance_id);
 
@@ -540,7 +522,7 @@ impl SwiftRemitContract {
 
         // Event: Fees withdrawn - Fires when admin withdraws accumulated platform fees
         // Used by off-chain systems to track revenue collection and maintain financial records
-        emit_fees_withdrawn(&env, to.clone(), fees);
+        emit_fees_withdrawn(&env, caller, to, usdc_token, fees);
 
         log_withdraw_fees(&env, &to, fees);
 
@@ -933,8 +915,8 @@ impl SwiftRemitContract {
             emit_remittance_completed(
                 &env,
                 remittance.id,
+                remittance.sender,
                 remittance.agent,
-                payout_amount,
             );
         }
 

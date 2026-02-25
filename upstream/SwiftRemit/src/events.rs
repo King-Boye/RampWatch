@@ -310,10 +310,17 @@ pub fn emit_escrow_released(env: &Env, transfer_id: u64, recipient: Address, amo
     );
 }
 
-/// Emits an event when escrow funds are refunded
-pub fn emit_escrow_refunded(env: &Env, transfer_id: u64, sender: Address, amount: i128) {
+/// Emits a settlement completed event with full transaction details.
+/// This event includes sender, recipient (agent), token address, and payout amount.
+pub fn emit_settlement_completed(
+    env: &Env,
+    sender: Address,
+    recipient: Address,
+    token: Address,
+    amount: i128,
+) {
     env.events().publish(
-        (symbol_short!("escrow"), symbol_short!("refunded")),
-        (SCHEMA_VERSION, env.ledger().sequence(), env.ledger().timestamp(), transfer_id, sender, amount),
+        (symbol_short!("settled"),),
+        (sender, recipient, token, amount),
     );
 }

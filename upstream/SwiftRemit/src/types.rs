@@ -81,18 +81,6 @@ pub struct Escrow {
     pub status: EscrowStatus,
 }
 
-/// FX rate information captured at transaction time.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FxRate {
-    /// Exchange rate (scaled by 10^7 for precision)
-    pub rate: i128,
-    /// Rate provider identifier
-    pub provider: String,
-    /// Timestamp when rate was captured
-    pub timestamp: u64,
-}
-
 /// A remittance transaction record.
 ///
 /// Contains all information about a cross-border remittance including
@@ -114,8 +102,6 @@ pub struct Remittance {
     pub status: RemittanceStatus,
     /// Optional expiry timestamp (seconds since epoch) for settlement
     pub expiry: Option<u64>,
-    /// FX rate used at transaction time
-    pub fx_rate: Option<FxRate>,
 }
 
 /// Entry for batch settlement processing.
