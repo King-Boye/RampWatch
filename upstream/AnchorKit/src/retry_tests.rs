@@ -230,11 +230,11 @@ fn test_retryable_vs_non_retryable_classification() {
     assert!(is_retryable_error(&Error::AnchorMetadataNotFound));
     assert!(is_retryable_error(&Error::CacheExpired));
     assert!(is_retryable_error(&Error::CacheNotFound));
-    
+
     // Network failures (retryable)
     assert!(is_retryable_error(&Error::TransportError));
     assert!(is_retryable_error(&Error::TransportTimeout));
-    
+
     // Rate limiting (retryable)
     assert!(is_retryable_error(&Error::RateLimitExceeded));
     assert!(is_retryable_error(&Error::ProtocolRateLimitExceeded));

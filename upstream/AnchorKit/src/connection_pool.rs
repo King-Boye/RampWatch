@@ -90,9 +90,11 @@ impl ConnectionPool {
         };
 
         env.storage().temporary().set(&key, &conn);
-        env.storage()
-            .temporary()
-            .extend_ttl(&key, config.idle_timeout_seconds as u32, config.idle_timeout_seconds as u32);
+        env.storage().temporary().extend_ttl(
+            &key,
+            config.idle_timeout_seconds as u32,
+            config.idle_timeout_seconds as u32,
+        );
 
         // Update stats
         Self::increment_new(env);
