@@ -36,10 +36,18 @@ fn validate_configs_at_build() {
         .arg("import jsonschema, toml")
         .output();
 
-    if module_check.is_err() || !module_check.unwrap().status.success() {
-        println!("cargo:warning=Python modules (jsonschema, toml) not installed. Run: pip3 install jsonschema toml");
-        println!("cargo:warning=Skipping compile-time config validation");
-        return;
+    match module_check {
+        Ok(result) if !result.status.success() => {
+            println!("cargo:warning=Python modules (jsonschema, toml) not installed. Run: pip3 install jsonschema toml");
+            println!("cargo:warning=Skipping compile-time config validation");
+            return;
+        }
+        Err(_) => {
+            println!("cargo:warning=Failed to check Python modules");
+            println!("cargo:warning=Skipping compile-time config validation");
+            return;
+        }
+        _ => {}
     }
 
     println!("cargo:warning=Running strict schema validation at compile time...");

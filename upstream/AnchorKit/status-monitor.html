@@ -11,6 +11,36 @@
             margin: 40px auto;
             padding: 20px;
         }
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid #e5e5e5;
+        }
+        .network-switcher {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .network-btn {
+            padding: 6px 12px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .network-btn:hover {
+            background: #f5f5f5;
+        }
+        .network-btn.active {
+            background: #0066cc;
+            color: white;
+            border-color: #0066cc;
+        }
         .status-badge {
             display: flex;
             align-items: center;
@@ -45,7 +75,15 @@
     </style>
 </head>
 <body>
-    <h1>AnchorKit Status Monitor</h1>
+    <div class="navbar">
+        <h1 style="margin: 0;">AnchorKit Status Monitor</h1>
+        <div class="network-switcher">
+            <span style="font-size: 13px; color: #666;">Network:</span>
+            <button class="network-btn" data-network="testnet">Testnet</button>
+            <button class="network-btn" data-network="mainnet">Mainnet</button>
+            <button class="network-btn" data-network="local">Local</button>
+        </div>
+    </div>
     
     <div>
         <label>Anchor Base URL:</label>
@@ -71,6 +109,12 @@
     </div>
 
     <script>
+        const networkConfig = {
+            testnet: 'https://horizon-testnet.stellar.org',
+            mainnet: 'https://horizon.stellar.org',
+            local: 'http://localhost:8080'
+        };
+
         const endpoints = [
             { name: 'Anchor /info', path: '/info' },
             { name: 'Auth Endpoint', path: '/auth' },
@@ -79,6 +123,40 @@
 
         const badges = document.querySelectorAll('.status-badge');
         const baseUrlInput = document.getElementById('baseUrl');
+        const networkBtns = document.querySelectorAll('.network-btn');
+
+        // Load saved network from localStorage
+        function loadNetwork() {
+            const saved = localStorage.getItem('anchorkit_network') || 'local';
+            setNetwork(saved);
+        }
+
+        // Set active network
+        function setNetwork(network) {
+            localStorage.setItem('anchorkit_network', network);
+            
+            // Update button states
+            networkBtns.forEach(btn => {
+                if (btn.dataset.network === network) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            // Update base URL
+            baseUrlInput.value = networkConfig[network];
+            
+            // Re-check endpoints
+            checkAll();
+        }
+
+        // Network button click handlers
+        networkBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                setNetwork(btn.dataset.network);
+            });
+        });
 
         async function checkEndpoint(url) {
             try {
@@ -126,11 +204,11 @@
             }
         }
 
-        // Check immediately and every 30 seconds
-        checkAll();
+        // Initialize
+        loadNetwork();
         setInterval(checkAll, 30000);
 
-        // Re-check when URL changes
+        // Re-check when URL changes manually
         baseUrlInput.addEventListener('change', checkAll);
     </script>
 </body>
