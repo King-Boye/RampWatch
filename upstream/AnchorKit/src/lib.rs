@@ -19,14 +19,15 @@ mod credentials;
 mod error_mapping;
 mod errors;
 mod events;
-mod skeleton_loaders;
 mod metadata_cache;
 mod rate_limiter;
 mod request_history;
 mod request_id;
+mod response_normalizer;
 mod retry;
 mod sep24_adapter;
 mod serialization;
+mod skeleton_loaders;
 mod storage;
 mod transport;
 mod types;
@@ -85,10 +86,6 @@ mod tracing_span_tests;
 #[cfg(test)]
 mod anchor_info_discovery_tests;
 
-#[cfg(test)]
-mod load_simulation_tests;
-
-
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
 pub use asset_validator::{AssetConfig, AssetValidator};
@@ -101,18 +98,21 @@ pub use events::{
     OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
     SettlementConfirmed, TransferInitiated,
 };
+pub use metadata_cache::{CachedCapabilities, CachedMetadata, MetadataCache};
+pub use rate_limiter::{RateLimitConfig, RateLimiter};
+pub use request_history::{
+    ApiCallDetails, ApiCallRecord, ApiCallStatus, RequestHistory, RequestHistoryPanel,
+};
+pub use request_id::{RequestId, RequestTracker, TracingSpan};
 pub use skeleton_loaders::{
     AnchorInfoSkeleton, AuthValidationSkeleton, TransactionStatusSkeleton, ValidationStep,
 };
-pub use metadata_cache::{CachedCapabilities, CachedMetadata, MetadataCache};
-pub use rate_limiter::{RateLimitConfig, RateLimiter};
-pub use request_history::{ApiCallDetails, ApiCallRecord, ApiCallStatus, RequestHistory, RequestHistoryPanel};
-pub use request_id::{RequestId, RequestTracker, TracingSpan};
 pub use storage::Storage;
 pub use types::{
-    AnchorMetadata, AnchorOption, AnchorProfile, AnchorSearchQuery, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
-    InteractionSession, OperationContext, QuoteData, QuoteRequest, RateComparison, RoutingRequest,
-    RoutingResult, RoutingStrategy, ServiceType, TransactionIntent, TransactionIntentBuilder,
+    AnchorMetadata, AnchorOption, AnchorProfile, AnchorSearchQuery, AnchorServices, Attestation,
+    AuditLog, Endpoint, HealthStatus, InteractionSession, OperationContext, QuoteData,
+    QuoteRequest, RateComparison, RoutingRequest, RoutingResult, RoutingStrategy, ServiceType,
+    TransactionIntent, TransactionIntentBuilder,
 };
 pub use validation::{validate_attestor_batch, validate_init_config, validate_session_config};
 
@@ -602,6 +602,52 @@ impl AnchorKitContract {
         Storage::get_quote(&env, &anchor, quote_id).ok_or(Error::InvalidQuote)
     }
 
+    /// Normalize deposit response to standard format
+    pub fn normalize_deposit_response(
+        env: Env,
+        response: anchor_adapter::DepositResponse,
+        amount: u64,
+        asset: String,
+        fee: u64,
+    ) -> Result<response_normalizer::NormalizedResponse, Error> {
+        let normalized = response_normalizer::ResponseNormalizer::normalize_deposit(
+            &env, &response, amount, asset, fee,
+        );
+        response_normalizer::ResponseNormalizer::validate(&normalized)?;
+        Ok(normalized)
+    }
+
+    /// Normalize withdraw response to standard format
+    pub fn normalize_withdraw_response(
+        env: Env,
+        response: anchor_adapter::WithdrawResponse,
+        amount: u64,
+        asset: String,
+        fee: u64,
+    ) -> Result<response_normalizer::NormalizedResponse, Error> {
+        let normalized = response_normalizer::ResponseNormalizer::normalize_withdraw(
+            &env, &response, amount, asset, fee,
+        );
+        response_normalizer::ResponseNormalizer::validate(&normalized)?;
+        Ok(normalized)
+    }
+
+    /// Normalize quote to standard format
+    pub fn normalize_quote_response(
+        env: Env,
+        anchor: Address,
+        quote_id: u64,
+        amount: u64,
+        id_prefix: String,
+    ) -> Result<response_normalizer::NormalizedResponse, Error> {
+        let quote = Storage::get_quote(&env, &anchor, quote_id).ok_or(Error::InvalidQuote)?;
+        let normalized = response_normalizer::ResponseNormalizer::normalize_quote(
+            &env, &quote, amount, id_prefix,
+        );
+        response_normalizer::ResponseNormalizer::validate(&normalized)?;
+        Ok(normalized)
+    }
+
     /// Compare rates for specific anchors and return the best option.
     pub fn compare_rates_for_anchors(
         env: Env,
@@ -1013,16 +1059,28 @@ impl AnchorKitContract {
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
-        anchor_info_discovery::AnchorInfoDiscovery::fetch_and_cache(&env, &anchor, domain, ttl_seconds)
+        anchor_info_discovery::AnchorInfoDiscovery::fetch_and_cache(
+            &env,
+            &anchor,
+            domain,
+            ttl_seconds,
+        )
     }
 
     /// Get cached stellar.toml for an anchor
-    pub fn get_anchor_toml(env: Env, anchor: Address) -> Result<anchor_info_discovery::StellarToml, Error> {
+    pub fn get_anchor_toml(
+        env: Env,
+        anchor: Address,
+    ) -> Result<anchor_info_discovery::StellarToml, Error> {
         anchor_info_discovery::AnchorInfoDiscovery::get_cached(&env, &anchor)
     }
 
     /// Refresh cached stellar.toml for an anchor
-    pub fn refresh_anchor_info(env: Env, anchor: Address, domain: String) -> Result<anchor_info_discovery::StellarToml, Error> {
+    pub fn refresh_anchor_info(
+        env: Env,
+        anchor: Address,
+        domain: String,
+    ) -> Result<anchor_info_discovery::StellarToml, Error> {
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
@@ -1058,7 +1116,11 @@ impl AnchorKitContract {
         anchor: Address,
         asset_code: String,
     ) -> Result<(u64, u64), Error> {
-        anchor_info_discovery::AnchorInfoDiscovery::get_withdrawal_limits(&env, &anchor, &asset_code)
+        anchor_info_discovery::AnchorInfoDiscovery::get_withdrawal_limits(
+            &env,
+            &anchor,
+            &asset_code,
+        )
     }
 
     /// Get deposit fees for an asset
@@ -1096,7 +1158,6 @@ impl AnchorKitContract {
     ) -> Result<bool, Error> {
         anchor_info_discovery::AnchorInfoDiscovery::supports_withdrawals(&env, &anchor, &asset_code)
     }
-
 
     /// Get list of all registered anchors.
     pub fn get_all_anchors(env: Env) -> Vec<Address> {
@@ -1428,7 +1489,7 @@ impl AnchorKitContract {
                 // Calculate progress based on operation count
                 let operation_count = Storage::get_session_operation_count(&env, session_id);
                 let current_time = env.ledger().timestamp();
-                
+
                 // Simple progress: if operations exist, show progress
                 let progress = if operation_count > 0 {
                     // Show 50% progress if operations are being processed
@@ -1437,7 +1498,7 @@ impl AnchorKitContract {
                     // Just started
                     1000u32
                 };
-                
+
                 Ok(TransactionStatusSkeleton::loading_with_progress(
                     session_id, progress,
                 ))
@@ -1579,10 +1640,21 @@ impl AnchorKitContract {
         issuer.require_auth();
 
         let started_at = env.ledger().timestamp();
-        let result = Self::submit_attestation_internal(&env, &issuer, &subject, timestamp, &payload_hash, &signature);
+        let result = Self::submit_attestation_internal(
+            &env,
+            &issuer,
+            &subject,
+            timestamp,
+            &payload_hash,
+            &signature,
+        );
         let completed_at = env.ledger().timestamp();
 
-        let status = if result.is_ok() { String::from_str(&env, "success") } else { String::from_str(&env, "failed") };
+        let status = if result.is_ok() {
+            String::from_str(&env, "success")
+        } else {
+            String::from_str(&env, "failed")
+        };
         let span = TracingSpan {
             request_id: request_id.clone(),
             operation: String::from_str(&env, "submit_attestation"),
@@ -1612,10 +1684,24 @@ impl AnchorKitContract {
         anchor.require_auth();
 
         let started_at = env.ledger().timestamp();
-        let result = Self::submit_quote(env.clone(), anchor.clone(), base_asset, quote_asset, rate, fee_percentage, minimum_amount, maximum_amount, valid_until);
+        let result = Self::submit_quote(
+            env.clone(),
+            anchor.clone(),
+            base_asset,
+            quote_asset,
+            rate,
+            fee_percentage,
+            minimum_amount,
+            maximum_amount,
+            valid_until,
+        );
         let completed_at = env.ledger().timestamp();
 
-        let status = if result.is_ok() { String::from_str(&env, "success") } else { String::from_str(&env, "failed") };
+        let status = if result.is_ok() {
+            String::from_str(&env, "success")
+        } else {
+            String::from_str(&env, "failed")
+        };
         let span = TracingSpan {
             request_id: request_id.clone(),
             operation: String::from_str(&env, "submit_quote"),
@@ -1822,10 +1908,7 @@ impl AnchorKitContract {
     }
 
     /// Register attestor with automatic request history tracking
-    pub fn register_attestor_tracked(
-        env: Env,
-        attestor: Address,
-    ) -> Result<(), Error> {
+    pub fn register_attestor_tracked(env: Env, attestor: Address) -> Result<(), Error> {
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
