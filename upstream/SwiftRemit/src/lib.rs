@@ -8,6 +8,7 @@
 mod asset_verification;
 mod errors;
 mod events;
+mod fee_service;
 mod fee_strategy;
 mod hashing;
 mod migration;
@@ -36,6 +37,7 @@ use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
 pub use asset_verification::*;
 pub use errors::ContractError;
 pub use events::*;
+pub use fee_service::*;
 pub use fee_strategy::*;
 pub use hashing::*;
 pub use migration::*;
@@ -284,9 +286,8 @@ impl SwiftRemitContract {
 
     sender.require_auth();
 
-    // Use configured fee strategy
-    let strategy = get_fee_strategy(&env);
-    let fee = calculate_fee(&env, &strategy, amount)?;
+    // Use centralized fee service for calculation
+    let fee = fee_service::calculate_platform_fee(&env, amount)?;
 
     let usdc_token = get_usdc_token(&env)?;
     let token_client = token::Client::new(&env, &usdc_token);
@@ -311,7 +312,7 @@ impl SwiftRemitContract {
     // Set initial transfer state
     set_transfer_state(&env, remittance_id, TransferState::Initiated)?;
 
-    Ok(remittance_id)  // ← capital O
+    Ok(remittance_id)
 }
     /// Confirms a remittance payout to the agent.
     ///
@@ -353,22 +354,20 @@ impl SwiftRemitContract {
         // Check rate limit for sender
         check_settlement_rate_limit(&env, &remittance.sender)?;
 
-        // Calculate protocol fee
-        let protocol_fee_bps = get_protocol_fee_bps(&env);
-        let protocol_fee = remittance
-            .amount
-            .checked_mul(protocol_fee_bps as i128)
-            .ok_or(ContractError::Overflow)?
-            .checked_div(10000)
-            .ok_or(ContractError::Overflow)?;
+        // Use centralized fee service to get complete breakdown
+        let fee_breakdown = fee_service::calculate_fees_with_breakdown(
+            &env,
+            remittance.amount,
+            None, // No corridor specified
+        )?;
 
-        // Calculate payout after platform and protocol fees
-        let payout_amount = remittance
-            .amount
-            .checked_sub(remittance.fee)
-            .ok_or(ContractError::Overflow)?
-            .checked_sub(protocol_fee)
-            .ok_or(ContractError::Overflow)?;
+        // Verify stored fee matches calculated platform fee
+        if remittance.fee != fee_breakdown.platform_fee {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        let payout_amount = fee_breakdown.net_amount;
+        let protocol_fee = fee_breakdown.protocol_fee;
 
         // Batch read storage values
         let usdc_token = get_usdc_token(&env)?;
@@ -1100,6 +1099,109 @@ impl SwiftRemitContract {
     /// Gets the current fee strategy
     pub fn get_fee_strategy(env: Env) -> FeeStrategy {
         get_fee_strategy(&env)
+    }
+
+    /// Calculates fee breakdown for a given amount
+    ///
+    /// Returns detailed breakdown of all fees that would be applied to a transaction.
+    /// Useful for displaying fee information to users before they commit to a transaction.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `amount` - Transaction amount to calculate fees for
+    ///
+    /// # Returns
+    ///
+    /// Complete fee breakdown including platform fee, protocol fee, and net amount
+    pub fn calculate_fee_breakdown(env: Env, amount: i128) -> Result<FeeBreakdown, ContractError> {
+        fee_service::calculate_fees_with_breakdown(&env, amount, None)
+    }
+
+    /// Calculates fee breakdown with corridor-specific configuration
+    ///
+    /// Applies country-to-country fee rules for cross-border transactions.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `amount` - Transaction amount
+    /// * `corridor` - Corridor configuration with country codes and fee rules
+    ///
+    /// # Returns
+    ///
+    /// Fee breakdown using corridor-specific rates
+    pub fn calculate_fee_breakdown_with_corridor(
+        env: Env,
+        amount: i128,
+        corridor: FeeCorridor,
+    ) -> Result<FeeBreakdown, ContractError> {
+        fee_service::calculate_fees_with_breakdown(&env, amount, Some(&corridor))
+    }
+
+    /// Sets a fee corridor configuration for a country pair
+    ///
+    /// Allows admin to configure specific fee rules for cross-border corridors.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `corridor` - Corridor configuration with country codes and fee rules
+    ///
+    /// # Authorization
+    ///
+    /// Requires admin authentication
+    pub fn set_fee_corridor(
+        env: Env,
+        caller: Address,
+        corridor: FeeCorridor,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_admin(&env, &caller)?;
+        storage::set_fee_corridor(&env, &corridor);
+        Ok(())
+    }
+
+    /// Gets a fee corridor configuration for a country pair
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `from_country` - Source country code (ISO 3166-1 alpha-2)
+    /// * `to_country` - Destination country code (ISO 3166-1 alpha-2)
+    ///
+    /// # Returns
+    ///
+    /// Corridor configuration if exists, None otherwise
+    pub fn get_fee_corridor(
+        env: Env,
+        from_country: String,
+        to_country: String,
+    ) -> Option<FeeCorridor> {
+        storage::get_fee_corridor(&env, &from_country, &to_country)
+    }
+
+    /// Removes a fee corridor configuration
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `from_country` - Source country code
+    /// * `to_country` - Destination country code
+    ///
+    /// # Authorization
+    ///
+    /// Requires admin authentication
+    pub fn remove_fee_corridor(
+        env: Env,
+        caller: Address,
+        from_country: String,
+        to_country: String,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_admin(&env, &caller)?;
+        storage::remove_fee_corridor(&env, &from_country, &to_country);
+        Ok(())
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
