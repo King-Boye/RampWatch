@@ -66,7 +66,7 @@ impl ResponseNormalizer {
     }
 
     fn calculate_fee(amount: u64, fee_percentage: u32) -> u64 {
-        ((amount as u128 * fee_percentage as u128) / 100000) as u64
+        ((amount as u128 * fee_percentage as u128) / 10000) as u64
     }
 
     pub fn validate(response: &NormalizedResponse) -> Result<(), Error> {
@@ -177,7 +177,7 @@ mod tests {
         // 100 basis points = 1%
         assert_eq!(
             ResponseNormalizer::calculate_fee(100_0000000, 100),
-            1_000000
+            10_000000
         );
         assert_eq!(ResponseNormalizer::calculate_fee(100_0000000, 0), 0);
     }
