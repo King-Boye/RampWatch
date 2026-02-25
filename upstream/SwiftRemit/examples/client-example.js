@@ -24,25 +24,13 @@ const { createLogger } = require('./logger');
 let logger = createLogger('client-example');
 
 // === Configuration ===
-const CONFIG = {
-  // Network configuration
-  network: 'testnet', // Use 'testnet' or 'mainnet'
-  networkPassphrase: StellarSdk.Networks.TESTNET,
-  rpcUrl: 'https://soroban-testnet.stellar.org:443',
-  
-  // Contract addresses (replace with your deployed addresses)
-  contractId: process.env.SWIFTREMIT_CONTRACT_ID || 'CD4YWKVCM3HPLWP6XR5OOCJOH6HGZUL6DUM3E5VUWWZCB5MZ7V7B3N4G',
-  usdcTokenId: process.env.USDC_TOKEN_ID || 'CDOM7Z3LHSWDC5IHEYC5GM6NR6X7C5MVX7C5MVX7C5MVX7C5MVX7C5MV',
-  
-  // Account addresses (replace with your test accounts)
-  adminKeypair: StellarSdk.Keypair.fromSecret(process.env.ADMIN_SECRET || 'SCZMWGZS4B4CS7GZDCGQTIS5U5MO6WVP2QRZWC9NJXMR7X7JH6Q6USHK'),
-  senderKeypair: StellarSdk.Keypair.fromSecret(process.env.SENDER_SECRET || 'SAV76USXIJOBMEQFXANQ3JJV7JVHR3X3JK5KDHLFI2E2NA==='),
-  agentKeypair: StellarSdk.Keypair.fromSecret(process.env.AGENT_SECRET || 'SASIE2DL22HS5NDYTR3F5VLMBE4NQXL5X7FDBNVNAAZG6XHHPXU2===='),
-};
+const config = require('./config');
+const StellarSdk = require('@stellar/stellar-sdk');
 
-// USDC has 7 decimal places
-const USDC_DECIMALS = 7;
-const USDC_MULTIPLIER = Math.pow(10, USDC_DECIMALS);
+// Create keypairs from secrets if provided
+const adminKeypair = config.adminSecret ? StellarSdk.Keypair.fromSecret(config.adminSecret) : null;
+const senderKeypair = config.senderSecret ? StellarSdk.Keypair.fromSecret(config.senderSecret) : null;
+const agentKeypair = config.agentSecret ? StellarSdk.Keypair.fromSecret(config.agentSecret) : null;
 
 // === Helper Functions ===
 
@@ -50,14 +38,14 @@ const USDC_MULTIPLIER = Math.pow(10, USDC_DECIMALS);
  * Convert amount to stroops (smallest unit)
  */
 function toStroops(amount) {
-  return BigInt(Math.floor(amount * USDC_MULTIPLIER));
+  return BigInt(Math.floor(amount * config.usdcMultiplier));
 }
 
 /**
  * Convert stroops to amount
  */
 function fromStroops(stroops) {
-  return Number(stroops) / USDC_MULTIPLIER;
+  return Number(stroops) / config.usdcMultiplier;
 }
 
 /**
@@ -67,11 +55,11 @@ async function buildSorobanTransaction(source, contractId, method, args = []) {
   const contract = new StellarSdk.Contract(contractId);
   
   const transaction = new StellarSdk.TransactionBuilder(source, {
-    fee: '100000',
-    networkPassphrase: CONFIG.networkPassphrase,
+    fee: config.transactionFee,
+    networkPassphrase: config.networkPassphrase,
   })
     .addOperation(contract.call(method, ...args))
-    .setTimeout(30)
+    .setTimeout(config.transactionTimeout)
     .build();
   
   return transaction;
@@ -81,7 +69,7 @@ async function buildSorobanTransaction(source, contractId, method, args = []) {
  * Sign and simulate a Soroban transaction
  */
 async function simulateTransaction(transaction, sourceKeypair) {
-  const server = new StellarSdk.SorobanRpc.Server(CONFIG.rpcUrl);
+  const server = new StellarSdk.SorobanRpc.Server(config.rpcUrl);
   
   // Prepare the transaction
   const preparedTx = await server.prepareTransaction(transaction);
@@ -98,7 +86,7 @@ async function simulateTransaction(transaction, sourceKeypair) {
   if (response.status === 'pending') {
     let txResponse = await server.getTransaction(response.hash);
     while (txResponse.status === 'not_found') {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, config.pollIntervalMs));
       txResponse = await server.getTransaction(response.hash);
     }
     
@@ -118,7 +106,7 @@ async function simulateTransaction(transaction, sourceKeypair) {
  * Build and invoke a contract method
  */
 async function invokeContract(sourceKeypair, contractId, method, args = []) {
-  const server = new StellarSdk.SorobanRpc.Server(CONFIG.rpcUrl);
+  const server = new StellarSdk.SorobanRpc.Server(config.rpcUrl);
   
   // Get account
   const account = await server.getAccount(sourceKeypair.publicKey());
@@ -136,7 +124,7 @@ async function invokeContract(sourceKeypair, contractId, method, args = []) {
   if (response.status === 'pending') {
     let txResponse = await server.getTransaction(response.hash);
     while (txResponse.status === 'not_found') {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, config.pollIntervalMs));
       txResponse = await server.getTransaction(response.hash);
     }
     
@@ -155,8 +143,12 @@ async function invokeContract(sourceKeypair, contractId, method, args = []) {
 async function initializeContract() {
   logger.info('=== Initializing Contract ===');
   
-  const admin = CONFIG.adminKeypair.publicKey();
-  const feeBps = 250; // 2.5% fee
+  if (!adminKeypair) {
+    throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
+  }
+  
+  const admin = adminKeypair.publicKey();
+  const feeBps = config.defaultFeeBps;
   
   // The initialize function takes:
   // - admin: Address
@@ -165,13 +157,13 @@ async function initializeContract() {
   
   const args = [
     new StellarSdk.Address(admin).toScVal(),
-    new StellarSdk.Address(CONFIG.usdcTokenId).toScVal(),
+    new StellarSdk.Address(config.usdcTokenId).toScVal(),
     StellarSdk.xdr.ScVal.scvU32(feeBps),
   ];
   
   const response = await invokeContract(
-    CONFIG.adminKeypair,
-    CONFIG.contractId,
+    adminKeypair,
+    config.contractId,
     'initialize',
     args
   );
@@ -187,6 +179,10 @@ async function initializeContract() {
 async function registerAgent(agentAddress) {
   logger.info({ agentAddress }, '=== Registering Agent ===');
   
+  if (!adminKeypair) {
+    throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
+  }
+  
   // The register_agent function takes:
   // - agent: Address
   
@@ -195,8 +191,8 @@ async function registerAgent(agentAddress) {
   ];
   
   const response = await invokeContract(
-    CONFIG.adminKeypair,
-    CONFIG.contractId,
+    adminKeypair,
+    config.contractId,
     'register_agent',
     args
   );
@@ -212,13 +208,17 @@ async function registerAgent(agentAddress) {
 async function removeAgent(agentAddress) {
   logger.info({ agentAddress }, '=== Removing Agent ===');
   
+  if (!adminKeypair) {
+    throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
+  }
+  
   const args = [
     new StellarSdk.Address(agentAddress).toScVal(),
   ];
   
   const response = await invokeContract(
-    CONFIG.adminKeypair,
-    CONFIG.contractId,
+    adminKeypair,
+    config.contractId,
     'remove_agent',
     args
   );
@@ -234,13 +234,17 @@ async function removeAgent(agentAddress) {
 async function updateFee(feeBps) {
   logger.info({ feeBps }, '=== Updating Platform Fee ===');
   
+  if (!adminKeypair) {
+    throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
+  }
+  
   const args = [
     StellarSdk.xdr.ScVal.scvU32(feeBps),
   ];
   
   const response = await invokeContract(
-    CONFIG.adminKeypair,
-    CONFIG.contractId,
+    adminKeypair,
+    config.contractId,
     'update_fee',
     args
   );
@@ -279,7 +283,7 @@ async function createRemittance(senderKeypair, agentAddress, amount) {
   
   const response = await invokeContract(
     senderKeypair,
-    CONFIG.contractId,
+    config.contractId,
     'create_remittance',
     args
   );
@@ -310,7 +314,7 @@ async function confirmPayout(agentKeypair, remittanceId) {
   
   const response = await invokeContract(
     agentKeypair,
-    CONFIG.contractId,
+    config.contractId,
     'confirm_payout',
     args
   );
@@ -332,7 +336,7 @@ async function cancelRemittance(senderKeypair, remittanceId) {
   
   const response = await invokeContract(
     senderKeypair,
-    CONFIG.contractId,
+    config.contractId,
     'cancel_remittance',
     args
   );
@@ -354,7 +358,7 @@ async function withdrawFees(adminKeypair, recipientAddress) {
   
   const response = await invokeContract(
     adminKeypair,
-    CONFIG.contractId,
+    config.contractId,
     'withdraw_fees',
     args
   );
@@ -372,8 +376,12 @@ async function withdrawFees(adminKeypair, recipientAddress) {
 async function getRemittance(remittanceId) {
   logger.info({ remittanceId }, '=== Getting Remittance ===');
   
-  const server = new StellarSdk.SorobanRpc.Server(CONFIG.rpcUrl);
-  const contract = new StellarSdk.Contract(CONFIG.contractId);
+  if (!adminKeypair) {
+    throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
+  }
+  
+  const server = new StellarSdk.SorobanRpc.Server(config.rpcUrl);
+  const contract = new StellarSdk.Contract(config.contractId);
   
   // Get the current requestId from the logger's context (if we had access to it)
   // For this example, we'll use the one generated in main or a new one
@@ -384,13 +392,14 @@ async function getRemittance(remittanceId) {
     new StellarSdk.SorobanRpc.NativeString(requestId).toScVal()
   ];
   
-  const account = await server.getAccount(CONFIG.adminKeypair.publicKey());
+  // Build a simulated call (no signature needed for reads)
+  const account = await server.getAccount(adminKeypair.publicKey());
   const tx = new StellarSdk.TransactionBuilder(account, {
-    fee: '100',
-    networkPassphrase: CONFIG.networkPassphrase,
+    fee: config.transactionFee,
+    networkPassphrase: config.networkPassphrase,
   })
-    .addOperation(contract.call('query_remittance', ...args))
-    .setTimeout(30)
+    .addOperation(contract.call('get_remittance', ...args))
+    .setTimeout(config.transactionTimeout)
     .build();
   
   const preparedTx = await server.prepareTransaction(tx);
@@ -415,18 +424,22 @@ async function getRemittance(remittanceId) {
 async function getAccumulatedFees() {
   logger.info('=== Getting Accumulated Fees ===');
   
-  const server = new StellarSdk.SorobanRpc.Server(CONFIG.rpcUrl);
-  const contract = new StellarSdk.Contract(CONFIG.contractId);
+  if (!adminKeypair) {
+    throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
+  }
+  
+  const server = new StellarSdk.SorobanRpc.Server(config.rpcUrl);
+  const contract = new StellarSdk.Contract(config.contractId);
   
   const args = [];
   
-  const account = await server.getAccount(CONFIG.adminKeypair.publicKey());
+  const account = await server.getAccount(adminKeypair.publicKey());
   const tx = new StellarSdk.TransactionBuilder(account, {
-    fee: '100',
-    networkPassphrase: CONFIG.networkPassphrase,
+    fee: config.transactionFee,
+    networkPassphrase: config.networkPassphrase,
   })
     .addOperation(contract.call('get_accumulated_fees'))
-    .setTimeout(30)
+    .setTimeout(config.transactionTimeout)
     .build();
   
   const preparedTx = await server.prepareTransaction(tx);
@@ -434,7 +447,8 @@ async function getAccumulatedFees() {
   
   if (result.results && result.results[0]) {
     const fees = StellarSdk.xdr.ScVal.fromScVal(result.results[0].returnValue).i128();
-    logger.info({ feesNum }, 'Accumulated fees retrieved');
+    const feesNum = Number(fees.low) / config.usdcMultiplier;
+    console.log('Accumulated fees:', feesNum, 'USDC');
     return feesNum;
   }
   
@@ -447,18 +461,22 @@ async function getAccumulatedFees() {
 async function isAgentRegistered(agentAddress) {
   logger.info({ agentAddress }, '=== Checking Agent Registration ===');
   
-  const server = new StellarSdk.SorobanRpc.Server(CONFIG.rpcUrl);
-  const contract = new StellarSdk.Contract(CONFIG.contractId);
+  if (!adminKeypair) {
+    throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
+  }
+  
+  const server = new StellarSdk.SorobanRpc.Server(config.rpcUrl);
+  const contract = new StellarSdk.Contract(config.contractId);
   
   const args = [new StellarSdk.Address(agentAddress).toScVal()];
   
-  const account = await server.getAccount(CONFIG.adminKeypair.publicKey());
+  const account = await server.getAccount(adminKeypair.publicKey());
   const tx = new StellarSdk.TransactionBuilder(account, {
-    fee: '100',
-    networkPassphrase: CONFIG.networkPassphrase,
+    fee: config.transactionFee,
+    networkPassphrase: config.networkPassphrase,
   })
     .addOperation(contract.call('is_agent_registered', ...args))
-    .setTimeout(30)
+    .setTimeout(config.transactionTimeout)
     .build();
   
   const preparedTx = await server.prepareTransaction(tx);
@@ -479,16 +497,20 @@ async function isAgentRegistered(agentAddress) {
 async function getPlatformFeeBps() {
   logger.info('=== Getting Platform Fee ===');
   
-  const server = new StellarSdk.SorobanRpc.Server(CONFIG.rpcUrl);
-  const contract = new StellarSdk.Contract(CONFIG.contractId);
+  if (!adminKeypair) {
+    throw new Error('Admin keypair not configured. Set ADMIN_SECRET in .env');
+  }
   
-  const account = await server.getAccount(CONFIG.adminKeypair.publicKey());
+  const server = new StellarSdk.SorobanRpc.Server(config.rpcUrl);
+  const contract = new StellarSdk.Contract(config.contractId);
+  
+  const account = await server.getAccount(adminKeypair.publicKey());
   const tx = new StellarSdk.TransactionBuilder(account, {
-    fee: '100',
-    networkPassphrase: CONFIG.networkPassphrase,
+    fee: config.transactionFee,
+    networkPassphrase: config.networkPassphrase,
   })
     .addOperation(contract.call('get_platform_fee_bps'))
-    .setTimeout(30)
+    .setTimeout(config.transactionTimeout)
     .build();
   
   const preparedTx = await server.prepareTransaction(tx);
@@ -506,28 +528,31 @@ async function getPlatformFeeBps() {
 // === Main Execution Flow ===
 
 async function main() {
-  // Generate a unique request ID for this execution
-  const requestId = process.env.REQUEST_ID || uuidv4();
+  console.log('╔════════════════════════════════════════╗');
+  console.log('║     SwiftRemit Client Example          ║');
+  console.log('╚════════════════════════════════════════╝');
   
-  // Re-initialize logger with the request ID
-  logger = createLogger('client-example', requestId);
-
-  logger.info('=== SwiftRemit Client Example ===');
-  logger.info({
-    network: CONFIG.network,
-    contract: CONFIG.contractId,
-    admin: CONFIG.adminKeypair.publicKey().slice(0, 8) + '...',
-    sender: CONFIG.senderKeypair.publicKey().slice(0, 8) + '...',
-    agent: CONFIG.agentKeypair.publicKey().slice(0, 8) + '...',
-    requestId: requestId
-  }, 'Configuration');
+  console.log('\n📋 Configuration:');
+  console.log('   Network:', config.network);
+  console.log('   Contract ID:', config.contractId);
+  console.log('   USDC Token:', config.usdcTokenId);
+  
+  if (!adminKeypair || !senderKeypair || !agentKeypair) {
+    console.error('\n❌ Error: Missing required keypairs');
+    console.error('   Please set ADMIN_SECRET, SENDER_SECRET, and AGENT_SECRET in .env');
+    process.exit(1);
+  }
+  
+  console.log('   Admin:', adminKeypair.publicKey().slice(0, 8) + '...');
+  console.log('   Sender:', senderKeypair.publicKey().slice(0, 8) + '...');
+  console.log('   Agent:', agentKeypair.publicKey().slice(0, 8) + '...');
   
   try {
     // === Step 1: Initialize Contract (run once) ===
     // await initializeContract();
     
     // === Step 2: Register Agent ===
-    const agentAddress = CONFIG.agentKeypair.publicKey();
+    const agentAddress = agentKeypair.publicKey();
     await registerAgent(agentAddress);
     
     logger.info({ isRegistered }, 'Agent registration check');
@@ -539,7 +564,7 @@ async function main() {
     // === Step 5: Create Remittance ===
     const amountToSend = 100; // 100 USDC
     const remittanceId = await createRemittance(
-      CONFIG.senderKeypair,
+      senderKeypair,
       agentAddress,
       amountToSend
     );
@@ -548,13 +573,13 @@ async function main() {
     await getRemittance(remittanceId);
     
     // === Step 7: Confirm Payout (Agent) ===
-    await confirmPayout(CONFIG.agentKeypair, remittanceId);
+    await confirmPayout(agentKeypair, remittanceId);
     
     logger.info({ accumulatedFees }, 'Total accumulated fees');
     
     // === Step 9: Withdraw Fees (Admin) ===
     // Uncomment to withdraw fees:
-    // await withdrawFees(CONFIG.adminKeypair, CONFIG.adminKeypair.publicKey());
+    // await withdrawFees(adminKeypair, adminKeypair.publicKey());
     
     logger.info({ feesAfter }, 'Fees after withdrawal');
     
@@ -568,7 +593,10 @@ async function main() {
 
 // Export functions for use in other modules
 module.exports = {
-  CONFIG,
+  config,
+  adminKeypair,
+  senderKeypair,
+  agentKeypair,
   initializeContract,
   registerAgent,
   removeAgent,

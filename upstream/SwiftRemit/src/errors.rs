@@ -69,6 +69,14 @@ pub enum ContractError {
     /// Settlement has already been executed.
     /// Cause: Attempting to settle the same remittance twice (duplicate prevention).
     DuplicateSettlement = 12,
+ feature/asset-verification-system
+    /// Asset verification record not found
+    AssetNotFound = 13,
+    /// Reputation score must be between 0 and 100
+    InvalidReputationScore = 14,
+    /// Asset has been flagged as suspicious
+    SuspiciousAsset = 15,
+
     
     /// Contract is paused. Settlements are temporarily disabled.
     ContractPaused = 13,
@@ -202,4 +210,5 @@ pub enum ContractError {
     /// Invalid escrow status for this operation.
     /// Cause: Attempting operation on escrow in wrong status.
     InvalidEscrowStatus = 37,
+ main
 }
