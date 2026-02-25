@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Env, String, Vec, Address, testutils::Ledger};
+use soroban_sdk::{contracttype, Env, String, Vec, Address};
 use crate::errors::Error;
 
 #[contracttype]
@@ -224,7 +224,7 @@ impl AnchorInfoDiscovery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::testutils::{Address as _, Ledger};
 
     fn setup_test_env(env: &Env) -> Address {
         let contract_id = env.register_contract(None, crate::AnchorKitContract);
