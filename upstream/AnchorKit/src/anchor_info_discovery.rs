@@ -1,6 +1,9 @@
 use soroban_sdk::{contracttype, Env, String, Vec, Address};
 use crate::errors::Error;
 
+#[cfg(test)]
+use soroban_sdk::testutils::Ledger;
+
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct StellarToml {

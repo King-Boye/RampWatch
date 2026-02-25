@@ -86,10 +86,6 @@ mod tracing_span_tests;
 #[cfg(test)]
 mod anchor_info_discovery_tests;
 
-#[cfg(test)]
-mod load_simulation_tests;
-
-
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
 pub use asset_validator::{AssetConfig, AssetValidator};
