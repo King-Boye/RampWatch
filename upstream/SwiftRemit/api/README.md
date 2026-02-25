@@ -100,6 +100,86 @@ Returns a specific currency by code (case-insensitive).
 }
 ```
 
+### GET /api/anchors
+
+Returns all available anchor providers with optional filtering.
+
+**Query Parameters:**
+- `status` (optional): Filter by status (`active`, `inactive`, `maintenance`)
+- `currency` (optional): Filter by supported currency code (e.g., `USD`)
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "anchor-1",
+      "name": "MoneyGram Access",
+      "domain": "moneygram.stellar.org",
+      "description": "Global money transfer service",
+      "status": "active",
+      "fees": {
+        "deposit_fee_percent": 1.5,
+        "withdrawal_fee_percent": 2.0,
+        "withdrawal_fee_fixed": 1.0,
+        "min_fee": 1.0,
+        "max_fee": 50.0
+      },
+      "limits": {
+        "min_amount": 10,
+        "max_amount": 10000,
+        "daily_limit": 25000
+      },
+      "compliance": {
+        "kyc_required": true,
+        "kyc_level": "intermediate",
+        "supported_countries": ["US", "CA"],
+        "restricted_countries": ["KP"],
+        "documents_required": ["government_id"]
+      },
+      "supported_currencies": ["USD"],
+      "processing_time": "1-3 business days",
+      "rating": 4.5,
+      "verified": true
+    }
+  ],
+  "count": 1,
+  "timestamp": "2026-02-25T10:30:00.000Z"
+}
+```
+
+### GET /api/anchors/:id
+
+Returns details for a specific anchor provider.
+
+**Example:** `GET /api/anchors/anchor-1`
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "anchor-1",
+    "name": "MoneyGram Access",
+    ...
+  },
+  "timestamp": "2026-02-25T10:30:00.000Z"
+}
+```
+
+**Error Response (404):**
+```json
+{
+  "success": false,
+  "error": {
+    "message": "Anchor with id 'invalid-id' not found",
+    "code": "ANCHOR_NOT_FOUND"
+  },
+  "timestamp": "2026-02-25T10:30:00.000Z"
+}
+```
+
 ### GET /health
 
 Health check endpoint.

@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import currenciesRouter from './routes/currencies';
+import anchorsRouter from './routes/anchors';
 import { ErrorResponse } from './types';
 
 export function createApp(): Application {
@@ -42,6 +43,7 @@ export function createApp(): Application {
 
   // API routes
   app.use('/api/currencies', currenciesRouter);
+  app.use('/api/anchors', anchorsRouter);
 
   // 404 handler
   app.use((req: Request, res: Response) => {
