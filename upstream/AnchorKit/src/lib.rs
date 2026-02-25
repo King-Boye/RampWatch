@@ -22,6 +22,7 @@ mod events;
 mod skeleton_loaders;
 mod metadata_cache;
 mod rate_limiter;
+mod rate_limit_response;
 mod request_history;
 mod request_id;
 mod retry;
@@ -106,6 +107,7 @@ pub use skeleton_loaders::{
 };
 pub use metadata_cache::{CachedCapabilities, CachedMetadata, MetadataCache};
 pub use rate_limiter::{RateLimitConfig, RateLimiter};
+pub use rate_limit_response::{RateLimitInfo, RateLimitIncident, RateLimitSource};
 pub use request_history::{ApiCallDetails, ApiCallRecord, ApiCallStatus, RequestHistory, RequestHistoryPanel};
 pub use request_id::{RequestId, RequestTracker, TracingSpan};
 pub use storage::Storage;
@@ -115,6 +117,18 @@ pub use types::{
     RoutingResult, RoutingStrategy, ServiceType, TransactionIntent, TransactionIntentBuilder,
 };
 pub use validation::{validate_attestor_batch, validate_init_config, validate_session_config};
+pub use retry::{is_retryable_error, is_rate_limit_error, get_rate_limit_delay, RetryConfig, RetryEngine, RetryResult};
+pub use error_mapping::{
+    map_http_status_to_error, map_anchor_error_to_protocol, map_network_error_to_transport,
+    is_transport_error, is_protocol_error, is_transport_error_retryable, is_protocol_error_retryable,
+    get_error_category, get_error_severity, is_rate_limit_status, is_server_error, is_client_error,
+    is_retryable_status, extract_rate_limit_info, get_retry_delay_from_response,
+};
+pub use events::{
+    AttestationRecorded, AttestorAdded, AttestorRemoved, EndpointConfigured, EndpointRemoved,
+    OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
+    SettlementConfirmed, TransferInitiated, RateLimitEncountered, RateLimitBackoff, RateLimitRecovered,
+};
 
 #[contract]
 pub struct AnchorKitContract;

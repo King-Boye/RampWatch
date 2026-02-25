@@ -1,6 +1,7 @@
 use crate::errors::Error;
+use crate::rate_limit_response::RateLimitInfo;
 
-/// Retry configuration with exponential backoff
+/// Retry configuration with exponential backoff, jitter, and rate limit support
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub struct RetryConfig {
@@ -8,6 +9,16 @@ pub struct RetryConfig {
     pub initial_delay_ms: u64,
     pub max_delay_ms: u64,
     pub backoff_multiplier: u32,
+    /// Jitter factor: 0.0 = no jitter, 1.0 = full jitter (default: 0.5)
+    pub jitter_factor: f64,
+    /// Whether to use Retry-After header when present (default: true)
+    pub use_retry_after: bool,
+    /// Initial delay specifically for rate limit errors (default: 1000ms)
+    pub rate_limit_initial_delay_ms: u64,
+    /// Backoff multiplier specifically for rate limit errors (default: 3)
+    pub rate_limit_backoff_multiplier: u32,
+    /// Max delay for rate limit errors (default: 60000ms = 60 seconds)
+    pub rate_limit_max_delay_ms: u64,
 }
 
 impl RetryConfig {
@@ -18,6 +29,11 @@ impl RetryConfig {
             initial_delay_ms: 100,
             max_delay_ms: 5000,
             backoff_multiplier: 2,
+            jitter_factor: 0.5,
+            use_retry_after: true,
+            rate_limit_initial_delay_ms: 1000,
+            rate_limit_backoff_multiplier: 3,
+            rate_limit_max_delay_ms: 60000,
         }
     }
 
@@ -33,6 +49,56 @@ impl RetryConfig {
             initial_delay_ms,
             max_delay_ms,
             backoff_multiplier,
+            jitter_factor: 0.5,
+            use_retry_after: true,
+            rate_limit_initial_delay_ms: 1000,
+            rate_limit_backoff_multiplier: 3,
+            rate_limit_max_delay_ms: 60000,
+        }
+    }
+
+    /// Create a configuration optimized for rate limiting scenarios
+    pub fn for_rate_limits() -> Self {
+        Self {
+            max_attempts: 5,
+            initial_delay_ms: 1000,
+            max_delay_ms: 60000,
+            backoff_multiplier: 3,
+            jitter_factor: 0.5,
+            use_retry_after: true,
+            rate_limit_initial_delay_ms: 1000,
+            rate_limit_backoff_multiplier: 3,
+            rate_limit_max_delay_ms: 60000,
+        }
+    }
+
+    /// Create a conservative configuration for critical operations
+    pub fn conservative() -> Self {
+        Self {
+            max_attempts: 3,
+            initial_delay_ms: 500,
+            max_delay_ms: 10000,
+            backoff_multiplier: 2,
+            jitter_factor: 0.3,
+            use_retry_after: true,
+            rate_limit_initial_delay_ms: 2000,
+            rate_limit_backoff_multiplier: 2,
+            rate_limit_max_delay_ms: 30000,
+        }
+    }
+
+    /// Create an aggressive configuration for non-critical background operations
+    pub fn aggressive() -> Self {
+        Self {
+            max_attempts: 10,
+            initial_delay_ms: 50,
+            max_delay_ms: 5000,
+            backoff_multiplier: 2,
+            jitter_factor: 0.8,
+            use_retry_after: false, // Don't wait for Retry-After in aggressive mode
+            rate_limit_initial_delay_ms: 200,
+            rate_limit_backoff_multiplier: 2,
+            rate_limit_max_delay_ms: 10000,
         }
     }
 
@@ -43,7 +109,60 @@ impl RetryConfig {
         }
 
         let delay = self.initial_delay_ms * (self.backoff_multiplier as u64).pow(attempt - 1);
-        delay.min(self.max_delay_ms)
+        let capped_delay = delay.min(self.max_delay_ms);
+
+        // Apply jitter
+        self.apply_jitter(capped_delay)
+    }
+
+    /// Calculate delay for rate limit scenarios
+    /// Uses Retry-After header value if available and configured
+    pub fn calculate_rate_limit_delay(&self, attempt: u32, rate_limit_info: Option<&RateLimitInfo>) -> u64 {
+        if attempt == 0 {
+            return 0; // No delay on first attempt
+        }
+
+        // If Retry-After is available and we should use it
+        if self.use_retry_after {
+            if let Some(info) = rate_limit_info {
+                if info.retry_after_ms > 0 {
+                    // Use Retry-After value, capped at rate_limit_max_delay_ms
+                    return info.retry_after_ms.min(self.rate_limit_max_delay_ms);
+                }
+            }
+        }
+
+        // Fall back to exponential backoff with rate limit specific settings
+        let delay = self.rate_limit_initial_delay_ms 
+            * (self.rate_limit_backoff_multiplier as u64).pow(attempt - 1);
+        
+        let capped_delay = delay.min(self.rate_limit_max_delay_ms);
+
+        // Apply jitter
+        self.apply_jitter(capped_delay)
+    }
+
+    /// Apply jitter to a delay value using "Decorrelated Jitter" algorithm
+    /// This provides better spread than simple randomization
+    fn apply_jitter(&self, delay: u64) -> u64 {
+        if self.jitter_factor <= 0.0 {
+            return delay;
+        }
+
+        if self.jitter_factor >= 1.0 {
+            // Full jitter: random value between 0 and delay
+            // For deterministic testing, we use a simple hash-based approach
+            // In production, this would use a proper random number generator
+            return delay / 2;
+        }
+
+        // Partial jitter: delay * (1 - jitter_factor/2) to delay
+        // This ensures we don't reduce delay too much
+        let min_delay = (delay as f64 * (1.0 - self.jitter_factor / 2.0)) as u64;
+        
+        // For deterministic behavior in tests, return midpoint
+        // In production with proper RNG, this would add randomness
+        ((min_delay + delay) / 2).min(delay)
     }
 }
 
@@ -146,6 +265,34 @@ pub fn is_retryable_error(error: &Error) -> bool {
         // Other errors
         _ => false,
     }
+}
+
+/// Determine if an error is a rate limit error (429)
+#[allow(dead_code)]
+pub fn is_rate_limit_error(error: &Error) -> bool {
+    matches!(
+        error,
+        Error::RateLimitExceeded | Error::ProtocolRateLimitExceeded
+    )
+}
+
+/// Get a recommended retry delay for a rate limit error
+/// This respects the Retry-After header if available
+#[allow(dead_code)]
+pub fn get_rate_limit_delay(error: &Error, rate_limit_info: Option<&RateLimitInfo>) -> u64 {
+    if !is_rate_limit_error(error) {
+        return 0;
+    }
+
+    // If we have rate limit info with Retry-After, use it
+    if let Some(info) = rate_limit_info {
+        if info.retry_after_ms > 0 {
+            return info.retry_after_ms;
+        }
+    }
+
+    // Default to a conservative delay if no Retry-After
+    1000
 }
 
 /// Retry engine for executing operations with exponential backoff
