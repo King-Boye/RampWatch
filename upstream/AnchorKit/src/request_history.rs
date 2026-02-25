@@ -81,7 +81,7 @@ impl RequestHistory {
     /// Record a new API call
     pub fn record_call(env: &Env, record: &ApiCallRecord) {
         let call_id = record.call_id;
-        
+
         // Store the individual record
         let key = (soroban_sdk::symbol_short!("CALL"), call_id);
         env.storage().temporary().set(&key, record);
@@ -104,7 +104,7 @@ impl RequestHistory {
     pub fn get_recent_calls(env: &Env, limit: u32) -> Vec<ApiCallRecord> {
         let recent_ids = Self::get_recent_list(env);
         let mut calls: Vec<ApiCallRecord> = Vec::new(env);
-        
+
         let max_items = limit.min(recent_ids.len());
         for i in 0..max_items {
             if let Some(call_id) = recent_ids.get(i) {
@@ -113,7 +113,7 @@ impl RequestHistory {
                 }
             }
         }
-        
+
         calls
     }
 
@@ -121,7 +121,7 @@ impl RequestHistory {
     pub fn get_panel_data(env: &Env, limit: u32) -> RequestHistoryPanel {
         let recent_calls = Self::get_recent_calls(env, limit);
         let stats = Self::get_statistics(env);
-        
+
         RequestHistoryPanel {
             recent_calls,
             total_calls: stats.0,
@@ -157,15 +157,15 @@ impl RequestHistory {
     fn add_to_recent_list(env: &Env, call_id: u64) {
         let key = soroban_sdk::symbol_short!("RECENT");
         let mut recent: Vec<u64> = env.storage().temporary().get(&key).unwrap_or(Vec::new(env));
-        
+
         // Add to front of list
         recent.push_front(call_id);
-        
+
         // Trim to max size
         while recent.len() > Self::MAX_HISTORY_SIZE {
             recent.pop_back();
         }
-        
+
         env.storage().temporary().set(&key, &recent);
         env.storage().temporary().extend_ttl(&key, 17280, 17280); // 1 day
     }
@@ -178,13 +178,13 @@ impl RequestHistory {
     fn update_statistics(env: &Env, status: &ApiCallStatus) {
         let key = soroban_sdk::symbol_short!("STATS");
         let stats: (u64, u64, u64) = env.storage().temporary().get(&key).unwrap_or((0, 0, 0));
-        
+
         let new_stats = match status {
             ApiCallStatus::Success => (stats.0 + 1, stats.1 + 1, stats.2),
             ApiCallStatus::Failed => (stats.0 + 1, stats.1, stats.2 + 1),
             ApiCallStatus::Pending => (stats.0 + 1, stats.1, stats.2),
         };
-        
+
         env.storage().temporary().set(&key, &new_stats);
         env.storage().temporary().extend_ttl(&key, 17280, 17280); // 1 day
     }

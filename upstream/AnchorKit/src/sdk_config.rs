@@ -1,0 +1,64 @@
+use soroban_sdk::{contracttype, String};
+
+use crate::errors::Error;
+
+/// Network type for SDK operations
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Network {
+    Testnet,
+    Mainnet,
+}
+
+/// SDK configuration for anchor operations
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SdkConfig {
+    pub network: Network,
+    pub timeout_seconds: u32,
+    pub retry_attempts: u32,
+    pub default_anchor: String,
+}
+
+// Validation constants
+const MIN_TIMEOUT: u32 = 5;
+const MAX_TIMEOUT: u32 = 300;
+const MIN_RETRY: u32 = 0;
+const MAX_RETRY: u32 = 10;
+const MIN_ANCHOR_LEN: u32 = 3;
+const MAX_ANCHOR_LEN: u32 = 256;
+
+impl SdkConfig {
+    pub fn new(
+        network: Network,
+        timeout_seconds: u32,
+        retry_attempts: u32,
+        default_anchor: String,
+    ) -> Result<Self, Error> {
+        let config = Self {
+            network,
+            timeout_seconds,
+            retry_attempts,
+            default_anchor,
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.timeout_seconds < MIN_TIMEOUT || self.timeout_seconds > MAX_TIMEOUT {
+            return Err(Error::InvalidConfig);
+        }
+
+        if self.retry_attempts > MAX_RETRY {
+            return Err(Error::InvalidConfig);
+        }
+
+        let anchor_len = self.default_anchor.len();
+        if anchor_len < MIN_ANCHOR_LEN || anchor_len > MAX_ANCHOR_LEN {
+            return Err(Error::InvalidConfig);
+        }
+
+        Ok(())
+    }
+}

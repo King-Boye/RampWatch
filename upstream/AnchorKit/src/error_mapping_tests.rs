@@ -231,9 +231,7 @@ fn test_retryable_protocol_errors() {
 fn test_non_retryable_protocol_errors() {
     assert!(!is_protocol_error_retryable(&Error::ProtocolInvalidPayload));
     assert!(!is_protocol_error_retryable(&Error::ProtocolError));
-    assert!(!is_protocol_error_retryable(
-        &Error::ComplianceNotMet
-    ));
+    assert!(!is_protocol_error_retryable(&Error::ComplianceNotMet));
 }
 
 /// Error severity tests

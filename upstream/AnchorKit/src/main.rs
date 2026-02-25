@@ -336,7 +336,7 @@ fn main() {
         Commands::Doctor => {
             let results = doctor::run_diagnostics();
             let all_passed = doctor::print_results(&results);
-            
+
             // Exit with appropriate code for CI/automation
             std::process::exit(if all_passed { 0 } else { 1 });
         }

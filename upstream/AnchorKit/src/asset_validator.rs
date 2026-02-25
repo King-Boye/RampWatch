@@ -19,7 +19,9 @@ impl AssetValidator {
         };
         let key = (soroban_sdk::symbol_short!("ASSETS"), anchor);
         env.storage().persistent().set(&key, &config);
-        env.storage().persistent().extend_ttl(&key, 7776000, 7776000); // 90 days
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, 7776000, 7776000); // 90 days
     }
 
     pub fn get_supported_assets(env: &Env, anchor: &Address) -> Option<Vec<String>> {
@@ -42,8 +44,7 @@ impl AssetValidator {
         base_asset: &String,
         quote_asset: &String,
     ) -> Result<(), Error> {
-        let assets = Self::get_supported_assets(env, anchor)
-            .ok_or(Error::ServicesNotConfigured)?;
+        let assets = Self::get_supported_assets(env, anchor).ok_or(Error::ServicesNotConfigured)?;
 
         if !assets.contains(base_asset) {
             return Err(Error::InvalidServiceType);

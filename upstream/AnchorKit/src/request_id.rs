@@ -11,22 +11,37 @@ impl RequestId {
     pub fn generate(env: &Env) -> Self {
         let timestamp = env.ledger().timestamp();
         let sequence = env.ledger().sequence();
-        
+
         // Generate pseudo-UUID from timestamp + sequence
         let mut bytes = Bytes::new(env);
         bytes.append(&Bytes::from_array(env, &timestamp.to_be_bytes()));
         bytes.append(&Bytes::from_array(env, &sequence.to_be_bytes()));
-        
+
         // Hash to get 32 bytes, take first 16
         let hash = env.crypto().sha256(&bytes);
         let hash_bytes = hash.to_array();
-        let id = BytesN::from_array(env, &[
-            hash_bytes[0], hash_bytes[1], hash_bytes[2], hash_bytes[3],
-            hash_bytes[4], hash_bytes[5], hash_bytes[6], hash_bytes[7],
-            hash_bytes[8], hash_bytes[9], hash_bytes[10], hash_bytes[11],
-            hash_bytes[12], hash_bytes[13], hash_bytes[14], hash_bytes[15],
-        ]);
-        
+        let id = BytesN::from_array(
+            env,
+            &[
+                hash_bytes[0],
+                hash_bytes[1],
+                hash_bytes[2],
+                hash_bytes[3],
+                hash_bytes[4],
+                hash_bytes[5],
+                hash_bytes[6],
+                hash_bytes[7],
+                hash_bytes[8],
+                hash_bytes[9],
+                hash_bytes[10],
+                hash_bytes[11],
+                hash_bytes[12],
+                hash_bytes[13],
+                hash_bytes[14],
+                hash_bytes[15],
+            ],
+        );
+
         Self {
             id,
             created_at: timestamp,

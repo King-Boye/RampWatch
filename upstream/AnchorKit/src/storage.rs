@@ -5,8 +5,8 @@ use crate::{
     credentials::{CredentialPolicy, SecureCredential},
     rate_limiter::RateLimitConfig,
     types::{
-        AnchorMetadata, AnchorProfile, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
-        InteractionSession, OperationContext, QuoteData,
+        AnchorMetadata, AnchorProfile, AnchorServices, Attestation, AuditLog, Endpoint,
+        HealthStatus, InteractionSession, OperationContext, QuoteData,
     },
     Error,
 };
