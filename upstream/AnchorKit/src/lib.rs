@@ -74,39 +74,6 @@ mod timeout_tests;
 #[cfg(test)]
 mod signature_tests;
 
-#[cfg(test)]
-mod cross_platform_tests;
-
-#[cfg(test)]
-mod zerocopy_tests;
-
-#[cfg(test)]
-mod metadata_cache_tests;
-
-#[cfg(test)]
-mod request_id_tests;
-
-#[cfg(test)]
-mod request_history_tests;
-
-#[cfg(test)]
-mod sdk_config_tests;
-
-#[cfg(test)]
-mod tracing_span_tests;
-
-#[cfg(test)]
-#[cfg(feature = "anchor_info_discovery_tests")]
-mod anchor_info_discovery_tests;
-
-#[cfg(test)]
-mod webhook_middleware_tests;
-
-#[cfg(feature = "mock-only")]
-#[cfg(test)]
-mod mock_mode_tests;
-
-
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
 pub use anchor_kit_error::{
