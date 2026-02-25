@@ -2,6 +2,9 @@ use clap::{Parser, Subcommand};
 
 mod doctor;
 
+// Import logging types for CLI configuration
+use anchorkit::logging::LoggingConfig;
+
 /// AnchorKit - Soroban toolkit for anchoring off-chain attestations to Stellar
 ///
 /// AnchorKit enables smart contracts to verify real-world events such as KYC approvals,
@@ -11,6 +14,22 @@ mod doctor;
 #[command(version = "0.1.0")]
 #[command(about = "Soroban toolkit for anchoring off-chain attestations", long_about = None)]
 struct Cli {
+    /// Enable debug mode with verbose logging
+    #[arg(short, long, global = true)]
+    debug: bool,
+
+    /// Enable verbose output
+    #[arg(short, long, global = true)]
+    verbose: bool,
+
+    /// Disable request/response logging
+    #[arg(long, global = true)]
+    no_request_logging: bool,
+
+    /// Disable sensitive data redaction (use with caution)
+    #[arg(long, global = true)]
+    no_redaction: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -225,6 +244,23 @@ enum Commands {
 
 fn main() {
     let cli = Cli::parse();
+
+    // Initialize logging configuration based on CLI flags
+    let logging_config = LoggingConfig {
+        debug_mode: cli.debug || cli.verbose,
+        log_requests: !cli.no_request_logging,
+        log_responses: !cli.no_request_logging,
+        redact_sensitive: !cli.no_redaction,
+        max_log_size: if cli.debug { 4096 } else { 1024 },
+    };
+
+    // Print logging configuration if debug mode is enabled
+    if cli.debug {
+        println!("🔧 Debug mode enabled");
+        println!("📝 Request/response logging: {}", logging_config.log_requests);
+        println!("🔒 Sensitive data redaction: {}", logging_config.redact_sensitive);
+        println!("📏 Max log size: {} bytes", logging_config.max_log_size);
+    }
 
     match cli.command {
         Commands::Build { release } => {
