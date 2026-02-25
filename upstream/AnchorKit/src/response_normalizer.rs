@@ -165,13 +165,16 @@ mod tests {
         assert_eq!(normalized.status, String::from_str(&env, "quoted"));
         assert_eq!(normalized.amount, 100_0000000);
         assert_eq!(normalized.asset, String::from_str(&env, "USDC"));
-        assert_eq!(normalized.fee, 500000);
+        assert_eq!(normalized.fee, 5000000); // 50 basis points = 0.5% of 1000000000
         assert_eq!(normalized.id, String::from_str(&env, "quote_789"));
     }
 
     #[test]
     fn test_calculate_fee() {
-        assert_eq!(ResponseNormalizer::calculate_fee(100_0000000, 50), 500000);
+        // fee_percentage is in basis points (1/10000)
+        // 50 basis points = 0.5%
+        assert_eq!(ResponseNormalizer::calculate_fee(100_0000000, 50), 5000000);
+        // 100 basis points = 1%
         assert_eq!(
             ResponseNormalizer::calculate_fee(100_0000000, 100),
             1_0000000

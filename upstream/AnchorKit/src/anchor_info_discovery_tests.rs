@@ -1,6 +1,9 @@
 use crate::anchor_info_discovery::{AnchorInfoDiscovery, AssetInfo, StellarToml};
 use crate::errors::Error;
-use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env, String, Vec};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env, String, Vec,
+};
 
 fn setup_test_env(env: &Env) -> Address {
     let contract_id = env.register_contract(None, crate::AnchorKitContract);
@@ -206,7 +209,8 @@ fn test_get_withdrawal_fees() {
         AnchorInfoDiscovery::fetch_and_cache(&env, &anchor, domain, None).unwrap();
 
         let usdc = String::from_str(&env, "USDC");
-        let (fixed, percent) = AnchorInfoDiscovery::get_withdrawal_fees(&env, &anchor, &usdc).unwrap();
+        let (fixed, percent) =
+            AnchorInfoDiscovery::get_withdrawal_fees(&env, &anchor, &usdc).unwrap();
 
         assert_eq!(fixed, 50);
         assert_eq!(percent, 5);
@@ -285,10 +289,7 @@ fn test_multiple_assets() {
 
         assert_eq!(usdc_info.code, usdc);
         assert_eq!(xlm_info.code, xlm);
-        assert_ne!(
-            usdc_info.deposit_fee_fixed,
-            xlm_info.deposit_fee_fixed
-        );
+        assert_ne!(usdc_info.deposit_fee_fixed, xlm_info.deposit_fee_fixed);
     });
 }
 
@@ -375,8 +376,10 @@ fn test_asset_limits_validation() {
         AnchorInfoDiscovery::fetch_and_cache(&env, &anchor, domain, None).unwrap();
 
         let usdc = String::from_str(&env, "USDC");
-        let (dep_min, dep_max) = AnchorInfoDiscovery::get_deposit_limits(&env, &anchor, &usdc).unwrap();
-        let (with_min, with_max) = AnchorInfoDiscovery::get_withdrawal_limits(&env, &anchor, &usdc).unwrap();
+        let (dep_min, dep_max) =
+            AnchorInfoDiscovery::get_deposit_limits(&env, &anchor, &usdc).unwrap();
+        let (with_min, with_max) =
+            AnchorInfoDiscovery::get_withdrawal_limits(&env, &anchor, &usdc).unwrap();
 
         assert!(dep_min < dep_max);
         assert!(with_min < with_max);
@@ -395,8 +398,10 @@ fn test_fee_structure() {
         AnchorInfoDiscovery::fetch_and_cache(&env, &anchor, domain, None).unwrap();
 
         let usdc = String::from_str(&env, "USDC");
-        let (dep_fixed, dep_percent) = AnchorInfoDiscovery::get_deposit_fees(&env, &anchor, &usdc).unwrap();
-        let (with_fixed, with_percent) = AnchorInfoDiscovery::get_withdrawal_fees(&env, &anchor, &usdc).unwrap();
+        let (dep_fixed, dep_percent) =
+            AnchorInfoDiscovery::get_deposit_fees(&env, &anchor, &usdc).unwrap();
+        let (with_fixed, with_percent) =
+            AnchorInfoDiscovery::get_withdrawal_fees(&env, &anchor, &usdc).unwrap();
 
         assert!(dep_fixed > 0);
         assert!(dep_percent > 0);
