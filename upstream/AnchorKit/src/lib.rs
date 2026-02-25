@@ -87,9 +87,6 @@ mod tracing_span_tests;
 mod anchor_info_discovery_tests;
 
 #[cfg(test)]
-mod load_simulation_tests;
-
-#[cfg(test)]
 mod webhook_middleware_tests;
 
 

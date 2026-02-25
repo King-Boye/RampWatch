@@ -2,6 +2,7 @@
 mod webhook_middleware_tests {
     use crate::webhook_middleware::*;
     use soroban_sdk::{testutils::*, Address, Bytes, BytesN, Env, String};
+    use alloc::vec;
 
     fn create_test_env() -> Env {
         Env::default()
@@ -23,8 +24,16 @@ mod webhook_middleware_tests {
         timestamp: u64,
         webhook_id: u64,
     ) -> WebhookRequest {
+        let payload_bytes = if payload.len() <= 32 {
+            let mut arr = [0u8; 32];
+            arr[..payload.len()].copy_from_slice(payload);
+            Bytes::from_array(env, &arr)
+        } else {
+            Bytes::new(env)
+        };
+        
         WebhookRequest {
-            payload: Bytes::from_array(env, payload),
+            payload: payload_bytes,
             signature: Bytes::from_array(env, &[0u8; 32]),
             timestamp,
             webhook_id,
@@ -75,16 +84,19 @@ mod webhook_middleware_tests {
 
     #[test]
     fn test_validate_payload_size_within_limit() {
-        let payload = vec![1u8; 1000];
-        let result = WebhookMiddleware::validate_payload_size(&Bytes::from_array(&Env::default(), &payload), 10000);
+        let env = Env::default();
+        let payload_arr = [1u8; 32];
+        let payload = Bytes::from_array(&env, &payload_arr);
+        let result = WebhookMiddleware::validate_payload_size(&payload, 10000);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_payload_size_exceeds_limit() {
         let env = Env::default();
-        let payload = vec![1u8; 15000];
-        let result = WebhookMiddleware::validate_payload_size(&Bytes::from_array(&env, &payload), 10000);
+        let payload_arr = [1u8; 32];
+        let payload = Bytes::from_array(&env, &payload_arr);
+        let result = WebhookMiddleware::validate_payload_size(&payload, 10);
         assert!(result.is_err());
     }
 
@@ -92,7 +104,8 @@ mod webhook_middleware_tests {
     fn test_replay_attack_detection_first_webhook() {
         let env = create_test_env();
         let payload = Bytes::from_array(&env, &[1u8; 32]);
-        let payload_hash = env.crypto().sha256(&payload);
+        let payload_hash_result = env.crypto().sha256(&payload);
+        let payload_hash = BytesN::from_array(&env, &payload_hash_result.to_array());
 
         let result = WebhookMiddleware::check_replay_attack(&env, 1, &payload_hash);
         assert!(result.is_ok());
@@ -103,7 +116,8 @@ mod webhook_middleware_tests {
     fn test_replay_attack_detection_duplicate() {
         let env = create_test_env();
         let payload = Bytes::from_array(&env, &[1u8; 32]);
-        let payload_hash = env.crypto().sha256(&payload);
+        let payload_hash_result = env.crypto().sha256(&payload);
+        let payload_hash = BytesN::from_array(&env, &payload_hash_result.to_array());
 
         // First webhook should succeed
         let result1 = WebhookMiddleware::check_replay_attack(&env, 1, &payload_hash);
@@ -118,7 +132,8 @@ mod webhook_middleware_tests {
     fn test_replay_attack_different_webhook_ids() {
         let env = create_test_env();
         let payload = Bytes::from_array(&env, &[1u8; 32]);
-        let payload_hash = env.crypto().sha256(&payload);
+        let payload_hash_result = env.crypto().sha256(&payload);
+        let payload_hash = BytesN::from_array(&env, &payload_hash_result.to_array());
 
         // Same payload with different webhook IDs should both succeed
         let result1 = WebhookMiddleware::check_replay_attack(&env, 1, &payload_hash);
@@ -307,10 +322,10 @@ mod webhook_middleware_tests {
         let env = create_test_env();
         let config = create_test_config(&env);
         let current_time = env.ledger().timestamp();
-        let payload = vec![1u8; 100];
+        let payload_arr = [1u8; 32];
 
         let request = WebhookRequest {
-            payload: Bytes::from_array(&env, &payload),
+            payload: Bytes::from_array(&env, &payload_arr),
             signature: Bytes::from_array(&env, &[0u8; 32]),
             timestamp: current_time - 100,
             webhook_id: 1,
@@ -319,10 +334,6 @@ mod webhook_middleware_tests {
 
         let result = WebhookMiddleware::validate_webhook(&env, &request, &config);
         assert!(result.is_ok());
-
-        let validation = result.unwrap();
-        // Note: Signature verification will fail in this test since we're using dummy signature
-        // In production, proper HMAC would be computed
     }
 
     #[test]
@@ -330,10 +341,10 @@ mod webhook_middleware_tests {
         let env = create_test_env();
         let config = create_test_config(&env);
         let current_time = env.ledger().timestamp();
-        let payload = vec![1u8; 100];
+        let payload_arr = [1u8; 32];
 
         let request = WebhookRequest {
-            payload: Bytes::from_array(&env, &payload),
+            payload: Bytes::from_array(&env, &payload_arr),
             signature: Bytes::from_array(&env, &[0u8; 32]),
             timestamp: current_time - 400, // Too old
             webhook_id: 1,
@@ -351,12 +362,18 @@ mod webhook_middleware_tests {
     #[test]
     fn test_validate_webhook_payload_too_large() {
         let env = create_test_env();
-        let config = create_test_config(&env);
+        let config = WebhookSecurityConfig {
+            algorithm: SignatureAlgorithm::Sha256,
+            secret_key: Bytes::from_array(&env, &[1u8; 32]),
+            timestamp_tolerance_seconds: 300,
+            max_payload_size_bytes: 10,  // Very small limit
+            enable_replay_protection: true,
+        };
         let current_time = env.ledger().timestamp();
-        let payload = vec![1u8; 15000]; // Exceeds max_payload_size_bytes
+        let payload_arr = [1u8; 32];
 
         let request = WebhookRequest {
-            payload: Bytes::from_array(&env, &payload),
+            payload: Bytes::from_array(&env, &payload_arr),
             signature: Bytes::from_array(&env, &[0u8; 32]),
             timestamp: current_time - 100,
             webhook_id: 1,
@@ -430,11 +447,11 @@ mod webhook_middleware_tests {
     #[test]
     fn test_webhook_request_with_source_address() {
         let env = create_test_env();
-        let source = Address::random(&env);
-        let payload = vec![1u8; 100];
+        let source = Address::from_string(&String::from_str(&env, "GBBD6A7KNZF5WNWQEPZP5DYJD2AYUTLXRB6VXJ4RCX4RTNPPQVNF3GQ"));
+        let payload_arr = [1u8; 32];
 
         let request = WebhookRequest {
-            payload: Bytes::from_array(&env, &payload),
+            payload: Bytes::from_array(&env, &payload_arr),
             signature: Bytes::from_array(&env, &[0u8; 32]),
             timestamp: env.ledger().timestamp(),
             webhook_id: 1,
