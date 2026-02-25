@@ -9,7 +9,10 @@ AnchorKit is a Soroban-native toolkit for anchoring off-chain attestations to St
 - Attestor registration and revocation
 - Endpoint configuration for attestors
 - Service capability discovery (deposits, withdrawals, quotes, KYC)
+- **Anchor Info Discovery** (fetch and parse stellar.toml, cache assets/fees/limits)
 - **Health monitoring** (latency, failures, availability)
+- **Metadata caching** (TTL-based with manual refresh)
+- **Request ID propagation** (UUID per flow with tracing)
 - Event emission for all state changes
 - Comprehensive error handling with stable error codes
 
@@ -47,10 +50,25 @@ if contract.supports_service(&anchor, &ServiceType::Deposits) {
 }
 ```
 
+## CLI Example
+
+See complete deposit/withdraw workflow:
+
+```bash
+# Run bash demo
+./examples/cli_example.sh
+
+# Or run Rust example
+cargo run --example cli_example
+```
+
+See **[CLI_EXAMPLE.md](./CLI_EXAMPLE.md)** for full documentation.
+
 ## Key Features
 
 - **Attestation Management**: Register attestors, submit and retrieve attestations
 - **Endpoint Configuration**: Manage attestor endpoints for off-chain integration
+- **Unified Anchor Adapter**: Consistent API for multiple anchor integrations
 - **Session Management**: Group operations into logical sessions for traceability
 - **Audit Trail**: Complete immutable record of all operations
 - **Reproducibility**: Deterministic operation replay for verification
@@ -98,9 +116,13 @@ const auditLog = await contract.get_audit_log(0);
 - **[QUICK_START.md](./QUICK_START.md)** - Quick reference guide with examples
 
 ### Feature Documentation
+- **[ANCHOR_INFO_DISCOVERY.md](./ANCHOR_INFO_DISCOVERY.md)** - Anchor info discovery service (stellar.toml)
+- **[ANCHOR_ADAPTER.md](./ANCHOR_ADAPTER.md)** - Unified anchor adapter interface
 - **[SESSION_TRACEABILITY.md](./SESSION_TRACEABILITY.md)** - Complete feature guide with usage patterns
 - **[SECURE_CREDENTIALS.md](./SECURE_CREDENTIALS.md)** - Secure credential injection and management
 - **[HEALTH_MONITORING.md](./HEALTH_MONITORING.md)** - Anchor health monitoring interface
+- **[METADATA_CACHE.md](./METADATA_CACHE.md)** - Metadata and capabilities caching
+- **[REQUEST_ID_PROPAGATION.md](./REQUEST_ID_PROPAGATION.md)** - Request ID tracking and tracing
 - **[API_SPEC.md](./API_SPEC.md)** - API specification and error codes
 
 ### Technical Documentation
@@ -242,12 +264,32 @@ anchorkit health --attestor GANCHOR123... --watch --interval 30
 - `health` - Check attestor health
 - `test` - Run contract tests
 - `validate` - Validate configuration files
+- `doctor` - Run environment diagnostics
 
 Each command includes:
 - Clear description of when to use it
 - Real-world usage examples
 - All available options and flags
 - Network selection support
+
+### Environment Diagnostics
+
+The `doctor` command helps troubleshoot environment setup issues:
+
+```bash
+# Check your development environment
+anchorkit doctor
+```
+
+The doctor command checks:
+- ✅ Rust toolchain installation
+- ✅ WASM target availability
+- ✅ Wallet configuration
+- ✅ RPC endpoint connectivity
+- ✅ Config file validity
+- ✅ Network connectivity
+
+See **[DOCTOR_COMMAND.md](./DOCTOR_COMMAND.md)** for complete documentation.
 
 ## Testing
 

@@ -1,7 +1,8 @@
-use crate::Error;
+use crate::errors::Error;
 
 /// Retry configuration with exponential backoff
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct RetryConfig {
     pub max_attempts: u32,
     pub initial_delay_ms: u64,
@@ -48,6 +49,7 @@ impl RetryConfig {
 
 /// Retry result tracking
 #[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
 pub struct RetryResult<T> {
     pub value: Option<T>,
     pub error: Option<Error>,
@@ -84,12 +86,20 @@ impl<T> RetryResult<T> {
 }
 
 /// Determine if an error is retryable
+#[allow(dead_code)]
 pub fn is_retryable_error(error: &Error) -> bool {
     match error {
+        // Network failures (retryable)
+        Error::TransportError => true,
+        Error::TransportTimeout => true,
+
+        // Rate limiting (retryable with backoff)
+        Error::RateLimitExceeded => true,
+        Error::ProtocolRateLimitExceeded => true,
+
         // Retryable errors (transient failures)
         Error::EndpointNotFound => true,
-        Error::InvalidEndpointFormat => false, // Configuration error, not retryable
-        Error::EndpointAlreadyExists => false, // Logic error, not retryable
+        Error::InvalidEndpointFormat => false,
 
         // Network/availability errors (retryable)
         Error::ServicesNotConfigured => true,
@@ -97,28 +107,30 @@ pub fn is_retryable_error(error: &Error) -> bool {
         // Authentication/authorization errors (not retryable)
         Error::UnauthorizedAttestor => false,
         Error::AttestorNotRegistered => false,
+        Error::TransportUnauthorized => false,
 
         // Data validation errors (not retryable)
         Error::InvalidConfig => false,
         Error::InvalidQuote => false,
         Error::InvalidTimestamp => false,
         Error::InvalidTransactionIntent => false,
+        Error::ProtocolInvalidPayload => false,
 
         // State errors (not retryable)
         Error::AlreadyInitialized => false,
         Error::AttestorAlreadyRegistered => false,
         Error::ReplayAttack => false,
-        Error::SessionReplayAttack => false,
 
         // Not found errors (retryable - might be temporary)
         Error::AttestationNotFound => true,
-        Error::QuoteNotFound => true,
         Error::SessionNotFound => true,
 
         // Stale data (retryable - can fetch fresh data)
         Error::StaleQuote => true,
         Error::NoQuotesAvailable => true,
-        Error::NoAnchorsAvailable => true,
+        Error::AnchorMetadataNotFound => true,
+        Error::CacheExpired => true,
+        Error::CacheNotFound => true,
 
         // Compliance errors (not retryable)
         Error::ComplianceNotMet => false,
@@ -126,14 +138,18 @@ pub fn is_retryable_error(error: &Error) -> bool {
         // Credential errors (not retryable)
         Error::CredentialNotFound => false,
         Error::CredentialExpired => false,
-        Error::InsecureCredentialStorage => false,
+        Error::InvalidCredentialFormat => false,
+
+        // Protocol errors (not retryable except rate limit)
+        Error::ProtocolError => false,
 
         // Other errors
-        _ => false, // Default to not retryable for safety
+        _ => false,
     }
 }
 
 /// Retry engine for executing operations with exponential backoff
+#[allow(dead_code)]
 pub struct RetryEngine {
     config: RetryConfig,
 }
@@ -252,7 +268,6 @@ mod tests {
         assert!(is_retryable_error(&Error::EndpointNotFound));
         assert!(is_retryable_error(&Error::ServicesNotConfigured));
         assert!(is_retryable_error(&Error::AttestationNotFound));
-        assert!(is_retryable_error(&Error::QuoteNotFound));
         assert!(is_retryable_error(&Error::StaleQuote));
         assert!(is_retryable_error(&Error::NoQuotesAvailable));
 
