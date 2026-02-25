@@ -749,12 +749,10 @@ proptest! {
             + token_client.balance(&agent);
 
         // Create remittance
-        let remittance_id = contract.create_remittance(
+        let _remittance_id = contract.create_remittance(
             &sender,
             &agent,
             &amount,
-            &default_currency(&env),
-            &default_country(&env),
             &None
         );
 
@@ -793,12 +791,10 @@ proptest! {
         let token_client = token::Client::new(&env, &token.address);
 
         // Create remittance
-        let remittance_id = contract.create_remittance(
+        let _remittance_id = contract.create_remittance(
             &sender,
             &agent,
             &amount,
-            &default_currency(&env),
-            &default_country(&env),
             &None
         );
 
@@ -809,7 +805,6 @@ proptest! {
             + token_client.balance(&admin); // treasury
 
         // Settle remittance
-        contract.authorize_remittance(&admin, &remittance_id);
         contract.confirm_payout(&remittance_id);
 
         // Verify total balance unchanged
@@ -847,12 +842,10 @@ proptest! {
         let token_client = token::Client::new(&env, &token.address);
 
         // Create remittance
-        let remittance_id = contract.create_remittance(
+        let _remittance_id = contract.create_remittance(
             &sender,
             &agent,
             &amount,
-            &default_currency(&env),
-            &default_country(&env),
             &None
         );
 
@@ -912,8 +905,6 @@ proptest! {
             &sender,
             &agent,
             &amount,
-            &default_currency(&env),
-            &default_country(&env),
             &None
         );
 
@@ -954,8 +945,6 @@ proptest! {
             &sender,
             &agent,
             &amount,
-            &default_currency(&env),
-            &default_country(&env),
             &None
         );
 
@@ -1015,8 +1004,6 @@ proptest! {
                 sender,
                 agent,
                 &amount,
-                &default_currency(&env),
-                &default_country(&env),
                 &None
             );
             
@@ -1037,8 +1024,6 @@ proptest! {
                 sender,
                 agent,
                 &amount,
-                &default_currency(&env),
-                &default_country(&env),
                 &None
             );
             
@@ -1098,8 +1083,6 @@ proptest! {
             &sender,
             &agent,
             &amount,
-            &default_currency(&env),
-            &default_country(&env),
             &None
         );
 
@@ -1151,15 +1134,12 @@ proptest! {
                 &sender,
                 &agent,
                 &amount,
-                &default_currency(&env),
-                &default_country(&env),
                 &None
             );
 
             let remittance = contract.get_remittance(&remittance_id);
             expected_total_fees += remittance.fee;
 
-            contract.authorize_remittance(&admin, &remittance_id);
             contract.confirm_payout(&remittance_id);
         }
 
@@ -1204,8 +1184,6 @@ proptest! {
             &sender,
             &agent,
             &amount,
-            &default_currency(&env),
-            &default_country(&env),
             &None
         );
 
@@ -1247,8 +1225,6 @@ proptest! {
             &sender,
             &agent,
             &amount,
-            &default_currency(&env),
-            &default_country(&env),
             &None
         );
 
@@ -1297,12 +1273,9 @@ proptest! {
             &sender,
             &agent,
             &amount,
-            &default_currency(&env),
-            &default_country(&env),
             &None
         );
 
-        contract.authorize_remittance(&admin, &remittance_id);
         contract.confirm_payout(&remittance_id);
 
         let agent_balance_after_first = token_client.balance(&agent);
@@ -1367,8 +1340,6 @@ proptest! {
                 sender,
                 agent,
                 &amount,
-                &default_currency(&env),
-                &default_country(&env),
                 &None
             );
             
