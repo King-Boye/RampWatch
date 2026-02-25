@@ -153,6 +153,7 @@ pub fn validate_create_remittance_request(
 }
 
 /// Comprehensive validation for confirm_payout request.
+/// Returns the remittance to avoid re-reading in the caller.
 pub fn validate_confirm_payout_request(
     env: &Env,
     remittance_id: u64,
@@ -167,6 +168,7 @@ pub fn validate_confirm_payout_request(
 }
 
 /// Comprehensive validation for cancel_remittance request.
+/// Returns the remittance to avoid re-reading in the caller.
 pub fn validate_cancel_remittance_request(
     env: &Env,
     remittance_id: u64,
@@ -178,6 +180,7 @@ pub fn validate_cancel_remittance_request(
 }
 
 /// Comprehensive validation for withdraw_fees request.
+/// Returns the fees amount to avoid re-reading in the caller.
 pub fn validate_withdraw_fees_request(
     env: &Env,
     to: &Address,
