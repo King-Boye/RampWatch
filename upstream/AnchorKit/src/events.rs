@@ -284,3 +284,95 @@ impl SettlementConfirmed {
         );
     }
 }
+
+// --- RATE LIMIT EVENTS ---
+
+/// Event emitted when a 429 rate limit response is detected
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateLimitEncountered {
+    pub source: u32,          // RateLimitSource as u32
+    pub retry_after_seconds: u64,
+    pub remaining: Option<u32>,
+    pub reset_at: Option<u64>,
+    pub attempt: u32,
+    pub timestamp: u64,
+}
+
+impl RateLimitEncountered {
+    pub fn publish(
+        env: &Env,
+        source: u32,
+        retry_after_seconds: u64,
+        remaining: Option<u32>,
+        reset_at: Option<u64>,
+        attempt: u32,
+    ) {
+        env.events().publish(
+            (
+                symbol_short!("rate"),
+                symbol_short!("limit"),
+                attempt,
+            ),
+            RateLimitEncountered {
+                source,
+                retry_after_seconds,
+                remaining,
+                reset_at,
+                attempt,
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+    }
+}
+
+/// Event emitted when backoff is applied due to rate limiting
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateLimitBackoff {
+    pub delay_ms: u64,
+    pub attempt: u32,
+    pub timestamp: u64,
+}
+
+impl RateLimitBackoff {
+    pub fn publish(env: &Env, delay_ms: u64, attempt: u32) {
+        env.events().publish(
+            (
+                symbol_short!("rate"),
+                symbol_short!("backoff"),
+                attempt,
+            ),
+            RateLimitBackoff {
+                delay_ms,
+                attempt,
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+    }
+}
+
+/// Event emitted when a retry succeeds after rate limiting
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateLimitRecovered {
+    pub attempts_made: u32,
+    pub total_backoff_ms: u64,
+    pub timestamp: u64,
+}
+
+impl RateLimitRecovered {
+    pub fn publish(env: &Env, attempts_made: u32, total_backoff_ms: u64) {
+        env.events().publish(
+            (
+                symbol_short!("rate"),
+                symbol_short!("recover"),
+            ),
+            RateLimitRecovered {
+                attempts_made,
+                total_backoff_ms,
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+    }
+}

@@ -123,3 +123,101 @@ pub fn get_error_severity(error: &Error) -> u32 {
         _ => 2,
     }
 }
+
+// ========== Rate Limit Detection Functions ==========
+
+use crate::rate_limit_response::RateLimitInfo;
+
+/// Check if HTTP status code indicates rate limiting (429)
+#[allow(dead_code)]
+pub fn is_rate_limit_status(status_code: u32) -> bool {
+    status_code == 429
+}
+
+/// Check if HTTP status code indicates a server error (5xx)
+#[allow(dead_code)]
+pub fn is_server_error(status_code: u32) -> bool {
+    status_code >= 500 && status_code < 600
+}
+
+/// Check if HTTP status code indicates a client error (4xx, except 429)
+#[allow(dead_code)]
+pub fn is_client_error(status_code: u32) -> bool {
+    status_code >= 400 && status_code < 500 && status_code != 429
+}
+
+/// Check if HTTP status code indicates the request can be retried
+/// This includes rate limits (429), server errors (5xx), and timeout (408)
+#[allow(dead_code)]
+pub fn is_retryable_status(status_code: u32) -> bool {
+    is_rate_limit_status(status_code) || is_server_error(status_code) || status_code == 408
+}
+
+/// Extract rate limit information from HTTP response headers
+/// Returns None if no rate limit headers are present
+#[allow(dead_code)]
+pub fn extract_rate_limit_info(
+    _env: &soroban_sdk::Env,
+    status_code: u32,
+    retry_after_header: Option<u64>,
+    rate_limit_remaining: Option<u32>,
+    rate_limit_reset: Option<u64>,
+    rate_limit_limit: Option<u32>,
+    rate_limit_window: Option<u32>,
+) -> Option<RateLimitInfo> {
+    // If it's a 429, create rate limit info
+    if is_rate_limit_status(status_code) {
+        return Some(RateLimitInfo::from_headers(
+            _env,
+            retry_after_header,
+            rate_limit_remaining,
+            rate_limit_reset,
+            rate_limit_limit,
+            rate_limit_window,
+        ));
+    }
+
+    // If we have rate limit headers but not a 429, still track them
+    if rate_limit_remaining.is_some() || rate_limit_reset.is_some() {
+        return Some(RateLimitInfo::from_headers(
+            _env,
+            retry_after_header,
+            rate_limit_remaining,
+            rate_limit_reset,
+            rate_limit_limit,
+            rate_limit_window,
+        ));
+    }
+
+    None
+}
+
+/// Get recommended retry delay based on HTTP response
+#[allow(dead_code)]
+pub fn get_retry_delay_from_response(
+    status_code: u32,
+    rate_limit_info: Option<&RateLimitInfo>,
+) -> u64 {
+    // If rate limited, use Retry-After if available
+    if is_rate_limit_status(status_code) {
+        if let Some(info) = rate_limit_info {
+            if info.retry_after_ms > 0 {
+                return info.retry_after_ms;
+            }
+        }
+        // Default delay for rate limiting
+        return 1000;
+    }
+
+    // For server errors, use exponential backoff
+    if is_server_error(status_code) {
+        return 500;
+    }
+
+    // For timeouts
+    if status_code == 408 {
+        return 200;
+    }
+
+    0
+}
