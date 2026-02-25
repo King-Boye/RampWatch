@@ -1,17 +1,16 @@
+use crate::error_mapping::{
+    get_error_category, get_error_severity, is_protocol_error, is_protocol_error_retryable,
+    is_transport_error, is_transport_error_retryable,
+};
 /// AnchorKitError: Custom error class with standardized error codes and consistent response format
-/// 
+///
 /// This module provides a comprehensive error handling system for AnchorKit that:
 /// 1. Wraps the base Error enum with additional context and metadata
 /// 2. Provides standardized error codes with semantic meaning
 /// 3. Ensures consistent response formatting across all operations
 /// 4. Enables rich error context for debugging and logging
 /// 5. Supports error classification and recovery strategies
-
 use crate::errors::Error;
-use crate::error_mapping::{
-    get_error_category, get_error_severity, is_protocol_error, is_protocol_error_retryable,
-    is_transport_error, is_transport_error_retryable,
-};
 
 /// Standardized error codes with semantic meaning
 /// These codes are stable and can be used for API contracts
@@ -88,6 +87,13 @@ pub enum ErrorCode {
     // Asset Validation (2600-2699)
     AssetNotConfigured = 2601,
     UnsupportedAsset = 2602,
+
+    // Webhook Middleware (2700-2799)
+    WebhookTimestampExpired = 2701,
+    WebhookTimestampInFuture = 2702,
+    WebhookPayloadTooLarge = 2703,
+    WebhookSignatureInvalid = 2704,
+    WebhookValidationFailed = 2705,
 }
 
 impl ErrorCode {
@@ -131,6 +137,11 @@ impl ErrorCode {
             Error::RateLimitExceeded => ErrorCode::RateLimitExceeded,
             Error::AssetNotConfigured => ErrorCode::AssetNotConfigured,
             Error::UnsupportedAsset => ErrorCode::UnsupportedAsset,
+            Error::WebhookTimestampExpired => ErrorCode::WebhookTimestampExpired,
+            Error::WebhookTimestampInFuture => ErrorCode::WebhookTimestampInFuture,
+            Error::WebhookPayloadTooLarge => ErrorCode::WebhookPayloadTooLarge,
+            Error::WebhookSignatureInvalid => ErrorCode::WebhookSignatureInvalid,
+            Error::WebhookValidationFailed => ErrorCode::WebhookValidationFailed,
         }
     }
 
@@ -174,6 +185,11 @@ impl ErrorCode {
             ErrorCode::RateLimitExceeded => "RateLimitExceeded",
             ErrorCode::AssetNotConfigured => "AssetNotConfigured",
             ErrorCode::UnsupportedAsset => "UnsupportedAsset",
+            ErrorCode::WebhookTimestampExpired => "WebhookTimestampExpired",
+            ErrorCode::WebhookTimestampInFuture => "WebhookTimestampInFuture",
+            ErrorCode::WebhookPayloadTooLarge => "WebhookPayloadTooLarge",
+            ErrorCode::WebhookSignatureInvalid => "WebhookSignatureInvalid",
+            ErrorCode::WebhookValidationFailed => "WebhookValidationFailed",
         }
     }
 
@@ -264,6 +280,11 @@ impl ErrorCode {
             ErrorCode::RateLimitExceeded => Error::RateLimitExceeded,
             ErrorCode::AssetNotConfigured => Error::AssetNotConfigured,
             ErrorCode::UnsupportedAsset => Error::UnsupportedAsset,
+            ErrorCode::WebhookTimestampExpired => Error::WebhookTimestampExpired,
+            ErrorCode::WebhookTimestampInFuture => Error::WebhookTimestampInFuture,
+            ErrorCode::WebhookPayloadTooLarge => Error::WebhookPayloadTooLarge,
+            ErrorCode::WebhookSignatureInvalid => Error::WebhookSignatureInvalid,
+            ErrorCode::WebhookValidationFailed => Error::WebhookValidationFailed,
         }
     }
 }

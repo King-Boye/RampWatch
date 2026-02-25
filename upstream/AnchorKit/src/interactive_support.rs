@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, String, Map};
+use soroban_sdk::{contracttype, Address, Env, Map, String};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -27,7 +27,12 @@ pub struct TransactionStatus {
 pub struct InteractiveSupport;
 
 impl InteractiveSupport {
-    pub fn generate_url(env: &Env, _anchor: &Address, _token: &String, tx_id: &String) -> InteractiveUrl {
+    pub fn generate_url(
+        env: &Env,
+        _anchor: &Address,
+        _token: &String,
+        tx_id: &String,
+    ) -> InteractiveUrl {
         InteractiveUrl {
             url: String::from_str(env, "https://anchor.example.com/interactive"),
             transaction_id: tx_id.clone(),
@@ -37,8 +42,10 @@ impl InteractiveSupport {
 
     pub fn inject_token(env: &Env, _token: &String) -> Map<String, String> {
         let mut headers = Map::new(env);
-        headers.set(String::from_str(env, "Authorization"), 
-                   String::from_str(env, "Bearer token"));
+        headers.set(
+            String::from_str(env, "Authorization"),
+            String::from_str(env, "Bearer token"),
+        );
         headers
     }
 
