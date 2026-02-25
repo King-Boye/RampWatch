@@ -7,6 +7,7 @@ mod credentials;
 mod error_mapping;
 mod errors;
 mod events;
+mod logging;
 mod metadata_cache;
 mod rate_limiter;
 mod request_id;
@@ -64,6 +65,9 @@ mod request_id_tests;
 #[cfg(test)]
 mod tracing_span_tests;
 
+#[cfg(test)]
+mod logging_tests;
+
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
@@ -77,6 +81,7 @@ pub use events::{
     OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
     SettlementConfirmed, TransferInitiated,
 };
+pub use logging::{LogEntry, LogLevel, LoggingConfig, Logger, RequestLog};
 pub use metadata_cache::{CachedCapabilities, CachedMetadata, MetadataCache};
 pub use rate_limiter::{RateLimitConfig, RateLimiter};
 pub use request_id::{RequestId, RequestTracker, TracingSpan};
@@ -95,12 +100,45 @@ pub struct AnchorKitContract;
 impl AnchorKitContract {
     /// Initialize the contract with an admin address.
     pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
-        if Storage::has_admin(&env) {
-            return Err(Error::AlreadyInitialized);
+        let request_id = RequestId::generate(&env);
+        
+        Logger::operation_start(
+            &env,
+            String::from_str(&env, "initialize"),
+            admin.clone(),
+            request_id,
+            Some(String::from_str(&env, "{\"admin\":\"[REDACTED]\"}")),
+        );
+
+        let start_time = env.ledger().timestamp();
+        
+        let result = if Storage::has_admin(&env) {
+            Err(Error::AlreadyInitialized)
+        } else {
+            admin.require_auth();
+            Storage::set_admin(&env, &admin);
+            Ok(())
+        };
+
+        let end_time = env.ledger().timestamp();
+        let duration_ms = (end_time - start_time) * 1000;
+        
+        Logger::operation_complete(
+            &env,
+            String::from_str(&env, "initialize"),
+            admin,
+            request_id,
+            duration_ms,
+            result.is_ok(),
+        );
+
+        if let Err(ref error) = result {
+            Logger::error(&env, String::from_str(&env, "Contract initialization failed"), Some(request_id), Some(*error));
+        } else {
+            Logger::info(&env, String::from_str(&env, "Contract initialized successfully"), Some(request_id));
         }
-        admin.require_auth();
-        Storage::set_admin(&env, &admin);
-        Ok(())
+
+        result
     }
 
     /// Initialize with validated configuration to prevent misconfiguration bugs
@@ -164,15 +202,72 @@ impl AnchorKitContract {
 
     /// Register a new attestor. Only callable by admin.
     pub fn register_attestor(env: Env, attestor: Address) -> Result<(), Error> {
+        let request_id = RequestId::generate(&env);
+        let admin = Storage::get_admin(&env)?;
+        
+        Logger::operation_start(
+            &env,
+            String::from_str(&env, "register_attestor"),
+            admin.clone(),
+            request_id,
+            Some(String::from_str(&env, "{\"attestor\":\"[REDACTED]\"}")),
+        );
+
+        let start_time = env.ledger().timestamp();
+        admin.require_auth();
+
+        let result = if Storage::is_attestor(&env, &attestor) {
+            Err(Error::AttestorAlreadyRegistered)
+        } else {
+            Storage::set_attestor(&env, &attestor, true);
+            AttestorAdded::publish(&env, &attestor);
+            Logger::info(&env, String::from_str(&env, "Attestor registered successfully"), Some(request_id));
+            Ok(())
+        };
+
+        let end_time = env.ledger().timestamp();
+        let duration_ms = (end_time - start_time) * 1000;
+        
+        Logger::operation_complete(
+            &env,
+            String::from_str(&env, "register_attestor"),
+            admin,
+            request_id,
+            duration_ms,
+            result.is_ok(),
+        );
+
+        if let Err(ref error) = result {
+            Logger::error(&env, String::from_str(&env, "Attestor registration failed"), Some(request_id), Some(*error));
+        }
+
+        result
+    }
+
+    /// Configure logging settings. Only callable by admin.
+    pub fn configure_logging(env: Env, config: LoggingConfig) -> Result<(), Error> {
         let admin = Storage::get_admin(&env)?;
         admin.require_auth();
 
-        if Storage::is_attestor(&env, &attestor) {
-            return Err(Error::AttestorAlreadyRegistered);
-        }
+        let request_id = RequestId::generate(&env);
+        Logger::operation_start(
+            &env,
+            String::from_str(&env, "configure_logging"),
+            admin.clone(),
+            request_id,
+            Some(String::from_str(&env, "{\"config_update\":true}")),
+        );
 
-        Storage::set_attestor(&env, &attestor, true);
-        AttestorAdded::publish(&env, &attestor);
+        Logger::set_config(&env, config);
+        
+        Logger::operation_complete(
+            &env,
+            String::from_str(&env, "configure_logging"),
+            admin,
+            request_id,
+            0, // Immediate operation
+            true,
+        );
 
         Ok(())
     }

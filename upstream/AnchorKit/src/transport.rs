@@ -2,6 +2,8 @@ extern crate alloc;
 
 use crate::types::{HealthStatus, QuoteData};
 use crate::Error;
+use crate::logging::Logger;
+use crate::request_id::RequestId;
 use soroban_sdk::{Bytes, Env, String};
 
 /// Transport request types
@@ -45,6 +47,101 @@ pub trait AnchorTransport {
         env: &Env,
         request: TransportRequest,
     ) -> Result<TransportResponse, Error>;
+
+    /// Send a request with logging support
+    fn send_request_with_logging(
+        &mut self,
+        env: &Env,
+        request: TransportRequest,
+        request_id: RequestId,
+    ) -> Result<TransportResponse, Error> {
+        let start_time = env.ledger().timestamp();
+        
+        // Log the request
+        let (method, endpoint, payload) = match &request {
+            TransportRequest::GetQuote { endpoint, base_asset, quote_asset, amount } => {
+                let method = String::from_str(env, "GET_QUOTE");
+                let payload_str = format!("{{\"base_asset\":\"{}\",\"quote_asset\":\"{}\",\"amount\":{}}}", 
+                    base_asset, quote_asset, amount);
+                let payload = Bytes::from_slice(env, payload_str.as_bytes());
+                (method, endpoint.clone(), Some(payload))
+            },
+            TransportRequest::SubmitAttestation { endpoint, payload } => {
+                (String::from_str(env, "SUBMIT_ATTESTATION"), endpoint.clone(), Some(payload.clone()))
+            },
+            TransportRequest::CheckHealth { endpoint } => {
+                (String::from_str(env, "CHECK_HEALTH"), endpoint.clone(), None)
+            },
+            TransportRequest::VerifyKYC { endpoint, subject_id } => {
+                let method = String::from_str(env, "VERIFY_KYC");
+                let payload_str = format!("{{\"subject_id\":\"{}\"}}", subject_id);
+                let payload = Bytes::from_slice(env, payload_str.as_bytes());
+                (method, endpoint.clone(), Some(payload))
+            },
+        };
+
+        Logger::log_request(env, request_id, method, endpoint, payload);
+
+        // Execute the request
+        let result = self.send_request(env, request);
+        
+        // Calculate duration and log response
+        let end_time = env.ledger().timestamp();
+        let duration_ms = (end_time - start_time) * 1000; // Convert to milliseconds
+
+        match &result {
+            Ok(response) => {
+                let (status, response_payload) = match response {
+                    TransportResponse::Quote(quote) => {
+                        let status = String::from_str(env, "200_OK");
+                        let payload_str = format!("{{\"rate\":\"{}\",\"expires_at\":{}}}", 
+                            quote.rate, quote.expires_at);
+                        let payload = Bytes::from_slice(env, payload_str.as_bytes());
+                        (status, Some(payload))
+                    },
+                    TransportResponse::AttestationConfirmed { transaction_id } => {
+                        let status = String::from_str(env, "200_OK");
+                        let payload_str = format!("{{\"transaction_id\":\"{}\"}}", transaction_id);
+                        let payload = Bytes::from_slice(env, payload_str.as_bytes());
+                        (status, Some(payload))
+                    },
+                    TransportResponse::Health(health) => {
+                        let status = String::from_str(env, "200_OK");
+                        let status_str = match health {
+                            HealthStatus::Healthy => "healthy",
+                            HealthStatus::Degraded => "degraded",
+                            HealthStatus::Unhealthy => "unhealthy",
+                        };
+                        let payload_str = format!("{{\"status\":\"{}\"}}", status_str);
+                        let payload = Bytes::from_slice(env, payload_str.as_bytes());
+                        (status, Some(payload))
+                    },
+                    TransportResponse::KYCVerified { status: kyc_status, level } => {
+                        let status = String::from_str(env, "200_OK");
+                        let payload_str = format!("{{\"status\":\"{}\",\"level\":\"{}\"}}", 
+                            kyc_status, level);
+                        let payload = Bytes::from_slice(env, payload_str.as_bytes());
+                        (status, Some(payload))
+                    },
+                    TransportResponse::Error { code, message } => {
+                        let status = format!("{}_ERROR", code);
+                        let status_str = String::from_str(env, &status);
+                        let payload_str = format!("{{\"error\":\"{}\"}}", message);
+                        let payload = Bytes::from_slice(env, payload_str.as_bytes());
+                        (status_str, Some(payload))
+                    },
+                };
+                Logger::log_response(env, request_id, status, duration_ms, response_payload);
+            },
+            Err(error) => {
+                let status = format!("ERROR_{}", *error as u32);
+                let status_str = String::from_str(env, &status);
+                Logger::log_response(env, request_id, status_str, duration_ms, None);
+            }
+        }
+
+        result
+    }
 
     /// Check if the transport is available
     fn is_available(&self) -> bool;
