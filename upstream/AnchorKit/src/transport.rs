@@ -1,5 +1,6 @@
 extern crate alloc;
 
+use crate::errors::Error;
 use crate::types::{HealthStatus, QuoteData};
 use crate::Error;
 use crate::logging::Logger;

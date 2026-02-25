@@ -9,6 +9,7 @@ AnchorKit is a Soroban-native toolkit for anchoring off-chain attestations to St
 - Attestor registration and revocation
 - Endpoint configuration for attestors
 - Service capability discovery (deposits, withdrawals, quotes, KYC)
+- **Anchor Info Discovery** (fetch and parse stellar.toml, cache assets/fees/limits)
 - **Health monitoring** (latency, failures, availability)
 - **Metadata caching** (TTL-based with manual refresh)
 - **Request ID propagation** (UUID per flow with tracing)
@@ -67,6 +68,7 @@ See **[CLI_EXAMPLE.md](./CLI_EXAMPLE.md)** for full documentation.
 
 - **Attestation Management**: Register attestors, submit and retrieve attestations
 - **Endpoint Configuration**: Manage attestor endpoints for off-chain integration
+- **Unified Anchor Adapter**: Consistent API for multiple anchor integrations
 - **Session Management**: Group operations into logical sessions for traceability
 - **Audit Trail**: Complete immutable record of all operations
 - **Reproducibility**: Deterministic operation replay for verification
@@ -114,6 +116,8 @@ const auditLog = await contract.get_audit_log(0);
 - **[QUICK_START.md](./QUICK_START.md)** - Quick reference guide with examples
 
 ### Feature Documentation
+- **[ANCHOR_INFO_DISCOVERY.md](./ANCHOR_INFO_DISCOVERY.md)** - Anchor info discovery service (stellar.toml)
+- **[ANCHOR_ADAPTER.md](./ANCHOR_ADAPTER.md)** - Unified anchor adapter interface
 - **[SESSION_TRACEABILITY.md](./SESSION_TRACEABILITY.md)** - Complete feature guide with usage patterns
 - **[SECURE_CREDENTIALS.md](./SECURE_CREDENTIALS.md)** - Secure credential injection and management
 - **[HEALTH_MONITORING.md](./HEALTH_MONITORING.md)** - Anchor health monitoring interface

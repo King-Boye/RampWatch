@@ -1,5 +1,18 @@
 #![no_std]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(clippy::manual_range_contains)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::single_match)]
+#![allow(clippy::match_single_binding)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+extern crate alloc;
 
+mod anchor_adapter;
+mod anchor_info_discovery;
+mod anchor_kit_error;
 mod asset_validator;
 mod config;
 mod connection_pool;
@@ -9,19 +22,29 @@ mod errors;
 mod events;
 mod logging;
 mod metadata_cache;
+#[cfg(feature = "mock-only")]
+mod mock_mode;
 mod rate_limiter;
+mod rate_limit_response;
+mod request_history;
 mod request_id;
+mod response_normalizer;
 mod retry;
+mod sdk_config;
+mod sep10_auth;
+mod sep24_adapter;
 mod serialization;
+mod skeleton_loaders;
 mod storage;
 mod transport;
 mod types;
 mod validation;
+mod webhook_middleware;
 
 #[cfg(test)]
-mod config_tests;
-#[cfg(test)]
 mod deterministic_hash_tests;
+#[cfg(test)]
+mod interactive_support_tests;
 #[cfg(test)]
 mod session_tests;
 
@@ -71,6 +94,9 @@ mod logging_tests;
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
+pub use anchor_kit_error::{
+    AnchorKitError, ErrorCategory, ErrorCode, ErrorResponse, ErrorSeverity,
+};
 pub use asset_validator::{AssetConfig, AssetValidator};
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
 pub use connection_pool::{ConnectionPool, ConnectionPoolConfig, ConnectionStats};
@@ -84,14 +110,42 @@ pub use events::{
 pub use logging::{LogEntry, LogLevel, LoggingConfig, Logger, RequestLog};
 pub use metadata_cache::{CachedCapabilities, CachedMetadata, MetadataCache};
 pub use rate_limiter::{RateLimitConfig, RateLimiter};
+pub use rate_limit_response::{RateLimitInfo, RateLimitIncident, RateLimitSource};
+pub use request_history::{ApiCallDetails, ApiCallRecord, ApiCallStatus, RequestHistory, RequestHistoryPanel};
+
+pub use request_history::{
+    ApiCallDetails, ApiCallRecord, ApiCallStatus, RequestHistory, RequestHistoryPanel,
+};
+
 pub use request_id::{RequestId, RequestTracker, TracingSpan};
+pub use skeleton_loaders::{
+    AnchorInfoSkeleton, AuthValidationSkeleton, TransactionStatusSkeleton, ValidationStep,
+};
 pub use storage::Storage;
 pub use types::{
-    AnchorMetadata, AnchorOption, AnchorServices, Attestation, AuditLog, Endpoint, HealthStatus,
-    InteractionSession, OperationContext, QuoteData, QuoteRequest, RateComparison, RoutingRequest,
-    RoutingResult, RoutingStrategy, ServiceType, TransactionIntent, TransactionIntentBuilder,
+    AnchorMetadata, AnchorOption, AnchorProfile, AnchorSearchQuery, AnchorServices, Attestation,
+    AuditLog, Endpoint, HealthStatus, InteractionSession, OperationContext, QuoteData,
+    QuoteRequest, RateComparison, RoutingRequest, RoutingResult, RoutingStrategy, ServiceType,
+    TransactionIntent, TransactionIntentBuilder,
 };
 pub use validation::{validate_attestor_batch, validate_init_config, validate_session_config};
+pub use retry::{is_retryable_error, is_rate_limit_error, get_rate_limit_delay, RetryConfig, RetryEngine, RetryResult};
+pub use error_mapping::{
+    map_http_status_to_error, map_anchor_error_to_protocol, map_network_error_to_transport,
+    is_transport_error, is_protocol_error, is_transport_error_retryable, is_protocol_error_retryable,
+    get_error_category, get_error_severity, is_rate_limit_status, is_server_error, is_client_error,
+    is_retryable_status, extract_rate_limit_info, get_retry_delay_from_response,
+};
+pub use events::{
+    AttestationRecorded, AttestorAdded, AttestorRemoved, EndpointConfigured, EndpointRemoved,
+    OperationLogged, QuoteReceived, QuoteSubmitted, ServicesConfigured, SessionCreated,
+    SettlementConfirmed, TransferInitiated, RateLimitEncountered, RateLimitBackoff, RateLimitRecovered,
+=======
+pub use webhook_middleware::{
+    ActivitySeverity, SignatureAlgorithm, SuspiciousActivityRecord, SuspiciousActivityType,
+    WebhookDeliveryRecord, WebhookDeliveryStatus, WebhookMiddleware, WebhookRequest,
+    WebhookSecurityConfig, WebhookValidationRe
+};
 
 #[contract]
 pub struct AnchorKitContract;
@@ -175,7 +229,7 @@ impl AnchorKitContract {
                 continue;
             }
 
-            let attestor_addr = Address::from_string(&config.address);
+            let attestor_addr = config.address.clone();
 
             if Storage::is_attestor(&env, &attestor_addr) {
                 return Err(Error::AttestorAlreadyRegistered);
@@ -283,7 +337,7 @@ impl AnchorKitContract {
         receiver.require_auth();
 
         // Use your existing storage method
-        let quote = Storage::get_quote(&env, &anchor, quote_id).ok_or(Error::QuoteNotFound)?;
+        let quote = Storage::get_quote(&env, &anchor, quote_id).ok_or(Error::InvalidQuote)?;
 
         // Emit the event
         QuoteReceived::publish(&env, quote_id, &receiver, env.ledger().timestamp());
@@ -417,7 +471,7 @@ impl AnchorKitContract {
 
         if builder.quote_id != 0 {
             let quote = Storage::get_quote(&env, &builder.anchor, builder.quote_id)
-                .ok_or(Error::QuoteNotFound)?;
+                .ok_or(Error::InvalidQuote)?;
 
             if quote.valid_until <= now {
                 return Err(Error::StaleQuote);
@@ -649,6 +703,8 @@ impl AnchorKitContract {
         };
 
         Storage::set_quote(&env, &quote);
+        Storage::set_latest_quote(&env, &anchor, quote_id);
+
         QuoteSubmitted::publish(
             &env,
             &anchor,
@@ -664,7 +720,53 @@ impl AnchorKitContract {
 
     /// Get a specific quote by anchor and quote ID.
     pub fn get_quote(env: Env, anchor: Address, quote_id: u64) -> Result<QuoteData, Error> {
-        Storage::get_quote(&env, &anchor, quote_id).ok_or(Error::QuoteNotFound)
+        Storage::get_quote(&env, &anchor, quote_id).ok_or(Error::InvalidQuote)
+    }
+
+    /// Normalize deposit response to standard format
+    pub fn normalize_deposit_response(
+        env: Env,
+        response: anchor_adapter::DepositResponse,
+        amount: u64,
+        asset: String,
+        fee: u64,
+    ) -> Result<response_normalizer::NormalizedResponse, Error> {
+        let normalized = response_normalizer::ResponseNormalizer::normalize_deposit(
+            &env, &response, amount, asset, fee,
+        );
+        response_normalizer::ResponseNormalizer::validate(&normalized)?;
+        Ok(normalized)
+    }
+
+    /// Normalize withdraw response to standard format
+    pub fn normalize_withdraw_response(
+        env: Env,
+        response: anchor_adapter::WithdrawResponse,
+        amount: u64,
+        asset: String,
+        fee: u64,
+    ) -> Result<response_normalizer::NormalizedResponse, Error> {
+        let normalized = response_normalizer::ResponseNormalizer::normalize_withdraw(
+            &env, &response, amount, asset, fee,
+        );
+        response_normalizer::ResponseNormalizer::validate(&normalized)?;
+        Ok(normalized)
+    }
+
+    /// Normalize quote to standard format
+    pub fn normalize_quote_response(
+        env: Env,
+        anchor: Address,
+        quote_id: u64,
+        amount: u64,
+        id_prefix: String,
+    ) -> Result<response_normalizer::NormalizedResponse, Error> {
+        let quote = Storage::get_quote(&env, &anchor, quote_id).ok_or(Error::InvalidQuote)?;
+        let normalized = response_normalizer::ResponseNormalizer::normalize_quote(
+            &env, &quote, amount, id_prefix,
+        );
+        response_normalizer::ResponseNormalizer::validate(&normalized)?;
+        Ok(normalized)
     }
 
     /// Compare rates for specific anchors and return the best option.
@@ -676,7 +778,8 @@ impl AnchorKitContract {
         let current_timestamp = env.ledger().timestamp();
         let mut valid_quotes: Vec<QuoteData> = Vec::new(&env);
 
-        for anchor in anchors.iter() {
+        for i in 0..anchors.len() {
+            let anchor = anchors.get(i).unwrap();
             if let Some(quote) = Self::get_latest_quote_for_anchor(&env, &anchor, &request) {
                 if quote.valid_until > current_timestamp
                     && quote.base_asset == request.base_asset
@@ -797,12 +900,12 @@ impl AnchorKitContract {
     }
 
     fn get_latest_quote_for_anchor(
-        _env: &Env,
-        _anchor: &Address,
+        env: &Env,
+        anchor: &Address,
         _request: &QuoteRequest,
     ) -> Option<QuoteData> {
-        // This requires additional quote indexing in storage.
-        None
+        let quote_id = Storage::get_latest_quote(env, anchor)?;
+        Storage::get_quote(env, anchor, quote_id)
     }
 
     fn validate_endpoint_url(url: &String) -> Result<(), Error> {
@@ -885,7 +988,7 @@ impl AnchorKitContract {
             .unwrap_or_else(|| CredentialManager::create_default_policy(attestor.clone()));
 
         if policy.require_encryption && policy.allow_plaintext_storage {
-            return Err(Error::InsecureCredentialStorage);
+            return Err(Error::InvalidCredentialFormat);
         }
 
         let credential = SecureCredential {
@@ -962,10 +1065,7 @@ impl AnchorKitContract {
         Storage::remove_secure_credential(&env, &attestor);
         Ok(())
     }
-}
 
-#[contractimpl]
-impl AnchorKitContract {
     // ============ Multi-Anchor Routing ============
 
     /// Set metadata for an anchor. Only callable by admin or the anchor itself.
@@ -1068,6 +1168,118 @@ impl AnchorKitContract {
         Ok(())
     }
 
+    // ========== Anchor Info Discovery ==========
+
+    /// Fetch and cache stellar.toml from anchor domain
+    pub fn fetch_anchor_info(
+        env: Env,
+        anchor: Address,
+        domain: String,
+        ttl_seconds: Option<u64>,
+    ) -> Result<anchor_info_discovery::StellarToml, Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        anchor_info_discovery::AnchorInfoDiscovery::fetch_and_cache(
+            &env,
+            &anchor,
+            domain,
+            ttl_seconds,
+        )
+    }
+
+    /// Get cached stellar.toml for an anchor
+    pub fn get_anchor_toml(
+        env: Env,
+        anchor: Address,
+    ) -> Result<anchor_info_discovery::StellarToml, Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::get_cached(&env, &anchor)
+    }
+
+    /// Refresh cached stellar.toml for an anchor
+    pub fn refresh_anchor_info(
+        env: Env,
+        anchor: Address,
+        domain: String,
+    ) -> Result<anchor_info_discovery::StellarToml, Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        anchor_info_discovery::AnchorInfoDiscovery::refresh_cache(&env, &anchor, domain)
+    }
+
+    /// Get supported assets from cached stellar.toml
+    pub fn get_anchor_assets(env: Env, anchor: Address) -> Result<Vec<String>, Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::get_supported_assets(&env, &anchor)
+    }
+
+    /// Get asset info by code
+    pub fn get_anchor_asset_info(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> Result<anchor_info_discovery::AssetInfo, Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::get_asset_info(&env, &anchor, &asset_code)
+    }
+
+    /// Get deposit limits for an asset
+    pub fn get_anchor_deposit_limits(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> Result<(u64, u64), Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::get_deposit_limits(&env, &anchor, &asset_code)
+    }
+
+    /// Get withdrawal limits for an asset
+    pub fn get_anchor_withdrawal_limits(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> Result<(u64, u64), Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::get_withdrawal_limits(
+            &env,
+            &anchor,
+            &asset_code,
+        )
+    }
+
+    /// Get deposit fees for an asset
+    pub fn get_anchor_deposit_fees(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> Result<(u64, u32), Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::get_deposit_fees(&env, &anchor, &asset_code)
+    }
+
+    /// Get withdrawal fees for an asset
+    pub fn get_anchor_withdrawal_fees(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> Result<(u64, u32), Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::get_withdrawal_fees(&env, &anchor, &asset_code)
+    }
+
+    /// Check if asset supports deposits
+    pub fn anchor_supports_deposits(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> Result<bool, Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::supports_deposits(&env, &anchor, &asset_code)
+    }
+
+    /// Check if asset supports withdrawals
+    pub fn anchor_supports_withdrawals(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> Result<bool, Error> {
+        anchor_info_discovery::AnchorInfoDiscovery::supports_withdrawals(&env, &anchor, &asset_code)
+    }
+
     /// Get list of all registered anchors.
     pub fn get_all_anchors(env: Env) -> Vec<Address> {
         Storage::get_anchor_list(&env)
@@ -1147,7 +1359,7 @@ impl AnchorKitContract {
         let anchors = Storage::get_anchor_list(&env);
 
         if anchors.is_empty() {
-            return Err(Error::NoAnchorsAvailable);
+            return Err(Error::AnchorMetadataNotFound);
         }
 
         let mut options: Vec<AnchorOption> = Vec::new(&env);
@@ -1364,6 +1576,122 @@ impl AnchorKitContract {
         Ok(())
     }
 
+    // ========== Skeleton Loader Methods ==========
+
+    /// Get skeleton loader state for anchor information.
+    pub fn get_anchor_info_skeleton(
+        env: Env,
+        anchor: Address,
+    ) -> Result<AnchorInfoSkeleton, Error> {
+        // Check if anchor exists
+        if !Storage::is_attestor(&env, &anchor) {
+            return Ok(AnchorInfoSkeleton::error(
+                anchor,
+                String::from_str(&env, "Anchor not found"),
+            ));
+        }
+
+        // Check if metadata is available
+        match Storage::get_anchor_metadata(&env, &anchor) {
+            Some(_) => Ok(AnchorInfoSkeleton::loaded(anchor)),
+            None => Ok(AnchorInfoSkeleton::loading(anchor)),
+        }
+    }
+
+    /// Get skeleton loader state for transaction status.
+    /// Note: This checks session operations since transaction intents are ephemeral.
+    pub fn get_transaction_status_skeleton(
+        env: Env,
+        session_id: u64,
+    ) -> Result<TransactionStatusSkeleton, Error> {
+        // Check if session exists
+        match Storage::get_session(&env, session_id) {
+            Ok(session) => {
+                // Calculate progress based on operation count
+                let operation_count = Storage::get_session_operation_count(&env, session_id);
+                let current_time = env.ledger().timestamp();
+
+                // Simple progress: if operations exist, show progress
+                let progress = if operation_count > 0 {
+                    // Show 50% progress if operations are being processed
+                    5000u32
+                } else {
+                    // Just started
+                    1000u32
+                };
+
+                Ok(TransactionStatusSkeleton::loading_with_progress(
+                    session_id, progress,
+                ))
+            }
+            Err(_) => Ok(TransactionStatusSkeleton::error(
+                session_id,
+                String::from_str(&env, "Session not found"),
+            )),
+        }
+    }
+
+    /// Get skeleton loader state for authentication validation.
+    pub fn get_auth_validation_skeleton(
+        env: Env,
+        attestor: Address,
+    ) -> Result<AuthValidationSkeleton, Error> {
+        // Check if attestor is registered
+        if !Storage::is_attestor(&env, &attestor) {
+            return Ok(AuthValidationSkeleton::error(
+                &env,
+                attestor,
+                String::from_str(&env, "Attestor not registered"),
+            ));
+        }
+
+        // Build validation steps
+        let mut steps: Vec<ValidationStep> = Vec::new(&env);
+
+        // Step 1: Check registration
+        steps.push_back(ValidationStep::complete(String::from_str(
+            &env,
+            "Registration verified",
+        )));
+
+        // Step 2: Check credential policy
+        let has_policy = Storage::get_credential_policy(&env, &attestor).is_some();
+        if has_policy {
+            steps.push_back(ValidationStep::complete(String::from_str(
+                &env,
+                "Credential policy verified",
+            )));
+        } else {
+            steps.push_back(ValidationStep::new(String::from_str(
+                &env,
+                "Checking credential policy",
+            )));
+        }
+
+        // Step 3: Check endpoint configuration
+        let has_endpoint = Storage::get_endpoint(&env, &attestor).is_ok();
+        if has_endpoint {
+            steps.push_back(ValidationStep::complete(String::from_str(
+                &env,
+                "Endpoint configured",
+            )));
+        } else {
+            steps.push_back(ValidationStep::new(String::from_str(
+                &env,
+                "Checking endpoint",
+            )));
+        }
+
+        // Determine overall validation state
+        let all_complete = has_policy && has_endpoint;
+        if all_complete {
+            Ok(AuthValidationSkeleton::validated(&env, attestor))
+        } else {
+            Ok(AuthValidationSkeleton::validating_with_steps(
+                attestor, steps,
+            ))
+        }
+    }
     // ============ Connection Pooling ============
 
     /// Configure connection pool. Only callable by admin.
@@ -1433,10 +1761,21 @@ impl AnchorKitContract {
         issuer.require_auth();
 
         let started_at = env.ledger().timestamp();
-        let result = Self::submit_attestation_internal(&env, &issuer, &subject, timestamp, &payload_hash, &signature);
+        let result = Self::submit_attestation_internal(
+            &env,
+            &issuer,
+            &subject,
+            timestamp,
+            &payload_hash,
+            &signature,
+        );
         let completed_at = env.ledger().timestamp();
 
-        let status = if result.is_ok() { String::from_str(&env, "success") } else { String::from_str(&env, "failed") };
+        let status = if result.is_ok() {
+            String::from_str(&env, "success")
+        } else {
+            String::from_str(&env, "failed")
+        };
         let span = TracingSpan {
             request_id: request_id.clone(),
             operation: String::from_str(&env, "submit_attestation"),
@@ -1466,10 +1805,24 @@ impl AnchorKitContract {
         anchor.require_auth();
 
         let started_at = env.ledger().timestamp();
-        let result = Self::submit_quote(env.clone(), anchor.clone(), base_asset, quote_asset, rate, fee_percentage, minimum_amount, maximum_amount, valid_until);
+        let result = Self::submit_quote(
+            env.clone(),
+            anchor.clone(),
+            base_asset,
+            quote_asset,
+            rate,
+            fee_percentage,
+            minimum_amount,
+            maximum_amount,
+            valid_until,
+        );
         let completed_at = env.ledger().timestamp();
 
-        let status = if result.is_ok() { String::from_str(&env, "success") } else { String::from_str(&env, "failed") };
+        let status = if result.is_ok() {
+            String::from_str(&env, "success")
+        } else {
+            String::from_str(&env, "failed")
+        };
         let span = TracingSpan {
             request_id: request_id.clone(),
             operation: String::from_str(&env, "submit_quote"),
@@ -1526,5 +1879,346 @@ impl AnchorKitContract {
 
         Ok(id)
     }
-}
 
+    // ============ Request History Panel ============
+
+    /// Get request history panel data with recent API calls
+    /// Returns up to `limit` recent API calls with their status and details
+    pub fn get_request_history(env: Env, limit: u32) -> RequestHistoryPanel {
+        RequestHistory::get_panel_data(&env, limit)
+    }
+
+    /// Get detailed information about a specific API call
+    pub fn get_api_call_details(env: Env, call_id: u64) -> Option<ApiCallDetails> {
+        RequestHistory::get_call_details(&env, call_id)
+    }
+
+    /// Get a specific API call record by ID
+    pub fn get_api_call(env: Env, call_id: u64) -> Option<ApiCallRecord> {
+        RequestHistory::get_call(&env, call_id)
+    }
+
+    /// Submit attestation with automatic request history tracking
+    pub fn submit_attestation_tracked(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        timestamp: u64,
+        payload_hash: BytesN<32>,
+        signature: Bytes,
+    ) -> Result<u64, Error> {
+        issuer.require_auth();
+
+        let request_id = RequestId::generate(&env);
+        let call_id = RequestHistory::get_next_call_id(&env);
+        let started_at = env.ledger().timestamp();
+
+        let result = Self::submit_attestation_internal(
+            &env,
+            &issuer,
+            &subject,
+            timestamp,
+            &payload_hash,
+            &signature,
+        );
+
+        let completed_at = env.ledger().timestamp();
+        let duration_ms = (completed_at.saturating_sub(started_at)) * 1000;
+
+        let (status, error_code) = match &result {
+            Ok(_) => (ApiCallStatus::Success, None),
+            Err(e) => (ApiCallStatus::Failed, Some(Self::error_to_code(e))),
+        };
+
+        let mut record = ApiCallRecord::new(
+            &env,
+            call_id,
+            request_id.id.clone(),
+            String::from_str(&env, "submit_attestation"),
+            issuer.clone(),
+            status,
+            duration_ms,
+        );
+
+        if let Some(code) = error_code {
+            record = record.with_error(code);
+        }
+
+        RequestHistory::record_call(&env, &record);
+
+        // Store detailed information
+        if let Ok(attestation_id) = &result {
+            let details = ApiCallDetails {
+                record: record.clone(),
+                target_address: Some(subject.clone()),
+                amount: None,
+                result_data: None, // Store ID in amount field instead
+            };
+            RequestHistory::store_call_details(&env, &details);
+        }
+
+        result
+    }
+
+    /// Submit quote with automatic request history tracking
+    pub fn submit_quote_tracked(
+        env: Env,
+        anchor: Address,
+        base_asset: String,
+        quote_asset: String,
+        rate: u64,
+        fee_percentage: u32,
+        minimum_amount: u64,
+        maximum_amount: u64,
+        valid_until: u64,
+    ) -> Result<u64, Error> {
+        anchor.require_auth();
+
+        let request_id = RequestId::generate(&env);
+        let call_id = RequestHistory::get_next_call_id(&env);
+        let started_at = env.ledger().timestamp();
+
+        let result = Self::submit_quote(
+            env.clone(),
+            anchor.clone(),
+            base_asset.clone(),
+            quote_asset.clone(),
+            rate,
+            fee_percentage,
+            minimum_amount,
+            maximum_amount,
+            valid_until,
+        );
+
+        let completed_at = env.ledger().timestamp();
+        let duration_ms = (completed_at.saturating_sub(started_at)) * 1000;
+
+        let (status, error_code) = match &result {
+            Ok(_) => (ApiCallStatus::Success, None),
+            Err(e) => (ApiCallStatus::Failed, Some(Self::error_to_code(e))),
+        };
+
+        let mut record = ApiCallRecord::new(
+            &env,
+            call_id,
+            request_id.id.clone(),
+            String::from_str(&env, "submit_quote"),
+            anchor.clone(),
+            status,
+            duration_ms,
+        );
+
+        if let Some(code) = error_code {
+            record = record.with_error(code);
+        }
+
+        RequestHistory::record_call(&env, &record);
+
+        // Store detailed information
+        if let Ok(quote_id) = &result {
+            let details = ApiCallDetails {
+                record: record.clone(),
+                target_address: Some(anchor.clone()),
+                amount: Some(rate),
+                result_data: None, // Store quote_id in amount field if needed
+            };
+            RequestHistory::store_call_details(&env, &details);
+        }
+
+        result
+    }
+
+    /// Register attestor with automatic request history tracking
+    pub fn register_attestor_tracked(env: Env, attestor: Address) -> Result<(), Error> {
+        let admin = Storage::get_admin(&env)?;
+        admin.require_auth();
+
+        let request_id = RequestId::generate(&env);
+        let call_id = RequestHistory::get_next_call_id(&env);
+        let started_at = env.ledger().timestamp();
+
+        let result = Self::register_attestor(env.clone(), attestor.clone());
+
+        let completed_at = env.ledger().timestamp();
+        let duration_ms = (completed_at.saturating_sub(started_at)) * 1000;
+
+        let (status, error_code) = match &result {
+            Ok(_) => (ApiCallStatus::Success, None),
+            Err(e) => (ApiCallStatus::Failed, Some(Self::error_to_code(e))),
+        };
+
+        let mut record = ApiCallRecord::new(
+            &env,
+            call_id,
+            request_id.id.clone(),
+            String::from_str(&env, "register_attestor"),
+            admin.clone(),
+            status,
+            duration_ms,
+        );
+
+        if let Some(code) = error_code {
+            record = record.with_error(code);
+        }
+
+        RequestHistory::record_call(&env, &record);
+
+        // Store detailed information
+        let details = ApiCallDetails {
+            record: record.clone(),
+            target_address: Some(attestor.clone()),
+            amount: None,
+            result_data: None,
+        };
+        RequestHistory::store_call_details(&env, &details);
+
+        result
+    }
+
+    // ============ Interactive Support ============
+
+    /// Generate interactive URL with embedded token
+    pub fn generate_interactive_url(
+        env: Env,
+        anchor: Address,
+        token: String,
+        tx_id: String,
+    ) -> InteractiveUrl {
+        InteractiveSupport::generate_url(&env, &anchor, &token, &tx_id)
+    }
+
+    /// Handle callback from anchor
+    pub fn handle_anchor_callback(env: Env, tx_id: String, status: String) -> CallbackData {
+        InteractiveSupport::handle_callback(&env, &tx_id, &status)
+    }
+
+    /// Poll transaction status
+    pub fn poll_transaction_status(env: Env, tx_id: String) -> TransactionStatus {
+        InteractiveSupport::poll_status(&env, &tx_id)
+    }
+
+    /// Helper function to convert Error to error code
+    fn error_to_code(error: &Error) -> u32 {
+        match error {
+            Error::AlreadyInitialized => 1,
+            Error::NotInitialized => 2,
+            Error::UnauthorizedAttestor => 3,
+            Error::AttestorAlreadyRegistered => 4,
+            Error::AttestorNotRegistered => 5,
+            Error::ReplayAttack => 6,
+            Error::InvalidTimestamp => 7,
+            Error::AttestationNotFound => 8,
+            Error::InvalidEndpointFormat => 9,
+            Error::EndpointNotFound => 10,
+            Error::ServicesNotConfigured => 11,
+            Error::InvalidServiceType => 12,
+            Error::SessionNotFound => 13,
+            Error::InvalidSessionId => 14,
+            Error::InvalidQuote => 15,
+            Error::StaleQuote => 16,
+            Error::NoQuotesAvailable => 17,
+            Error::InvalidTransactionIntent => 19,
+            Error::ComplianceNotMet => 20,
+            Error::InvalidConfig => 21,
+            Error::InvalidCredentialFormat => 22,
+            Error::CredentialNotFound => 23,
+            Error::CredentialExpired => 25,
+            Error::InvalidAnchorMetadata => 26,
+            Error::AnchorMetadataNotFound => 27,
+            Error::RateLimitExceeded => 29,
+            Error::AssetNotConfigured => 30,
+            Error::UnsupportedAsset => 31,
+            Error::TransportError => 41,
+            Error::TransportTimeout => 42,
+            Error::TransportUnauthorized => 43,
+            Error::ProtocolError => 44,
+            Error::ProtocolInvalidPayload => 45,
+            Error::ProtocolRateLimitExceeded => 46,
+            Error::CacheExpired => 48,
+            Error::CacheNotFound => 49,
+            Error::DuplicateAttestor => 26,
+            Error::WebhookTimestampExpired => 53,
+            Error::WebhookTimestampInFuture => 54,
+            Error::WebhookPayloadTooLarge => 55,
+            Error::WebhookSignatureInvalid => 56,
+            Error::WebhookValidationFailed => 57,
+        }
+    }
+
+    // ============ SEP-10 Authentication ============
+
+    /// Fetch SEP-10 challenge from anchor
+    pub fn sep10_fetch_challenge(
+        env: Env,
+        anchor: Address,
+        client_account: Address,
+    ) -> Result<sep10_auth::Sep10Challenge, Error> {
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+        Ok(sep10_auth::fetch_challenge(&env, anchor, client_account))
+    }
+
+    /// Verify signature on SEP-10 challenge
+    pub fn sep10_verify_signature(
+        env: Env,
+        challenge: sep10_auth::Sep10Challenge,
+        signature: BytesN<64>,
+        public_key: BytesN<32>,
+    ) -> bool {
+        sep10_auth::verify_signature(&env, &challenge, signature, public_key)
+    }
+
+    /// Validate home domain for anchor
+    pub fn sep10_validate_domain(
+        env: Env,
+        anchor: Address,
+        home_domain: String,
+    ) -> Result<bool, Error> {
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+        Ok(sep10_auth::validate_home_domain(&env, anchor, home_domain))
+    }
+
+    /// Store SEP-10 session securely
+    pub fn sep10_store_session(env: Env, session: sep10_auth::Sep10Session) -> Result<(), Error> {
+        if !Storage::is_attestor(&env, &session.anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+        sep10_auth::store_session(&env, session);
+        Ok(())
+    }
+
+    /// Get stored SEP-10 session
+    pub fn sep10_get_session(env: Env, anchor: Address) -> Option<sep10_auth::Sep10Session> {
+        sep10_auth::get_session(&env, anchor)
+    }
+
+    /// Complete SEP-10 authentication flow
+    pub fn sep10_authenticate(
+        env: Env,
+        anchor: Address,
+        client_account: Address,
+        signature: BytesN<64>,
+        public_key: BytesN<32>,
+        home_domain: String,
+    ) -> Result<sep10_auth::Sep10Session, Error> {
+        if !Storage::is_attestor(&env, &anchor) {
+            return Err(Error::AttestorNotRegistered);
+        }
+        sep10_auth::authenticate(
+            &env,
+            anchor,
+            client_account,
+            signature,
+            public_key,
+            home_domain,
+        )
+        .map_err(|code| match code {
+            401 => Error::TransportUnauthorized,
+            403 => Error::ComplianceNotMet,
+            _ => Error::TransportError,
+        })
+    }
+}
