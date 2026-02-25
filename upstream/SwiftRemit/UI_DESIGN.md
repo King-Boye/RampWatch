@@ -1,4 +1,4 @@
-# UI Design Documentation
+﻿# UI Design Documentation
 
 This document contains descriptions and links to Figma design files for UI elements in the project.
 
@@ -9,7 +9,32 @@ This document contains descriptions and links to Figma design files for UI eleme
 
 ---
 
+## Quick Navigation
+
+- [KYC Display - Verification Status](#kyc-display)
+
+---
+
 ## UI Elements
+
+### <a name="kyc-display"></a>KYC Display - Verification Status
+**Description:** Component for displaying user KYC (Know Your Customer) verification status with three distinct states:
+
+- **Pending**: User has submitted KYC documents and verification is in progress
+  - Visual: Yellow/amber indicator with clock icon
+  - Message: "Verification in progress"
+  
+- **Approved**: User's KYC verification has been successfully completed
+  - Visual: Green indicator with checkmark icon
+  - Message: "Verified"
+  
+- **Rejected**: User's KYC verification was unsuccessful
+  - Visual: Red indicator with warning icon
+  - Message: "Verification failed" with option to resubmit
+
+**Figma Link:** [Paste KYC verification status Figma link here]
+
+---
 
 ### [Element Name 1]
 **Description:** [Add description here]
