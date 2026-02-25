@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { AssetVerification, VerificationStatus } from './types';
+import { AssetVerification, VerificationStatus, FxRate, FxRateRecord } from './types';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -32,6 +32,22 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_asset_lookup ON verified_assets(asset_code, issuer);
       CREATE INDEX IF NOT EXISTS idx_status ON verified_assets(status);
       CREATE INDEX IF NOT EXISTS idx_last_verified ON verified_assets(last_verified);
+
+      CREATE TABLE IF NOT EXISTS fx_rates (
+        id SERIAL PRIMARY KEY,
+        transaction_id VARCHAR(100) NOT NULL,
+        rate DECIMAL(20, 8) NOT NULL,
+        provider VARCHAR(100) NOT NULL,
+        timestamp TIMESTAMP NOT NULL,
+        from_currency VARCHAR(10) NOT NULL,
+        to_currency VARCHAR(10) NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE(transaction_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_fx_transaction ON fx_rates(transaction_id);
+      CREATE INDEX IF NOT EXISTS idx_fx_timestamp ON fx_rates(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_fx_currencies ON fx_rates(from_currency, to_currency);
     `);
     console.log('Database initialized successfully');
   } finally {
@@ -158,6 +174,48 @@ export async function getVerifiedAssets(limit: number = 100): Promise<AssetVerif
     toml_data: row.toml_data,
     community_reports: row.community_reports,
   }));
+}
+
+export async function saveFxRate(fxRate: FxRate): Promise<void> {
+  const query = `
+    INSERT INTO fx_rates (
+      transaction_id, rate, provider, timestamp, from_currency, to_currency
+    ) VALUES ($1, $2, $3, $4, $5, $6)
+    ON CONFLICT (transaction_id) DO NOTHING
+  `;
+
+  await pool.query(query, [
+    fxRate.transaction_id,
+    fxRate.rate,
+    fxRate.provider,
+    fxRate.timestamp,
+    fxRate.from_currency,
+    fxRate.to_currency,
+  ]);
+}
+
+export async function getFxRate(transactionId: string): Promise<FxRateRecord | null> {
+  const query = `
+    SELECT * FROM fx_rates 
+    WHERE transaction_id = $1
+  `;
+  const result = await pool.query(query, [transactionId]);
+  
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  const row = result.rows[0];
+  return {
+    id: row.id,
+    transaction_id: row.transaction_id,
+    rate: parseFloat(row.rate),
+    provider: row.provider,
+    timestamp: row.timestamp,
+    from_currency: row.from_currency,
+    to_currency: row.to_currency,
+    created_at: row.created_at,
+  };
 }
 
 export { pool };

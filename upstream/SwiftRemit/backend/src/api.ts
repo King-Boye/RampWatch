@@ -8,6 +8,8 @@ import {
   saveAssetVerification,
   reportSuspiciousAsset,
   getVerifiedAssets,
+  saveFxRate,
+  getFxRate,
 } from './database';
 import { storeVerificationOnChain } from './stellar';
 import { VerificationStatus } from './types';
@@ -210,6 +212,65 @@ app.post('/api/verification/batch', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error in batch verification:', error);
     res.status(500).json({ error: 'Batch verification failed' });
+  }
+});
+
+// Store FX rate for transaction
+app.post('/api/fx-rate', async (req: Request, res: Response) => {
+  try {
+    const { transactionId, rate, provider, fromCurrency, toCurrency } = req.body;
+
+    if (!transactionId || typeof transactionId !== 'string') {
+      return res.status(400).json({ error: 'Invalid transaction ID' });
+    }
+
+    if (!rate || typeof rate !== 'number' || rate <= 0) {
+      return res.status(400).json({ error: 'Invalid rate' });
+    }
+
+    if (!provider || typeof provider !== 'string') {
+      return res.status(400).json({ error: 'Invalid provider' });
+    }
+
+    if (!fromCurrency || !toCurrency) {
+      return res.status(400).json({ error: 'Invalid currencies' });
+    }
+
+    await saveFxRate({
+      transaction_id: transactionId,
+      rate,
+      provider,
+      timestamp: new Date(),
+      from_currency: fromCurrency,
+      to_currency: toCurrency,
+    });
+
+    res.json({ success: true, message: 'FX rate stored successfully' });
+  } catch (error) {
+    console.error('Error storing FX rate:', error);
+    res.status(500).json({ error: 'Failed to store FX rate' });
+  }
+});
+
+// Get FX rate for transaction
+app.get('/api/fx-rate/:transactionId', async (req: Request, res: Response) => {
+  try {
+    const { transactionId } = req.params;
+
+    if (!transactionId) {
+      return res.status(400).json({ error: 'Invalid transaction ID' });
+    }
+
+    const fxRate = await getFxRate(transactionId);
+
+    if (!fxRate) {
+      return res.status(404).json({ error: 'FX rate not found for this transaction' });
+    }
+
+    res.json(fxRate);
+  } catch (error) {
+    console.error('Error fetching FX rate:', error);
+    res.status(500).json({ error: 'Failed to fetch FX rate' });
   }
 });
 
