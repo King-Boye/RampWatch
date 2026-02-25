@@ -42,28 +42,7 @@
         }
       ]
     ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-              "function_name": "configure_endpoint",
-              "args": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "string": "api.example.com/attest"
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ]
+    []
   ],
   "ledger": {
     "protocol_version": 21,
@@ -144,39 +123,6 @@
       [
         {
           "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-            "key": {
-              "ledger_key_nonce": {
-                "nonce": 1033654523790656264
-              }
-            },
-            "durability": "temporary"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-                "key": {
-                  "ledger_key_nonce": {
-                    "nonce": 1033654523790656264
-                  }
-                },
-                "durability": "temporary",
-                "val": "void"
-              }
-            },
-            "ext": "v0"
-          },
-          6311999
-        ]
-      ],
-      [
-        {
-          "contract_data": {
             "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
             "key": {
               "vec": [
@@ -211,76 +157,6 @@
                 "durability": "persistent",
                 "val": {
                   "bool": true
-                }
-              }
-            },
-            "ext": "v0"
-          },
-          1555200
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-            "key": {
-              "vec": [
-                {
-                  "symbol": "ENDPOINT"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                }
-              ]
-            },
-            "durability": "persistent"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-                "key": {
-                  "vec": [
-                    {
-                      "symbol": "ENDPOINT"
-                    },
-                    {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                    }
-                  ]
-                },
-                "durability": "persistent",
-                "val": {
-                  "map": [
-                    {
-                      "key": {
-                        "symbol": "attestor"
-                      },
-                      "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "is_active"
-                      },
-                      "val": {
-                        "bool": true
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "url"
-                      },
-                      "val": {
-                        "string": "api.example.com/attest"
-                      }
-                    }
-                  ]
                 }
               }
             },
@@ -513,46 +389,6 @@
       "event": {
         "ext": "v0",
         "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "endpoint"
-              },
-              {
-                "symbol": "config"
-              }
-            ],
-            "data": {
-              "map": [
-                {
-                  "key": {
-                    "symbol": "attestor"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "url"
-                  },
-                  "val": {
-                    "string": "api.example.com/attest"
-                  }
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
         "type_": "diagnostic",
         "body": {
           "v0": {
@@ -564,7 +400,103 @@
                 "symbol": "configure_endpoint"
               }
             ],
-            "data": "void"
+            "data": {
+              "error": {
+                "contract": 10
+              }
+            }
+          }
+        }
+      },
+      "failed_call": true
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000003",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "error"
+              },
+              {
+                "error": {
+                  "contract": 10
+                }
+              }
+            ],
+            "data": {
+              "string": "escalating Ok(ScErrorType::Contract) frame-exit to Err"
+            }
+          }
+        }
+      },
+      "failed_call": true
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "error"
+              },
+              {
+                "error": {
+                  "contract": 10
+                }
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "string": "contract call failed"
+                },
+                {
+                  "symbol": "configure_endpoint"
+                },
+                {
+                  "vec": [
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                    },
+                    {
+                      "string": "api.example.com/attest"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "error"
+              },
+              {
+                "error": {
+                  "contract": 10
+                }
+              }
+            ],
+            "data": {
+              "string": "escalating error to panic"
+            }
           }
         }
       },

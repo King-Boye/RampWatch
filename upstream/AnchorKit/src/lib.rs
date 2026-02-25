@@ -408,9 +408,57 @@ impl AnchorKitContract {
             return Err(Error::InvalidEndpointFormat);
         }
 
-        // For Soroban, we do basic validation
         // Check minimum length for "http://x" (8 chars) or "https://x" (9 chars)
         if len < 8 {
+            return Err(Error::InvalidEndpointFormat);
+        }
+
+        // Copy URL to buffer for validation
+        let mut buffer = [0u8; 256];
+        url.copy_into_slice(&mut buffer[..len as usize]);
+        
+        let http_prefix = b"http://";
+        let https_prefix = b"https://";
+        
+        let mut has_valid_prefix = false;
+        let mut prefix_len = 0;
+        
+        // Check for http://
+        if len >= 7 {
+            let mut matches_http = true;
+            for i in 0..7 {
+                if buffer[i] != http_prefix[i] {
+                    matches_http = false;
+                    break;
+                }
+            }
+            if matches_http {
+                has_valid_prefix = true;
+                prefix_len = 7;
+            }
+        }
+        
+        // Check for https://
+        if !has_valid_prefix && len >= 8 {
+            let mut matches_https = true;
+            for i in 0..8 {
+                if buffer[i] != https_prefix[i] {
+                    matches_https = false;
+                    break;
+                }
+            }
+            if matches_https {
+                has_valid_prefix = true;
+                prefix_len = 8;
+            }
+        }
+        
+        if !has_valid_prefix {
+            return Err(Error::InvalidEndpointFormat);
+        }
+
+        // Check that there's content after protocol
+        if len == prefix_len {
             return Err(Error::InvalidEndpointFormat);
         }
 
@@ -476,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #100)")]
+    #[should_panic(expected = "Error(Contract, #1)")]
     fn test_initialize_twice_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -517,7 +565,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #103)")]
+    #[should_panic(expected = "Error(Contract, #4)")]
     fn test_register_attestor_twice_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -562,7 +610,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #104)")]
+    #[should_panic(expected = "Error(Contract, #5)")]
     fn test_revoke_unregistered_attestor_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -616,7 +664,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #102)")]
+    #[should_panic(expected = "Error(Contract, #3)")]
     fn test_submit_attestation_unauthorized_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -638,7 +686,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #106)")]
+    #[should_panic(expected = "Error(Contract, #7)")]
     fn test_submit_attestation_invalid_timestamp_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -660,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #105)")]
+    #[should_panic(expected = "Error(Contract, #6)")]
     fn test_submit_attestation_replay_attack_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -723,7 +771,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #107)")]
+    #[should_panic(expected = "Error(Contract, #8)")]
     fn test_get_nonexistent_attestation_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -753,7 +801,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #101)")]
+    #[should_panic(expected = "Error(Contract, #2)")]
     fn test_get_admin_before_initialize_fails() {
         let env = Env::default();
         
