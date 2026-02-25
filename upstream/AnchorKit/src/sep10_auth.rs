@@ -49,7 +49,10 @@ pub fn validate_home_domain(env: &Env, anchor: Address, home_domain: String) -> 
 
 /// Store JWT session securely
 pub fn store_session(env: &Env, session: Sep10Session) {
-    let key = (soroban_sdk::symbol_short!("SESSION"), session.anchor.clone());
+    let key = (
+        soroban_sdk::symbol_short!("SESSION"),
+        session.anchor.clone(),
+    );
     env.storage().persistent().set(&key, &session);
     env.storage().persistent().extend_ttl(&key, 86400, 86400);
 }
@@ -71,17 +74,17 @@ pub fn authenticate(
 ) -> Result<Sep10Session, u32> {
     // 1. Fetch challenge
     let challenge = fetch_challenge(env, anchor.clone(), client_account);
-    
+
     // 2. Verify signature
     if !verify_signature(env, &challenge, signature, public_key) {
         return Err(401);
     }
-    
+
     // 3. Validate home domain
     if !validate_home_domain(env, anchor.clone(), home_domain.clone()) {
         return Err(403);
     }
-    
+
     // 4. Create and store session
     let session = Sep10Session {
         jwt: String::from_str(env, "jwt_token"),
@@ -89,8 +92,8 @@ pub fn authenticate(
         expires_at: env.ledger().timestamp() + 3600,
         home_domain,
     };
-    
+
     store_session(env, session.clone());
-    
+
     Ok(session)
 }

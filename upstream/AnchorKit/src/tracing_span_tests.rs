@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod tracing_span_tests {
     use crate::{AnchorKitContract, AnchorKitContractClient};
-    use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Bytes, BytesN, Env};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        Address, Bytes, BytesN, Env,
+    };
 
     #[test]
     fn test_span_emits_request_id() {
@@ -66,8 +69,7 @@ mod tracing_span_tests {
 
         let span = client.get_tracing_span(&request_id.id).unwrap();
         assert_eq!(span.actor, attestor);
-        // Timestamp may be 0 in test environment, just verify it's set
-        assert!(span.started_at >= 0);
+        // Timestamp is always >= 0 for u64, just verify completed_at is after started_at
         assert!(span.completed_at >= span.started_at);
     }
 
