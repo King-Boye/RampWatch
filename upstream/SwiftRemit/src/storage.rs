@@ -49,6 +49,25 @@ enum DataKey {
     // Keys for preventing duplicate settlement execution
     /// Settlement hash for duplicate detection (persistent storage)
     SettlementHash(u64),
+    
+    // === User Management ===
+    // Keys for user eligibility and KYC tracking
+    /// User blacklist status (persistent storage)
+    UserBlacklisted(Address),
+    
+    /// User KYC approval status (persistent storage)
+    KycApproved(Address),
+    
+    /// User KYC expiry timestamp (persistent storage)
+    KycExpiry(Address),
+    
+    // === Transaction Controller ===
+    // Keys for transaction tracking and anchor operations
+    /// Transaction record indexed by remittance ID (persistent storage)
+    TransactionRecord(u64),
+    
+    /// Anchor transaction mapping (persistent storage)
+    AnchorTransaction(u64),
 }
 
 pub fn has_admin(env: &Env) -> bool {
@@ -163,4 +182,101 @@ pub fn is_paused(env: &Env) -> bool {
 
 pub fn set_paused(env: &Env, paused: bool) {
     env.storage().instance().set(&DataKey::Paused, &paused);
+}
+
+// === User Management Functions ===
+
+pub fn is_user_blacklisted(env: &Env, user: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::UserBlacklisted(user.clone()))
+        .unwrap_or(false)
+}
+
+pub fn set_user_blacklisted(env: &Env, user: &Address, blacklisted: bool) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::UserBlacklisted(user.clone()), &blacklisted);
+}
+
+pub fn is_kyc_approved(env: &Env, user: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::KycApproved(user.clone()))
+        .unwrap_or(false)
+}
+
+pub fn set_kyc_approved(env: &Env, user: &Address, approved: bool) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::KycApproved(user.clone()), &approved);
+}
+
+pub fn is_kyc_expired(env: &Env, user: &Address) -> bool {
+    if let Some(expiry) = env.storage()
+        .persistent()
+        .get::<DataKey, u64>(&DataKey::KycExpiry(user.clone()))
+    {
+        let current_time = env.ledger().timestamp();
+        current_time > expiry
+    } else {
+        false
+    }
+}
+
+pub fn set_kyc_expiry(env: &Env, user: &Address, expiry: u64) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::KycExpiry(user.clone()), &expiry);
+}
+
+// === Transaction Controller Functions ===
+
+pub fn set_transaction_record(
+    env: &Env,
+    remittance_id: u64,
+    record: &crate::transaction_controller::TransactionRecord,
+) -> Result<(), ContractError> {
+    env.storage()
+        .persistent()
+        .set(&DataKey::TransactionRecord(remittance_id), record);
+    Ok(())
+}
+
+pub fn get_transaction_record(
+    env: &Env,
+    remittance_id: u64,
+) -> Result<crate::transaction_controller::TransactionRecord, ContractError> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::TransactionRecord(remittance_id))
+        .ok_or(ContractError::TransactionNotFound)
+}
+
+pub fn set_anchor_transaction(
+    env: &Env,
+    anchor_tx_id: u64,
+    remittance_id: u64,
+) -> Result<(), ContractError> {
+    env.storage()
+        .persistent()
+        .set(&DataKey::AnchorTransaction(anchor_tx_id), &remittance_id);
+    Ok(())
+}
+
+pub fn get_anchor_transaction(
+    env: &Env,
+    anchor_tx_id: u64,
+) -> Result<u64, ContractError> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::AnchorTransaction(anchor_tx_id))
+        .ok_or(ContractError::TransactionNotFound)
+}
+
+pub fn remove_anchor_transaction(env: &Env, anchor_tx_id: u64) -> Result<(), ContractError> {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::AnchorTransaction(anchor_tx_id));
+    Ok(())
 }

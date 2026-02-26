@@ -1031,3 +1031,516 @@ fn test_settlement_completed_event_fields_accuracy() {
     assert_eq!(event_data.5, token.address);
     assert_eq!(event_data.6, expected_payout);
 }
+
+
+// === Transaction Controller Tests ===
+
+#[test]
+fn test_execute_transaction_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&user, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Set up KYC
+    let expiry = env.ledger().timestamp() + 31536000; // 1 year
+    contract.set_kyc_approved(&user, &true, &expiry);
+
+    // Execute transaction
+    let record = contract.execute_transaction(&user, &agent, &1000, &None);
+    
+    assert!(record.is_ok());
+    let record = record.unwrap();
+    assert_eq!(record.user, user);
+    assert_eq!(record.agent, agent);
+    assert_eq!(record.amount, 1000);
+    assert!(record.remittance_id.is_some());
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_execute_transaction_user_blacklisted() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&user, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Blacklist user
+    contract.set_user_blacklisted(&user, &true);
+
+    // Set up KYC
+    let expiry = env.ledger().timestamp() + 31536000;
+    contract.set_kyc_approved(&user, &true, &expiry);
+
+    // Execute transaction (should fail)
+    contract.execute_transaction(&user, &agent, &1000, &None);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #15)")]
+fn test_execute_transaction_kyc_not_approved() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&user, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Don't set up KYC
+
+    // Execute transaction (should fail)
+    contract.execute_transaction(&user, &agent, &1000, &None);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_execute_transaction_kyc_expired() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&user, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Set up expired KYC
+    let expiry = env.ledger().timestamp() - 1; // Already expired
+    contract.set_kyc_approved(&user, &true, &expiry);
+
+    // Execute transaction (should fail)
+    contract.execute_transaction(&user, &agent, &1000, &None);
+}
+
+#[test]
+fn test_set_user_blacklisted() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Initially not blacklisted
+    assert!(!contract.is_user_blacklisted(&user));
+
+    // Blacklist user
+    contract.set_user_blacklisted(&user, &true);
+    assert!(contract.is_user_blacklisted(&user));
+
+    // Remove from blacklist
+    contract.set_user_blacklisted(&user, &false);
+    assert!(!contract.is_user_blacklisted(&user));
+}
+
+#[test]
+fn test_set_kyc_approved() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Initially not approved
+    assert!(!contract.is_kyc_approved(&user));
+
+    // Approve KYC
+    let expiry = env.ledger().timestamp() + 31536000; // 1 year
+    contract.set_kyc_approved(&user, &true, &expiry);
+    assert!(contract.is_kyc_approved(&user));
+
+    // Revoke KYC
+    contract.set_kyc_approved(&user, &false, &expiry);
+    assert!(!contract.is_kyc_approved(&user));
+}
+
+#[test]
+fn test_kyc_expiry() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Set KYC with future expiry
+    let expiry = env.ledger().timestamp() + 1000;
+    contract.set_kyc_approved(&user, &true, &expiry);
+    assert!(contract.is_kyc_approved(&user));
+
+    // Set KYC with past expiry
+    let expired = env.ledger().timestamp() - 1;
+    contract.set_kyc_approved(&user, &true, &expired);
+    assert!(!contract.is_kyc_approved(&user));
+}
+
+#[test]
+fn test_transaction_with_agent_not_registered() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&user, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    // Don't register agent
+
+    // Set up KYC
+    let expiry = env.ledger().timestamp() + 31536000;
+    contract.set_kyc_approved(&user, &true, &expiry);
+
+    // Execute transaction (should fail)
+    let result = contract.execute_transaction(&user, &agent, &1000, &None);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_transaction_with_invalid_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Set up KYC
+    let expiry = env.ledger().timestamp() + 31536000;
+    contract.set_kyc_approved(&user, &true, &expiry);
+
+    // Execute transaction with zero amount (should fail)
+    let result = contract.execute_transaction(&user, &agent, &0, &None);
+    assert!(result.is_err());
+}
+
+
+// === Transaction Controller Tests ===
+
+#[test]
+fn test_execute_transaction_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&user, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Set up KYC
+    let expiry = env.ledger().timestamp() + 31536000; // 1 year
+    contract.set_kyc_approved(&user, &true, &expiry);
+
+    // Execute transaction
+    let record = contract.execute_transaction(&user, &agent, &1000, &None);
+    
+    assert!(record.is_ok());
+    let record = record.unwrap();
+    assert_eq!(record.user, user);
+    assert_eq!(record.agent, agent);
+    assert_eq!(record.amount, 1000);
+    assert!(record.remittance_id.is_some());
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #15)")]
+fn test_execute_transaction_kyc_not_approved() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&user, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Don't set KYC - should fail
+    contract.execute_transaction(&user, &agent, &1000, &None);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #14)")]
+fn test_execute_transaction_user_blacklisted() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&user, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Set up KYC
+    let expiry = env.ledger().timestamp() + 31536000;
+    contract.set_kyc_approved(&user, &true, &expiry);
+
+    // Blacklist user
+    contract.set_user_blacklisted(&user, &true);
+
+    // Should fail
+    contract.execute_transaction(&user, &agent, &1000, &None);
+}
+
+#[test]
+fn test_get_transaction_status() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&user, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let expiry = env.ledger().timestamp() + 31536000;
+    contract.set_kyc_approved(&user, &true, &expiry);
+
+    let record = contract.execute_transaction(&user, &agent, &1000, &None).unwrap();
+    let remittance_id = record.remittance_id.unwrap();
+
+    // Get status
+    let status = contract.get_transaction_status(&remittance_id);
+    assert!(status.is_ok());
+    
+    let status = status.unwrap();
+    assert_eq!(status.user, user);
+    assert_eq!(status.agent, agent);
+    assert_eq!(status.amount, 1000);
+}
+
+#[test]
+fn test_user_blacklist_management() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Initially not blacklisted
+    assert!(!contract.is_user_blacklisted(&user));
+
+    // Blacklist user
+    contract.set_user_blacklisted(&user, &true);
+    assert!(contract.is_user_blacklisted(&user));
+
+    // Remove from blacklist
+    contract.set_user_blacklisted(&user, &false);
+    assert!(!contract.is_user_blacklisted(&user));
+}
+
+#[test]
+fn test_kyc_approval_management() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Initially not approved
+    assert!(!contract.is_kyc_approved(&user));
+
+    // Approve KYC
+    let expiry = env.ledger().timestamp() + 31536000; // 1 year
+    contract.set_kyc_approved(&user, &true, &expiry);
+    assert!(contract.is_kyc_approved(&user));
+
+    // Revoke KYC
+    contract.set_kyc_approved(&user, &false, &0);
+    assert!(!contract.is_kyc_approved(&user));
+}
+
+#[test]
+fn test_kyc_expiry() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+
+    // Set KYC with past expiry
+    let past_expiry = env.ledger().timestamp() - 1;
+    contract.set_kyc_approved(&user, &true, &past_expiry);
+    
+    // Should not be approved (expired)
+    assert!(!contract.is_kyc_approved(&user));
+}
+
+#[test]
+fn test_transaction_with_multiple_validations() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&user, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    // Set up valid KYC
+    let expiry = env.ledger().timestamp() + 31536000;
+    contract.set_kyc_approved(&user, &true, &expiry);
+
+    // Execute multiple transactions
+    let record1 = contract.execute_transaction(&user, &agent, &1000, &None);
+    assert!(record1.is_ok());
+
+    let record2 = contract.execute_transaction(&user, &agent, &2000, &None);
+    assert!(record2.is_ok());
+
+    // Verify both transactions
+    assert_ne!(
+        record1.unwrap().remittance_id,
+        record2.unwrap().remittance_id
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")]
+fn test_transaction_invalid_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    contract.register_agent(&agent);
+
+    let expiry = env.ledger().timestamp() + 31536000;
+    contract.set_kyc_approved(&user, &true, &expiry);
+
+    // Invalid amount (zero)
+    contract.execute_transaction(&user, &agent, &0, &None);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_transaction_unregistered_agent() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let user = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&user, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250);
+    // Don't register agent
+
+    let expiry = env.ledger().timestamp() + 31536000;
+    contract.set_kyc_approved(&user, &true, &expiry);
+
+    // Should fail - agent not registered
+    contract.execute_transaction(&user, &agent, &1000, &None);
+}

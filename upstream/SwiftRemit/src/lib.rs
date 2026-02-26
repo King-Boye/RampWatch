@@ -4,6 +4,7 @@ mod debug;
 mod errors;
 mod events;
 mod storage;
+mod transaction_controller;
 mod types;
 mod validation;
 
@@ -13,6 +14,7 @@ pub use debug::*;
 pub use errors::ContractError;
 pub use events::*;
 pub use storage::*;
+pub use transaction_controller::*;
 pub use types::*;
 pub use validation::*;
 
@@ -297,5 +299,68 @@ impl SwiftRemitContract {
 
     pub fn is_paused(env: Env) -> bool {
         is_paused(&env)
+    }
+}
+
+    // === Transaction Controller Functions ===
+    
+    /// Execute a complete transaction with validation, KYC, contract call, and anchor operations
+    pub fn execute_transaction(
+        env: Env,
+        user: Address,
+        agent: Address,
+        amount: i128,
+        expiry: Option<u64>,
+    ) -> Result<TransactionRecord, ContractError> {
+        TransactionController::execute_transaction(&env, user, agent, amount, expiry)
+    }
+    
+    /// Get transaction status and details
+    pub fn get_transaction_status(
+        env: Env,
+        remittance_id: u64,
+    ) -> Result<TransactionRecord, ContractError> {
+        TransactionController::get_transaction_status(&env, remittance_id)
+    }
+    
+    /// Retry a failed transaction
+    pub fn retry_transaction(
+        env: Env,
+        remittance_id: u64,
+    ) -> Result<TransactionRecord, ContractError> {
+        TransactionController::retry_transaction(&env, remittance_id)
+    }
+    
+    // === User Management Functions ===
+    
+    /// Set user blacklist status (admin only)
+    pub fn set_user_blacklisted(env: Env, user: Address, blacklisted: bool) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+        
+        set_user_blacklisted(&env, &user, blacklisted);
+        Ok(())
+    }
+    
+    /// Check if user is blacklisted
+    pub fn is_user_blacklisted(env: Env, user: Address) -> bool {
+        is_user_blacklisted(&env, &user)
+    }
+    
+    /// Set user KYC approval status (admin only)
+    pub fn set_kyc_approved(env: Env, user: Address, approved: bool, expiry: u64) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+        
+        set_kyc_approved(&env, &user, approved);
+        if approved {
+            set_kyc_expiry(&env, &user, expiry);
+        }
+        Ok(())
+    }
+    
+    /// Check if user KYC is approved
+    pub fn is_kyc_approved(env: Env, user: Address) -> bool {
+        is_kyc_approved(&env, &user) && !is_kyc_expired(&env, &user)
     }
 }
