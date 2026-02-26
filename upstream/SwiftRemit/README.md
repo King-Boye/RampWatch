@@ -11,7 +11,7 @@ SwiftRemit is an escrow-based remittance system that enables secure cross-border
 - **Escrow-Based Transfers**: Secure USDC deposits held in contract until payout confirmation
 - **Agent Network**: Registered agents handle fiat distribution off-chain
 - **Automated Fee Collection**: Platform fees calculated and accumulated automatically
-- **Multi-Status Tracking**: Remittances tracked through Pending, Completed, and Cancelled states
+- **Lifecycle State Management**: Remittances tracked through 5 states (Pending, Processing, Completed, Cancelled, Failed) with enforced transitions
 - **Authorization Security**: Role-based access control for all operations
 - **Event Emission**: Comprehensive event logging for off-chain monitoring
 - **Cancellation Support**: Senders can cancel pending remittances with full refund
@@ -23,10 +23,12 @@ SwiftRemit is an escrow-based remittance system that enables secure cross-border
 
 - **lib.rs**: Main contract implementation with all public functions
 - **types.rs**: Data structures (Remittance, RemittanceStatus)
+- **transitions.rs**: State transition validation and enforcement
 - **storage.rs**: Persistent and instance storage management
 - **errors.rs**: Custom error types for contract operations
 - **events.rs**: Event emission functions for monitoring
 - **test.rs**: Comprehensive test suite with 15+ test cases
+- **test_transitions.rs**: Lifecycle transition tests
 
 ### Storage Model
 
@@ -53,7 +55,9 @@ Fees are calculated in basis points (bps):
 ### User Functions
 
 - `create_remittance(sender, agent, amount)` - Create new remittance (sender auth required)
+- `start_processing(remittance_id)` - Mark remittance as being processed (agent auth required)
 - `confirm_payout(remittance_id)` - Confirm fiat payout (agent auth required)
+- `mark_failed(remittance_id)` - Mark payout as failed with refund (agent auth required)
 - `cancel_remittance(remittance_id)` - Cancel pending remittance (sender auth required)
 
 ### Query Functions
@@ -158,6 +162,51 @@ soroban contract invoke \
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment instructions.
 
+## Configuration
+
+SwiftRemit uses environment variables for configuration. This allows you to easily configure the system for different environments (local development, testnet, mainnet) without modifying code.
+
+### Quick Setup
+
+1. Copy the example environment file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit `.env` and fill in your configuration:
+   ```bash
+   # Required for client operations
+   SWIFTREMIT_CONTRACT_ID=your_contract_id_here
+   USDC_TOKEN_ID=your_usdc_token_id_here
+   
+   # Optional: customize other settings
+   NETWORK=testnet
+   DEFAULT_FEE_BPS=250
+   ```
+
+3. Your configuration is automatically loaded when running client code or deployment scripts
+
+### Configuration Files
+
+- **`.env`**: Your local environment configuration (gitignored, never commit this)
+- **`.env.example`**: Template with all available configuration options
+- **`examples/config.js`**: JavaScript configuration module that loads and validates environment variables
+
+### Key Configuration Variables
+
+- `NETWORK`: Network to connect to (`testnet` or `mainnet`)
+- `RPC_URL`: Soroban RPC endpoint URL
+- `SWIFTREMIT_CONTRACT_ID`: Deployed contract address
+- `USDC_TOKEN_ID`: USDC token contract address
+- `DEFAULT_FEE_BPS`: Platform fee in basis points (0-10000)
+- `INITIAL_FEE_BPS`: Initial fee for contract deployment (0-10000)
+- `DEPLOYER_IDENTITY`: Soroban CLI identity for deployment
+
+### Documentation
+
+- **[CONFIGURATION.md](CONFIGURATION.md)**: Complete configuration reference with all variables, validation rules, and examples
+- **[MIGRATION.md](MIGRATION.md)**: Migration guide for existing developers
+
 ## Usage Flow
 
 1. **Admin Setup**
@@ -169,15 +218,20 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment instructions.
    - Sender approves USDC transfer to contract
    - Sender calls `create_remittance` with agent and amount
    - Contract transfers USDC from sender to escrow
-   - Remittance ID returned for tracking
+   - Remittance ID returned for tracking (status: Pending)
 
 3. **Agent Payout**
+   - Agent calls `start_processing` to signal work has begun (status: Processing)
    - Agent pays out fiat to recipient off-chain
-   - Agent calls `confirm_payout` with remittance ID
+   - Agent calls `confirm_payout` with remittance ID (status: Completed)
    - Contract transfers USDC minus fee to agent
    - Fee added to accumulated platform fees
 
-4. **Fee Management**
+4. **Alternative Flows**
+   - **Early Cancellation**: Sender calls `cancel_remittance` while Pending
+   - **Failed Payout**: Agent calls `mark_failed` during Processing (full refund)
+
+5. **Fee Management**
    - Admin monitors accumulated fees
    - Admin calls `withdraw_fees` to collect platform revenue
 
@@ -230,73 +284,43 @@ Contributions welcome! Please ensure:
 - New features include tests
 - Documentation is updated
 
+## Asset Verification System
+
+SwiftRemit now includes a comprehensive asset verification system that validates Stellar assets against multiple trusted sources. See [ASSET_VERIFICATION.md](ASSET_VERIFICATION.md) for complete documentation.
+
+### Features
+
+- ✅ Multi-source verification (Stellar Expert, TOML, trustlines, transaction history)
+- ✅ On-chain storage of verification results
+- ✅ RESTful API for verification queries
+- ✅ React component for visual trust indicators
+- ✅ Background job for periodic revalidation
+- ✅ Community reporting system
+- ✅ Reputation scoring (0-100)
+- ✅ Suspicious asset detection and warnings
+
+### Quick Start
+
+```bash
+# Start backend service
+cd backend
+npm install
+cp .env.example .env
+npm run dev
+
+# Use in React
+import { VerificationBadge } from './components/VerificationBadge';
+
+<VerificationBadge assetCode="USDC" issuer="GA5Z..." />
+```
+
 ## Roadmap
 
+- [x] Asset verification system
 - [ ] Multi-currency support
 - [ ] Batch remittance processing
 - [ ] Agent reputation system
 - [ ] Dispute resolution mechanism
 - [ ] Time-locked escrow options
 - [ ] Integration with fiat on/off ramps
-
-SwiftRemit is a Soroban smart contract built in Rust that enables secure, escrow-based USDC remittances on the Stellar network.
-
-The contract allows users to send USDC into escrow, assigns registered payout agents, and releases funds once off-chain fiat payment is confirmed. A configurable platform fee is automatically deducted and retained by the protocol.
-
-This project is designed for emerging markets where stablecoin remittance rails can significantly reduce cross-border payment costs.
-
----
-
-## Overview
-
-SwiftRemit implements a simple escrow flow:
-
-1. A sender creates a remittance by depositing USDC.
-2. A registered agent pays the recipient in local fiat off-chain.
-3. The agent confirms payout on-chain.
-4. The contract releases USDC to the agent minus a platform fee.
-5. The platform accumulates fees for withdrawal by the admin.
-
-The system is designed to be secure, transparent, and modular.
-
----
-
-## Key Features
-
-- Escrow-based remittance logic
-- Agent registration system
-- Configurable platform fee (basis points model)
-- Secure authorization using Soroban Address auth
-- Protection against double confirmation
-- Cancellation mechanism for pending remittances
-- Accumulated fee withdrawal by admin
-- Full unit test coverage
-
----
-
-## Contract Architecture
-
-The contract stores:
-
-- Remittance records
-- Registered agents
-- Admin address
-- Platform fee configuration
-- Accumulated platform fees
-- USDC token address
-
-Each remittance includes:
-
-- Unique ID
-- Sender address
-- Agent address
-- Amount
-- Fee
-- Status (Pending, Completed, Cancelled)
-
----
-
-## Fee Model
-
-Platform fees are calculated using basis points:
 

@@ -3,6 +3,13 @@ Cargo.lock
 *.wasm
 *.optimized.wasm
 .soroban/
-.kiro
+.kiro/settings/
 # scratch/audit workfiles
 *.txt
+
+# Environment variables (may contain secrets)
+.env
+.env.local
+examples/.env
+examples/.env.local
+/node_modules
