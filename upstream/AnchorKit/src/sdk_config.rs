@@ -28,6 +28,9 @@ const MAX_RETRY: u32 = 10;
 const MIN_ANCHOR_LEN: u32 = 3;
 const MAX_ANCHOR_LEN: u32 = 256;
 
+/// Default timeout for HTTP requests (10 seconds)
+pub const DEFAULT_TIMEOUT_SECONDS: u32 = 10;
+
 impl SdkConfig {
     pub fn new(
         network: Network,
@@ -43,6 +46,11 @@ impl SdkConfig {
         };
         config.validate()?;
         Ok(config)
+    }
+
+    /// Create a new SdkConfig with default timeout
+    pub fn with_defaults(network: Network, default_anchor: String) -> Result<Self, Error> {
+        Self::new(network, DEFAULT_TIMEOUT_SECONDS, 3, default_anchor)
     }
 
     pub fn validate(&self) -> Result<(), Error> {

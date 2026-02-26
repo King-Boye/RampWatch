@@ -117,4 +117,37 @@ mod tests {
         );
         assert!(config.is_ok());
     }
+
+    #[test]
+    fn test_default_timeout_is_10_seconds() {
+        use crate::sdk_config::DEFAULT_TIMEOUT_SECONDS;
+        assert_eq!(DEFAULT_TIMEOUT_SECONDS, 10);
+    }
+
+    #[test]
+    fn test_with_defaults_uses_default_timeout() {
+        let env = Env::default();
+        let config = SdkConfig::with_defaults(
+            Network::Testnet,
+            String::from_str(&env, "anchor.stellar.org"),
+        );
+        assert!(config.is_ok());
+        let config = config.unwrap();
+        assert_eq!(config.timeout_seconds, 10);
+        assert_eq!(config.retry_attempts, 3);
+    }
+
+    #[test]
+    fn test_custom_timeout_overrides_default() {
+        let env = Env::default();
+        let config = SdkConfig::new(
+            Network::Testnet,
+            25,
+            3,
+            String::from_str(&env, "anchor.stellar.org"),
+        );
+        assert!(config.is_ok());
+        let config = config.unwrap();
+        assert_eq!(config.timeout_seconds, 25);
+    }
 }

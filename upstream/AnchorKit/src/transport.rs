@@ -46,6 +46,14 @@ pub trait AnchorTransport {
         request: TransportRequest,
     ) -> Result<TransportResponse, Error>;
 
+    /// Send a request with timeout enforcement
+    fn send_request_with_timeout(
+        &mut self,
+        env: &Env,
+        request: TransportRequest,
+        timeout_seconds: u32,
+    ) -> Result<TransportResponse, Error>;
+
     /// Check if the transport is available
     fn is_available(&self) -> bool;
 
@@ -59,6 +67,8 @@ pub struct MockTransport {
     responses: alloc::vec::Vec<(TransportRequest, TransportResponse)>,
     call_count: u32,
     should_fail: bool,
+    simulate_timeout: bool,
+    simulated_delay_seconds: u32,
 }
 
 impl MockTransport {
@@ -68,6 +78,8 @@ impl MockTransport {
             responses: alloc::vec::Vec::new(),
             call_count: 0,
             should_fail: false,
+            simulate_timeout: false,
+            simulated_delay_seconds: 0,
         }
     }
 
@@ -81,6 +93,12 @@ impl MockTransport {
         self.should_fail = should_fail;
     }
 
+    /// Configure the transport to simulate timeout
+    pub fn set_simulate_timeout(&mut self, simulate: bool, delay_seconds: u32) {
+        self.simulate_timeout = simulate;
+        self.simulated_delay_seconds = delay_seconds;
+    }
+
     /// Get the number of requests made
     pub fn get_call_count(&self) -> u32 {
         self.call_count
@@ -91,6 +109,8 @@ impl MockTransport {
         self.responses.clear();
         self.call_count = 0;
         self.should_fail = false;
+        self.simulate_timeout = false;
+        self.simulated_delay_seconds = 0;
     }
 
     /// Find matching response for a request
@@ -165,6 +185,22 @@ impl AnchorTransport for MockTransport {
             Some(response) => Ok(response),
             None => Err(Error::EndpointNotFound),
         }
+    }
+
+    fn send_request_with_timeout(
+        &mut self,
+        env: &Env,
+        request: TransportRequest,
+        timeout_seconds: u32,
+    ) -> Result<TransportResponse, Error> {
+        // Check if simulated delay exceeds timeout
+        if self.simulate_timeout && self.simulated_delay_seconds > timeout_seconds {
+            self.call_count += 1;
+            return Err(Error::TransportTimeout);
+        }
+
+        // Otherwise proceed with normal request
+        self.send_request(env, request)
     }
 
     fn is_available(&self) -> bool {
@@ -348,5 +384,104 @@ mod tests {
         let kyc_result = transport.send_request(&env, kyc_request);
         assert!(kyc_result.is_ok());
         assert_eq!(transport.get_call_count(), 2);
+    }
+
+    #[test]
+    fn test_request_timeout_exceeded() {
+        let env = Env::default();
+        let mut transport = MockTransport::new();
+
+        // Simulate a request that takes 15 seconds
+        transport.set_simulate_timeout(true, 15);
+
+        let endpoint = SorobanString::from_str(&env, "https://anchor.example.com");
+        let request = TransportRequest::CheckHealth { endpoint };
+
+        // Request with 10 second timeout should fail
+        let result = transport.send_request_with_timeout(&env, request, 10);
+        assert_eq!(result, Err(Error::TransportTimeout));
+        assert_eq!(transport.get_call_count(), 1);
+    }
+
+    #[test]
+    fn test_request_timeout_not_exceeded() {
+        let env = Env::default();
+        let mut transport = MockTransport::new();
+
+        // Simulate a request that takes 5 seconds
+        transport.set_simulate_timeout(true, 5);
+
+        let endpoint = SorobanString::from_str(&env, "https://anchor.example.com");
+        let anchor = Address::generate(&env);
+        let health = HealthStatus {
+            anchor: anchor.clone(),
+            latency_ms: 50,
+            failure_count: 0,
+            availability_percent: 9999,
+            last_check: 1000,
+        };
+
+        let request = TransportRequest::CheckHealth {
+            endpoint: endpoint.clone(),
+        };
+        transport.add_response(request.clone(), TransportResponse::Health(health));
+
+        // Request with 10 second timeout should succeed
+        let result = transport.send_request_with_timeout(&env, request, 10);
+        assert!(result.is_ok());
+        assert_eq!(transport.get_call_count(), 1);
+    }
+
+    #[test]
+    fn test_default_timeout_from_sdk_config() {
+        let env = Env::default();
+        let mut transport = MockTransport::new();
+
+        // Simulate a slow request (15 seconds)
+        transport.set_simulate_timeout(true, 15);
+
+        let endpoint = SorobanString::from_str(&env, "https://anchor.example.com");
+        let request = TransportRequest::CheckHealth { endpoint };
+
+        // Use default timeout of 10 seconds (from SdkConfig default)
+        let default_timeout = 10u32;
+        let result = transport.send_request_with_timeout(&env, request, default_timeout);
+        assert_eq!(result, Err(Error::TransportTimeout));
+    }
+
+    #[test]
+    fn test_timeout_with_different_request_types() {
+        let env = Env::default();
+        let mut transport = MockTransport::new();
+
+        transport.set_simulate_timeout(true, 20);
+
+        let endpoint = SorobanString::from_str(&env, "https://anchor.example.com");
+
+        // Test GetQuote timeout
+        let quote_request = TransportRequest::GetQuote {
+            endpoint: endpoint.clone(),
+            base_asset: SorobanString::from_str(&env, "USD"),
+            quote_asset: SorobanString::from_str(&env, "USDC"),
+            amount: 1000,
+        };
+        let result = transport.send_request_with_timeout(&env, quote_request, 10);
+        assert_eq!(result, Err(Error::TransportTimeout));
+
+        // Test SubmitAttestation timeout
+        let attest_request = TransportRequest::SubmitAttestation {
+            endpoint: endpoint.clone(),
+            payload: Bytes::new(&env),
+        };
+        let result = transport.send_request_with_timeout(&env, attest_request, 10);
+        assert_eq!(result, Err(Error::TransportTimeout));
+
+        // Test VerifyKYC timeout
+        let kyc_request = TransportRequest::VerifyKYC {
+            endpoint: endpoint.clone(),
+            subject_id: SorobanString::from_str(&env, "user123"),
+        };
+        let result = transport.send_request_with_timeout(&env, kyc_request, 10);
+        assert_eq!(result, Err(Error::TransportTimeout));
     }
 }
