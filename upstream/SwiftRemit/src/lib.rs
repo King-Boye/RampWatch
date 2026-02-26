@@ -4,10 +4,12 @@
 //! with built-in duplicate settlement protection and expiry mechanisms.
 
 #![no_std]
-mod debug;
-mod error_handler;
+
+mod asset_verification;
 mod errors;
 mod events;
+mod fee_service;
+mod fee_strategy;
 mod hashing;
 mod migration;
 mod netting;
@@ -17,16 +19,26 @@ mod types;
 mod validation;
 #[cfg(test)]
 mod test;
-
 #[cfg(test)]
-mod test; 
+mod test_escrow;
+#[cfg(test)]
+mod test_fee_strategy;
+#[cfg(test)]
+mod test_roles_simple;
+#[cfg(test)]
+mod test_transfer_state;
+#[cfg(test)]
+mod test_protocol_fee;
+#[cfg(test)]
+mod test_property; 
 
-use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
 
-pub use debug::*;
-pub use error_handler::*;
+pub use asset_verification::*;
 pub use errors::ContractError;
 pub use events::*;
+pub use fee_service::*;
+pub use fee_strategy::*;
 pub use hashing::*;
 pub use migration::*;
 pub use netting::*;
@@ -34,6 +46,9 @@ pub use rate_limit::*;
 pub use storage::*;
 pub use types::*;
 pub use validation::*;
+
+/// Maximum number of remittances that can be settled in a single batch
+const MAX_BATCH_SIZE: u32 = 100;
 
 /// The main SwiftRemit contract for managing cross-border remittances.
 ///
@@ -45,6 +60,33 @@ pub use validation::*;
 /// - Platform fee collection and withdrawal
 #[contract]
 pub struct SwiftRemitContract;
+
+// ============================================================================
+// Configuration Constants
+// ============================================================================
+//
+// These constants define validation limits and calculation parameters.
+// They are intentionally hardcoded in the contract to ensure consistent
+// on-chain behavior across all deployments.
+//
+// MAX_FEE_BPS: Maximum allowed fee in basis points (100% = 10000 bps)
+// - This limit prevents accidentally setting fees above 100%
+// - Used in initialize() and update_fee() for validation
+// - Value: 10000 (represents 100%)
+//
+// FEE_DIVISOR: Divisor for converting basis points to actual fee amount
+// - Formula: fee_amount = amount * fee_bps / FEE_DIVISOR
+// - Used in create_remittance() for fee calculation
+// - Value: 10000 (basis points scale)
+//
+// Configurable Values at Deployment:
+// - initial fee_bps: Set during initialize(), can be any value 0-10000
+//   This value can be configured via the INITIAL_FEE_BPS environment variable
+//   in deployment scripts (deploy.sh, deploy.ps1)
+//
+// Runtime Configurable Values:
+// - fee_bps: Can be updated by admin via update_fee()
+// ============================================================================
 
 #[contractimpl]
 impl SwiftRemitContract {
@@ -77,6 +119,8 @@ impl SwiftRemitContract {
         usdc_token: Address,
         fee_bps: u32,
         rate_limit_cooldown: u64,
+        protocol_fee_bps: u32,
+        treasury: Address,
     ) -> Result<(), ContractError> {
         // Centralized validation before business logic
         validate_initialize_request(&env, &admin, &usdc_token, fee_bps)?;
@@ -88,12 +132,19 @@ impl SwiftRemitContract {
         set_admin_role(&env, &admin, true);
         set_admin_count(&env, 1);
         
+        // Assign Admin role to initial admin
+        assign_role(&env, &admin, &Role::Admin);
+        
         set_usdc_token(&env, &usdc_token);
         set_platform_fee_bps(&env, fee_bps);
-        set_integrator_fee_bps(&env, 0);
         set_remittance_counter(&env, 0);
         set_accumulated_fees(&env, 0);
         set_rate_limit_cooldown(&env, rate_limit_cooldown);
+        set_escrow_counter(&env, 0);
+        
+        // Initialize protocol fee and treasury
+        set_protocol_fee_bps(&env, protocol_fee_bps)?;
+        set_treasury(&env, &treasury);
 
         // Initialize rate limiting with default configuration
         init_rate_limit(&env);
@@ -127,13 +178,9 @@ impl SwiftRemitContract {
 
         set_agent_registered(&env, &agent, true);
 
-        emit_agent_registered(&env, agent.clone(), caller.clone());
-
-        
         // Event: Agent registered - Fires when admin adds a new agent to the approved list
         // Used by off-chain systems to track which addresses can confirm payouts
-        emit_agent_registered(&env, agent, caller.clone());
-
+        emit_agent_registered(&env, agent, caller);
 
         Ok(())
     }
@@ -162,13 +209,9 @@ impl SwiftRemitContract {
 
         set_agent_registered(&env, &agent, false);
 
-        emit_agent_removed(&env, agent.clone(), caller.clone());
-
-        
         // Event: Agent removed - Fires when admin removes an agent from the approved list
         // Used by off-chain systems to revoke payout confirmation privileges
-        emit_agent_removed(&env, agent, caller.clone());
-
+        emit_agent_removed(&env, agent, caller);
 
         Ok(())
     }
@@ -199,9 +242,8 @@ impl SwiftRemitContract {
         let caller = get_admin(&env)?;
         require_admin(&env, &caller)?;
 
-        let old_fee = get_platform_fee_bps(&env)?;
         set_platform_fee_bps(&env, fee_bps);
-        emit_fee_updated(&env, caller.clone(), old_fee, fee_bps);
+        emit_fee_updated(&env, fee_bps);
 
         log_update_fee(&env, fee_bps);
 
@@ -244,12 +286,8 @@ impl SwiftRemitContract {
 
     sender.require_auth();
 
-    let fee_bps = get_platform_fee_bps(&env)?;
-    let fee = amount
-        .checked_mul(fee_bps as i128)
-        .ok_or(ContractError::Overflow)?
-        .checked_div(10000)
-        .ok_or(ContractError::Overflow)?;
+    // Use centralized fee service for calculation
+    let fee = fee_service::calculate_platform_fee(&env, amount)?;
 
     let usdc_token = get_usdc_token(&env)?;
     let token_client = token::Client::new(&env, &usdc_token);
@@ -270,8 +308,11 @@ impl SwiftRemitContract {
 
     set_remittance(&env, remittance_id, &remittance);
     set_remittance_counter(&env, remittance_id);
+    
+    // Set initial transfer state
+    set_transfer_state(&env, remittance_id, TransferState::Initiated)?;
 
-    Ok(remittance_id)  // ← capital O
+    Ok(remittance_id)
 }
     /// Confirms a remittance payout to the agent.
     ///
@@ -297,112 +338,103 @@ impl SwiftRemitContract {
     /// # Authorization
     ///
     /// Requires authentication from the agent address assigned to the remittance.
+    /// Requires Settler role.
     pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<(), ContractError> {
-        // Centralized validation before business logic
+        // Centralized validation before business logic (returns remittance to avoid re-read)
         let mut remittance = validate_confirm_payout_request(&env, remittance_id)?;
 
         remittance.agent.require_auth();
-
-        if remittance.status != RemittanceStatus::Pending {
-            return Err(ContractError::InvalidStatus);
-        }
-
-        // Check for duplicate settlement execution
-        if has_settlement_hash(&env, remittance_id) {
-            return Err(ContractError::DuplicateSettlement);
-        }
-
-        // Check if settlement has expired
-        if let Some(expiry_time) = remittance.expiry {
-            let current_time = env.ledger().timestamp();
-            if current_time > expiry_time {
-                return Err(ContractError::SettlementExpired);
-            }
-        }
+        
+        // Require Settler role
+        require_role_settler(&env, &remittance.agent)?;
+        
+        // Transition to Processing state
+        set_transfer_state(&env, remittance_id, TransferState::Processing)?;
 
         // Check rate limit for sender
-        check_rate_limit(&env, &remittance.sender)?;
+        check_settlement_rate_limit(&env, &remittance.sender)?;
 
-        // Validate the agent address before transfer
-        validate_address(&remittance.agent)?;
+        // Use centralized fee service to get complete breakdown
+        let fee_breakdown = fee_service::calculate_fees_with_breakdown(
+            &env,
+            remittance.amount,
+            None, // No corridor specified
+        )?;
 
-        let payout_amount = remittance
-            .amount
-            .checked_sub(remittance.fee)
-            .ok_or(ContractError::Overflow)?
-            .checked_sub(remittance.integrator_fee)
-            .ok_or(ContractError::Overflow)?;
+        // Verify stored fee matches calculated platform fee
+        if remittance.fee != fee_breakdown.platform_fee {
+            return Err(ContractError::InvalidAmount);
+        }
 
+        let payout_amount = fee_breakdown.net_amount;
+        let protocol_fee = fee_breakdown.protocol_fee;
+
+        // Batch read storage values
         let usdc_token = get_usdc_token(&env)?;
+        let current_fees = get_accumulated_fees(&env)?;
+        let current_time = env.ledger().timestamp();
+        
         let token_client = token::Client::new(&env, &usdc_token);
+        
+        // Transfer payout to agent
         token_client.transfer(
             &env.current_contract_address(),
             &remittance.agent,
             &payout_amount,
         );
+        
+        // Transfer protocol fee to treasury if needed
+        if protocol_fee > 0 {
+            let treasury = get_treasury(&env)?;
+            token_client.transfer(
+                &env.current_contract_address(),
+                &treasury,
+                &protocol_fee,
+            );
+        }
 
-        let current_fees = get_accumulated_fees(&env)?;
+        // Update accumulated fees
         let new_fees = current_fees
             .checked_add(remittance.fee)
             .ok_or(ContractError::Overflow)?;
         set_accumulated_fees(&env, new_fees);
 
-        let current_integrator_fees = get_accumulated_integrator_fees(&env)?;
-        let new_integrator_fees = current_integrator_fees
-            .checked_add(remittance.integrator_fee)
-            .ok_or(ContractError::Overflow)?;
-        set_accumulated_integrator_fees(&env, new_integrator_fees);
-
-        remittance.status = RemittanceStatus::Settled;
+        // Update remittance status
+        remittance.status = RemittanceStatus::Completed;
         set_remittance(&env, remittance_id, &remittance);
+        
+        // Transition to Completed state
+        set_transfer_state(&env, remittance_id, TransferState::Completed)?;
 
         // Mark settlement as executed to prevent duplicates
         set_settlement_hash(&env, remittance_id);
         
         // Update last settlement time for rate limiting
-        let current_time = env.ledger().timestamp();
         set_last_settlement_time(&env, &remittance.sender, current_time);
-
-
-        // Increment settlement counter atomically after successful finalization
-        increment_settlement_counter(&env);
-
-
-        // Emit settlement completion event exactly once
-        // This event is emitted after all state transitions are committed
-        // and includes safeguards to prevent duplicate emission
-        if !has_settlement_event_emitted(&env, remittance_id) {
-            emit_settlement_completed(
-                &env,
-                remittance_id,
-                remittance.sender.clone(),
-                remittance.agent.clone(),
-                usdc_token.clone(),
-                payout_amount
-            );
-            set_settlement_event_emitted(&env, remittance_id);
-        }
 
         // Event: Remittance completed - Fires when agent confirms fiat payout and USDC is released
         // Used by off-chain systems to track successful settlements and update transaction status
-        emit_remittance_completed(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), payout_amount);
+        emit_remittance_completed(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone());
+        
+        // Event: Settlement completed - Fires with final executed settlement values
+        // Used by off-chain systems for reconciliation and audit trails of completed transactions
+        emit_settlement_completed(&env, remittance_id, remittance.sender, remittance.agent, usdc_token, payout_amount);
 
         log_confirm_payout(&env, remittance_id, payout_amount);
 
-        Ok(remittance_id)
+        Ok(())
     }
 
     pub fn finalize_remittance(env: Env, caller: Address, remittance_id: u64) -> Result<(), ContractError> {
         require_admin(&env, &caller)?;
-        let mut remittance = get_remittance(&env, remittance_id)?;
+        let remittance = get_remittance(&env, remittance_id)?;
 
-        if !remittance.status.can_transition_to(&RemittanceStatus::Finalized) {
+        // Verify remittance is in a valid state (Completed)
+        if remittance.status != RemittanceStatus::Completed {
             return Err(ContractError::InvalidStateTransition);
         }
 
-        remittance.status = RemittanceStatus::Finalized;
-        set_remittance(&env, remittance_id, &remittance);
-
+        // Remittance is already completed, no further action needed
         Ok(())
     }
 
@@ -426,7 +458,7 @@ impl SwiftRemitContract {
     ///
     /// Requires authentication from the sender address who created the remittance.
     pub fn cancel_remittance(env: Env, remittance_id: u64) -> Result<(), ContractError> {
-        // Centralized validation before business logic
+        // Centralized validation before business logic (returns remittance to avoid re-read)
         let mut remittance = validate_cancel_remittance_request(&env, remittance_id)?;
 
         remittance.sender.require_auth();
@@ -439,12 +471,15 @@ impl SwiftRemitContract {
             &remittance.amount,
         );
 
-        remittance.status = RemittanceStatus::Failed;
+        remittance.status = RemittanceStatus::Cancelled;
         set_remittance(&env, remittance_id, &remittance);
+        
+        // Transition to Refunded state
+        set_transfer_state(&env, remittance_id, TransferState::Refunded)?;
 
         // Event: Remittance cancelled - Fires when sender cancels a pending remittance and receives full refund
         // Used by off-chain systems to track cancellations and update transaction status
-        emit_remittance_cancelled(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone(), usdc_token.clone(), remittance.amount);
+        emit_remittance_cancelled(&env, remittance_id, remittance.sender, remittance.agent, usdc_token, remittance.amount);
 
         log_cancel_remittance(&env, remittance_id);
 
@@ -472,19 +507,7 @@ impl SwiftRemitContract {
     ///
     /// Requires authentication from the contract admin.
     pub fn withdraw_fees(env: Env, to: Address) -> Result<(), ContractError> {
-        let admin = get_admin(&env)?;
-        admin.require_auth();
-
-        remittance.status = RemittanceStatus::Failed;
-        set_remittance(&env, remittance_id, &remittance);
-
-        log_cancel_remittance(&env, remittance_id);
-
-        Ok(())
-    }
-
-    pub fn withdraw_fees(env: Env, to: Address) -> Result<(), ContractError> {
-        // Centralized validation before business logic
+        // Centralized validation before business logic (returns fees to avoid re-read)
         let fees = validate_withdraw_fees_request(&env, &to)?;
         
         let caller = get_admin(&env)?;
@@ -498,7 +521,7 @@ impl SwiftRemitContract {
 
         // Event: Fees withdrawn - Fires when admin withdraws accumulated platform fees
         // Used by off-chain systems to track revenue collection and maintain financial records
-        emit_fees_withdrawn(&env, caller.clone(), to.clone(), usdc_token.clone(), fees);
+        emit_fees_withdrawn(&env, caller, to, usdc_token, fees);
 
         log_withdraw_fees(&env, &to, fees);
 
@@ -554,50 +577,45 @@ impl SwiftRemitContract {
         get_platform_fee_bps(&env)
     }
 
-
-    /// Retrieves the total number of successfully finalized settlements.
-    ///
-    /// This is a read-only method that performs an O(1) constant-time read directly
-    /// from instance storage without iteration or recomputation. The counter is
-    /// incremented atomically each time a settlement is successfully finalized.
-    ///
+    /// Computes the deterministic settlement hash for a remittance.
+    /// 
+    /// This function allows external systems (banks, anchors, APIs) to compute
+    /// the same settlement hash that the contract uses internally. The hash is
+    /// computed using the canonical ordering specified in DETERMINISTIC_HASHING_SPEC.md.
+    /// 
+    /// External systems can use this to:
+    /// - Pre-compute settlement IDs before submission
+    /// - Verify on-chain settlement IDs match expected values
+    /// - Enable cross-system reconciliation using deterministic IDs
+    /// 
     /// # Arguments
     ///
     /// * `env` - The contract execution environment
+    /// * `remittance_id` - The remittance ID to compute hash for
     ///
     /// # Returns
     ///
-    /// * `u64` - Total number of settlements processed (0 if none)
-    ///
-    /// # Performance
-    ///
-    /// - O(1) constant-time operation
-    /// - Single storage read
-    /// - No iteration or computation
-    ///
-    /// # Guarantees
-    ///
-    /// - Read-only: Cannot modify storage
-    /// - Deterministic: Always returns same value for same state
-    /// - Consistent: Reflects all successfully finalized settlements
-    /// - Cannot be modified externally (no public setter)
-    ///
+    /// * `Ok(BytesN<32>)` - The 32-byte SHA-256 settlement hash
+    /// * `Err(ContractError::RemittanceNotFound)` - Remittance ID does not exist
+    /// 
+    /// # Hash Input Ordering (Canonical)
+    /// 
+    /// 1. remittance_id (u64, big-endian)
+    /// 2. sender (Address, XDR-encoded)
+    /// 3. agent (Address, XDR-encoded)
+    /// 4. amount (i128, big-endian)
+    /// 5. fee (i128, big-endian)
+    /// 6. expiry (u64, big-endian, 0 if None)
+    /// 
     /// # Examples
-    ///
+    /// 
     /// ```ignore
-    /// let total = contract.get_total_settlements_count(&env);
-    /// println!("Total settlements processed: {}", total);
+    /// let settlement_hash = contract.compute_settlement_hash(&env, remittance_id)?;
+    /// // External system can verify this matches their computed hash
     /// ```
-    pub fn get_total_settlements_count(env: Env) -> u64 {
-        get_settlement_counter(&env)
-
-    pub fn get_integrator_fee_bps(env: Env) -> Result<u32, ContractError> {
-        get_integrator_fee_bps(&env)
-    }
-
-    pub fn get_accumulated_integrator_fees(env: Env) -> Result<i128, ContractError> {
-        get_accumulated_integrator_fees(&env)
-
+    pub fn compute_settlement_hash(env: Env, remittance_id: u64) -> Result<soroban_sdk::BytesN<32>, ContractError> {
+        let remittance = get_remittance(&env, remittance_id)?;
+        Ok(compute_settlement_id_from_remittance(&env, &remittance))
     }
 
     pub fn pause(env: Env) -> Result<(), ContractError> {
@@ -618,6 +636,91 @@ impl SwiftRemitContract {
         Ok(())
     }
 
+    // ── Escrow Functions ───────────────────────────────────────────
+
+    pub fn create_escrow(
+        env: Env,
+        sender: Address,
+        recipient: Address,
+        amount: i128,
+    ) -> Result<u64, ContractError> {
+        sender.require_auth();
+        
+        if amount <= 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&sender, &env.current_contract_address(), &amount);
+
+        let counter = get_escrow_counter(&env)?;
+        let transfer_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
+
+        let escrow = Escrow {
+            transfer_id,
+            sender: sender.clone(),
+            recipient: recipient.clone(),
+            amount,
+            status: EscrowStatus::Pending,
+        };
+
+        set_escrow(&env, transfer_id, &escrow);
+        set_escrow_counter(&env, transfer_id);
+
+        emit_escrow_created(&env, transfer_id, sender, recipient, amount);
+
+        Ok(transfer_id)
+    }
+
+    pub fn release_escrow(env: Env, transfer_id: u64) -> Result<(), ContractError> {
+        let mut escrow = get_escrow(&env, transfer_id)?;
+        
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
+
+        if escrow.status != EscrowStatus::Pending {
+            return Err(ContractError::InvalidEscrowStatus);
+        }
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&env.current_contract_address(), &escrow.recipient, &escrow.amount);
+
+        escrow.status = EscrowStatus::Released;
+        set_escrow(&env, transfer_id, &escrow);
+
+        emit_escrow_released(&env, transfer_id, escrow.recipient, escrow.amount);
+
+        Ok(())
+    }
+
+    pub fn refund_escrow(env: Env, transfer_id: u64) -> Result<(), ContractError> {
+        let mut escrow = get_escrow(&env, transfer_id)?;
+        
+        escrow.sender.require_auth();
+
+        if escrow.status != EscrowStatus::Pending {
+            return Err(ContractError::InvalidEscrowStatus);
+        }
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&env.current_contract_address(), &escrow.sender, &escrow.amount);
+
+        escrow.status = EscrowStatus::Refunded;
+        set_escrow(&env, transfer_id, &escrow);
+
+        emit_escrow_refunded(&env, transfer_id, escrow.sender, escrow.amount);
+
+        Ok(())
+    }
+
+    pub fn get_escrow(env: Env, transfer_id: u64) -> Result<Escrow, ContractError> {
+        get_escrow(&env, transfer_id)
+    }
+
+
     pub fn is_paused(env: Env) -> bool {
         crate::storage::is_paused(&env)
     }
@@ -626,10 +729,7 @@ impl SwiftRemitContract {
         let admin = get_admin(&env)?;
         admin.require_auth();
 
-        let old_cooldown = get_rate_limit_cooldown(&env)?;
         set_rate_limit_cooldown(&env, cooldown_seconds);
-        
-        emit_rate_limit_updated(&env, admin, old_cooldown, cooldown_seconds);
 
         Ok(())
     }
@@ -744,10 +844,13 @@ impl SwiftRemitContract {
         // Validate net settlement calculations
         validate_net_settlement(&remittances, &net_transfers)?;
 
-        // Execute net transfers
+        // Batch read storage values once
         let usdc_token = get_usdc_token(&env)?;
+        let mut current_fees = get_accumulated_fees(&env)?;
+        
         let token_client = token::Client::new(&env, &usdc_token);
 
+        // Execute net transfers
         for i in 0..net_transfers.len() {
             let transfer = net_transfers.get_unchecked(i);
 
@@ -769,64 +872,50 @@ impl SwiftRemitContract {
                 .ok_or(ContractError::Overflow)?;
 
             // Execute the net transfer from contract to recipient
-            // Note: The sender's funds are already in the contract from create_remittance
             token_client.transfer(
                 &env.current_contract_address(),
                 &to,
                 &payout_amount,
             );
 
-            // Accumulate fees
-            let current_fees = get_accumulated_fees(&env)?;
-            let new_fees = current_fees
+            // Accumulate fees in memory
+            current_fees = current_fees
                 .checked_add(transfer.total_fees)
                 .ok_or(ContractError::Overflow)?;
-            set_accumulated_fees(&env, new_fees);
+
+            // Emit settlement event (using remittance ID from the transfer)
+            // Note: In batch processing, we use the first remittance ID as reference
+            let remittance_id = if i < remittances.len() {
+                remittances.get_unchecked(i).id
+            } else {
+                0
+            };
+            emit_settlement_completed(&env, remittance_id, from, to, usdc_token.clone(), payout_amount);
         }
+
+        // Write accumulated fees once at the end
+        set_accumulated_fees(&env, current_fees);
 
         // Mark all remittances as completed and set settlement hashes
         let mut settled_ids = Vec::new(&env);
 
         for i in 0..remittances.len() {
             let mut remittance = remittances.get_unchecked(i);
-            remittance.status = RemittanceStatus::Settled;
+            remittance.status = RemittanceStatus::Completed;
             set_remittance(&env, remittance.id, &remittance);
             set_settlement_hash(&env, remittance.id);
             settled_ids.push_back(remittance.id);
 
-
-            // Increment settlement counter atomically for each successful settlement
-            increment_settlement_counter(&env);
-
-          
-            // Calculate payout amount for this remittance
+            // Emit individual remittance completion event
             let payout_amount = remittance
                 .amount
                 .checked_sub(remittance.fee)
                 .ok_or(ContractError::Overflow)?;
-
-            // Emit settlement completion event exactly once per remittance
-            // This ensures each finalized settlement has exactly one completion event
-            if !has_settlement_event_emitted(&env, remittance.id) {
-                emit_settlement_completed(
-                    &env,
-                    remittance.id,
-                    remittance.sender.clone(),
-                    remittance.agent.clone(),
-                    usdc_token.clone(),
-                    payout_amount,
-                );
-                set_settlement_event_emitted(&env, remittance.id);
-            }
-
-            // Emit individual remittance completion event
             emit_remittance_completed(
                 &env,
                 remittance.id,
-                remittance.sender.clone(),
-                remittance.agent.clone(),
-                usdc_token.clone(),
-                payout_amount,
+                remittance.sender,
+                remittance.agent,
             );
         }
 
@@ -844,11 +933,6 @@ impl SwiftRemitContract {
 
         set_token_whitelisted(&env, &token, true);
         
-        // Event: Token whitelisted - Fires when admin adds a token to the approved list
-        // Used by off-chain systems to track which tokens can be used for remittances
-        emit_token_whitelisted(&env, caller.clone(), token.clone());
-        log_whitelist_token(&env, &token);
-
         Ok(())
     }
 
@@ -863,11 +947,6 @@ impl SwiftRemitContract {
 
         set_token_whitelisted(&env, &token, false);
         
-        // Event: Token removed - Fires when admin removes a token from the approved list
-        // Used by off-chain systems to track which tokens are no longer accepted for remittances
-        emit_token_removed(&env, caller.clone(), token.clone());
-        log_remove_whitelisted_token(&env, &token);
-
         Ok(())
     }
 
@@ -887,9 +966,9 @@ impl SwiftRemitContract {
     /// # Example
     /// ```ignore
     /// // Set rate limit to 50 requests per 30 seconds
-    /// contract.update_rate_limit(&admin, 50, 30, true)?;
+    /// contract.update_rate_limit_config(&admin, 50, 30, true)?;
     /// ```
-    pub fn update_rate_limit(
+    pub fn update_rate_limit_config(
         env: Env,
         caller: Address,
         max_requests: u32,
@@ -905,8 +984,6 @@ impl SwiftRemitContract {
         };
 
         set_rate_limit_config(&env, config);
-
-        log_update_rate_limit(&env, max_requests, window_seconds, enabled);
 
         Ok(())
     }
@@ -932,221 +1009,331 @@ impl SwiftRemitContract {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // Migration Functions
+    // Protocol Fee Management
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /// Export complete contract state for migration
-    /// 
-    /// Creates a cryptographically verified snapshot of all contract data including:
-    /// - Instance storage (admin, token, fees, counters)
-    /// - Persistent storage (remittances, agents, admins, settlement hashes)
-    /// - Verification hash for integrity checking
-    /// 
-    /// # Security
-    /// - Only callable by admin
-    /// - Generates deterministic SHA-256 hash
-    /// - Includes timestamp and ledger sequence for audit trail
-    /// - Prevents tampering through cryptographic verification
-    /// 
-    /// # Returns
-    /// MigrationSnapshot containing complete contract state
-    /// 
-    /// # Example
-    /// ```ignore
-    /// let snapshot = contract.export_migration_state(&admin)?;
-    /// // Verify hash before using
-    /// let verification = contract.verify_migration_snapshot(&snapshot)?;
-    /// assert!(verification.valid);
-    /// ```
-    pub fn export_migration_state(
-        env: Env,
-        caller: Address,
-    ) -> Result<MigrationSnapshot, ContractError> {
+    /// Updates the protocol fee (Admin only, max 200 bps)
+    pub fn update_protocol_fee(env: Env, caller: Address, fee_bps: u32) -> Result<(), ContractError> {
+        caller.require_auth();
         require_admin(&env, &caller)?;
-        migration::export_state(&env)
+        set_protocol_fee_bps(&env, fee_bps)?;
+        Ok(())
     }
 
-    /// Import contract state from migration snapshot
+    /// Updates the treasury address (Admin only)
+    pub fn update_treasury(env: Env, caller: Address, treasury: Address) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_admin(&env, &caller)?;
+        set_treasury(&env, &treasury);
+        Ok(())
+    }
+
+    /// Gets the current protocol fee in basis points
+    pub fn get_protocol_fee_bps(env: Env) -> u32 {
+        get_protocol_fee_bps(&env)
+    }
+
+    /// Gets the treasury address
+    pub fn get_treasury(env: Env) -> Result<Address, ContractError> {
+        get_treasury(&env)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Role-Based Authorization Functions
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Assigns a role to an address (Admin only)
+    pub fn assign_role(env: Env, caller: Address, address: Address, role: Role) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_role_admin(&env, &caller)?;
+        assign_role(&env, &address, &role);
+        Ok(())
+    }
+
+    /// Removes a role from an address (Admin only)
+    pub fn remove_role(env: Env, caller: Address, address: Address, role: Role) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_role_admin(&env, &caller)?;
+        remove_role(&env, &address, &role);
+        Ok(())
+    }
+
+    /// Checks if an address has a specific role
+    pub fn has_role(env: Env, address: Address, role: Role) -> bool {
+        has_role(&env, &address, &role)
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Fee Strategy Management
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /// Updates the fee strategy (Admin only)
     /// 
-    /// Restores complete contract state from a verified snapshot including:
-    /// - Cryptographic hash verification
-    /// - Instance storage restoration
-    /// - Persistent storage restoration
-    /// - Replay protection
+    /// Allows switching between different fee calculation methods:
+    /// - Percentage: Fee based on basis points (e.g., 250 = 2.5%)
+    /// - Flat: Fixed fee amount regardless of transaction size
+    /// - Dynamic: Tiered fee that decreases for larger amounts
     /// 
-    /// # Security
-    /// - Only callable by admin
-    /// - Verifies cryptographic hash before import
-    /// - Prevents import if contract already initialized
-    /// - Atomic operation (all or nothing)
-    /// - No trust assumptions (cryptographically verified)
+    /// # Arguments
+    /// * `caller` - Admin address (must be authorized)
+    /// * `strategy` - New fee strategy to apply
     /// 
-    /// # Parameters
-    /// - `caller`: Admin address (must be authorized)
-    /// - `snapshot`: Complete migration snapshot to import
-    /// 
-    /// # Returns
-    /// Ok(()) if import successful
-    /// 
-    /// # Errors
-    /// - AlreadyInitialized: Contract already has data
-    /// - InvalidMigrationHash: Hash verification failed
-    /// - Unauthorized: Caller is not admin
-    /// 
-    /// # Example
+    /// # Examples
     /// ```ignore
-    /// // On new contract deployment
-    /// let snapshot = get_snapshot_from_old_contract();
-    /// contract.import_migration_state(&admin, snapshot)?;
+    /// // Set 2.5% percentage fee
+    /// contract.update_fee_strategy(&admin, FeeStrategy::Percentage(250))?;
+    /// 
+    /// // Set flat 100 USDC fee
+    /// contract.update_fee_strategy(&admin, FeeStrategy::Flat(100_0000000))?;
+    /// 
+    /// // Set dynamic tiered fee starting at 4%
+    /// contract.update_fee_strategy(&admin, FeeStrategy::Dynamic(400))?;
     /// ```
-    pub fn import_migration_state(
+    pub fn update_fee_strategy(env: Env, caller: Address, strategy: FeeStrategy) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_admin(&env, &caller)?;
+        set_fee_strategy(&env, &strategy);
+        Ok(())
+    }
+    
+    /// Gets the current fee strategy
+    pub fn get_fee_strategy(env: Env) -> FeeStrategy {
+        get_fee_strategy(&env)
+    }
+
+    /// Calculates fee breakdown for a given amount
+    ///
+    /// Returns detailed breakdown of all fees that would be applied to a transaction.
+    /// Useful for displaying fee information to users before they commit to a transaction.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `amount` - Transaction amount to calculate fees for
+    ///
+    /// # Returns
+    ///
+    /// Complete fee breakdown including platform fee, protocol fee, and net amount
+    pub fn calculate_fee_breakdown(env: Env, amount: i128) -> Result<FeeBreakdown, ContractError> {
+        fee_service::calculate_fees_with_breakdown(&env, amount, None)
+    }
+
+    /// Calculates fee breakdown with corridor-specific configuration
+    ///
+    /// Applies country-to-country fee rules for cross-border transactions.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `amount` - Transaction amount
+    /// * `corridor` - Corridor configuration with country codes and fee rules
+    ///
+    /// # Returns
+    ///
+    /// Fee breakdown using corridor-specific rates
+    pub fn calculate_fee_breakdown_with_corridor(
+        env: Env,
+        amount: i128,
+        corridor: FeeCorridor,
+    ) -> Result<FeeBreakdown, ContractError> {
+        fee_service::calculate_fees_with_breakdown(&env, amount, Some(&corridor))
+    }
+
+    /// Sets a fee corridor configuration for a country pair
+    ///
+    /// Allows admin to configure specific fee rules for cross-border corridors.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `corridor` - Corridor configuration with country codes and fee rules
+    ///
+    /// # Authorization
+    ///
+    /// Requires admin authentication
+    pub fn set_fee_corridor(
         env: Env,
         caller: Address,
-        snapshot: MigrationSnapshot,
+        corridor: FeeCorridor,
     ) -> Result<(), ContractError> {
         caller.require_auth();
-        migration::import_state(&env, snapshot)
-    }
-
-    /// Verify migration snapshot integrity without importing
-    /// 
-    /// Validates that a snapshot's cryptographic hash matches its contents.
-    /// Useful for pre-import validation and auditing.
-    /// 
-    /// # Parameters
-    /// - `snapshot`: Snapshot to verify
-    /// 
-    /// # Returns
-    /// MigrationVerification with:
-    /// - valid: Whether hash matches
-    /// - expected_hash: Hash from snapshot
-    /// - actual_hash: Computed hash
-    /// - timestamp: Verification time
-    /// 
-    /// # Example
-    /// ```ignore
-    /// let snapshot = get_snapshot();
-    /// let verification = contract.verify_migration_snapshot(&snapshot)?;
-    /// if !verification.valid {
-    ///     panic!("Snapshot integrity check failed!");
-    /// }
-    /// ```
-    pub fn verify_migration_snapshot(
-        env: Env,
-        snapshot: MigrationSnapshot,
-    ) -> MigrationVerification {
-        migration::verify_snapshot(&env, &snapshot)
-    }
-
-    /// Export state in batches for large datasets
-    /// 
-    /// For contracts with many remittances, export in batches to avoid
-    /// resource limits. Each batch includes its own hash for verification.
-    /// 
-    /// # Parameters
-    /// - `caller`: Admin address (must be authorized)
-    /// - `batch_number`: Which batch to export (0-indexed)
-    /// - `batch_size`: Number of items per batch (max 100)
-    /// 
-    /// # Returns
-    /// MigrationBatch containing subset of data with verification hash
-    /// 
-    /// # Example
-    /// ```ignore
-    /// // Export in batches of 50
-    /// let batch0 = contract.export_migration_batch(&admin, 0, 50)?;
-    /// let batch1 = contract.export_migration_batch(&admin, 1, 50)?;
-    /// ```
-    pub fn export_migration_batch(
-        env: Env,
-        caller: Address,
-        batch_number: u32,
-        batch_size: u32,
-    ) -> Result<MigrationBatch, ContractError> {
         require_admin(&env, &caller)?;
-        migration::export_batch(&env, batch_number, batch_size)
+        storage::set_fee_corridor(&env, &corridor);
+        Ok(())
     }
 
-    /// Import state from batch
-    /// 
-    /// Import a single batch of remittances with hash verification.
-    /// Batches should be imported in order (0, 1, 2, ...) for consistency.
-    /// 
-    /// # Parameters
-    /// - `caller`: Admin address (must be authorized)
-    /// - `batch`: Batch to import with verification hash
-    /// 
+    /// Gets a fee corridor configuration for a country pair
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `from_country` - Source country code (ISO 3166-1 alpha-2)
+    /// * `to_country` - Destination country code (ISO 3166-1 alpha-2)
+    ///
     /// # Returns
-    /// Ok(()) if import successful
-    /// 
-    /// # Errors
-    /// - InvalidMigrationHash: Batch hash verification failed
-    /// - Unauthorized: Caller is not admin
-    /// 
-    /// # Example
-    /// ```ignore
-    /// let batch = get_batch_from_old_contract(0);
-    /// contract.import_migration_batch(&admin, batch)?;
-    /// ```
-    pub fn import_migration_batch(
+    ///
+    /// Corridor configuration if exists, None otherwise
+    pub fn get_fee_corridor(
         env: Env,
-        caller: Address,
-        batch: MigrationBatch,
-    ) -> Result<(), ContractError> {
-        require_admin(&env, &caller)?;
-        migration::import_batch(&env, batch)
+        from_country: String,
+        to_country: String,
+    ) -> Option<FeeCorridor> {
+        storage::get_fee_corridor(&env, &from_country, &to_country)
     }
 
-    /// Sets the daily send limit for a specific currency-country pair.
-    /// 
-    /// # Parameters
-    /// - `currency`: Currency code (e.g., "USD", "EUR")
-    /// - `country`: Country code (e.g., "US", "UK")
-    /// - `limit`: Maximum amount that can be sent in 24 hours
-    /// 
+    /// Removes a fee corridor configuration
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `from_country` - Source country code
+    /// * `to_country` - Destination country code
+    ///
     /// # Authorization
+    ///
     /// Requires admin authentication
-    /// 
-    /// # Errors
-    /// - InvalidAmount: If limit is negative
-    /// - Unauthorized: If caller is not admin
-    pub fn set_daily_limit(
+    pub fn remove_fee_corridor(
         env: Env,
-        currency: String,
-        country: String,
-        limit: i128,
+        caller: Address,
+        from_country: String,
+        to_country: String,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        require_admin(&env, &caller)?;
+        storage::remove_fee_corridor(&env, &from_country, &to_country);
+        Ok(())
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Transfer State Registry (Read-Only for Indexers)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /// Gets the current state of a transfer (read-only for indexers)
+    pub fn get_transfer_state(env: Env, transfer_id: u64) -> Option<TransferState> {
+        get_transfer_state(&env, transfer_id)
+    }
+
+    // ========== Asset Verification Functions ==========
+
+    /// Stores or updates asset verification data (admin only).
+    ///
+    /// This function is called by the off-chain verification service to store
+    /// verification results on-chain. The backend service performs checks against
+    /// Stellar Expert, stellar.toml, anchor registries, and transaction history.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `asset_code` - Asset code (e.g., "USDC")
+    /// * `issuer` - Issuer address
+    /// * `status` - Verification status (Verified, Unverified, Suspicious)
+    /// * `reputation_score` - Score from 0-100
+    /// * `trustline_count` - Number of trustlines
+    /// * `has_toml` - Whether asset has valid stellar.toml
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Verification data stored successfully
+    /// * `Err(ContractError::NotInitialized)` - Contract not initialized
+    /// * `Err(ContractError::InvalidReputationScore)` - Score not in 0-100 range
+    ///
+    /// # Authorization
+    ///
+    /// Requires authentication from the contract admin.
+    pub fn set_asset_verification(
+        env: Env,
+        asset_code: String,
+        issuer: Address,
+        status: VerificationStatus,
+        reputation_score: u32,
+        trustline_count: u64,
+        has_toml: bool,
     ) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
 
-        if limit < 0 {
-            return Err(ContractError::InvalidAmount);
+        if reputation_score > 100 {
+            return Err(ContractError::InvalidReputationScore);
         }
 
+        let verification = AssetVerification {
+            asset_code: asset_code.clone(),
+            issuer: issuer.clone(),
+            status,
+            reputation_score,
+            last_verified: env.ledger().timestamp(),
+            trustline_count,
+            has_toml,
+        };
 
-        let currency = normalize_symbol(&env, &currency);
-        let country = normalize_symbol(&env, &country);
-
-
-        set_daily_limit(&env, &currency, &country, limit);
+        set_asset_verification(&env, &verification);
 
         Ok(())
     }
 
-    /// Gets the configured daily send limit for a currency-country pair.
-    /// 
-    /// # Parameters
-    /// - `currency`: Currency code (e.g., "USD", "EUR")
-    /// - `country`: Country code (e.g., "US", "UK")
-    /// 
+    /// Retrieves asset verification data.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `asset_code` - Asset code to look up
+    /// * `issuer` - Issuer address
+    ///
     /// # Returns
-    /// - `Some(DailyLimit)`: If a limit is configured
-    /// - `None`: If no limit is configured (unlimited)
-    pub fn get_daily_limit(env: Env, currency: String, country: String) -> Option<DailyLimit> {
+    ///
+    /// * `Ok(AssetVerification)` - The verification record
+    /// * `Err(ContractError::AssetNotFound)` - Asset not found in verification database
+    pub fn get_asset_verification(
+        env: Env,
+        asset_code: String,
+        issuer: Address,
+    ) -> Result<AssetVerification, ContractError> {
+        get_asset_verification(&env, &asset_code, &issuer)
+    }
 
-    let currency = normalize_symbol(&env, &currency);
-    let country = normalize_symbol(&env, &country);
+    /// Checks if an asset has verification data stored.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `asset_code` - Asset code to check
+    /// * `issuer` - Issuer address
+    ///
+    /// # Returns
+    ///
+    /// * `true` - Asset has verification data
+    /// * `false` - Asset not found in verification database
+    pub fn has_asset_verification(env: Env, asset_code: String, issuer: Address) -> bool {
+        has_asset_verification(&env, &asset_code, &issuer)
+    }
 
-        get_daily_limit(&env, &currency, &country)
+    /// Validates that an asset is safe to use (not suspicious).
+    ///
+    /// This can be called before creating remittances to ensure the asset
+    /// being used is not flagged as suspicious.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `asset_code` - Asset code to validate
+    /// * `issuer` - Issuer address
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Asset is safe to use
+    /// * `Err(ContractError::SuspiciousAsset)` - Asset is flagged as suspicious
+    /// * `Err(ContractError::AssetNotFound)` - Asset not in verification database
+    pub fn validate_asset_safety(
+        env: Env,
+        asset_code: String,
+        issuer: Address,
+    ) -> Result<(), ContractError> {
+        let verification = get_asset_verification(&env, &asset_code, &issuer)?;
+        
+        if verification.status == VerificationStatus::Suspicious {
+            return Err(ContractError::SuspiciousAsset);
+        }
+
+        Ok(())
     }
 }

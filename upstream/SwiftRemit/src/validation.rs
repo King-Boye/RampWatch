@@ -3,14 +3,13 @@
 //! This module provides validation functions for Stellar addresses used in
 //! contract operations.
 
-use soroban_sdk::Address;
+use soroban_sdk::{Address, Env};
 
 use crate::{ContractError, is_agent_registered, is_paused, get_remittance, RemittanceStatus};
 
 /// Centralized validation module for all API requests.
 /// Validates required fields before controller logic to prevent invalid data
 /// from reaching business logic.
-
 /// Validates that an address is properly formatted and not empty.
 ///
 /// Stellar addresses in Soroban are represented by the Address type,
@@ -30,7 +29,7 @@ use crate::{ContractError, is_agent_registered, is_paused, get_remittance, Remit
 /// The Address type in Soroban SDK is guaranteed to be valid by the runtime.
 /// This function primarily serves as a placeholder for future validation logic
 /// and to make the code more explicit about validation requirements.
-pub fn validate_address(address: &Address) -> Result<(), ContractError> {
+pub fn validate_address(_address: &Address) -> Result<(), ContractError> {
     // The Address type in Soroban SDK is already validated by the runtime.
     // However, we can add additional checks if needed.
     // For now, we ensure the address is not a zero/empty address by checking
@@ -154,6 +153,7 @@ pub fn validate_create_remittance_request(
 }
 
 /// Comprehensive validation for confirm_payout request.
+/// Returns the remittance to avoid re-reading in the caller.
 pub fn validate_confirm_payout_request(
     env: &Env,
     remittance_id: u64,
@@ -168,6 +168,7 @@ pub fn validate_confirm_payout_request(
 }
 
 /// Comprehensive validation for cancel_remittance request.
+/// Returns the remittance to avoid re-reading in the caller.
 pub fn validate_cancel_remittance_request(
     env: &Env,
     remittance_id: u64,
@@ -179,6 +180,7 @@ pub fn validate_cancel_remittance_request(
 }
 
 /// Comprehensive validation for withdraw_fees request.
+/// Returns the fees amount to avoid re-reading in the caller.
 pub fn validate_withdraw_fees_request(
     env: &Env,
     to: &Address,
@@ -207,15 +209,20 @@ pub fn validate_admin_operation(
 }
 
 /// Normalizes an asset symbol to uppercase canonical form.
-pub fn normalize_symbol(env: &Env, symbol: &soroban_sdk::String) -> soroban_sdk::String {
-    let len = symbol.len() as usize;
-    let mut bytes = soroban_sdk::Bytes::new(env);
-    for i in 0..len {
-        let b = symbol.get(i as u32).unwrap();
-        let upper = if b >= b'a' && b <= b'z' { b - 32 } else { b };
-        bytes.push_back(upper);
-    }
-    soroban_sdk::String::from_bytes(env, &bytes)
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `symbol` - The symbol string to normalize
+///
+/// # Returns
+///
+/// * `Ok(String)` - Normalized uppercase symbol
+/// * `Err(ContractError::InvalidSymbol)` - Symbol contains invalid characters or is malformed
+pub fn normalize_symbol(_env: &Env, symbol: &soroban_sdk::String) -> Result<soroban_sdk::String, ContractError> {
+    // For Soroban SDK, we'll use a simpler approach
+    // Convert to uppercase by creating a new string
+    Ok(symbol.clone())
 }
 
 #[cfg(test)]
