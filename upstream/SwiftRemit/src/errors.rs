@@ -138,77 +138,17 @@ pub enum ContractError {
     
     /// Daily send limit exceeded for this user.
     /// Cause: User's total transfers in the last 24 hours exceed the configured limit.
-    DailySendLimitExceeded = 27,
+    DailySendLimitExceeded = 23,
     
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Arithmetic Errors (28-29)
-    // ═══════════════════════════════════════════════════════════════════════════
+    /// Cooldown period is still active.
+    /// Cause: Attempting action before cooldown period has elapsed.
+    CooldownActive = 36,
     
-    /// Arithmetic overflow occurred in calculation.
-    /// Cause: Result of arithmetic operation exceeds maximum value for type.
-    Overflow = 28,
+    /// Suspicious activity detected.
+    /// Cause: Pattern matching known abuse behaviors (rapid retries, unusual patterns).
+    SuspiciousActivity = 37,
     
-    /// Arithmetic underflow occurred in calculation.
-    /// Cause: Result of arithmetic operation is less than minimum value for type.
-    Underflow = 29,
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Data Integrity Errors (30-33)
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    /// Net settlement validation failed.
-    /// Cause: Net settlement calculations don't preserve fees or amounts correctly.
-    NetSettlementValidationFailed = 30,
-    
-    /// Settlement counter overflow.
-    /// Cause: Settlement counter would exceed u64::MAX (extremely unlikely).
-    SettlementCounterOverflow = 31,
-    
-    /// Invalid batch size.
-    /// Cause: Batch size is zero or exceeds maximum allowed.
-    InvalidBatchSize = 32,
-    
-    /// Data corruption detected.
-    /// Cause: Storage data is corrupted or inconsistent.
-    DataCorruption = 33,
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Collection Errors (34-36)
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    /// Index out of bounds.
-    /// Cause: Attempting to access collection element at invalid index.
-    IndexOutOfBounds = 34,
-    
-    /// Collection is empty.
-    /// Cause: Attempting operation on empty collection that requires elements.
-    EmptyCollection = 35,
-    
-    /// Key not found in map.
-    /// Cause: Attempting to access map value with non-existent key.
-    KeyNotFound = 36,
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // String/Symbol Errors (37-38)
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    /// String conversion failed.
-    /// Cause: Unable to convert between string types or invalid string format.
-    StringConversionFailed = 37,
-    
-    /// Symbol is invalid or malformed.
-    /// Cause: Symbol contains invalid characters or exceeds length limits.
-    InvalidSymbol = 38,
-    
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Escrow Errors (39-40)
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    /// Escrow not found.
-    /// Cause: Querying or operating on non-existent escrow ID.
-    EscrowNotFound = 39,
-    
-    /// Invalid escrow status for this operation.
-    /// Cause: Attempting operation on escrow in wrong status.
-    InvalidEscrowStatus = 40,
+    /// Action temporarily blocked due to abuse protection.
+    /// Cause: Multiple violations or severe abuse detected.
+    ActionBlocked = 38,
 }

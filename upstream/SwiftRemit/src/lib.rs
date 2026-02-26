@@ -4,8 +4,9 @@
 //! with built-in duplicate settlement protection and expiry mechanisms.
 
 #![no_std]
-
-mod asset_verification;
+mod abuse_protection;
+mod debug;
+mod error_handler;
 mod errors;
 mod events;
 mod fee_service;
@@ -34,7 +35,9 @@ mod test_property;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
 
-pub use asset_verification::*;
+pub use abuse_protection::*;
+pub use debug::*;
+pub use error_handler::*;
 pub use errors::ContractError;
 pub use events::*;
 pub use fee_service::*;
