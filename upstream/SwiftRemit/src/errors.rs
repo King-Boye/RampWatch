@@ -80,6 +80,28 @@ pub enum ContractError {
     SuspiciousAsset = 15,
     
     /// Contract is paused. Settlements are temporarily disabled.
+    /// Cause: Attempting confirm_payout() while contract is in paused state.
+    ContractPaused = 13,
+    
+    /// User is blacklisted and cannot perform transactions.
+    /// Cause: User address is on the blacklist.
+    UserBlacklisted = 14,
+    
+    /// User KYC is not approved.
+    /// Cause: User has not completed KYC verification.
+    KycNotApproved = 15,
+    
+    /// User KYC has expired.
+    /// Cause: User's KYC verification has expired and needs renewal.
+    KycExpired = 16,
+    
+    /// Transaction record not found.
+    /// Cause: Querying non-existent transaction record.
+    TransactionNotFound = 17,
+    
+    /// Anchor transaction failed.
+    /// Cause: Anchor withdrawal/deposit operation failed.
+    AnchorTransactionFailed = 18,
     ContractPaused = 16,
     
     RateLimitExceeded = 17,
