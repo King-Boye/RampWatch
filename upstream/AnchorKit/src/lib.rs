@@ -37,6 +37,7 @@ mod serialization;
 mod skeleton_loaders;
 mod storage;
 mod transport;
+mod transaction_state_tracker;
 mod types;
 mod validation;
 mod webhook_middleware;
@@ -91,6 +92,9 @@ mod tracing_span_tests;
 #[cfg(test)]
 mod logging_tests;
 
+#[cfg(test)]
+mod transaction_state_tracker_tests;
+
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
@@ -122,6 +126,9 @@ pub use skeleton_loaders::{
     AnchorInfoSkeleton, AuthValidationSkeleton, TransactionStatusSkeleton, ValidationStep,
 };
 pub use storage::Storage;
+pub use transaction_state_tracker::{
+    TransactionState, TransactionStateRecord, TransactionStateTracker,
+};
 pub use types::{
     AnchorMetadata, AnchorOption, AnchorProfile, AnchorSearchQuery, AnchorServices, Attestation,
     AuditLog, Endpoint, HealthStatus, InteractionSession, OperationContext, QuoteData,
