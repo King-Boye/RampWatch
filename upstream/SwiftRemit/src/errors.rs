@@ -59,4 +59,16 @@ pub enum ContractError {
     /// Daily send limit exceeded for this user.
     /// Cause: User's total transfers in the last 24 hours exceed the configured limit.
     DailySendLimitExceeded = 23,
+    
+    /// Cooldown period is still active.
+    /// Cause: Attempting action before cooldown period has elapsed.
+    CooldownActive = 36,
+    
+    /// Suspicious activity detected.
+    /// Cause: Pattern matching known abuse behaviors (rapid retries, unusual patterns).
+    SuspiciousActivity = 37,
+    
+    /// Action temporarily blocked due to abuse protection.
+    /// Cause: Multiple violations or severe abuse detected.
+    ActionBlocked = 38,
 }

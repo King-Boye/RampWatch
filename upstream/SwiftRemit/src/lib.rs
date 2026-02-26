@@ -4,6 +4,7 @@
 //! with built-in duplicate settlement protection and expiry mechanisms.
 
 #![no_std]
+mod abuse_protection;
 mod debug;
 mod error_handler;
 mod errors;
@@ -23,6 +24,7 @@ mod test;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec};
 
+pub use abuse_protection::*;
 pub use debug::*;
 pub use error_handler::*;
 pub use errors::ContractError;
