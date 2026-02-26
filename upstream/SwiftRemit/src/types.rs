@@ -3,6 +3,9 @@
 //! This module defines the core data structures used throughout the contract,
 //! including remittance records and status enums.
 
+
+use soroban_sdk::{contracttype, Address, String, Vec};
+
 use soroban_sdk::{contracttype, Address, Vec, String};
 
 /// Role types for authorization
@@ -44,21 +47,107 @@ impl TransferState {
     }
 }
 
-/// Status of a remittance transaction.
+
+/// Status of a remittance transaction following a structured state machine.
 ///
-/// Remittances progress through these states:
-/// - `Pending`: Initial state after creation, awaiting agent confirmation
-/// - `Completed`: Agent has confirmed payout and received funds
-/// - `Cancelled`: Sender has cancelled and received refund
+/// State Transitions:
+/// ```
+/// INITIATED → SUBMITTED → PENDING_ANCHOR → COMPLETED
+///                                        ↘ FAILED
+/// ```
+///
+/// Terminal States: COMPLETED, FAILED
+/// - Once a remittance reaches a terminal state, no further transitions are allowed
+/// - This ensures data integrity and prevents inconsistent transfer statuses
+///
+/// State Descriptions:
+/// - `Initiated`: Initial state when remittance is created, funds locked
+/// - `Submitted`: Remittance submitted for processing by agent
+/// - `PendingAnchor`: Awaiting anchor/external confirmation
+/// - `Completed`: Successfully completed, agent received payout
+/// - `Failed`: Failed at any stage, funds refunded to sender
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RemittanceStatus {
-    /// Remittance is awaiting agent confirmation
-    Pending,
-    /// Remittance has been paid out to the agent
+    /// Initial state: Remittance created, funds locked in contract
+    Initiated,
+    /// Submitted for processing by agent
+    Submitted,
+    /// Awaiting anchor/external confirmation
+    PendingAnchor,
+    /// Terminal state: Successfully completed
     Completed,
-    /// Remittance has been cancelled and refunded to sender
-    Cancelled,
+    /// Terminal state: Failed, funds refunded
+    Failed,
+}
+
+impl RemittanceStatus {
+    /// Checks if this status is a terminal state.
+    ///
+    /// Terminal states (COMPLETED, FAILED) cannot transition to any other state.
+    ///
+    /// # Returns
+    ///
+    /// * `true` - Status is terminal (COMPLETED or FAILED)
+    /// * `false` - Status is non-terminal and can transition
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, RemittanceStatus::Completed | RemittanceStatus::Failed)
+    }
+
+    /// Checks if a transition to the target status is valid from this status.
+    ///
+    /// # Arguments
+    ///
+    /// * `to` - The target status to transition to
+    ///
+    /// # Returns
+    ///
+    /// * `true` - Transition is valid
+    /// * `false` - Transition is invalid
+    pub fn can_transition_to(&self, to: &RemittanceStatus) -> bool {
+        match (self, to) {
+            // From Initiated
+            (RemittanceStatus::Initiated, RemittanceStatus::Submitted) => true,
+            (RemittanceStatus::Initiated, RemittanceStatus::Failed) => true,
+            
+            // From Submitted
+            (RemittanceStatus::Submitted, RemittanceStatus::PendingAnchor) => true,
+            (RemittanceStatus::Submitted, RemittanceStatus::Failed) => true,
+            
+            // From PendingAnchor
+            (RemittanceStatus::PendingAnchor, RemittanceStatus::Completed) => true,
+            (RemittanceStatus::PendingAnchor, RemittanceStatus::Failed) => true,
+            
+            // Terminal states cannot transition
+            (RemittanceStatus::Completed, _) => false,
+            (RemittanceStatus::Failed, _) => false,
+            
+            // All other transitions are invalid
+            _ => false,
+        }
+    }
+
+    /// Returns the next valid states that can be transitioned to from this status.
+    ///
+    /// # Returns
+    ///
+    /// Vector of valid next states
+    pub fn next_valid_states(&self) -> Vec<RemittanceStatus> {
+        match self {
+            RemittanceStatus::Initiated => {
+                vec![RemittanceStatus::Submitted, RemittanceStatus::Failed]
+            }
+            RemittanceStatus::Submitted => {
+                vec![RemittanceStatus::PendingAnchor, RemittanceStatus::Failed]
+            }
+            RemittanceStatus::PendingAnchor => {
+                vec![RemittanceStatus::Completed, RemittanceStatus::Failed]
+            }
+            RemittanceStatus::Completed | RemittanceStatus::Failed => {
+                vec![] // Terminal states have no valid transitions
+            }
+        }
+    }
 }
 
 /// Escrow status for locked funds
