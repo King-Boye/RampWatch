@@ -219,3 +219,7 @@ export async function getFxRate(transactionId: string): Promise<FxRateRecord | n
 }
 
 export { pool };
+
+export function getPool(): Pool {
+  return pool;
+}

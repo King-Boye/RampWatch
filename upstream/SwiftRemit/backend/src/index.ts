@@ -1,7 +1,8 @@
 import dotenv from 'dotenv';
 import app from './api';
-import { initDatabase } from './database';
+import { initDatabase, getPool } from './database';
 import { startBackgroundJobs } from './scheduler';
+import { WebhookHandler } from './webhook-handler';
 
 dotenv.config();
 
@@ -12,6 +13,13 @@ async function start() {
     // Initialize database
     await initDatabase();
     console.log('Database initialized');
+
+    // Setup webhook handler
+    const pool = getPool();
+    const webhookHandler = new WebhookHandler(pool);
+    webhookHandler.setupRoutes(app);
+    webhookHandler.setupHealthCheck(app);
+    console.log('Webhook endpoints configured');
 
     // Start background jobs
     startBackgroundJobs();
