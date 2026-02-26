@@ -6,7 +6,20 @@
 
 use soroban_sdk::{symbol_short, Address, Env};
 
-/// Schema version for event structure compatibility
+// ============================================================================
+// Event Schema Version
+// ============================================================================
+//
+// SCHEMA_VERSION: Event schema version for tracking event format changes
+// - This constant is included in all emitted events to help indexers and
+//   off-chain systems understand the event structure
+// - Current value: 1 (initial schema)
+// - When to increment: Increment this value whenever the structure of any
+//   event changes (e.g., adding/removing fields, changing field types)
+// - This allows event consumers to handle different schema versions gracefully
+//   and perform migrations when the event format evolves
+// ============================================================================
+
 const SCHEMA_VERSION: u32 = 1;
 
 // ── Admin Events ───────────────────────────────────────────────────
@@ -46,17 +59,6 @@ pub fn emit_unpaused(env: &Env, admin: Address) {
         ),
     );
 }
-
-/// Event emission functions for the SwiftRemit contract.
-///
-/// This module provides functions to emit structured events for all significant
-/// contract operations. Events include schema versioning and ledger metadata
-/// for comprehensive audit trails.
-
-use soroban_sdk::{symbol_short, Address, Env};
-
-/// Schema version for event structure compatibility
-const SCHEMA_VERSION: u32 = 1;
 
 // ── Remittance Events ──────────────────────────────────────────────
 
@@ -289,3 +291,36 @@ pub fn emit_settlement_completed(
     );
 }
 
+
+// ── Escrow Events ──────────────────────────────────────────────────
+
+/// Emits an event when escrow is created
+pub fn emit_escrow_created(env: &Env, transfer_id: u64, sender: Address, recipient: Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("escrow"), symbol_short!("created")),
+        (SCHEMA_VERSION, env.ledger().sequence(), env.ledger().timestamp(), transfer_id, sender, recipient, amount),
+    );
+}
+
+/// Emits an event when escrow funds are released
+pub fn emit_escrow_released(env: &Env, transfer_id: u64, recipient: Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("escrow"), symbol_short!("released")),
+        (SCHEMA_VERSION, env.ledger().sequence(), env.ledger().timestamp(), transfer_id, recipient, amount),
+    );
+}
+
+/// Emits a settlement completed event with full transaction details.
+/// This event includes sender, recipient (agent), token address, and payout amount.
+pub fn emit_settlement_completed(
+    env: &Env,
+    sender: Address,
+    recipient: Address,
+    token: Address,
+    amount: i128,
+) {
+    env.events().publish(
+        (symbol_short!("settled"),),
+        (sender, recipient, token, amount),
+    );
+}

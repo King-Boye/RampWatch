@@ -75,7 +75,7 @@ pub fn compute_net_settlements(env: &Env, remittances: &Vec<Remittance>) -> Vec<
     }
 
     // Group flows by party pairs and compute net balances
-    let mut net_map: Map<(Address, Address), (i128, i128)> = Map::new();
+    let mut net_map: Map<(Address, Address), (i128, i128)> = Map::new(env);
 
     for i in 0..flows.len() {
         let flow = flows.get_unchecked(i);
@@ -99,7 +99,13 @@ pub fn compute_net_settlements(env: &Env, remittances: &Vec<Remittance>) -> Vec<
 
     for i in 0..keys.len() {
         let key = keys.get_unchecked(i);
+
+        // Map.get() returns Option, but we know key exists since we just got it from keys()
+        // This is safe because keys() returns only existing keys
+        let (_net_amount, _total_fees) = net_map.get(key.clone()).unwrap_or((0, 0));
+        
         let (net_amount, total_fees) = net_map.get(key.clone()).unwrap();
+
 
         // Only include non-zero net transfers
         if net_amount != 0 {
@@ -134,31 +140,13 @@ fn normalize_pair(from: &Address, to: &Address) -> (Address, Address, i128) {
 /// Compares two addresses lexicographically.
 /// Returns: -1 if a < b, 0 if a == b, 1 if a > b
 fn compare_addresses(a: &Address, b: &Address) -> i32 {
-    // Soroban SDK doesn't provide direct comparison, so we use a workaround
-    // We serialize both addresses and compare their byte representations
-    let a_bytes = a.to_string();
-    let b_bytes = b.to_string();
+    // Use string comparison for deterministic ordering
+    let a_str = a.to_string();
+    let b_str = b.to_string();
 
-    // Compare character by character
-    let a_len = a_bytes.len();
-    let b_len = b_bytes.len();
-    let min_len = if a_len < b_len { a_len } else { b_len };
-
-    for i in 0..min_len {
-        let a_char = a_bytes.get(i).unwrap();
-        let b_char = b_bytes.get(i).unwrap();
-
-        if a_char < b_char {
-            return -1;
-        } else if a_char > b_char {
-            return 1;
-        }
-    }
-
-    // If all compared characters are equal, compare lengths
-    if a_len < b_len {
+    if a_str < b_str {
         -1
-    } else if a_len > b_len {
+    } else if a_str > b_str {
         1
     } else {
         0
@@ -221,7 +209,7 @@ pub fn validate_net_settlement(
 
     // Verify fees are preserved exactly
     if total_original_fees != total_net_fees {
-        return Err(ContractError::Overflow); // Using Overflow as a generic math error
+        return Err(ContractError::NetSettlementValidationFailed);
     }
 
     // Note: We don't verify total amounts are equal because netting reduces
