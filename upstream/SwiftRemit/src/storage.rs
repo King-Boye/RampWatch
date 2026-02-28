@@ -530,6 +530,8 @@ pub fn remove_anchor_transaction(env: &Env, anchor_tx_id: u64) -> Result<(), Con
         .persistent()
         .remove(&DataKey::AnchorTransaction(anchor_tx_id));
     Ok(())
+}
+
 pub fn set_rate_limit_cooldown(env: &Env, cooldown_seconds: u64) {
     env.storage()
         .instance()

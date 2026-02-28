@@ -103,13 +103,13 @@ pub fn emit_remittance_created(
 ///
 /// * `env` - The contract execution environment
 /// * `remittance_id` - ID of the completed remittance
+/// * `sender` - Address of the sender
 /// * `agent` - Address of the agent who received the payout
-/// * `amount` - Payout amount (after fee deduction)
 pub fn emit_remittance_completed(
     env: &Env,
     remittance_id: u64,
+    sender: Address,
     agent: Address,
-    amount: i128,
 ) {
     env.events().publish(
         (symbol_short!("remit"), symbol_short!("complete")),
@@ -118,8 +118,8 @@ pub fn emit_remittance_completed(
             env.ledger().sequence(),
             env.ledger().timestamp(),
             remittance_id,
+            sender,
             agent,
-            amount,
         ),
     );
 }
@@ -131,11 +131,15 @@ pub fn emit_remittance_completed(
 /// * `env` - The contract execution environment
 /// * `remittance_id` - ID of the cancelled remittance
 /// * `sender` - Address of the sender who received the refund
+/// * `agent` - Address of the agent
+/// * `token` - Token address
 /// * `amount` - Refunded amount
 pub fn emit_remittance_cancelled(
     env: &Env,
     remittance_id: u64,
     sender: Address,
+    agent: Address,
+    token: Address,
     amount: i128,
 ) {
     env.events().publish(
@@ -146,6 +150,8 @@ pub fn emit_remittance_cancelled(
             env.ledger().timestamp(),
             remittance_id,
             sender,
+            agent,
+            token,
             amount,
         ),
     );
@@ -159,7 +165,8 @@ pub fn emit_remittance_cancelled(
 ///
 /// * `env` - The contract execution environment
 /// * `agent` - Address of the registered agent
-pub fn emit_agent_registered(env: &Env, agent: Address) {
+/// * `caller` - Address of the admin who registered the agent
+pub fn emit_agent_registered(env: &Env, agent: Address, caller: Address) {
     env.events().publish(
         (symbol_short!("agent"), symbol_short!("register")),
         (
@@ -167,6 +174,7 @@ pub fn emit_agent_registered(env: &Env, agent: Address) {
             env.ledger().sequence(),
             env.ledger().timestamp(),
             agent,
+            caller,
         ),
     );
 }
@@ -177,7 +185,8 @@ pub fn emit_agent_registered(env: &Env, agent: Address) {
 ///
 /// * `env` - The contract execution environment
 /// * `agent` - Address of the removed agent
-pub fn emit_agent_removed(env: &Env, agent: Address) {
+/// * `caller` - Address of the admin who removed the agent
+pub fn emit_agent_removed(env: &Env, agent: Address, caller: Address) {
     env.events().publish(
         (symbol_short!("agent"), symbol_short!("removed")),
         (
@@ -185,6 +194,7 @@ pub fn emit_agent_removed(env: &Env, agent: Address) {
             env.ledger().sequence(),
             env.ledger().timestamp(),
             agent,
+            caller,
         ),
     );
 }
@@ -214,16 +224,20 @@ pub fn emit_fee_updated(env: &Env, fee_bps: u32) {
 /// # Arguments
 ///
 /// * `env` - The contract execution environment
+/// * `caller` - Address of the admin who withdrew fees
 /// * `to` - Address that received the withdrawn fees
+/// * `token` - Token address
 /// * `amount` - Amount of fees withdrawn
-pub fn emit_fees_withdrawn(env: &Env, to: Address, amount: i128) {
+pub fn emit_fees_withdrawn(env: &Env, caller: Address, to: Address, token: Address, amount: i128) {
     env.events().publish(
         (symbol_short!("fee"), symbol_short!("withdraw")),
         (
             SCHEMA_VERSION,
             env.ledger().sequence(),
             env.ledger().timestamp(),
+            caller,
             to,
+            token,
             amount,
         ),
     );
@@ -310,17 +324,10 @@ pub fn emit_escrow_released(env: &Env, transfer_id: u64, recipient: Address, amo
     );
 }
 
-/// Emits a settlement completed event with full transaction details.
-/// This event includes sender, recipient (agent), token address, and payout amount.
-pub fn emit_settlement_completed(
-    env: &Env,
-    sender: Address,
-    recipient: Address,
-    token: Address,
-    amount: i128,
-) {
+/// Emits an event when escrow funds are refunded
+pub fn emit_escrow_refunded(env: &Env, transfer_id: u64, sender: Address, amount: i128) {
     env.events().publish(
-        (symbol_short!("settled"),),
-        (sender, recipient, token, amount),
+        (symbol_short!("escrow"), symbol_short!("refunded")),
+        (SCHEMA_VERSION, env.ledger().sequence(), env.ledger().timestamp(), transfer_id, sender, amount),
     );
 }

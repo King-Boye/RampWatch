@@ -5,6 +5,7 @@
 
 #![no_std]
 mod abuse_protection;
+mod asset_verification;
 mod debug;
 mod error_handler;
 mod errors;
@@ -17,6 +18,7 @@ mod netting;
 mod rate_limit;
 mod storage;
 mod transaction_controller;
+mod transitions;
 mod types;
 mod validation;
 #[cfg(test)]
@@ -28,7 +30,11 @@ mod test_fee_strategy;
 #[cfg(test)]
 mod test_roles_simple;
 #[cfg(test)]
+mod test_roles;
+#[cfg(test)]
 mod test_transfer_state;
+#[cfg(test)]
+mod test_transitions;
 #[cfg(test)]
 mod test_protocol_fee;
 #[cfg(test)]
@@ -37,6 +43,7 @@ mod test_property;
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
 
 pub use abuse_protection::*;
+pub use asset_verification::*;
 pub use debug::*;
 pub use error_handler::*;
 pub use errors::ContractError;
@@ -48,6 +55,10 @@ pub use migration::*;
 pub use netting::*;
 pub use rate_limit::*;
 pub use storage::*;
+pub use transaction_controller::*;
+pub use transitions::*;
+pub use types::*;
+pub use validation::*;
 pub use transaction_controller::*;
 pub use types::*;
 pub use validation::*;
@@ -526,7 +537,7 @@ impl SwiftRemitContract {
 
         // Event: Fees withdrawn - Fires when admin withdraws accumulated platform fees
         // Used by off-chain systems to track revenue collection and maintain financial records
-        emit_fees_withdrawn(&env, caller, to, usdc_token, fees);
+        emit_fees_withdrawn(&env, caller, to.clone(), usdc_token, fees);
 
         log_withdraw_fees(&env, &to, fees);
 
@@ -1341,7 +1352,6 @@ impl SwiftRemitContract {
 
         Ok(())
     }
-}
 
     // === Transaction Controller Functions ===
     
