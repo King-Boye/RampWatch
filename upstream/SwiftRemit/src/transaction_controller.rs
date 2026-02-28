@@ -244,9 +244,9 @@ impl TransactionController {
             remittance_id,
             sender.clone(),
             agent.clone(),
-            usdc_token,
             amount,
             fee,
+            0, // integrator_fee (not used in transaction controller)
         );
 
         Ok(remittance_id)
