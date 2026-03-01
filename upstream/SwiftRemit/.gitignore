@@ -3,6 +3,7 @@ Cargo.lock
 *.wasm
 *.optimized.wasm
 .soroban/
+<<<<<<< HEAD
 .kiro/settings/
 # scratch/audit workfiles
 *.txt
@@ -13,3 +14,11 @@ Cargo.lock
 examples/.env
 examples/.env.local
 /node_modules
+=======
+.env
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+>>>>>>> 927b448 (chore: local changes before syncing with main)

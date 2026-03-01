@@ -173,4 +173,24 @@ pub enum ContractError {
     /// Action temporarily blocked due to abuse protection.
     /// Cause: Multiple violations or severe abuse detected.
     ActionBlocked = 38,
+    
+    /// Arithmetic overflow occurred during calculation.
+    /// Cause: Result of arithmetic operation exceeds maximum value.
+    Overflow = 39,
+    
+    /// Net settlement validation failed.
+    /// Cause: Net settlement calculations don't match expected values.
+    NetSettlementValidationFailed = 40,
+    
+    /// Escrow not found.
+    /// Cause: Querying non-existent escrow record.
+    EscrowNotFound = 41,
+    
+    /// Invalid escrow status for this operation.
+    /// Cause: Attempting operation on escrow in wrong status.
+    InvalidEscrowStatus = 42,
+    
+    /// Settlement counter overflow.
+    /// Cause: Settlement counter would exceed u64::MAX.
+    SettlementCounterOverflow = 43,
 }

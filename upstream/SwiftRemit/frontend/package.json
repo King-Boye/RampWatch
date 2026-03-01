@@ -1,24 +1,25 @@
 {
   "name": "swiftremit-frontend",
+  "private": true,
   "version": "1.0.0",
-  "description": "Frontend components for SwiftRemit",
-  "main": "src/components/index.ts",
+  "type": "module",
+  "description": "Frontend for SwiftRemit cross-border remittance platform",
   "scripts": {
-    "build": "tsc --noEmit",
-    "test": "vitest",
-    "lint": "eslint src --ext .ts,.tsx"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "@stellar/freighter-api": "^6.0.1",
+    "@stellar/stellar-sdk": "^14.5.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@testing-library/react": "^14.1.2",
-    "@testing-library/jest-dom": "^6.1.5",
-    "@types/react": "^18.2.45",
-    "@types/react-dom": "^18.2.18",
-    "typescript": "^5.3.3",
-    "vitest": "^1.0.4",
-    "eslint": "^8.56.0"
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.7"
   }
 }
