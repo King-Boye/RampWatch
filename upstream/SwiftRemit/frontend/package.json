@@ -1,46 +1,25 @@
 {
-<<<<<<< HEAD
   "name": "swiftremit-frontend",
-  "version": "1.0.0",
-  "description": "Frontend components for SwiftRemit",
-  "main": "src/components/index.ts",
-  "scripts": {
-    "build": "tsc --noEmit",
-    "test": "vitest",
-    "lint": "eslint src --ext .ts,.tsx"
-  },
-  "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
-  },
-  "devDependencies": {
-    "@testing-library/react": "^14.1.2",
-    "@testing-library/jest-dom": "^6.1.5",
-    "@types/react": "^18.2.45",
-    "@types/react-dom": "^18.2.18",
-    "typescript": "^5.3.3",
-    "vitest": "^1.0.4",
-    "eslint": "^8.56.0"
-=======
-  "name": "frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "description": "Frontend for SwiftRemit cross-border remittance platform",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build",
     "preview": "vite preview"
-  },
-  "devDependencies": {
-    "typescript": "~5.9.3",
-    "vite": "^7.3.1"
   },
   "dependencies": {
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^14.5.0",
-    "@vitejs/plugin-react": "^5.1.4",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
->>>>>>> 927b448 (chore: local changes before syncing with main)
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.7"
   }
 }
