@@ -5,4 +5,7 @@ mod domain_validator;
 mod errors;
 
 pub use domain_validator::validate_anchor_domain;
+pub use errors::{AnchorKitError, ErrorCode};
+
+/// Backward-compatible alias. Prefer [`AnchorKitError`] for new code.
 pub use errors::Error;
