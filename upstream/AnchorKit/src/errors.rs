@@ -22,4 +22,5 @@ pub enum Error {
     InvalidEndpointFormat = 12,
     NoQuotesAvailable = 13,
     ServicesNotConfigured = 14,
+    ValidationError = 15,
 }
