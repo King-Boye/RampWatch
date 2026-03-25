@@ -53,3 +53,28 @@ export interface FxRateRecord {
   to_currency: string;
   created_at: Date;
 }
+
+export enum KycStatus {
+  Pending = 'pending',
+  Approved = 'approved',
+  Rejected = 'rejected',
+  Expired = 'expired',
+}
+
+export interface UserKycStatus {
+  user_id: string;
+  anchor_id: string;
+  status: KycStatus;
+  last_checked: Date;
+  expires_at?: Date;
+  rejection_reason?: string;
+  verification_data?: any;
+}
+
+export interface AnchorKycConfig {
+  anchor_id: string;
+  kyc_server_url: string;
+  auth_token: string;
+  polling_interval_minutes: number;
+  enabled: boolean;
+}
