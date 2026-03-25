@@ -3,6 +3,10 @@
 //! Validates that anchor API responses contain all required fields before
 //! returning them to the SDK consumer. Throws [`Error::ValidationError`] on mismatch.
 
+#![cfg_attr(not(test), no_std)]
+
+extern crate alloc;
+
 use crate::errors::Error;
 
 /// A validated deposit response.
