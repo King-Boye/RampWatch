@@ -10,7 +10,7 @@
 extern crate alloc;
 use alloc::vec::Vec;
 
-use crate::errors::Error;
+use crate::errors::AnchorKitError;
 
 /// Validates an anchor domain URL
 ///
@@ -25,7 +25,7 @@ use crate::errors::Error;
 ///
 /// # Returns
 /// * `Ok(())` if the domain is valid
-/// * `Err(Error)` if validation fails
+/// * `Err(AnchorKitError)` if validation fails
 ///
 /// # Examples
 /// ```
@@ -40,26 +40,26 @@ use crate::errors::Error;
 /// // Invalid - malformed
 /// assert!(validate_anchor_domain("not-a-url").is_err());
 /// ```
-pub fn validate_anchor_domain(domain: &str) -> Result<(), Error> {
+pub fn validate_anchor_domain(domain: &str) -> Result<(), AnchorKitError> {
     // Check for empty or whitespace-only input
     if domain.is_empty() || domain.trim().is_empty() {
-        return Err(Error::InvalidEndpointFormat);
+        return Err(AnchorKitError::invalid_endpoint_format());
     }
 
     // Check minimum length for valid HTTPS URL
     if domain.len() < 10 {
         // "https://a.b" is minimum valid
-        return Err(Error::InvalidEndpointFormat);
+        return Err(AnchorKitError::invalid_endpoint_format());
     }
 
     // Check maximum reasonable length
     if domain.len() > 2048 {
-        return Err(Error::InvalidEndpointFormat);
+        return Err(AnchorKitError::invalid_endpoint_format());
     }
 
     // Ensure HTTPS protocol
     if !domain.starts_with("https://") {
-        return Err(Error::InvalidEndpointFormat);
+        return Err(AnchorKitError::invalid_endpoint_format());
     }
 
     // Extract domain part after protocol
@@ -67,13 +67,13 @@ pub fn validate_anchor_domain(domain: &str) -> Result<(), Error> {
 
     // Check for empty domain after protocol
     if domain_part.is_empty() {
-        return Err(Error::InvalidEndpointFormat);
+        return Err(AnchorKitError::invalid_endpoint_format());
     }
 
     // Split by '/' to get the host part, but also handle query params
     let host_with_query = match domain_part.split('/').next() {
         Some(h) if !h.is_empty() => h,
-        _ => return Err(Error::InvalidEndpointFormat),
+        _ => return Err(AnchorKitError::invalid_endpoint_format()),
     };
     
     // Remove query parameters and fragments from host
@@ -91,15 +91,15 @@ pub fn validate_anchor_domain(domain: &str) -> Result<(), Error> {
 }
 
 /// Validates the host portion of a URL
-fn validate_host(host: &str) -> Result<(), Error> {
+fn validate_host(host: &str) -> Result<(), AnchorKitError> {
     // Check for empty host
     if host.is_empty() {
-        return Err(Error::InvalidEndpointFormat);
+        return Err(AnchorKitError::invalid_endpoint_format());
     }
 
     // Check for spaces in host
     if host.contains(' ') {
-        return Err(Error::InvalidEndpointFormat);
+        return Err(AnchorKitError::invalid_endpoint_format());
     }
 
     // Check for port specification (optional)
@@ -107,23 +107,23 @@ fn validate_host(host: &str) -> Result<(), Error> {
         // Validate port number
         let port_str = &host[colon_pos + 1..];
         if port_str.is_empty() {
-            return Err(Error::InvalidEndpointFormat);
+            return Err(AnchorKitError::invalid_endpoint_format());
         }
         
         // Check if port is numeric
         for c in port_str.chars() {
             if !c.is_ascii_digit() {
-                return Err(Error::InvalidEndpointFormat);
+                return Err(AnchorKitError::invalid_endpoint_format());
             }
         }
         
         // Validate port range (1-65535)
         if let Ok(port) = port_str.parse::<u32>() {
             if port == 0 || port > 65535 {
-                return Err(Error::InvalidEndpointFormat);
+                return Err(AnchorKitError::invalid_endpoint_format());
             }
         } else {
-            return Err(Error::InvalidEndpointFormat);
+            return Err(AnchorKitError::invalid_endpoint_format());
         }
         
         &host[..colon_pos]
@@ -133,29 +133,29 @@ fn validate_host(host: &str) -> Result<(), Error> {
 
     // Check for valid domain structure
     if domain_without_port.is_empty() {
-        return Err(Error::InvalidEndpointFormat);
+        return Err(AnchorKitError::invalid_endpoint_format());
     }
 
     // Must contain at least one dot for valid domain
     if !domain_without_port.contains('.') {
-        return Err(Error::InvalidEndpointFormat);
+        return Err(AnchorKitError::invalid_endpoint_format());
     }
 
     // Check for consecutive dots
     if domain_without_port.contains("..") {
-        return Err(Error::InvalidEndpointFormat);
+        return Err(AnchorKitError::invalid_endpoint_format());
     }
 
     // Check for leading or trailing dots
     if domain_without_port.starts_with('.') || domain_without_port.ends_with('.') {
-        return Err(Error::InvalidEndpointFormat);
+        return Err(AnchorKitError::invalid_endpoint_format());
     }
 
     // Validate each label in the domain
     let labels: Vec<&str> = domain_without_port.split('.').collect();
     for label in labels {
         if label.is_empty() {
-            return Err(Error::InvalidEndpointFormat);
+            return Err(AnchorKitError::invalid_endpoint_format());
         }
         
         // Label must start and end with alphanumeric
@@ -163,13 +163,13 @@ fn validate_host(host: &str) -> Result<(), Error> {
         let last_char = label.chars().last().unwrap();
         
         if !first_char.is_alphanumeric() || !last_char.is_alphanumeric() {
-            return Err(Error::InvalidEndpointFormat);
+            return Err(AnchorKitError::invalid_endpoint_format());
         }
         
         // Check for valid characters in label
         for c in label.chars() {
             if !c.is_alphanumeric() && c != '-' {
-                return Err(Error::InvalidEndpointFormat);
+                return Err(AnchorKitError::invalid_endpoint_format());
             }
         }
     }
@@ -178,11 +178,11 @@ fn validate_host(host: &str) -> Result<(), Error> {
 }
 
 /// Validates URL characters
-fn validate_url_characters(url: &str) -> Result<(), Error> {
+fn validate_url_characters(url: &str) -> Result<(), AnchorKitError> {
     // Check for control characters
     for c in url.chars() {
         if c.is_control() {
-            return Err(Error::InvalidEndpointFormat);
+            return Err(AnchorKitError::invalid_endpoint_format());
         }
     }
 
