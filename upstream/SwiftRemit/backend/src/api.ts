@@ -10,9 +10,12 @@ import {
   getVerifiedAssets,
   saveFxRate,
   getFxRate,
+  saveAnchorKycConfig,
+  getUserKycStatus,
+  saveUserKycStatus,
 } from './database';
 import { storeVerificationOnChain } from './stellar';
-import { VerificationStatus } from './types';
+import { VerificationStatus, KycStatus, AnchorKycConfig, UserKycStatus } from './types';
 
 const app = express();
 const verifier = new AssetVerifier();
@@ -271,6 +274,96 @@ app.get('/api/fx-rate/:transactionId', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching FX rate:', error);
     res.status(500).json({ error: 'Failed to fetch FX rate' });
+  }
+});
+
+// KYC-related endpoints
+
+// Configure anchor KYC settings (admin only)
+app.post('/api/kyc/config', async (req: Request, res: Response) => {
+  try {
+    const { anchorId, kycServerUrl, authToken, pollingIntervalMinutes, enabled } = req.body;
+
+    if (!anchorId || !kycServerUrl || !authToken) {
+      return res.status(400).json({ error: 'Missing required fields: anchorId, kycServerUrl, authToken' });
+    }
+
+    const config: AnchorKycConfig = {
+      anchor_id: anchorId,
+      kyc_server_url: kycServerUrl,
+      auth_token: authToken,
+      polling_interval_minutes: pollingIntervalMinutes || 60,
+      enabled: enabled !== false,
+    };
+
+    await saveAnchorKycConfig(config);
+
+    res.json({ success: true, message: 'Anchor KYC config saved successfully' });
+  } catch (error) {
+    console.error('Error saving anchor KYC config:', error);
+    res.status(500).json({ error: 'Failed to save anchor KYC config' });
+  }
+});
+
+// Get user KYC status
+app.get('/api/kyc/status/:userId/:anchorId', async (req: Request, res: Response) => {
+  try {
+    const { userId, anchorId } = req.params;
+
+    if (!userId || !anchorId) {
+      return res.status(400).json({ error: 'Invalid user ID or anchor ID' });
+    }
+
+    const kycStatus = await getUserKycStatus(userId, anchorId);
+
+    if (!kycStatus) {
+      return res.status(404).json({ error: 'KYC status not found' });
+    }
+
+    res.json(kycStatus);
+  } catch (error) {
+    console.error('Error fetching KYC status:', error);
+    res.status(500).json({ error: 'Failed to fetch KYC status' });
+  }
+});
+
+// Register user for KYC with anchor
+app.post('/api/kyc/register', async (req: Request, res: Response) => {
+  try {
+    const { userId, anchorId } = req.body;
+
+    if (!userId || !anchorId) {
+      return res.status(400).json({ error: 'Missing required fields: userId, anchorId' });
+    }
+
+    const kycService = (await import('./kyc-service')).KycService;
+    const service = new kycService();
+    await service.registerUserForKyc(userId, anchorId);
+
+    res.json({ success: true, message: 'User registered for KYC successfully' });
+  } catch (error) {
+    console.error('Error registering user for KYC:', error);
+    res.status(500).json({ error: 'Failed to register user for KYC' });
+  }
+});
+
+// Check if user is KYC approved (for transfer validation)
+app.get('/api/kyc/approved/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
+    const kycService = (await import('./kyc-service')).KycService;
+    const service = new kycService();
+    const isApproved = await service.isUserKycApproved(userId);
+
+    res.json({ userId, kycApproved: isApproved });
+  } catch (error) {
+    console.error('Error checking KYC approval:', error);
+    res.status(500).json({ error: 'Failed to check KYC approval' });
   }
 });
 

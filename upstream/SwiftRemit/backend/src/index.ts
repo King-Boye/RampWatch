@@ -3,6 +3,7 @@ import app from './api';
 import { initDatabase, getPool } from './database';
 import { startBackgroundJobs } from './scheduler';
 import { WebhookHandler } from './webhook-handler';
+import { KycService } from './kyc-service';
 
 dotenv.config();
 
@@ -13,6 +14,11 @@ async function start() {
     // Initialize database
     await initDatabase();
     console.log('Database initialized');
+
+    // Initialize KYC service
+    const kycService = new KycService();
+    await kycService.initialize();
+    console.log('KYC service initialized');
 
     // Setup webhook handler
     const pool = getPool();

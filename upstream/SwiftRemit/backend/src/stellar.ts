@@ -92,3 +92,70 @@ export async function storeVerificationOnChain(
 
   console.log(`Stored verification on-chain for ${verification.asset_code}-${verification.issuer}`);
 }
+
+export async function updateKycStatusOnChain(
+  userId: string,
+  approved: boolean
+): Promise<void> {
+  const contractId = process.env.CONTRACT_ID;
+  if (!contractId) {
+    throw new Error('CONTRACT_ID not configured');
+  }
+
+  const adminSecret = process.env.ADMIN_SECRET_KEY;
+  if (!adminSecret) {
+    throw new Error('ADMIN_SECRET_KEY not configured');
+  }
+
+  const adminKeypair = Keypair.fromSecret(adminSecret);
+  const contract = new Contract(contractId);
+
+  // Get admin account
+  const account = await server.getAccount(adminKeypair.publicKey());
+
+  // Calculate expiry (1 year from now)
+  const expiry = Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60);
+
+  // Build transaction
+  const tx = new TransactionBuilder(account, {
+    fee: '1000',
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(
+      contract.call(
+        'set_kyc_approved',
+        new Address(userId).toScVal(),
+        nativeToScVal(approved, { type: 'bool' }),
+        nativeToScVal(expiry, { type: 'u64' })
+      )
+    )
+    .setTimeout(30)
+    .build();
+
+  // Simulate transaction
+  const simulated = await server.simulateTransaction(tx);
+
+  if (SorobanRpc.Api.isSimulationError(simulated)) {
+    throw new Error(`Simulation failed: ${simulated.error}`);
+  }
+
+  // Prepare and sign transaction
+  const prepared = SorobanRpc.assembleTransaction(tx, simulated).build();
+  prepared.sign(adminKeypair);
+
+  // Submit transaction
+  const result = await server.sendTransaction(prepared);
+
+  // Wait for confirmation
+  let status = await server.getTransaction(result.hash);
+  while (status.status === 'NOT_FOUND') {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    status = await server.getTransaction(result.hash);
+  }
+
+  if (status.status === 'FAILED') {
+    throw new Error(`Transaction failed: ${status.resultXdr}`);
+  }
+
+  console.log(`Updated KYC status on-chain for user ${userId}: ${approved ? 'approved' : 'revoked'}`);
+}
