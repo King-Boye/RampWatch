@@ -59,9 +59,6 @@ pub use transaction_controller::*;
 pub use transitions::*;
 pub use types::*;
 pub use validation::*;
-pub use transaction_controller::*;
-pub use types::*;
-pub use validation::*;
 
 /// Maximum number of remittances that can be settled in a single batch
 const MAX_BATCH_SIZE: u32 = 100;
