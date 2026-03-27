@@ -294,43 +294,53 @@ After completing migration:
 
 ## Hash Schema Upgrades
 
-Settlement IDs are derived from a versioned canonical hash scheme defined in
-`src/hashing.rs`.  The current version is tracked by `HASH_SCHEMA_VERSION`.
+Settlement IDs are derived deterministically from remittance fields using the schema
+defined in `src/hashing.rs`. The `HASH_SCHEMA_VERSION` constant tracks which version
+of that schema is active.
 
-### What triggers a version bump
+### When is a version bump required?
 
-`HASH_SCHEMA_VERSION` is incremented whenever the hash inputs change in any
-observable way — field ordering, encoding rules, added/removed fields, or a
-switch to a different hash algorithm.  It does **not** change for fields that
-are already excluded from the hash (e.g. `status`).
+Increment `HASH_SCHEMA_VERSION` whenever a code change would produce a **different
+hash for the same logical inputs**. Concrete triggers:
 
-### Detecting a mismatch
+- Adding, removing, or reordering fields passed to `compute_settlement_id`
+- Changing the byte encoding of any field (e.g. endianness, XDR format)
+- Changing how `None` optional values are serialized (currently 8 zero bytes)
+- Replacing the hash algorithm (currently SHA-256)
 
-External systems must persist `hash_schema_version` alongside every stored
-settlement ID.  Before comparing a locally stored hash against an on-chain
-value, check that the stored version matches the current `HASH_SCHEMA_VERSION`.
-If they differ, the hashes are not directly comparable and a re-hash migration
-is required before reconciliation can resume.
+Purely internal refactors that leave byte output identical do **not** require a bump.
+
+### Steps to perform a version bump
+
+1. Update the field ordering / encoding in `compute_settlement_id` (`src/hashing.rs`).
+2. Increment `HASH_SCHEMA_VERSION` (e.g. `1` → `2`).
+3. Add a row to the version history table in the `HASH_SCHEMA_VERSION` doc comment.
+4. Communicate the new version to all external integrators before deploying.
+
+### How external systems must handle a mismatch
+
+External systems (banks, anchors, off-chain indexers) **must** persist the schema
+version alongside every settlement ID they store. On detecting a version mismatch:
+
+1. **Do not** use the stored ID as-is — it was computed under a different schema.
+2. Re-derive the settlement ID for the affected remittances by calling
+   `compute_settlement_hash(env, remittance_id)` on-chain, or by re-implementing
+   the new field ordering documented in `src/hashing.rs`.
+3. Overwrite the stored settlement ID with the newly derived value.
+4. Update the stored schema version to match `HASH_SCHEMA_VERSION`.
 
 ### Migration steps for existing settlement IDs
 
-1. **Pause reconciliation** — stop any process that compares stored settlement
-   IDs against on-chain state to avoid false mismatches during the migration.
+If a version bump is deployed to a live contract that already has settled remittances:
 
-2. **Fetch all affected records** — query every settlement record whose stored
-   `hash_schema_version` is less than the new `HASH_SCHEMA_VERSION`.
-
-3. **Re-derive hashes** — for each record, call `compute_settlement_hash` (or
-   reproduce the algorithm off-chain) using the new version's field ordering
-   and encoding rules.
-
-4. **Update atomically** — write the new hash and the new `hash_schema_version`
-   in a single atomic transaction so the record is never in a partially-updated
-   state.
-
-5. **Verify** — spot-check a sample of migrated records by comparing the
-   re-derived hash against the value returned by the on-chain
-   `compute_settlement_hash` function.
-
-6. **Resume reconciliation** — once all records are at the current version,
-   normal hash-based reconciliation can safely restart.
+1. **Identify affected records** — query all settlement IDs stored with the old
+   schema version.
+2. **Re-derive in batches** — use `compute_settlement_hash` for each `remittance_id`
+   to obtain the new ID. Batch size should respect the `MAX_MIGRATION_BATCH_SIZE`
+   limit defined in `src/migration.rs` (currently 100).
+3. **Atomic swap** — update the stored ID and schema version atomically in your
+   off-chain database to avoid a partial-migration window.
+4. **Verify** — after migration, assert that no records remain with the old schema
+   version.
+5. **Coordinate** — if multiple services share the same settlement ID store,
+   coordinate the cutover so all services switch at the same ledger sequence.

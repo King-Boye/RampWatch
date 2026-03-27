@@ -202,3 +202,92 @@ fn test_backwards_compatibility() {
     let strategy = client.get_fee_strategy();
     assert_eq!(strategy, FeeStrategy::Percentage(500));
 }
+
+// ============================================================================
+// Property-based tests for fee calculation edge cases
+// ============================================================================
+
+#[cfg(test)]
+mod property_tests {
+    use crate::fee_service::calculate_fees_with_breakdown;
+    use crate::FeeStrategy;
+    use proptest::prelude::*;
+    use soroban_sdk::Env;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(200))]
+
+        /// Property 1: fee is always >= 0 for all valid amounts and all three strategies.
+        #[test]
+        fn prop_fee_never_negative(
+            amount in 1i128..=10_000_000_000i128,
+            fee_bps in 0u32..=10000u32,
+            flat_fee in 0i128..=1_000_000i128,
+            dynamic_bps in 0u32..=10000u32,
+        ) {
+            let env = Env::default();
+            for strategy in &[
+                FeeStrategy::Percentage(fee_bps),
+                FeeStrategy::Flat(flat_fee),
+                FeeStrategy::Dynamic(dynamic_bps),
+            ] {
+                crate::storage::set_fee_strategy(&env, strategy);
+                let b = calculate_fees_with_breakdown(&env, amount, None).unwrap();
+                prop_assert!(b.platform_fee >= 0, "platform_fee < 0: strategy={:?} amount={}", strategy, amount);
+                prop_assert!(b.net_amount >= 0, "net_amount < 0: strategy={:?} amount={}", strategy, amount);
+            }
+        }
+
+        /// Property 2: net_amount + platform_fee + protocol_fee == amount always holds.
+        #[test]
+        fn prop_fee_breakdown_sums_to_amount(
+            amount in 1i128..=10_000_000_000i128,
+            fee_bps in 0u32..=10000u32,
+            // MAX_PROTOCOL_FEE_BPS = 200
+            protocol_fee_bps in 0u32..=200u32,
+        ) {
+            let env = Env::default();
+            crate::storage::set_fee_strategy(&env, &FeeStrategy::Percentage(fee_bps));
+            crate::storage::set_protocol_fee_bps(&env, protocol_fee_bps).unwrap();
+
+            let b = calculate_fees_with_breakdown(&env, amount, None).unwrap();
+
+            prop_assert_eq!(
+                b.net_amount + b.platform_fee + b.protocol_fee,
+                b.amount,
+                "breakdown does not sum to amount: amount={} fee_bps={} protocol_fee_bps={}",
+                amount, fee_bps, protocol_fee_bps
+            );
+            prop_assert!(b.validate().is_ok(), "FeeBreakdown::validate() failed for amount={}", amount);
+        }
+
+        /// Property 3: Dynamic fee tiers are monotonically non-increasing per unit
+        /// (effective rate in Tier1 >= Tier2 >= Tier3).
+        #[test]
+        fn prop_dynamic_fee_tiers_monotonically_non_increasing(
+            base_bps in 1u32..=10000u32,
+        ) {
+            let env = Env::default();
+            crate::storage::set_fee_strategy(&env, &FeeStrategy::Dynamic(base_bps));
+
+            // Representative amounts: one per tier (thresholds are in stroops: 1_000_0000000 and 10_000_0000000)
+            let tier1 = 500_0000000i128;        // < 1_000_0000000  → full rate
+            let tier2 = 5_000_0000000i128;      // 1000–10000 range → 80% of base
+            let tier3 = 50_000_0000000i128;     // > 10_000_0000000 → 60% of base
+
+            let b1 = calculate_fees_with_breakdown(&env, tier1, None).unwrap();
+            let b2 = calculate_fees_with_breakdown(&env, tier2, None).unwrap();
+            let b3 = calculate_fees_with_breakdown(&env, tier3, None).unwrap();
+
+            // Effective rate in bps = platform_fee * 10000 / amount
+            let rate1 = b1.platform_fee * 10000 / tier1;
+            let rate2 = b2.platform_fee * 10000 / tier2;
+            let rate3 = b3.platform_fee * 10000 / tier3;
+
+            prop_assert!(rate1 >= rate2,
+                "Tier1 rate ({}) should be >= Tier2 rate ({}) for base_bps={}", rate1, rate2, base_bps);
+            prop_assert!(rate2 >= rate3,
+                "Tier2 rate ({}) should be >= Tier3 rate ({}) for base_bps={}", rate2, rate3, base_bps);
+        }
+    }
+}
