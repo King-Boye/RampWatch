@@ -143,24 +143,24 @@ pub fn check_rate_limit(
     action_type: ActionType,
 ) -> Result<(), ContractError> {
     let current_time = env.ledger().timestamp();
-    
+
     // Get max requests for this action type
     let max_requests = get_max_requests_for_action(&action_type);
-    
+
     // Admin actions have no rate limit (auth is checked separately)
     if action_type == ActionType::Admin {
         return Ok(());
     }
-    
+
     // Get or create rate limit entry
     let mut entry = get_rate_limit_entry(env, address, &action_type);
-    
+
     // Clean up old timestamps outside the window
     let window_start = current_time.saturating_sub(RATE_LIMIT_WINDOW);
     entry.timestamps = filter_timestamps_in_window(env, &entry.timestamps, window_start);
     entry.request_count = entry.timestamps.len();
     entry.window_start = window_start;
-    
+
     // Check if limit exceeded
     if entry.request_count >= max_requests {
         // Log suspicious activity
@@ -170,20 +170,20 @@ pub fn check_rate_limit(
             SuspiciousActivityType::RateLimitExceeded,
             entry.request_count,
         );
-        
+
         // Emit rate limit exceeded event
         emit_rate_limit_exceeded(env, address, &action_type, entry.request_count);
-        
+
         return Err(ContractError::RateLimitExceeded);
     }
-    
+
     // Add current timestamp
     entry.timestamps.push_back(current_time);
     entry.request_count += 1;
-    
+
     // Save updated entry
     save_rate_limit_entry(env, &entry);
-    
+
     Ok(())
 }
 
@@ -207,19 +207,19 @@ pub fn check_cooldown(
     action_type: ActionType,
 ) -> Result<(), ContractError> {
     let current_time = env.ledger().timestamp();
-    
+
     // Get cooldown period for this action type
     let cooldown_period = get_cooldown_period(&action_type);
-    
+
     // No cooldown for this action type
     if cooldown_period == 0 {
         return Ok(());
     }
-    
+
     // Check if address has a cooldown entry
     if let Some(entry) = get_cooldown_entry(env, address, &action_type) {
         let time_since_last = current_time.saturating_sub(entry.last_action_time);
-        
+
         if time_since_last < cooldown_period {
             // Log cooldown violation
             log_suspicious_activity(
@@ -228,14 +228,14 @@ pub fn check_cooldown(
                 SuspiciousActivityType::CooldownViolation,
                 time_since_last as u32,
             );
-            
+
             // Emit cooldown violation event
             emit_cooldown_violation(env, address, &action_type, time_since_last);
-            
+
             return Err(ContractError::CooldownActive);
         }
     }
-    
+
     Ok(())
 }
 
@@ -250,7 +250,7 @@ pub fn check_cooldown(
 /// * `action_type` - The type of action performed
 pub fn record_action(env: &Env, address: &Address, action_type: ActionType) {
     let current_time = env.ledger().timestamp();
-    
+
     // Update cooldown entry
     let cooldown_entry = CooldownEntry {
         address: address.clone(),
@@ -258,7 +258,7 @@ pub fn record_action(env: &Env, address: &Address, action_type: ActionType) {
         last_action_time: current_time,
     };
     save_cooldown_entry(env, &cooldown_entry);
-    
+
     // Emit action recorded event for monitoring
     emit_action_recorded(env, address, &action_type, current_time);
 }
@@ -287,10 +287,10 @@ pub fn detect_rapid_retries(
     let entry = get_rate_limit_entry(env, address, action_type);
     let current_time = env.ledger().timestamp();
     let window_start = current_time.saturating_sub(time_window);
-    
+
     // Count requests in the time window
     let recent_requests = count_timestamps_in_window(&entry.timestamps, window_start);
-    
+
     if recent_requests >= threshold {
         // Log rapid retries
         log_suspicious_activity(
@@ -299,13 +299,13 @@ pub fn detect_rapid_retries(
             SuspiciousActivityType::RapidRetries,
             recent_requests,
         );
-        
+
         // Emit rapid retry event
         emit_rapid_retries(env, address, action_type, recent_requests);
-        
+
         return true;
     }
-    
+
     false
 }
 
@@ -334,28 +334,28 @@ fn get_cooldown_period(action_type: &ActionType) -> u64 {
 /// Filters timestamps to only include those within the window.
 fn filter_timestamps_in_window(env: &Env, timestamps: &Vec<u64>, window_start: u64) -> Vec<u64> {
     let mut filtered = Vec::new(env);
-    
+
     for i in 0..timestamps.len() {
         let timestamp = timestamps.get_unchecked(i);
         if timestamp >= window_start {
             filtered.push_back(timestamp);
         }
     }
-    
+
     filtered
 }
 
 /// Counts timestamps within a time window.
 fn count_timestamps_in_window(timestamps: &Vec<u64>, window_start: u64) -> u32 {
     let mut count = 0;
-    
+
     for i in 0..timestamps.len() {
         let timestamp = timestamps.get_unchecked(i);
         if timestamp >= window_start {
             count += 1;
         }
     }
-    
+
     count
 }
 
@@ -366,7 +366,7 @@ fn count_timestamps_in_window(timestamps: &Vec<u64>, window_start: u64) -> u32 {
 /// Gets a rate limit entry for an address and action type.
 fn get_rate_limit_entry(env: &Env, address: &Address, action_type: &ActionType) -> RateLimitEntry {
     let key = create_rate_limit_key(address, action_type);
-    
+
     env.storage()
         .temporary()
         .get(&key)
@@ -382,12 +382,12 @@ fn get_rate_limit_entry(env: &Env, address: &Address, action_type: &ActionType) 
 /// Saves a rate limit entry.
 fn save_rate_limit_entry(env: &Env, entry: &RateLimitEntry) {
     let key = create_rate_limit_key(&entry.address, &entry.action_type);
-    
+
     // Store in temporary storage with TTL of 2x window size
     env.storage()
         .temporary()
         .set(&key, entry);
-    
+
     // Extend TTL to 2x window size
     let ttl = (RATE_LIMIT_WINDOW * 2)
         .try_into()
@@ -408,12 +408,12 @@ fn get_cooldown_entry(
 /// Saves a cooldown entry.
 fn save_cooldown_entry(env: &Env, entry: &CooldownEntry) {
     let key = create_cooldown_key(&entry.address, &entry.action_type);
-    
+
     // Store in temporary storage with TTL of cooldown period
     env.storage()
         .temporary()
         .set(&key, entry);
-    
+
     let cooldown_period = get_cooldown_period(&entry.action_type);
     let ttl = (cooldown_period * 2)
         .try_into()
@@ -448,7 +448,7 @@ fn log_suspicious_activity(
         timestamp: env.ledger().timestamp(),
         details,
     };
-    
+
     // Store in temporary storage for monitoring
     let key = (address.clone(), env.ledger().timestamp());
     env.storage().temporary().set(&key, &log_entry);
@@ -541,7 +541,7 @@ mod tests {
         let env = Env::default();
         let contract_id = env.register_contract(None, SwiftRemitContract {});
         let address = Address::generate(&env);
-        
+
         // Should allow up to MAX_TRANSFERS_PER_WINDOW requests
         env.as_contract(&contract_id, || {
             for _ in 0..MAX_TRANSFERS_PER_WINDOW {
@@ -556,7 +556,7 @@ mod tests {
         let env = Env::default();
         let contract_id = env.register_contract(None, SwiftRemitContract {});
         let address = Address::generate(&env);
-        
+
         // Fill up the limit
         env.as_contract(&contract_id, || {
             for _ in 0..MAX_TRANSFERS_PER_WINDOW {
@@ -575,7 +575,7 @@ mod tests {
         let env = Env::default();
         let contract_id = env.register_contract(None, SwiftRemitContract {});
         let address = Address::generate(&env);
-        
+
         // First action should succeed
         env.as_contract(&contract_id, || {
             assert!(check_cooldown(&env, &address, ActionType::Transfer).is_ok());
@@ -594,7 +594,7 @@ mod tests {
         let contract_id = env.register_contract(None, SwiftRemitContract {});
         let address1 = Address::generate(&env);
         let address2 = Address::generate(&env);
-        
+
         // Fill limit for address1
         env.as_contract(&contract_id, || {
             for _ in 0..MAX_TRANSFERS_PER_WINDOW {
@@ -614,7 +614,7 @@ mod tests {
         let env = Env::default();
         let contract_id = env.register_contract(None, SwiftRemitContract {});
         let address = Address::generate(&env);
-        
+
         // Fill transfer limit
         env.as_contract(&contract_id, || {
             for _ in 0..MAX_TRANSFERS_PER_WINDOW {
@@ -634,7 +634,7 @@ mod tests {
         let env = Env::default();
         let contract_id = env.register_contract(None, SwiftRemitContract {});
         let address = Address::generate(&env);
-        
+
         // Make rapid requests
         env.as_contract(&contract_id, || {
             for _ in 0..5 {
@@ -652,7 +652,7 @@ mod tests {
         let env = Env::default();
         let contract_id = env.register_contract(None, SwiftRemitContract {});
         let address = Address::generate(&env);
-        
+
         // Admin actions should never be rate limited
         env.as_contract(&contract_id, || {
             for _ in 0..1000 {
@@ -667,7 +667,7 @@ mod tests {
         let env = Env::default();
         let contract_id = env.register_contract(None, SwiftRemitContract {});
         let address = Address::generate(&env);
-        
+
         // Queries have higher limit (100 vs 10 for transfers)
         env.as_contract(&contract_id, || {
             for _ in 0..MAX_QUERIES_PER_WINDOW {
