@@ -97,12 +97,12 @@ pub fn validate_remittance_exists(env: &Env, remittance_id: u64) -> Result<crate
     get_remittance(env, remittance_id)
 }
 
-/// Validates that a remittance is in pending status.
-pub fn validate_remittance_pending(remittance: &crate::Remittance) -> Result<(), ContractError> {
-    if remittance.status != RemittanceStatus::Pending {
-        return Err(ContractError::InvalidStatus);
+/// Validates that a remittance is in a cancellable state (Pending or Processing).
+pub fn validate_remittance_cancellable(remittance: &crate::Remittance) -> Result<(), ContractError> {
+    match remittance.status {
+        RemittanceStatus::Pending | RemittanceStatus::Processing => Ok(()),
+        _ => Err(ContractError::InvalidStatus),
     }
-    Ok(())
 }
 
 /// Validates that a settlement has not expired.
@@ -173,7 +173,10 @@ pub fn validate_confirm_payout_request(
 ) -> Result<crate::Remittance, ContractError> {
     validate_not_paused(env)?;
     let remittance = validate_remittance_exists(env, remittance_id)?;
-    validate_remittance_pending(&remittance)?;
+    // confirm_payout is only valid from Pending (transitions Pending → Processing → Completed)
+    if remittance.status != RemittanceStatus::Pending {
+        return Err(ContractError::InvalidStatus);
+    }
     validate_no_duplicate_settlement(env, remittance_id)?;
     validate_settlement_not_expired(env, remittance.expiry)?;
     validate_address(&remittance.agent)?;
@@ -187,7 +190,7 @@ pub fn validate_cancel_remittance_request(
     remittance_id: u64,
 ) -> Result<crate::Remittance, ContractError> {
     let remittance = validate_remittance_exists(env, remittance_id)?;
-    validate_remittance_pending(&remittance)?;
+    validate_remittance_cancellable(&remittance)?;
     validate_address(&remittance.sender)?;
     Ok(remittance)
 }

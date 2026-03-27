@@ -13,7 +13,7 @@ SwiftRemit is an escrow-based remittance system that enables secure cross-border
 - **Escrow-Based Transfers**: Secure USDC deposits held in contract until payout confirmation
 - **Agent Network**: Registered agents handle fiat distribution off-chain
 - **Automated Fee Collection**: Platform fees calculated and accumulated automatically
-- **Lifecycle State Management**: Remittances tracked through 5 states (Pending, Processing, Completed, Cancelled, Failed) with enforced transitions
+- **Lifecycle State Management**: Remittances tracked through 4 states (Pending, Processing, Completed, Cancelled) with enforced transitions via a single canonical `RemittanceStatus` enum
 - **Authorization Security**: Role-based access control for all operations
 - **Event Emission**: Comprehensive event logging for off-chain monitoring
 - **Cancellation Support**: Senders can cancel pending remittances with full refund
@@ -212,7 +212,42 @@ SwiftRemit uses environment variables for configuration. This allows you to easi
 - **[CONFIGURATION.md](CONFIGURATION.md)**: Complete configuration reference with all variables, validation rules, and examples
 - **[MIGRATION.md](MIGRATION.md)**: Migration guide for existing developers
 
-## Usage Flow
+## State Machine
+
+All remittance lifecycle state is tracked by a single canonical `RemittanceStatus` enum:
+
+```
+┌─────────┐
+│ Pending │  ← initial state (funds locked in escrow)
+└────┬────┘
+     │
+     ├──────────────────────┐
+     │                      │
+     ▼                      ▼
+┌────────────┐        ┌───────────┐
+│ Processing │        │ Cancelled │ (Terminal)
+└─────┬──────┘        └───────────┘
+      │                      ▲
+      ├──────────────────────┤
+      │                      │
+      ▼                      │
+┌───────────┐                │
+│ Completed │ (Terminal)     │
+└───────────┘                │
+```
+
+### Valid Transitions
+
+| From       | To         | Trigger                        |
+|------------|------------|--------------------------------|
+| Pending    | Processing | Agent calls `confirm_payout`   |
+| Pending    | Cancelled  | Sender calls `cancel_remittance` |
+| Processing | Completed  | Payout confirmed, USDC released |
+| Processing | Cancelled  | Payout failed, funds refunded  |
+
+Terminal states (`Completed`, `Cancelled`) cannot transition further.
+
+
 
 1. **Admin Setup**
    - Deploy contract
