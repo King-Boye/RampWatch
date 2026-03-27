@@ -299,10 +299,24 @@ impl SwiftRemitContract {
     agent: Address,
     amount: i128,
     expiry: Option<u64>,
+    idempotency_key: Option<String>,
 ) -> Result<u64, ContractError> {
     validate_create_remittance_request(&env, &sender, &agent, amount)?;
 
     sender.require_auth();
+
+    // Check idempotency if key provided
+    if let Some(ref key) = idempotency_key {
+        if let Some(record) = storage::get_idempotency_record(&env, key) {
+            // Key exists and not expired - verify payload matches
+            let request_hash = hashing::compute_request_hash(&env, &sender, &agent, amount, expiry);
+            if request_hash != record.request_hash {
+                return Err(ContractError::IdempotencyConflict);
+            }
+            // Same key and payload - return existing remittance_id
+            return Ok(record.remittance_id);
+        }
+    }
 
     // Use centralized fee service for calculation
     let fee = fee_service::calculate_platform_fee(&env, amount)?;
@@ -329,6 +343,21 @@ impl SwiftRemitContract {
     
     // Set initial transfer state
     set_transfer_state(&env, remittance_id, TransferState::Initiated)?;
+
+    // Store idempotency record if key provided
+    if let Some(key) = idempotency_key {
+        let request_hash = hashing::compute_request_hash(&env, &sender, &agent, amount, expiry);
+        let ttl = storage::get_idempotency_ttl(&env);
+        let expires_at = env.ledger().timestamp().checked_add(ttl).ok_or(ContractError::Overflow)?;
+        
+        let record = IdempotencyRecord {
+            key: key.clone(),
+            request_hash,
+            remittance_id,
+            expires_at,
+        };
+        storage::set_idempotency_record(&env, &key, &record);
+    }
 
     Ok(remittance_id)
 }

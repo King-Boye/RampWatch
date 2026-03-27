@@ -202,3 +202,21 @@ pub struct TransferRecord {
     pub timestamp: u64,
     pub amount: i128,
 }
+
+/// Idempotency record for duplicate remittance prevention.
+///
+/// Stores the result of a remittance creation request to enable safe retries.
+/// If a client retries with the same idempotency key and identical payload,
+/// the contract returns the same remittance_id without creating a duplicate.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IdempotencyRecord {
+    /// The client-provided idempotency key
+    pub key: String,
+    /// SHA-256 hash of the request payload (sender, agent, amount, expiry)
+    pub request_hash: soroban_sdk::BytesN<32>,
+    /// The remittance ID returned from the original request
+    pub remittance_id: u64,
+    /// Timestamp when this record expires (ledger timestamp)
+    pub expires_at: u64,
+}

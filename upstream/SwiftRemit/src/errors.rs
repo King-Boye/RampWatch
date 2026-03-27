@@ -224,4 +224,8 @@ pub enum ContractError {
     /// Arithmetic underflow occurred.
     /// Cause: Result of arithmetic operation is below minimum.
     Underflow = 48,
+
+    /// Idempotency key exists but request payload differs.
+    /// Cause: Same idempotency key used with different request parameters.
+    IdempotencyConflict = 49,
 }
