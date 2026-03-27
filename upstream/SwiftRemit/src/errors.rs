@@ -228,4 +228,16 @@ pub enum ContractError {
     /// Idempotency key exists but request payload differs.
     /// Cause: Same idempotency key used with different request parameters.
     IdempotencyConflict = 49,
+
+    /// Proof validation failed.
+    /// Cause: Signature is invalid or signer doesn't match expected oracle.
+    InvalidProof = 50,
+    
+    /// Proof is required but not provided.
+    /// Cause: Settlement requires proof validation but proof parameter is None.
+    MissingProof = 51,
+    
+    /// Oracle address is invalid or not configured.
+    /// Cause: Settlement requires proof but oracle_address is None.
+    InvalidOracleAddress = 52,
 }

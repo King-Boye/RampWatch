@@ -21,6 +21,7 @@ mod transaction_controller;
 mod transitions;
 mod types;
 mod validation;
+mod verification;
 #[cfg(all(test, feature = "legacy-tests"))]
 mod test;
 #[cfg(test)]
@@ -58,6 +59,7 @@ pub use storage::*;
 pub use transaction_controller::*;
 pub use transitions::*;
 pub use types::*;
+pub use verification::*;
 pub use validation::*;
 
 /// Maximum number of remittances that can be settled in a single batch
@@ -300,10 +302,18 @@ impl SwiftRemitContract {
     amount: i128,
     expiry: Option<u64>,
     idempotency_key: Option<String>,
+    settlement_config: Option<SettlementConfig>,
 ) -> Result<u64, ContractError> {
     validate_create_remittance_request(&env, &sender, &agent, amount)?;
 
     sender.require_auth();
+
+    // Validate settlement config
+    if let Some(ref config) = settlement_config {
+        if config.require_proof && config.oracle_address.is_none() {
+            return Err(ContractError::InvalidOracleAddress);
+        }
+    }
 
     // Check idempotency if key provided
     if let Some(ref key) = idempotency_key {
@@ -336,6 +346,7 @@ impl SwiftRemitContract {
         fee,
         status: RemittanceStatus::Pending,
         expiry,
+        settlement_config: settlement_config.clone(),
     };
 
     set_remittance(&env, remittance_id, &remittance);
@@ -386,7 +397,11 @@ impl SwiftRemitContract {
     ///
     /// Requires authentication from the agent address assigned to the remittance.
     /// Requires Settler role.
-    pub fn confirm_payout(env: Env, remittance_id: u64) -> Result<(), ContractError> {
+    pub fn confirm_payout(
+        env: Env,
+        remittance_id: u64,
+        proof: Option<ProofData>,
+    ) -> Result<(), ContractError> {
         // Centralized validation before business logic (returns remittance to avoid re-read)
         let mut remittance = validate_confirm_payout_request(&env, remittance_id)?;
 
@@ -394,6 +409,24 @@ impl SwiftRemitContract {
         
         // Require Settler role
         require_role_settler(&env, &remittance.agent)?;
+
+        // Validate proof if required
+        if let Some(ref config) = remittance.settlement_config {
+            if config.require_proof {
+                if let Some(oracle_addr) = &config.oracle_address {
+                    if proof.is_none() {
+                        return Err(ContractError::MissingProof);
+                    }
+                    let proof_data = proof.unwrap();
+                    let is_valid = verification::verify_proof(&env, &proof_data, oracle_addr)?;
+                    if !is_valid {
+                        return Err(ContractError::InvalidProof);
+                    }
+                } else {
+                    return Err(ContractError::InvalidOracleAddress);
+                }
+            }
+        }
         
         // Transition to Processing state
         set_transfer_state(&env, remittance_id, TransferState::Processing)?;
