@@ -1,5 +1,12 @@
 # Webhook Middleware - Security & Validation
 
+## Implementation Status
+
+The webhook middleware is implemented as a validation layer in the contract test suite. The key contract-level behaviour is:
+
+- **Address validation**: Only Soroban C-addresses are valid as `source_address`. G-addresses (Stellar account addresses) are rejected by the host with `"unexpected strkey length"`.
+- **Test coverage**: `test_webhook_request_with_source_address` verifies that passing a G-address panics as expected.
+
 ## Overview
 
 The Webhook Middleware provides production-grade security for webhook processing in AnchorKit. It implements a comprehensive validation pipeline that protects against common webhook attacks while maintaining high performance and reliability.
