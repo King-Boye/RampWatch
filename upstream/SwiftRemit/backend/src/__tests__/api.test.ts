@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import app from '../api';
-import { initDatabase } from '../database';
+import { initDatabase, getPool } from '../database';
+import { WebhookHandler } from '../webhook-handler';
 
 describe('API Endpoints', () => {
   beforeAll(async () => {
@@ -132,6 +133,82 @@ describe('API Endpoints', () => {
         .send({ assets });
 
       expect(response.status).toBe(400);
+    });
+  });
+
+  describe('GET /api/kyc/status', () => {
+    it('should reject unauthenticated requests', async () => {
+      const response = await request(app).get('/api/kyc/status');
+      expect(response.status).toBe(401);
+    });
+
+    it('should return pending for user with no KYC records', async () => {
+      const response = await request(app)
+        .get('/api/kyc/status')
+        .set('x-user-id', 'user-no-kyc');
+
+      expect(response.status).toBe(200);
+      expect(response.body.overall_status).toBe('pending');
+      expect(response.body.can_transfer).toBe(false);
+      expect(response.body.reason).toBe('no_kyc_record');
+      expect(Array.isArray(response.body.anchors)).toBe(true);
+    });
+  });
+
+  describe('POST /api/transfer', () => {
+    it('should reject unauthenticated requests', async () => {
+      const response = await request(app).post('/api/transfer').send({});
+      expect(response.status).toBe(401);
+    });
+
+    it('should reject when KYC not approved', async () => {
+      const response = await request(app)
+        .post('/api/transfer')
+        .set('x-user-id', 'user-no-kyc')
+        .send({});
+
+      expect(response.status).toBe(403);
+      expect(response.body.error).toBeDefined();
+      expect(response.body.error.code).toBe('KYC_PENDING');
+    });
+  });
+
+  describe('WebhookHandler KYC update flow', () => {
+    it('should update both transactions and KYC status store', async () => {
+      const pool = getPool();
+      const webhookHandler = new WebhookHandler(pool);
+
+      const updateSpy = vi.fn();
+      const upsertSpy = vi.fn();
+
+      // Replace internals with test doubles
+      (webhookHandler as any).stateManager = { updateKYCStatus: updateSpy };
+      (webhookHandler as any).kycUpsertService = { upsert: upsertSpy };
+
+      const payload = {
+        transaction_id: 'tx-abc',
+        kyc_status: 'approved',
+        kyc_fields: { name: 'Jane Doe' },
+        user_id: 'user-abc',
+        anchor_id: 'anchor-abc',
+        verified_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+      };
+
+      await (webhookHandler as any).handleKYCUpdate(payload, 'anchor-abc');
+
+      expect(updateSpy).toHaveBeenCalledWith({
+        transaction_id: 'tx-abc',
+        kyc_status: 'approved',
+        kyc_fields: { name: 'Jane Doe' },
+        rejection_reason: undefined,
+      });
+
+      expect(upsertSpy).toHaveBeenCalledWith(expect.objectContaining({
+        user_id: 'user-abc',
+        anchor_id: 'anchor-abc',
+        kyc_status: 'approved',
+      }));
     });
   });
 });
