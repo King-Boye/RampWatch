@@ -44,3 +44,12 @@ mod streaming_flow_tests;
 
 #[cfg(test)]
 mod webhook_middleware_tests;
+
+#[cfg(test)]
+mod session_tests;
+
+#[cfg(test)]
+mod anchor_info_discovery_tests;
+
+#[cfg(test)]
+mod routing_tests;
