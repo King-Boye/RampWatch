@@ -291,3 +291,56 @@ After completing migration:
 3. Share `.env.example` with your team
 4. Update your deployment documentation
 5. Consider setting up environment-specific `.env` files (`.env.testnet`, `.env.mainnet`)
+
+## Hash Schema Upgrades
+
+Settlement IDs are derived deterministically from remittance fields using the schema
+defined in `src/hashing.rs`. The `HASH_SCHEMA_VERSION` constant tracks which version
+of that schema is active.
+
+### When is a version bump required?
+
+Increment `HASH_SCHEMA_VERSION` whenever a code change would produce a **different
+hash for the same logical inputs**. Concrete triggers:
+
+- Adding, removing, or reordering fields passed to `compute_settlement_id`
+- Changing the byte encoding of any field (e.g. endianness, XDR format)
+- Changing how `None` optional values are serialized (currently 8 zero bytes)
+- Replacing the hash algorithm (currently SHA-256)
+
+Purely internal refactors that leave byte output identical do **not** require a bump.
+
+### Steps to perform a version bump
+
+1. Update the field ordering / encoding in `compute_settlement_id` (`src/hashing.rs`).
+2. Increment `HASH_SCHEMA_VERSION` (e.g. `1` → `2`).
+3. Add a row to the version history table in the `HASH_SCHEMA_VERSION` doc comment.
+4. Communicate the new version to all external integrators before deploying.
+
+### How external systems must handle a mismatch
+
+External systems (banks, anchors, off-chain indexers) **must** persist the schema
+version alongside every settlement ID they store. On detecting a version mismatch:
+
+1. **Do not** use the stored ID as-is — it was computed under a different schema.
+2. Re-derive the settlement ID for the affected remittances by calling
+   `compute_settlement_hash(env, remittance_id)` on-chain, or by re-implementing
+   the new field ordering documented in `src/hashing.rs`.
+3. Overwrite the stored settlement ID with the newly derived value.
+4. Update the stored schema version to match `HASH_SCHEMA_VERSION`.
+
+### Migration steps for existing settlement IDs
+
+If a version bump is deployed to a live contract that already has settled remittances:
+
+1. **Identify affected records** — query all settlement IDs stored with the old
+   schema version.
+2. **Re-derive in batches** — use `compute_settlement_hash` for each `remittance_id`
+   to obtain the new ID. Batch size should respect the `MAX_MIGRATION_BATCH_SIZE`
+   limit defined in `src/migration.rs` (currently 100).
+3. **Atomic swap** — update the stored ID and schema version atomically in your
+   off-chain database to avoid a partial-migration window.
+4. **Verify** — after migration, assert that no records remain with the old schema
+   version.
+5. **Coordinate** — if multiple services share the same settlement ID store,
+   coordinate the cutover so all services switch at the same ledger sequence.
