@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { TransactionProgressStatus } from './TransactionStatusTracker';
+import type { TransactionProgressStatus } from './TransactionStatusTracker';
 import './TransactionHistory.css';
 
 type HistoryViewMode = 'table' | 'card';
