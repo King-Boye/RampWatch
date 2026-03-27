@@ -36,8 +36,43 @@
 
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
-/// Canonical field ordering version — increment if ordering ever changes.
-/// External systems should record this alongside stored settlement IDs.
+/// Canonical field ordering version for settlement ID hashing.
+///
+/// This version must be incremented whenever the hash schema changes in a way
+/// that would produce different output for the same logical inputs. Examples of
+/// changes that require a bump:
+///
+/// - Adding, removing, or reordering fields in [`compute_settlement_id`]
+/// - Changing the encoding of an existing field (e.g. little-endian → big-endian)
+/// - Changing how `None` optional values are serialized
+/// - Switching the hash algorithm from SHA-256 to something else
+///
+/// Changes that do NOT require a bump (output is identical):
+///
+/// - Refactoring internal helpers without altering byte output
+/// - Adding new contract functions unrelated to settlement hashing
+///
+/// # Version History
+///
+/// | Version | Description                                      |
+/// |---------|--------------------------------------------------|
+/// | 1       | Initial schema: remittance_id, sender, agent,    |
+/// |         | amount, fee, expiry (all big-endian / XDR)       |
+///
+/// # Handling a Version Mismatch
+///
+/// External systems (banks, anchors, off-chain indexers) **must** store the
+/// `HASH_SCHEMA_VERSION` value alongside every settlement ID they persist.
+/// When the on-chain version differs from the stored version:
+///
+/// 1. Do **not** treat the stored ID as valid for the new schema.
+/// 2. Re-derive the settlement ID using the new schema by calling
+///    `compute_settlement_hash(env, remittance_id)` on-chain, or by
+///    following the updated field ordering documented in this module.
+/// 3. Replace the stored ID with the newly derived value.
+/// 4. Update the stored schema version to the current value.
+///
+/// See [`MIGRATION.md § Hash Schema Upgrades`] for the full migration checklist.
 pub const HASH_SCHEMA_VERSION: u32 = 1;
 
 /// Generate a deterministic settlement ID from remittance fields.
