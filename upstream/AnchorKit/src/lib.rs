@@ -6,6 +6,9 @@ mod errors;
 pub mod sep6;
 
 pub use domain_validator::validate_anchor_domain;
+pub use errors::{AnchorKitError, ErrorCode};
+
+/// Backward-compatible alias. Prefer [`AnchorKitError`] for new code.
 pub use errors::Error;
 pub use sep6::{
     fetch_transaction_status, initiate_deposit, initiate_withdrawal, DepositResponse,
