@@ -36,40 +36,43 @@
 
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
-/// Canonical field ordering version for settlement ID hashes.
+/// Canonical field ordering version for settlement ID hashing.
 ///
-/// This version must be stored alongside every settlement ID so that external
-/// systems can detect when the hashing scheme has changed and act accordingly.
+/// This version must be incremented whenever the hash schema changes in a way
+/// that would produce different output for the same logical inputs. Examples of
+/// changes that require a bump:
 ///
-/// # When to increment
+/// - Adding, removing, or reordering fields in [`compute_settlement_id`]
+/// - Changing the encoding of an existing field (e.g. little-endian → big-endian)
+/// - Changing how `None` optional values are serialized
+/// - Switching the hash algorithm from SHA-256 to something else
 ///
-/// Bump this value whenever any of the following change:
-/// - The set of fields included in the hash input
-/// - The serialization order of those fields
-/// - The encoding of any individual field (e.g. endianness, XDR variant)
-/// - The hash algorithm itself
+/// Changes that do NOT require a bump (output is identical):
 ///
-/// Do **not** bump for changes that are invisible to the hash (e.g. adding a
-/// new field that is explicitly excluded, like `status`).
+/// - Refactoring internal helpers without altering byte output
+/// - Adding new contract functions unrelated to settlement hashing
 ///
-/// # How external systems should handle a version mismatch
+/// # Version History
 ///
-/// External systems must persist the schema version alongside each stored
-/// settlement ID (e.g. as a column in the settlements table).  On startup, or
-/// before any hash comparison, they should:
+/// | Version | Description                                      |
+/// |---------|--------------------------------------------------|
+/// | 1       | Initial schema: remittance_id, sender, agent,    |
+/// |         | amount, fee, expiry (all big-endian / XDR)       |
 ///
-/// 1. Read the `hash_schema_version` returned by `compute_settlement_hash`.
-/// 2. Compare it against the version stored with the local record.
-/// 3. If the versions differ, **do not** treat the hashes as comparable.
-///    Instead, trigger a re-hash migration (see MIGRATION.md §Hash Schema
-///    Upgrades) before resuming normal reconciliation.
+/// # Handling a Version Mismatch
 ///
-/// # Migration steps for existing settlement IDs
+/// External systems (banks, anchors, off-chain indexers) **must** store the
+/// `HASH_SCHEMA_VERSION` value alongside every settlement ID they persist.
+/// When the on-chain version differs from the stored version:
 ///
-/// See MIGRATION.md §Hash Schema Upgrades for the full procedure.  The short
-/// version: re-derive every stored settlement ID using the new version's
-/// algorithm, update the stored hash and version atomically, then resume
-/// normal operation.
+/// 1. Do **not** treat the stored ID as valid for the new schema.
+/// 2. Re-derive the settlement ID using the new schema by calling
+///    `compute_settlement_hash(env, remittance_id)` on-chain, or by
+///    following the updated field ordering documented in this module.
+/// 3. Replace the stored ID with the newly derived value.
+/// 4. Update the stored schema version to the current value.
+///
+/// See [`MIGRATION.md § Hash Schema Upgrades`] for the full migration checklist.
 pub const HASH_SCHEMA_VERSION: u32 = 1;
 
 /// Generate a deterministic settlement ID from remittance fields.
