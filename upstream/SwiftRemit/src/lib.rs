@@ -46,6 +46,8 @@ mod test_integrator_fees;
 mod test_treasury;
 #[cfg(test)]
 mod test_fee_corridor; 
+#[cfg(test)]
+mod test_blacklist;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
@@ -111,6 +113,21 @@ pub struct SwiftRemitContract;
 
 #[contractimpl]
 impl SwiftRemitContract {
+    fn set_blacklist_status(env: &Env, user: Address, blacklisted: bool) -> Result<(), ContractError> {
+        let caller = get_admin(env)?;
+        require_admin(env, &caller)?;
+
+        set_user_blacklisted(env, &user, blacklisted);
+
+        if blacklisted {
+            emit_user_blacklisted(env, user, caller);
+        } else {
+            emit_user_removed_from_blacklist(env, user, caller);
+        }
+
+        Ok(())
+    }
+
     /// Initializes the contract with admin, token, and fee configuration.
     ///
     /// This function can only be called once. It sets up the contract's core parameters
@@ -686,7 +703,6 @@ impl SwiftRemitContract {
         get_remittance(&env, remittance_id)
     }
 
-
     pub fn get_accumulated_fees(env: Env) -> Result<i128, ContractError> {
         get_accumulated_fees(&env)
     }
@@ -956,7 +972,6 @@ impl SwiftRemitContract {
     pub fn get_escrow(env: Env, transfer_id: u64) -> Result<Escrow, ContractError> {
         get_escrow(&env, transfer_id)
     }
-
 
     pub fn is_paused(env: Env) -> bool {
         crate::storage::is_paused(&env)
@@ -1618,13 +1633,23 @@ impl SwiftRemitContract {
 
     // === User Management Functions ===
 
+    /// Adds a user to the blacklist.
+    ///
+    /// Requires authentication from the configured admin.
+    pub fn blacklist_user(env: Env, user: Address) -> Result<(), ContractError> {
+        Self::set_blacklist_status(&env, user, true)
+    }
+
+    /// Removes a user from the blacklist.
+    ///
+    /// Requires authentication from the configured admin.
+    pub fn remove_from_blacklist(env: Env, user: Address) -> Result<(), ContractError> {
+        Self::set_blacklist_status(&env, user, false)
+    }
+
     /// Set user blacklist status (admin only)
     pub fn set_user_blacklisted(env: Env, user: Address, blacklisted: bool) -> Result<(), ContractError> {
-        let admin = get_admin(&env)?;
-        admin.require_auth();
-
-        set_user_blacklisted(&env, &user, blacklisted);
-        Ok(())
+        Self::set_blacklist_status(&env, user, blacklisted)
     }
 
     /// Check if user is blacklisted
