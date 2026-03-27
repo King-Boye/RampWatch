@@ -168,7 +168,7 @@ fn test_escrow_events_emitted() {
     contract.initialize(&admin, &token.address, &250, &3600, &0, &admin);
 
     let transfer_id = contract.create_escrow(&sender, &recipient, &500);
-    
+
     let events = env.events().all();
     let create_event = events.iter().find(|e| {
         let topic0 = e.1.get(0).and_then(|t| Symbol::try_from_val(&env, &t).ok());
@@ -179,7 +179,7 @@ fn test_escrow_events_emitted() {
     assert!(create_event.is_some());
 
     contract.release_escrow(&transfer_id);
-    
+
     let events = env.events().all();
     let release_event = events.iter().find(|e| {
         let topic0 = e.1.get(0).and_then(|t| Symbol::try_from_val(&env, &t).ok());

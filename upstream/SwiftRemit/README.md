@@ -1,5 +1,7 @@
 # SwiftRemit
 
+[![Soroban Contract CI](https://github.com/Haroldwonder/SwiftRemit/actions/workflows/contract-ci.yml/badge.svg)](https://github.com/Haroldwonder/SwiftRemit/actions/workflows/contract-ci.yml)
+
 Production-ready Soroban smart contract for USDC remittance platform on Stellar blockchain.
 
 ## Overview
@@ -11,7 +13,7 @@ SwiftRemit is an escrow-based remittance system that enables secure cross-border
 - **Escrow-Based Transfers**: Secure USDC deposits held in contract until payout confirmation
 - **Agent Network**: Registered agents handle fiat distribution off-chain
 - **Automated Fee Collection**: Platform fees calculated and accumulated automatically
-- **Lifecycle State Management**: Remittances tracked through 5 states (Pending, Processing, Completed, Cancelled, Failed) with enforced transitions
+- **Lifecycle State Management**: Remittances tracked through 4 states (Pending, Processing, Completed, Cancelled) with enforced transitions via a single canonical `RemittanceStatus` enum
 - **Authorization Security**: Role-based access control for all operations
 - **Event Emission**: Comprehensive event logging for off-chain monitoring
 - **Cancellation Support**: Senders can cancel pending remittances with full refund
@@ -50,7 +52,8 @@ Fees are calculated in basis points (bps):
 - `register_agent(agent)` - Add agent to approved list (admin only)
 - `remove_agent(agent)` - Remove agent from approved list (admin only)
 - `update_fee(fee_bps)` - Update platform fee percentage (admin only)
-- `withdraw_fees(to)` - Withdraw accumulated fees (admin only)
+- `withdraw_fees(to)` - Withdraw accumulated platform fees (admin only)
+- `withdraw_integrator_fees(integrator, to)` - Withdraw accumulated integrator fees (integrator auth required)
 
 ### User Functions
 
@@ -162,6 +165,8 @@ soroban contract invoke \
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment instructions.
 
+For production readiness assessment, see [PRODUCTION_READINESS_REPORT.md](PRODUCTION_READINESS_REPORT.md).
+
 ## Configuration
 
 SwiftRemit uses environment variables for configuration. This allows you to easily configure the system for different environments (local development, testnet, mainnet) without modifying code.
@@ -207,7 +212,42 @@ SwiftRemit uses environment variables for configuration. This allows you to easi
 - **[CONFIGURATION.md](CONFIGURATION.md)**: Complete configuration reference with all variables, validation rules, and examples
 - **[MIGRATION.md](MIGRATION.md)**: Migration guide for existing developers
 
-## Usage Flow
+## State Machine
+
+All remittance lifecycle state is tracked by a single canonical `RemittanceStatus` enum:
+
+```
+┌─────────┐
+│ Pending │  ← initial state (funds locked in escrow)
+└────┬────┘
+     │
+     ├──────────────────────┐
+     │                      │
+     ▼                      ▼
+┌────────────┐        ┌───────────┐
+│ Processing │        │ Cancelled │ (Terminal)
+└─────┬──────┘        └───────────┘
+      │                      ▲
+      ├──────────────────────┤
+      │                      │
+      ▼                      │
+┌───────────┐                │
+│ Completed │ (Terminal)     │
+└───────────┘                │
+```
+
+### Valid Transitions
+
+| From       | To         | Trigger                        |
+|------------|------------|--------------------------------|
+| Pending    | Processing | Agent calls `confirm_payout`   |
+| Pending    | Cancelled  | Sender calls `cancel_remittance` |
+| Processing | Completed  | Payout confirmed, USDC released |
+| Processing | Cancelled  | Payout failed, funds refunded  |
+
+Terminal states (`Completed`, `Cancelled`) cannot transition further.
+
+
 
 1. **Admin Setup**
    - Deploy contract
