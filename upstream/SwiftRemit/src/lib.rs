@@ -41,11 +41,7 @@ mod test_protocol_fee;
 #[cfg(test)]
 mod test_property;
 #[cfg(test)]
-mod test_integrator_fees;
-#[cfg(test)]
-mod test_treasury;
-#[cfg(test)]
-mod test_fee_corridor; 
+mod test_invariants;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
