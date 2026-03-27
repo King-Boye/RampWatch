@@ -41,7 +41,9 @@ mod test_protocol_fee;
 #[cfg(test)]
 mod test_property;
 #[cfg(test)]
-mod test_integrator_fees; 
+mod test_integrator_fees;
+#[cfg(test)]
+mod test_treasury; 
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
@@ -1214,7 +1216,9 @@ impl SwiftRemitContract {
     /// Updates the treasury address (Admin only)
     pub fn update_treasury(env: Env, caller: Address, treasury: Address) -> Result<(), ContractError> {
         require_admin(&env, &caller)?;
+        let old_treasury = get_treasury(&env).ok();
         set_treasury(&env, &treasury);
+        emit_treasury_updated(&env, caller, old_treasury, treasury);
         Ok(())
     }
 
