@@ -6,6 +6,8 @@ mod errors;
 mod rate_limiter;
 mod response_validator;
 mod transaction_state_tracker;
+pub mod sep6;
+pub mod contract;
 
 pub use domain_validator::validate_anchor_domain;
 pub use errors::{AnchorKitError, ErrorCode};
@@ -21,3 +23,24 @@ pub use response_validator::{
 
 #[cfg(test)]
 mod transaction_state_tracker_tests;
+pub use sep6::{
+    fetch_transaction_status, initiate_deposit, initiate_withdrawal, DepositResponse,
+    RawDepositResponse, RawTransactionResponse, RawWithdrawalResponse, TransactionKind,
+    TransactionStatus, TransactionStatusResponse, WithdrawalResponse,
+};
+pub use contract::AnchorKitContract;
+
+#[cfg(test)]
+mod request_id_tests;
+
+#[cfg(test)]
+mod tracing_span_tests;
+
+#[cfg(test)]
+mod metadata_cache_tests;
+
+#[cfg(test)]
+mod streaming_flow_tests;
+
+#[cfg(test)]
+mod webhook_middleware_tests;

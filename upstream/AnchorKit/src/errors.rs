@@ -42,6 +42,10 @@ pub enum ErrorCode {
     ServicesNotConfigured = 14,
     ValidationError = 15,
     RateLimitExceeded = 16,
+    NotInitialized = 16,
+    AttestationNotFound = 17,
+    CacheExpired = 48,
+    CacheNotFound = 49,
 }
 
 impl ErrorCode {
@@ -64,6 +68,10 @@ impl ErrorCode {
             ErrorCode::ServicesNotConfigured => "Services are not configured",
             ErrorCode::ValidationError => "Response schema validation failed",
             ErrorCode::RateLimitExceeded => "Rate limit exceeded",
+            ErrorCode::NotInitialized => "Contract is not initialized",
+            ErrorCode::AttestationNotFound => "Attestation not found",
+            ErrorCode::CacheExpired => "Cache entry has expired",
+            ErrorCode::CacheNotFound => "Cache entry not found",
         }
     }
 }
@@ -170,6 +178,14 @@ impl AnchorKitError {
         Self::from_code(ErrorCode::ServicesNotConfigured)
     }
 
+    pub fn not_initialized() -> Self {
+        Self::from_code(ErrorCode::NotInitialized)
+    }
+
+    pub fn attestation_not_found() -> Self {
+        Self::from_code(ErrorCode::AttestationNotFound)
+    }
+
     pub fn validation_error(context: &str) -> Self {
         Self::with_context(ErrorCode::ValidationError, ErrorCode::ValidationError.default_message(), context)
     }
@@ -266,6 +282,8 @@ mod tests {
             ErrorCode::ServicesNotConfigured,
             ErrorCode::ValidationError,
             ErrorCode::RateLimitExceeded,
+            ErrorCode::NotInitialized,
+            ErrorCode::AttestationNotFound,
         ];
         for code in codes {
             assert!(!code.default_message().is_empty());
