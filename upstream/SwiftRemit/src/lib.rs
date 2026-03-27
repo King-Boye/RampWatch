@@ -45,7 +45,7 @@ mod test_integrator_fees;
 #[cfg(test)]
 mod test_treasury;
 #[cfg(test)]
-mod test_fee_corridor; 
+mod test_migration;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
@@ -360,6 +360,12 @@ impl SwiftRemitContract {
 
     set_remittance(&env, remittance_id, &remittance);
     set_remittance_counter(&env, remittance_id);
+
+    // Index this remittance under the sender for paginated queries
+    append_sender_remittance(&env, &sender, remittance_id);
+
+    // Set initial transfer state
+    set_transfer_state(&env, remittance_id, TransferState::Initiated)?;
 
     // Store idempotency record if key provided
     if let Some(key) = idempotency_key {
@@ -690,6 +696,42 @@ impl SwiftRemitContract {
     /// * `Err(ContractError::RemittanceNotFound)` - Remittance ID does not exist
     pub fn get_remittance(env: Env, remittance_id: u64) -> Result<Remittance, ContractError> {
         get_remittance(&env, remittance_id)
+    }
+
+    /// Returns a paginated list of remittance IDs for a given sender.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `sender` - Address of the sender to query
+    /// * `offset` - Zero-based index of the first result to return
+    /// * `limit` - Maximum number of IDs to return (capped at 100)
+    ///
+    /// # Returns
+    ///
+    /// * `Vec<u64>` - Slice of remittance IDs in creation order
+    pub fn get_remittances_by_sender(
+        env: Env,
+        sender: Address,
+        offset: u64,
+        limit: u64,
+    ) -> Vec<u64> {
+        const MAX_PAGE_SIZE: u64 = 100;
+        let limit = limit.min(MAX_PAGE_SIZE);
+
+        let all_ids = get_sender_remittances(&env, &sender);
+        let total = all_ids.len() as u64;
+
+        if offset >= total || limit == 0 {
+            return Vec::new(&env);
+        }
+
+        let end = (offset + limit).min(total);
+        let mut page = Vec::new(&env);
+        for i in offset..end {
+            page.push_back(all_ids.get_unchecked(i as u32));
+        }
+        page
     }
 
 
@@ -1074,25 +1116,6 @@ impl SwiftRemitContract {
                     return Err(ContractError::SettlementExpired);
                 }
             }
-
-            //     // Address validation omitted — the Soroban SDK guarantees that all Address
-            //     // values are structurally valid before contract code runs. The agent address
-            //     // was already accepted when the remittance was created. See validation.rs
-            //     // module-level documentation for the full rationale.
-            //
-            // The surrounding context for locating the line (do not change this part):
-            //
-            //     // Check expiry
-            //     if let Some(expiry_time) = remittance.expiry {
-            //         let current_time = env.ledger().timestamp();
-            //         if current_time > expiry_time {
-            //             return Err(ContractError::SettlementExpired);
-            //         }
-            //     }
-            //
-            //     // ← REMOVE the validate_address call that was here
-            //
-            //     remittances.push_back(remittance);
 
             remittances.push_back(remittance);
         }

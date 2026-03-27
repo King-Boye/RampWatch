@@ -407,4 +407,26 @@ app.get('/api/kyc/approved/:userId', async (req: Request, res: Response) => {
   }
 });
 
+// Simulate settlement — preview fees and payout before confirming
+app.post('/api/simulate-settlement', async (req: Request, res: Response) => {
+  try {
+    const { remittanceId } = req.body;
+
+    if (
+      remittanceId === undefined ||
+      remittanceId === null ||
+      !Number.isInteger(remittanceId) ||
+      remittanceId <= 0
+    ) {
+      return res.status(400).json({ error: 'remittanceId must be a positive integer' });
+    }
+
+    const simulation = await simulateSettlement(remittanceId);
+    res.json(simulation);
+  } catch (error) {
+    console.error('Error simulating settlement:', error);
+    res.status(500).json({ error: 'Failed to simulate settlement' });
+  }
+});
+
 export default app;
