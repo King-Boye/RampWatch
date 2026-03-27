@@ -9,9 +9,9 @@
 //! All fee calculations route through this module to ensure consistency
 //! and prevent calculation errors.
 
-use soroban_sdk::{contracttype, Env, String};
+use soroban_sdk::{ contracttype, Env, String };
 
-use crate::{ContractError, FeeStrategy, get_fee_strategy, get_protocol_fee_bps, storage};
+use crate::{ ContractError, FeeStrategy, get_fee_strategy, get_protocol_fee_bps, storage };
 
 /// Fee divisor for basis points calculations (10000 = 100%)
 const FEE_DIVISOR: i128 = 10000;
@@ -114,7 +114,7 @@ pub fn calculate_platform_fee(env: &Env, amount: i128) -> Result<i128, ContractE
 pub fn calculate_fees_with_breakdown(
     env: &Env,
     amount: i128,
-    corridor: Option<&FeeCorridor>,
+    corridor: Option<&FeeCorridor>
 ) -> Result<FeeBreakdown, ContractError> {
     if amount <= 0 {
         return Err(ContractError::InvalidAmount);
@@ -240,18 +240,22 @@ fn calculate_protocol_fee(amount: i128, protocol_fee_bps: u32) -> Result<i128, C
 ///
 /// Formatted corridor ID (e.g., "US-MX")
 fn format_corridor_id(env: &Env, from_country: &String, to_country: &String) -> String {
-    // Create a simple concatenation: "FROM-TO"
-    let mut result = String::from_str(env, "");
-    result = from_country.clone();
-    // Note: Soroban String doesn't have append, so we'll just use from_country for now
-    // In production, you might want to use a different approach
-    result
+    // Create corridor ID as "FROM-TO" using simple approach
+    // Convert Soroban strings to regular strings for manipulation
+    let from_str = from_country.to_string();
+    let to_str = to_country.to_string();
+
+    // Create the combined string manually
+    let combined = from_str + "-" + &to_str;
+
+    // Convert back to Soroban String
+    String::from_str(env, &combined)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{Env, String};
+    use soroban_sdk::{ Env, String };
 
     #[test]
     fn test_calculate_fee_percentage() {
@@ -356,5 +360,35 @@ mod tests {
         };
 
         assert!(breakdown.validate().is_err());
+    }
+
+    #[test]
+    fn test_format_corridor_id_us_mx() {
+        let env = Env::default();
+        let from = String::from_str(&env, "US");
+        let to = String::from_str(&env, "MX");
+
+        let corridor_id = format_corridor_id(&env, &from, &to);
+        assert_eq!(corridor_id, String::from_str(&env, "US-MX"));
+    }
+
+    #[test]
+    fn test_format_corridor_id_mx_us() {
+        let env = Env::default();
+        let from = String::from_str(&env, "MX");
+        let to = String::from_str(&env, "US");
+
+        let corridor_id = format_corridor_id(&env, &from, &to);
+        assert_eq!(corridor_id, String::from_str(&env, "MX-US"));
+    }
+
+    #[test]
+    fn test_format_corridor_id_gb_ng() {
+        let env = Env::default();
+        let from = String::from_str(&env, "GB");
+        let to = String::from_str(&env, "NG");
+
+        let corridor_id = format_corridor_id(&env, &from, &to);
+        assert_eq!(corridor_id, String::from_str(&env, "GB-NG"));
     }
 }

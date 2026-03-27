@@ -243,6 +243,35 @@ pub fn emit_fees_withdrawn(env: &Env, caller: Address, to: Address, token: Addre
     );
 }
 
+pub fn emit_treasury_updated(env: &Env, admin: Address, old_treasury: Option<Address>, new_treasury: Address) {
+    env.events().publish(
+        (symbol_short!("treasury"), symbol_short!("upd")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            admin,
+            old_treasury,
+            new_treasury,
+        ),
+    );
+}
+
+pub fn emit_integrator_fees_withdrawn(env: &Env, integrator: Address, to: Address, token: Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("fee"), symbol_short!("int_with")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            integrator,
+            to,
+            token,
+            amount,
+        ),
+    );
+}
+
 // ── Settlement Events ──────────────────────────────────────────────
 
 /// Emits a structured completion event when a settlement is finalized.
