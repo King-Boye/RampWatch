@@ -291,3 +291,46 @@ After completing migration:
 3. Share `.env.example` with your team
 4. Update your deployment documentation
 5. Consider setting up environment-specific `.env` files (`.env.testnet`, `.env.mainnet`)
+
+## Hash Schema Upgrades
+
+Settlement IDs are derived from a versioned canonical hash scheme defined in
+`src/hashing.rs`.  The current version is tracked by `HASH_SCHEMA_VERSION`.
+
+### What triggers a version bump
+
+`HASH_SCHEMA_VERSION` is incremented whenever the hash inputs change in any
+observable way — field ordering, encoding rules, added/removed fields, or a
+switch to a different hash algorithm.  It does **not** change for fields that
+are already excluded from the hash (e.g. `status`).
+
+### Detecting a mismatch
+
+External systems must persist `hash_schema_version` alongside every stored
+settlement ID.  Before comparing a locally stored hash against an on-chain
+value, check that the stored version matches the current `HASH_SCHEMA_VERSION`.
+If they differ, the hashes are not directly comparable and a re-hash migration
+is required before reconciliation can resume.
+
+### Migration steps for existing settlement IDs
+
+1. **Pause reconciliation** — stop any process that compares stored settlement
+   IDs against on-chain state to avoid false mismatches during the migration.
+
+2. **Fetch all affected records** — query every settlement record whose stored
+   `hash_schema_version` is less than the new `HASH_SCHEMA_VERSION`.
+
+3. **Re-derive hashes** — for each record, call `compute_settlement_hash` (or
+   reproduce the algorithm off-chain) using the new version's field ordering
+   and encoding rules.
+
+4. **Update atomically** — write the new hash and the new `hash_schema_version`
+   in a single atomic transaction so the record is never in a partially-updated
+   state.
+
+5. **Verify** — spot-check a sample of migrated records by comparing the
+   re-derived hash against the value returned by the on-chain
+   `compute_settlement_hash` function.
+
+6. **Resume reconciliation** — once all records are at the current version,
+   normal hash-based reconciliation can safely restart.

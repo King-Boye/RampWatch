@@ -1,15 +1,27 @@
 import cron from 'node-cron';
 import { AssetVerifier } from './verifier';
-import { getStaleAssets, saveAssetVerification } from './database';
+import { getStaleAssets, saveAssetVerification, getPool } from './database';
 import { storeVerificationOnChain } from './stellar';
+import { KycPoller } from './kyc-poller';
+import { KycUpsertService } from './kyc-upsert-service';
 
 const verifier = new AssetVerifier();
 
 export function startBackgroundJobs() {
-  // Run every 6 hours
+  // Asset revalidation — every 6 hours
   cron.schedule('0 */6 * * *', async () => {
     console.log('Starting periodic asset revalidation...');
     await revalidateStaleAssets();
+  });
+
+  // KYC status polling — every 6 hours
+  const pool = getPool();
+  const kycUpsertService = new KycUpsertService(pool);
+  const kycPoller = new KycPoller(pool, kycUpsertService);
+
+  cron.schedule('0 */6 * * *', async () => {
+    console.log('Starting KYC poll cycle...');
+    await kycPoller.runCycle();
   });
 
   console.log('Background jobs scheduled');

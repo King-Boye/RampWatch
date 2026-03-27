@@ -36,8 +36,40 @@
 
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
-/// Canonical field ordering version — increment if ordering ever changes.
-/// External systems should record this alongside stored settlement IDs.
+/// Canonical field ordering version for settlement ID hashes.
+///
+/// This version must be stored alongside every settlement ID so that external
+/// systems can detect when the hashing scheme has changed and act accordingly.
+///
+/// # When to increment
+///
+/// Bump this value whenever any of the following change:
+/// - The set of fields included in the hash input
+/// - The serialization order of those fields
+/// - The encoding of any individual field (e.g. endianness, XDR variant)
+/// - The hash algorithm itself
+///
+/// Do **not** bump for changes that are invisible to the hash (e.g. adding a
+/// new field that is explicitly excluded, like `status`).
+///
+/// # How external systems should handle a version mismatch
+///
+/// External systems must persist the schema version alongside each stored
+/// settlement ID (e.g. as a column in the settlements table).  On startup, or
+/// before any hash comparison, they should:
+///
+/// 1. Read the `hash_schema_version` returned by `compute_settlement_hash`.
+/// 2. Compare it against the version stored with the local record.
+/// 3. If the versions differ, **do not** treat the hashes as comparable.
+///    Instead, trigger a re-hash migration (see MIGRATION.md §Hash Schema
+///    Upgrades) before resuming normal reconciliation.
+///
+/// # Migration steps for existing settlement IDs
+///
+/// See MIGRATION.md §Hash Schema Upgrades for the full procedure.  The short
+/// version: re-derive every stored settlement ID using the new version's
+/// algorithm, update the stored hash and version atomically, then resume
+/// normal operation.
 pub const HASH_SCHEMA_VERSION: u32 = 1;
 
 /// Generate a deterministic settlement ID from remittance fields.
