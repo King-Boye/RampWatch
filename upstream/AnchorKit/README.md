@@ -114,6 +114,7 @@ const auditLog = await contract.get_audit_log(0);
 
 ### Getting Started
 - **[QUICK_START.md](./QUICK_START.md)** - Quick reference guide with examples
+- **[CHANGELOG.md](./CHANGELOG.md)** - Version history and changes
 
 ### Feature Documentation
 - **[ANCHOR_INFO_DISCOVERY.md](./ANCHOR_INFO_DISCOVERY.md)** - Anchor info discovery service (stellar.toml)
@@ -387,7 +388,7 @@ AnchorKit consists of:
 
 ## License
 
-[Add your license here]
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Support
 
