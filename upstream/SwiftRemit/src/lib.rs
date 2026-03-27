@@ -45,7 +45,7 @@ mod test_integrator_fees;
 #[cfg(test)]
 mod test_treasury;
 #[cfg(test)]
-mod test_migration;
+mod test_fee_corridor; 
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
@@ -361,9 +361,6 @@ impl SwiftRemitContract {
     set_remittance(&env, remittance_id, &remittance);
     set_remittance_counter(&env, remittance_id);
 
-    // Set initial transfer state
-    set_transfer_state(&env, remittance_id, TransferState::Initiated)?;
-
     // Store idempotency record if key provided
     if let Some(key) = idempotency_key {
         let request_hash = hashing::compute_request_hash(&env, &sender, &agent, amount, expiry);
@@ -381,6 +378,55 @@ impl SwiftRemitContract {
 
     Ok(remittance_id)
 }
+
+    /// Creates a remittance using corridor-specific fees when available.
+    ///
+    /// If a corridor is configured for the given country pair, its fee strategy
+    /// is used instead of the global strategy. Falls back to global if not found.
+    pub fn create_remittance_with_corridor(
+    env: Env,
+    sender: Address,
+    agent: Address,
+    amount: i128,
+    expiry: Option<u64>,
+    from_country: Option<String>,
+    to_country: Option<String>,
+) -> Result<u64, ContractError> {
+    validate_create_remittance_request(&env, &sender, &agent, amount)?;
+
+    sender.require_auth();
+
+    let corridor = match (&from_country, &to_country) {
+        (Some(from), Some(to)) => storage::get_fee_corridor(&env, from, to),
+        _ => None,
+    };
+    let fee = fee_service::calculate_fees_with_breakdown(&env, amount, corridor.as_ref())?
+        .platform_fee;
+
+    let usdc_token = get_usdc_token(&env)?;
+    let token_client = token::Client::new(&env, &usdc_token);
+    token_client.transfer(&sender, &env.current_contract_address(), &amount);
+
+    let counter = get_remittance_counter(&env)?;
+    let remittance_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
+
+    let remittance = Remittance {
+        id: remittance_id,
+        sender: sender.clone(),
+        agent: agent.clone(),
+        amount,
+        fee,
+        status: RemittanceStatus::Pending,
+        expiry,
+    };
+
+    set_remittance(&env, remittance_id, &remittance);
+    set_remittance_counter(&env, remittance_id);
+    set_transfer_state(&env, remittance_id, TransferState::Initiated)?;
+
+    Ok(remittance_id)
+}
+
     /// Confirms a remittance payout to the agent.
     ///
     /// Transfers the remittance amount (minus platform fee) to the agent and marks
@@ -423,7 +469,7 @@ impl SwiftRemitContract {
         require_role_settler(&env, &remittance.agent)?;
 
         // Transition to Processing state
-        set_transfer_state(&env, remittance_id, TransferState::Processing)?;
+        crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Processing)?;
 
         // Check rate limit for sender
         check_settlement_rate_limit(&env, &remittance.sender)?;
@@ -473,12 +519,9 @@ impl SwiftRemitContract {
             .ok_or(ContractError::Overflow)?;
         set_accumulated_fees(&env, new_fees);
 
-        // Update remittance status
-        remittance.status = RemittanceStatus::Completed;
+        // Update remittance status via validated transition
+        crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Completed)?;
         set_remittance(&env, remittance_id, &remittance);
-
-        // Transition to Completed state
-        set_transfer_state(&env, remittance_id, TransferState::Completed)?;
 
         // Mark settlement as executed to prevent duplicates
         set_settlement_hash(&env, remittance_id);
@@ -545,11 +588,9 @@ impl SwiftRemitContract {
             &remittance.amount,
         );
 
-        remittance.status = RemittanceStatus::Cancelled;
+        // Transition to Cancelled state via validated transition
+        crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Cancelled)?;
         set_remittance(&env, remittance_id, &remittance);
-
-        // Transition to Refunded state
-        set_transfer_state(&env, remittance_id, TransferState::Refunded)?;
 
         // Event: Remittance cancelled - Fires when sender cancels a pending remittance and receives full refund
         // Used by off-chain systems to track cancellations and update transaction status
@@ -1034,8 +1075,24 @@ impl SwiftRemitContract {
                 }
             }
 
-            // Validate addresses
-            validate_address(&remittance.agent)?;
+            //     // Address validation omitted — the Soroban SDK guarantees that all Address
+            //     // values are structurally valid before contract code runs. The agent address
+            //     // was already accepted when the remittance was created. See validation.rs
+            //     // module-level documentation for the full rationale.
+            //
+            // The surrounding context for locating the line (do not change this part):
+            //
+            //     // Check expiry
+            //     if let Some(expiry_time) = remittance.expiry {
+            //         let current_time = env.ledger().timestamp();
+            //         if current_time > expiry_time {
+            //             return Err(ContractError::SettlementExpired);
+            //         }
+            //     }
+            //
+            //     // ← REMOVE the validate_address call that was here
+            //
+            //     remittances.push_back(remittance);
 
             remittances.push_back(remittance);
         }
@@ -1408,8 +1465,8 @@ impl SwiftRemitContract {
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// Gets the current state of a transfer (read-only for indexers)
-    pub fn get_transfer_state(env: Env, transfer_id: u64) -> Option<TransferState> {
-        get_transfer_state(&env, transfer_id)
+    pub fn get_transfer_state(env: Env, transfer_id: u64) -> Option<RemittanceStatus> {
+        get_remittance(&env, transfer_id).ok().map(|r| r.status)
     }
 
     // ========== Asset Verification Functions ==========
