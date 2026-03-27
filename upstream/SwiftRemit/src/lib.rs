@@ -38,7 +38,7 @@ mod test_transitions;
 #[cfg(test)]
 mod test_protocol_fee;
 #[cfg(test)]
-mod test_property; 
+mod test_property;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
@@ -140,14 +140,14 @@ impl SwiftRemitContract {
 
         // Set legacy admin for backward compatibility
         set_admin(&env, &admin);
-        
+
         // Initialize new admin role system
         set_admin_role(&env, &admin, true);
         set_admin_count(&env, 1);
-        
+
         // Assign Admin role to initial admin
         assign_role(&env, &admin, &Role::Admin);
-        
+
         set_usdc_token(&env, &usdc_token);
         set_token_whitelisted(&env, &usdc_token, true);
         set_platform_fee_bps(&env, fee_bps);
@@ -156,7 +156,7 @@ impl SwiftRemitContract {
         set_accumulated_fees(&env, 0);
         set_rate_limit_cooldown(&env, rate_limit_cooldown);
         set_escrow_counter(&env, 0);
-        
+
         // Initialize protocol fee and treasury
         set_protocol_fee_bps(&env, protocol_fee_bps)?;
         set_treasury(&env, &treasury);
@@ -255,7 +255,7 @@ impl SwiftRemitContract {
     pub fn update_fee(env: Env, fee_bps: u32) -> Result<(), ContractError> {
         // Centralized validation
         validate_update_fee_request(fee_bps)?;
-        
+
         let caller = get_admin(&env)?;
         require_admin(&env, &caller)?;
 
@@ -326,7 +326,7 @@ impl SwiftRemitContract {
 
     set_remittance(&env, remittance_id, &remittance);
     set_remittance_counter(&env, remittance_id);
-    
+
     // Set initial transfer state
     set_transfer_state(&env, remittance_id, TransferState::Initiated)?;
 
@@ -362,10 +362,10 @@ impl SwiftRemitContract {
         let mut remittance = validate_confirm_payout_request(&env, remittance_id)?;
 
         remittance.agent.require_auth();
-        
+
         // Require Settler role
         require_role_settler(&env, &remittance.agent)?;
-        
+
         // Transition to Processing state
         set_transfer_state(&env, remittance_id, TransferState::Processing)?;
 
@@ -391,16 +391,16 @@ impl SwiftRemitContract {
         let usdc_token = get_usdc_token(&env)?;
         let current_fees = get_accumulated_fees(&env)?;
         let current_time = env.ledger().timestamp();
-        
+
         let token_client = token::Client::new(&env, &usdc_token);
-        
+
         // Transfer payout to agent
         token_client.transfer(
             &env.current_contract_address(),
             &remittance.agent,
             &payout_amount,
         );
-        
+
         // Transfer protocol fee to treasury if needed
         if protocol_fee > 0 {
             let treasury = get_treasury(&env)?;
@@ -420,20 +420,20 @@ impl SwiftRemitContract {
         // Update remittance status
         remittance.status = RemittanceStatus::Completed;
         set_remittance(&env, remittance_id, &remittance);
-        
+
         // Transition to Completed state
         set_transfer_state(&env, remittance_id, TransferState::Completed)?;
 
         // Mark settlement as executed to prevent duplicates
         set_settlement_hash(&env, remittance_id);
-        
+
         // Update last settlement time for rate limiting
         set_last_settlement_time(&env, &remittance.sender, current_time);
 
         // Event: Remittance completed - Fires when agent confirms fiat payout and USDC is released
         // Used by off-chain systems to track successful settlements and update transaction status
         emit_remittance_completed(&env, remittance_id, remittance.sender.clone(), remittance.agent.clone());
-        
+
         // Event: Settlement completed - Fires with final executed settlement values
         // Used by off-chain systems for reconciliation and audit trails of completed transactions
         emit_settlement_completed(&env, remittance_id, remittance.sender, remittance.agent, usdc_token, payout_amount);
@@ -491,7 +491,7 @@ impl SwiftRemitContract {
 
         remittance.status = RemittanceStatus::Cancelled;
         set_remittance(&env, remittance_id, &remittance);
-        
+
         // Transition to Refunded state
         set_transfer_state(&env, remittance_id, TransferState::Refunded)?;
 
@@ -527,7 +527,7 @@ impl SwiftRemitContract {
     pub fn withdraw_fees(env: Env, to: Address) -> Result<(), ContractError> {
         // Centralized validation before business logic (returns fees to avoid re-read)
         let fees = validate_withdraw_fees_request(&env, &to)?;
-        
+
         let caller = get_admin(&env)?;
         require_admin(&env, &caller)?;
 
@@ -596,16 +596,16 @@ impl SwiftRemitContract {
     }
 
     /// Computes the deterministic settlement hash for a remittance.
-    /// 
+    ///
     /// This function allows external systems (banks, anchors, APIs) to compute
     /// the same settlement hash that the contract uses internally. The hash is
     /// computed using the canonical ordering specified in DETERMINISTIC_HASHING_SPEC.md.
-    /// 
+    ///
     /// External systems can use this to:
     /// - Pre-compute settlement IDs before submission
     /// - Verify on-chain settlement IDs match expected values
     /// - Enable cross-system reconciliation using deterministic IDs
-    /// 
+    ///
     /// # Arguments
     ///
     /// * `env` - The contract execution environment
@@ -615,18 +615,18 @@ impl SwiftRemitContract {
     ///
     /// * `Ok(BytesN<32>)` - The 32-byte SHA-256 settlement hash
     /// * `Err(ContractError::RemittanceNotFound)` - Remittance ID does not exist
-    /// 
+    ///
     /// # Hash Input Ordering (Canonical)
-    /// 
+    ///
     /// 1. remittance_id (u64, big-endian)
     /// 2. sender (Address, XDR-encoded)
     /// 3. agent (Address, XDR-encoded)
     /// 4. amount (i128, big-endian)
     /// 5. fee (i128, big-endian)
     /// 6. expiry (u64, big-endian, 0 if None)
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```ignore
     /// let settlement_hash = contract.compute_settlement_hash(&env, remittance_id)?;
     /// // External system can verify this matches their computed hash
@@ -663,7 +663,7 @@ impl SwiftRemitContract {
         amount: i128,
     ) -> Result<u64, ContractError> {
         sender.require_auth();
-        
+
         if amount <= 0 {
             return Err(ContractError::InvalidAmount);
         }
@@ -693,7 +693,7 @@ impl SwiftRemitContract {
 
     pub fn release_escrow(env: Env, transfer_id: u64) -> Result<(), ContractError> {
         let mut escrow = get_escrow(&env, transfer_id)?;
-        
+
         let caller = get_admin(&env)?;
         require_admin(&env, &caller)?;
 
@@ -715,7 +715,7 @@ impl SwiftRemitContract {
 
     pub fn refund_escrow(env: Env, transfer_id: u64) -> Result<(), ContractError> {
         let mut escrow = get_escrow(&env, transfer_id)?;
-        
+
         escrow.sender.require_auth();
 
         if escrow.status != EscrowStatus::Pending {
@@ -742,7 +742,7 @@ impl SwiftRemitContract {
     pub fn is_paused(env: Env) -> bool {
         crate::storage::is_paused(&env)
     }
-    
+
     pub fn update_rate_limit(env: Env, cooldown_seconds: u64) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
@@ -751,11 +751,11 @@ impl SwiftRemitContract {
 
         Ok(())
     }
-    
+
     pub fn get_rate_limit_cooldown(env: Env) -> Result<u64, ContractError> {
         get_rate_limit_cooldown(&env)
     }
-    
+
     pub fn get_last_settlement_time(env: Env, sender: Address) -> Option<u64> {
         get_last_settlement_time(&env, &sender)
     }
@@ -765,30 +765,30 @@ impl SwiftRemitContract {
     }
 
     /// Batch settle multiple remittances with net settlement optimization.
-    /// 
+    ///
     /// This function processes multiple remittances in a single transaction and applies
     /// net settlement logic to offset opposing transfers between the same parties.
     /// Only the net difference is executed on-chain, reducing total token transfers.
-    /// 
+    ///
     /// # Benefits
     /// - Reduces on-chain transfer count by offsetting opposing flows
     /// - Preserves all fees and accounting integrity
     /// - Deterministic and order-independent results
     /// - Gas-efficient batch processing
-    /// 
+    ///
     /// # Example
     /// If batch contains:
     /// - Remittance 1: A -> B: 100 USDC (fee: 2)
     /// - Remittance 2: B -> A: 90 USDC (fee: 1.8)
-    /// 
+    ///
     /// Result: Single transfer of 10 USDC from A to B, total fees: 3.8
-    /// 
+    ///
     /// # Parameters
     /// - `entries`: Vector of BatchSettlementEntry containing remittance IDs to settle
-    /// 
+    ///
     /// # Returns
     /// BatchSettlementResult with list of successfully settled remittance IDs
-    /// 
+    ///
     /// # Errors
     /// - ContractPaused: Contract is in paused state
     /// - InvalidAmount: Batch size exceeds MAX_BATCH_SIZE or is empty
@@ -865,7 +865,7 @@ impl SwiftRemitContract {
         // Batch read storage values once
         let usdc_token = get_usdc_token(&env)?;
         let mut current_fees = get_accumulated_fees(&env)?;
-        
+
         let token_client = token::Client::new(&env, &usdc_token);
 
         // Execute net transfers
@@ -950,7 +950,7 @@ impl SwiftRemitContract {
         }
 
         set_token_whitelisted(&env, &token, true);
-        
+
         Ok(())
     }
 
@@ -964,7 +964,7 @@ impl SwiftRemitContract {
         }
 
         set_token_whitelisted(&env, &token, false);
-        
+
         Ok(())
     }
 
@@ -974,13 +974,13 @@ impl SwiftRemitContract {
     }
 
     /// Update rate limit configuration. Only admins can call this.
-    /// 
+    ///
     /// # Parameters
     /// - `caller`: Admin address (must be authorized)
     /// - `max_requests`: Maximum number of requests allowed per window
     /// - `window_seconds`: Time window in seconds
     /// - `enabled`: Whether rate limiting is enabled
-    /// 
+    ///
     /// # Example
     /// ```ignore
     /// // Set rate limit to 50 requests per 30 seconds
@@ -1007,7 +1007,7 @@ impl SwiftRemitContract {
     }
 
     /// Get current rate limit configuration
-    /// 
+    ///
     /// # Returns
     /// Tuple of (max_requests, window_seconds, enabled)
     pub fn get_rate_limit_config(env: Env) -> (u32, u64, bool) {
@@ -1016,10 +1016,10 @@ impl SwiftRemitContract {
     }
 
     /// Get rate limit status for a specific address
-    /// 
+    ///
     /// # Parameters
     /// - `address`: Address to check
-    /// 
+    ///
     /// # Returns
     /// Tuple of (current_requests, max_requests, window_seconds)
     pub fn get_rate_limit_status(env: Env, address: Address) -> (u32, u32, u64) {
@@ -1078,30 +1078,30 @@ impl SwiftRemitContract {
     pub fn has_role(env: Env, address: Address, role: Role) -> bool {
         has_role(&env, &address, &role)
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Fee Strategy Management
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /// Updates the fee strategy (Admin only)
-    /// 
+    ///
     /// Allows switching between different fee calculation methods:
     /// - Percentage: Fee based on basis points (e.g., 250 = 2.5%)
     /// - Flat: Fixed fee amount regardless of transaction size
     /// - Dynamic: Tiered fee that decreases for larger amounts
-    /// 
+    ///
     /// # Arguments
     /// * `caller` - Admin address (must be authorized)
     /// * `strategy` - New fee strategy to apply
-    /// 
+    ///
     /// # Examples
     /// ```ignore
     /// // Set 2.5% percentage fee
     /// contract.update_fee_strategy(&admin, FeeStrategy::Percentage(250))?;
-    /// 
+    ///
     /// // Set flat 100 USDC fee
     /// contract.update_fee_strategy(&admin, FeeStrategy::Flat(100_0000000))?;
-    /// 
+    ///
     /// // Set dynamic tiered fee starting at 4%
     /// contract.update_fee_strategy(&admin, FeeStrategy::Dynamic(400))?;
     /// ```
@@ -1110,7 +1110,7 @@ impl SwiftRemitContract {
         set_fee_strategy(&env, &strategy);
         Ok(())
     }
-    
+
     /// Gets the current fee strategy
     pub fn get_fee_strategy(env: Env) -> FeeStrategy {
         get_fee_strategy(&env)
@@ -1216,11 +1216,11 @@ impl SwiftRemitContract {
         storage::remove_fee_corridor(&env, &from_country, &to_country);
         Ok(())
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Transfer State Registry (Read-Only for Indexers)
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /// Gets the current state of a transfer (read-only for indexers)
     pub fn get_transfer_state(env: Env, transfer_id: u64) -> Option<TransferState> {
         get_transfer_state(&env, transfer_id)
@@ -1342,7 +1342,7 @@ impl SwiftRemitContract {
         issuer: Address,
     ) -> Result<(), ContractError> {
         let verification = get_asset_verification(&env, &asset_code, &issuer)?;
-        
+
         if verification.status == VerificationStatus::Suspicious {
             return Err(ContractError::SuspiciousAsset);
         }
@@ -1351,7 +1351,7 @@ impl SwiftRemitContract {
     }
 
     // === Transaction Controller Functions ===
-    
+
     /// Execute a complete transaction with validation, KYC, contract call, and anchor operations
     pub fn execute_transaction(
         env: Env,
@@ -1362,7 +1362,7 @@ impl SwiftRemitContract {
     ) -> Result<TransactionRecord, ContractError> {
         TransactionController::execute_transaction(&env, user, agent, amount, expiry)
     }
-    
+
     /// Get transaction status and details
     pub fn get_transaction_status(
         env: Env,
@@ -1370,7 +1370,7 @@ impl SwiftRemitContract {
     ) -> Result<TransactionRecord, ContractError> {
         TransactionController::get_transaction_status(&env, remittance_id)
     }
-    
+
     /// Retry a failed transaction
     pub fn retry_transaction(
         env: Env,
@@ -1378,35 +1378,35 @@ impl SwiftRemitContract {
     ) -> Result<TransactionRecord, ContractError> {
         TransactionController::retry_transaction(&env, remittance_id)
     }
-    
+
     // === User Management Functions ===
-    
+
     /// Set user blacklist status (admin only)
     pub fn set_user_blacklisted(env: Env, user: Address, blacklisted: bool) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
-        
+
         set_user_blacklisted(&env, &user, blacklisted);
         Ok(())
     }
-    
+
     /// Check if user is blacklisted
     pub fn is_user_blacklisted(env: Env, user: Address) -> bool {
         is_user_blacklisted(&env, &user)
     }
-    
+
     /// Set user KYC approval status (admin only)
     pub fn set_kyc_approved(env: Env, user: Address, approved: bool, expiry: u64) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
-        
+
         set_kyc_approved(&env, &user, approved);
         if approved {
             set_kyc_expiry(&env, &user, expiry);
         }
         Ok(())
     }
-    
+
     /// Check if user KYC is approved
     pub fn is_kyc_approved(env: Env, user: Address) -> bool {
         is_kyc_approved(&env, &user) && !is_kyc_expired(&env, &user)
