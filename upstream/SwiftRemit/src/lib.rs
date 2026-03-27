@@ -1069,25 +1069,6 @@ impl SwiftRemitContract {
                 }
             }
 
-            //     // Address validation omitted — the Soroban SDK guarantees that all Address
-            //     // values are structurally valid before contract code runs. The agent address
-            //     // was already accepted when the remittance was created. See validation.rs
-            //     // module-level documentation for the full rationale.
-            //
-            // The surrounding context for locating the line (do not change this part):
-            //
-            //     // Check expiry
-            //     if let Some(expiry_time) = remittance.expiry {
-            //         let current_time = env.ledger().timestamp();
-            //         if current_time > expiry_time {
-            //             return Err(ContractError::SettlementExpired);
-            //         }
-            //     }
-            //
-            //     // ← REMOVE the validate_address call that was here
-            //
-            //     remittances.push_back(remittance);
-
             remittances.push_back(remittance);
         }
 
