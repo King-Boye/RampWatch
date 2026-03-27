@@ -10,7 +10,7 @@
 //!
 //! 1. `remittance_id`  — u64,  big-endian 8 bytes
 //! 2. `sender`         — Address, XDR-encoded bytes
-//! 3. `agent`          — Address, XDR-encoded bytes  
+//! 3. `agent`          — Address, XDR-encoded bytes
 //! 4. `amount`         — i128, big-endian 16 bytes
 //! 5. `fee`            — i128, big-endian 16 bytes
 //! 6. `expiry`         — u64,  big-endian 8 bytes (0x0000000000000000 if None)
@@ -36,8 +36,40 @@
 
 use soroban_sdk::{Address, Bytes, BytesN, Env};
 
-/// Canonical field ordering version — increment if ordering ever changes.
-/// External systems should record this alongside stored settlement IDs.
+/// Canonical field ordering version for settlement ID hashes.
+///
+/// This version must be stored alongside every settlement ID so that external
+/// systems can detect when the hashing scheme has changed and act accordingly.
+///
+/// # When to increment
+///
+/// Bump this value whenever any of the following change:
+/// - The set of fields included in the hash input
+/// - The serialization order of those fields
+/// - The encoding of any individual field (e.g. endianness, XDR variant)
+/// - The hash algorithm itself
+///
+/// Do **not** bump for changes that are invisible to the hash (e.g. adding a
+/// new field that is explicitly excluded, like `status`).
+///
+/// # How external systems should handle a version mismatch
+///
+/// External systems must persist the schema version alongside each stored
+/// settlement ID (e.g. as a column in the settlements table).  On startup, or
+/// before any hash comparison, they should:
+///
+/// 1. Read the `hash_schema_version` returned by `compute_settlement_hash`.
+/// 2. Compare it against the version stored with the local record.
+/// 3. If the versions differ, **do not** treat the hashes as comparable.
+///    Instead, trigger a re-hash migration (see MIGRATION.md §Hash Schema
+///    Upgrades) before resuming normal reconciliation.
+///
+/// # Migration steps for existing settlement IDs
+///
+/// See MIGRATION.md §Hash Schema Upgrades for the full procedure.  The short
+/// version: re-derive every stored settlement ID using the new version's
+/// algorithm, update the stored hash and version atomically, then resume
+/// normal operation.
 pub const HASH_SCHEMA_VERSION: u32 = 1;
 
 /// Generate a deterministic settlement ID from remittance fields.
@@ -116,6 +148,42 @@ pub fn compute_settlement_id_from_remittance(
 fn address_to_bytes(env: &Env, address: &Address) -> Bytes {
     use soroban_sdk::xdr::ToXdr;
     address.to_xdr(env)
+}
+
+/// Compute a deterministic hash from remittance creation request parameters.
+/// Used for idempotency key validation to detect payload changes.
+///
+/// # Arguments
+/// * `env`    - Soroban environment
+/// * `sender` - Sender address
+/// * `agent`  - Agent address
+/// * `amount` - Payment amount in USDC
+/// * `expiry` - Optional expiry timestamp
+///
+/// # Returns
+/// SHA-256 hash as BytesN<32>
+pub fn compute_request_hash(
+    env: &Env,
+    sender: &Address,
+    agent: &Address,
+    amount: i128,
+    expiry: Option<u64>,
+) -> BytesN<32> {
+    let mut buf = Bytes::new(env);
+
+    // Serialize request parameters in canonical order
+    let sender_bytes = address_to_bytes(env, sender);
+    buf.append(&sender_bytes);
+
+    let agent_bytes = address_to_bytes(env, agent);
+    buf.append(&agent_bytes);
+
+    buf.extend_from_array(&amount.to_be_bytes());
+
+    let expiry_val: u64 = expiry.unwrap_or(0);
+    buf.extend_from_array(&expiry_val.to_be_bytes());
+
+    env.crypto().sha256(&buf).into()
 }
 
 #[cfg(test)]

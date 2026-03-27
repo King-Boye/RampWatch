@@ -197,7 +197,7 @@ fn test_backwards_compatibility() {
 
     // Old update_fee should still work (updates percentage strategy)
     client.update_fee(&500); // 5%
-    
+
     // Verify strategy updated to new percentage
     let strategy = client.get_fee_strategy();
     assert_eq!(strategy, FeeStrategy::Percentage(500));

@@ -11,7 +11,43 @@ const pool = new Pool({
 export async function initDatabase() {
   const client = await pool.connect();
   try {
-    await client.query(`
+    await client.query(`      CREATE TABLE IF NOT EXISTS transactions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        transaction_id VARCHAR(255) UNIQUE NOT NULL,
+        anchor_id VARCHAR(255),
+        kind VARCHAR(20) CHECK (kind IN ('deposit', 'withdrawal')),
+        status VARCHAR(50),
+        status_eta INTEGER,
+        amount_in DECIMAL(20, 7),
+        amount_out DECIMAL(20, 7),
+        amount_fee DECIMAL(20, 7),
+        asset_code VARCHAR(12),
+        stellar_transaction_id VARCHAR(64),
+        external_transaction_id VARCHAR(255),
+        kyc_status VARCHAR(20),
+        kyc_fields JSONB,
+        kyc_rejection_reason TEXT,
+        message TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS user_kyc_status (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id VARCHAR(255) NOT NULL,
+        anchor_id VARCHAR(255) NOT NULL,
+        kyc_status VARCHAR(20) NOT NULL CHECK (kyc_status IN ('pending', 'approved', 'rejected')),
+        kyc_level VARCHAR(20) CHECK (kyc_level IN ('basic', 'intermediate', 'advanced')),
+        rejection_reason TEXT,
+        verified_at TIMESTAMP NOT NULL,
+        expires_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_user_anchor UNIQUE (user_id, anchor_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_kyc_status_user_id ON user_kyc_status(user_id);
+      CREATE INDEX IF NOT EXISTS idx_kyc_status_status ON user_kyc_status(kyc_status);
       CREATE TABLE IF NOT EXISTS verified_assets (
         id SERIAL PRIMARY KEY,
         asset_code VARCHAR(12) NOT NULL,
