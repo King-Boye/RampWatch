@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import cors from 'cors';
+import { Pool } from 'pg';
 import { AssetVerifier } from './verifier';
 import {
   getAssetVerification,
@@ -13,9 +14,12 @@ import {
   saveAnchorKycConfig,
   getUserKycStatus,
   saveUserKycStatus,
+  getPool,
 } from './database';
-import { storeVerificationOnChain, simulateSettlement } from './stellar';
-import { VerificationStatus, KycStatus, AnchorKycConfig, UserKycStatus } from './types';
+import { storeVerificationOnChain } from './stellar';
+import { VerificationStatus, AnchorKycConfig } from './types';
+import { KycUpsertService } from './kyc-upsert-service';
+import { createTransferGuard, AuthenticatedRequest } from './transfer-guard';
 
 const app = express();
 const verifier = new AssetVerifier();
