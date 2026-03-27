@@ -38,10 +38,10 @@ enum DataKey {
 
     /// Platform fee in basis points (1 bps = 0.01%)
     PlatformFeeBps,
-    
+
     /// Protocol fee in basis points (1 bps = 0.01%)
     ProtocolFeeBps,
-    
+
     /// Treasury address for protocol fees
     Treasury,
 
@@ -63,10 +63,10 @@ enum DataKey {
     /// Total accumulated platform fees awaiting withdrawal
     AccumulatedFees,
 
-    /// Integrator fee in basis points
+    /// Integrator fee in basis points (instance storage)
     IntegratorFeeBps,
 
-    /// Total accumulated integrator fees awaiting withdrawal
+    /// Total accumulated integrator fees awaiting withdrawal (instance storage)
     AccumulatedIntegratorFees,
 
     /// Contract pause status for emergency halts
@@ -76,23 +76,23 @@ enum DataKey {
     // Keys for preventing duplicate settlement execution
     /// Settlement hash for duplicate detection (legacy persistent storage)
     SettlementHash(u64),
-    
+
     // === User Management ===
     // Keys for user eligibility and KYC tracking
     /// User blacklist status (persistent storage)
     UserBlacklisted(Address),
-    
+
     /// User KYC approval status (persistent storage)
     KycApproved(Address),
-    
+
     /// User KYC expiry timestamp (persistent storage)
     KycExpiry(Address),
-    
+
     // === Transaction Controller ===
     // Keys for transaction tracking and anchor operations
     /// Transaction record indexed by remittance ID (persistent storage)
     TransactionRecord(u64),
-    
+
     /// Anchor transaction mapping (persistent storage)
     AnchorTransaction(u64),
 
@@ -103,33 +103,33 @@ enum DataKey {
     /// Packed settlement flags (persistent storage)
     /// Replaces scattered settlement keys with a compact bitfield.
     SettlementPacked(u64),
-    
+
     // === Rate Limiting ===
     // Keys for preventing abuse through rate limiting
     /// Cooldown period in seconds between settlements per sender
     RateLimitCooldown,
-    
+
     /// Last settlement timestamp for a sender address (persistent storage)
     LastSettlementTime(Address),
-    
+
     // === Daily Limits ===
     // Keys for tracking daily transfer limits
     /// Daily limit configuration indexed by currency and country (persistent storage)
     DailyLimit(String, String),
-    
+
     /// User transfer records indexed by user address (persistent storage)
     UserTransfers(Address),
-    
+
     // === Token Whitelist ===
     // Keys for managing whitelisted tokens
     /// Token whitelist status indexed by token address (persistent storage)
     TokenWhitelisted(Address),
-    
+
     /// Settlement completion event emission tracking (legacy persistent storage)
     /// Tracks whether the completion event has been emitted for a settlement
     SettlementEventEmitted(u64),
 
-    
+
     /// Total number of successfully finalized settlements (instance storage)
     /// Incremented atomically each time a settlement is successfully completed
     SettlementCounter,
@@ -137,17 +137,17 @@ enum DataKey {
     // === Escrow Management ===
     /// Escrow counter for generating unique transfer IDs
     EscrowCounter,
-    
+
     /// Escrow record indexed by transfer ID (persistent storage)
     Escrow(u64),
-    
+
     // === Transfer State Registry ===
     /// Transfer state indexed by transfer ID (persistent storage)
     TransferState(u64),
-    
+
     /// Fee strategy configuration (instance storage)
     FeeStrategy,
-    
+
     /// Fee corridor configuration indexed by (from_country, to_country)
     FeeCorridor(String, String),
 
@@ -626,21 +626,21 @@ pub fn get_last_settlement_time(env: &Env, sender: &Address) -> Option<u64> {
 
 pub fn check_settlement_rate_limit(env: &Env, sender: &Address) -> Result<(), ContractError> {
     let cooldown = get_rate_limit_cooldown(env)?;
-    
+
     // If cooldown is 0, rate limiting is disabled
     if cooldown == 0 {
         return Ok(());
     }
-    
+
     if let Some(last_time) = get_last_settlement_time(env, sender) {
         let current_time = env.ledger().timestamp();
         let elapsed = current_time.saturating_sub(last_time);
-        
+
         if elapsed < cooldown {
             return Err(ContractError::RateLimitExceeded);
         }
     }
-    
+
     Ok(())
 }
 
@@ -983,12 +983,12 @@ pub fn set_transfer_state(
             return Ok(());
         }
     }
-    
+
     // Write new state
     env.storage()
         .persistent()
         .set(&DataKey::TransferState(transfer_id), &new_state);
-    
+
     Ok(())
 }
 

@@ -142,12 +142,12 @@ pub fn validate_initialize_request(
     validate_address(admin)?;
     validate_address(token)?;
     validate_fee_bps(fee_bps)?;
-    
+
     // Check if already initialized
     if crate::has_admin(env) {
         return Err(ContractError::AlreadyInitialized);
     }
-    
+
     Ok(())
 }
 

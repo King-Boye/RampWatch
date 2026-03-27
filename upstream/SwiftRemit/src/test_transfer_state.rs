@@ -7,9 +7,9 @@ use soroban_sdk::Env;
 fn test_transfer_state_transitions() {
     let env = Env::default();
     let contract_id = env.register_contract(None, SwiftRemitContract {});
-    
+
     let transfer_id = 1u64;
-    
+
     // Initial state: Initiated
     env.as_contract(&contract_id, || {
         crate::storage::set_transfer_state(&env, transfer_id, TransferState::Initiated).unwrap();
@@ -38,9 +38,9 @@ fn test_transfer_state_transitions() {
 fn test_invalid_state_transitions() {
     let env = Env::default();
     let contract_id = env.register_contract(None, SwiftRemitContract {});
-    
+
     let transfer_id = 2u64;
-    
+
     // Set to Initiated
     env.as_contract(&contract_id, || {
         crate::storage::set_transfer_state(&env, transfer_id, TransferState::Initiated).unwrap();
@@ -61,9 +61,9 @@ fn test_invalid_state_transitions() {
 fn test_terminal_states_cannot_transition() {
     let env = Env::default();
     let contract_id = env.register_contract(None, SwiftRemitContract {});
-    
+
     let transfer_id = 3u64;
-    
+
     // Set to Completed (terminal state)
     env.as_contract(&contract_id, || {
         crate::storage::set_transfer_state(&env, transfer_id, TransferState::Completed).unwrap();
@@ -86,9 +86,9 @@ fn test_terminal_states_cannot_transition() {
 fn test_refund_path() {
     let env = Env::default();
     let contract_id = env.register_contract(None, SwiftRemitContract {});
-    
+
     let transfer_id = 5u64;
-    
+
     // Initiated -> Refunded (early cancellation)
     env.as_contract(&contract_id, || {
         crate::storage::set_transfer_state(&env, transfer_id, TransferState::Initiated).unwrap();
@@ -114,9 +114,9 @@ fn test_refund_path() {
 fn test_idempotent_same_state() {
     let env = Env::default();
     let contract_id = env.register_contract(None, SwiftRemitContract {});
-    
+
     let transfer_id = 7u64;
-    
+
     // Set to Initiated
     env.as_contract(&contract_id, || {
         crate::storage::set_transfer_state(&env, transfer_id, TransferState::Initiated).unwrap();
@@ -135,9 +135,9 @@ fn test_idempotent_same_state() {
 fn test_storage_efficiency() {
     let env = Env::default();
     let contract_id = env.register_contract(None, SwiftRemitContract {});
-    
+
     let transfer_id = 8u64;
-    
+
     // Set initial state
     env.as_contract(&contract_id, || {
         crate::storage::set_transfer_state(&env, transfer_id, TransferState::Initiated).unwrap();

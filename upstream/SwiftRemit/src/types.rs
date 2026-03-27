@@ -101,11 +101,11 @@ impl RemittanceStatus {
             // From Pending
             (RemittanceStatus::Pending, RemittanceStatus::Completed) => true,
             (RemittanceStatus::Pending, RemittanceStatus::Cancelled) => true,
-            
+
             // Terminal states cannot transition
             (RemittanceStatus::Completed, _) => false,
             (RemittanceStatus::Cancelled, _) => false,
-            
+
             // All other transitions are invalid
             _ => false,
         }

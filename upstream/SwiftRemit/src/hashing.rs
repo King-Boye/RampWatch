@@ -10,7 +10,7 @@
 //!
 //! 1. `remittance_id`  — u64,  big-endian 8 bytes
 //! 2. `sender`         — Address, XDR-encoded bytes
-//! 3. `agent`          — Address, XDR-encoded bytes  
+//! 3. `agent`          — Address, XDR-encoded bytes
 //! 4. `amount`         — i128, big-endian 16 bytes
 //! 5. `fee`            — i128, big-endian 16 bytes
 //! 6. `expiry`         — u64,  big-endian 8 bytes (0x0000000000000000 if None)
