@@ -372,6 +372,7 @@ impl SwiftRemitContract {
             expires_at,
         };
         storage::set_idempotency_record(&env, &key, &record);
+        storage::set_remittance_idempotency_key(&env, remittance_id, &key);
     }
 
     Ok(remittance_id)
@@ -488,6 +489,11 @@ impl SwiftRemitContract {
 
         log_confirm_payout(&env, remittance_id, payout_amount);
 
+        // Cleanup: remove idempotency record on terminal state (Completed)
+        if let Some(idem_key) = storage::take_remittance_idempotency_key(&env, remittance_id) {
+            storage::remove_idempotency_record(&env, &idem_key);
+        }
+
         Ok(())
     }
 
@@ -548,6 +554,11 @@ impl SwiftRemitContract {
         emit_remittance_cancelled(&env, remittance_id, remittance.sender, remittance.agent, usdc_token, remittance.amount);
 
         log_cancel_remittance(&env, remittance_id);
+
+        // Cleanup: remove idempotency record on terminal state (Cancelled)
+        if let Some(idem_key) = storage::take_remittance_idempotency_key(&env, remittance_id) {
+            storage::remove_idempotency_record(&env, &idem_key);
+        }
 
         Ok(())
     }

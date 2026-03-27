@@ -156,7 +156,11 @@ enum DataKey {
     /// Idempotency record indexed by idempotency key (persistent storage)
     /// Stores remittance_id and request hash for duplicate detection
     IdempotencyRecord(String),
-    
+
+    /// Reverse mapping: remittance_id -> idempotency key (persistent storage)
+    /// Used to clean up the idempotency record when a remittance reaches a terminal state
+    RemittanceIdempotencyKey(u64),
+
     /// TTL for idempotency records in seconds (instance storage)
     IdempotencyTTL,
 }
@@ -1142,4 +1146,28 @@ pub fn set_idempotency_ttl(env: &Env, ttl_seconds: u64) {
     env.storage()
         .instance()
         .set(&DataKey::IdempotencyTTL, &ttl_seconds);
+}
+
+/// Removes an idempotency record (called on terminal state transition)
+pub fn remove_idempotency_record(env: &Env, key: &String) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::IdempotencyRecord(key.clone()));
+}
+
+/// Stores the reverse mapping: remittance_id -> idempotency key
+pub fn set_remittance_idempotency_key(env: &Env, remittance_id: u64, key: &String) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::RemittanceIdempotencyKey(remittance_id), key);
+}
+
+/// Retrieves and removes the reverse mapping, returning the key if present
+pub fn take_remittance_idempotency_key(env: &Env, remittance_id: u64) -> Option<String> {
+    let storage_key = DataKey::RemittanceIdempotencyKey(remittance_id);
+    let key: Option<String> = env.storage().persistent().get(&storage_key);
+    if key.is_some() {
+        env.storage().persistent().remove(&storage_key);
+    }
+    key
 }
