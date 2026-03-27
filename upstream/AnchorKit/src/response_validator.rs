@@ -44,7 +44,7 @@ pub struct AnchorInfoResponse {
 }
 
 /// Validates a raw deposit response map, returning a typed [`DepositResponse`]
-/// or [`Error::ValidationError`] if any required field is missing or empty.
+/// or [`Error::validation_error`] if any required field is missing or empty.
 pub fn validate_deposit_response(
     transaction_id: &str,
     status: &str,
@@ -52,13 +52,13 @@ pub fn validate_deposit_response(
     expires_at: u64,
 ) -> Result<DepositResponse, Error> {
     if transaction_id.is_empty() {
-        return Err(Error::ValidationError);
+        return Err(Error::validation_error("transaction_id is empty"));
     }
     if status.is_empty() {
-        return Err(Error::ValidationError);
+        return Err(Error::validation_error("status is empty"));
     }
     if deposit_address.is_empty() {
-        return Err(Error::ValidationError);
+        return Err(Error::validation_error("deposit_address is empty"));
     }
 
     Ok(DepositResponse {
@@ -70,17 +70,17 @@ pub fn validate_deposit_response(
 }
 
 /// Validates a raw withdraw response, returning a typed [`WithdrawResponse`]
-/// or [`Error::ValidationError`] if any required field is missing or empty.
+/// or [`Error::validation_error`] if any required field is missing or empty.
 pub fn validate_withdraw_response(
     transaction_id: &str,
     status: &str,
     estimated_completion: u64,
 ) -> Result<WithdrawResponse, Error> {
     if transaction_id.is_empty() {
-        return Err(Error::ValidationError);
+        return Err(Error::validation_error("transaction_id is empty"));
     }
     if status.is_empty() {
-        return Err(Error::ValidationError);
+        return Err(Error::validation_error("status is empty"));
     }
 
     Ok(WithdrawResponse {
@@ -91,7 +91,7 @@ pub fn validate_withdraw_response(
 }
 
 /// Validates a raw quote response, returning a typed [`QuoteResponse`]
-/// or [`Error::ValidationError`] if any required field is missing or empty.
+/// or [`Error::validation_error`] if any required field is missing or empty.
 pub fn validate_quote_response(
     id: &str,
     status: &str,
@@ -100,13 +100,13 @@ pub fn validate_quote_response(
     fee: u64,
 ) -> Result<QuoteResponse, Error> {
     if id.is_empty() {
-        return Err(Error::ValidationError);
+        return Err(Error::validation_error("id is empty"));
     }
     if status.is_empty() {
-        return Err(Error::ValidationError);
+        return Err(Error::validation_error("status is empty"));
     }
     if asset.is_empty() {
-        return Err(Error::ValidationError);
+        return Err(Error::validation_error("asset is empty"));
     }
 
     Ok(QuoteResponse {
@@ -119,16 +119,16 @@ pub fn validate_quote_response(
 }
 
 /// Validates a raw anchor info response, returning a typed [`AnchorInfoResponse`]
-/// or [`Error::ValidationError`] if any required field is missing or empty.
+/// or [`Error::validation_error`] if any required field is missing or empty.
 pub fn validate_anchor_info_response(
     name: &str,
     supported_assets: alloc::vec::Vec<alloc::string::String>,
 ) -> Result<AnchorInfoResponse, Error> {
     if name.is_empty() {
-        return Err(Error::ValidationError);
+        return Err(Error::validation_error("name is empty"));
     }
     if supported_assets.is_empty() {
-        return Err(Error::ValidationError);
+        return Err(Error::validation_error("supported_assets is empty"));
     }
 
     Ok(AnchorInfoResponse {
@@ -157,19 +157,22 @@ mod tests {
     #[test]
     fn test_deposit_missing_transaction_id() {
         let result = validate_deposit_response("", "pending", "GDEPOSIT...", 9999);
-        assert_eq!(result, Err(Error::ValidationError));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
     }
 
     #[test]
     fn test_deposit_missing_status() {
         let result = validate_deposit_response("dep_123", "", "GDEPOSIT...", 9999);
-        assert_eq!(result, Err(Error::ValidationError));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
     }
 
     #[test]
     fn test_deposit_missing_deposit_address() {
         let result = validate_deposit_response("dep_123", "pending", "", 9999);
-        assert_eq!(result, Err(Error::ValidationError));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
     }
 
     #[test]
@@ -194,13 +197,15 @@ mod tests {
     #[test]
     fn test_withdraw_missing_transaction_id() {
         let result = validate_withdraw_response("", "processing", 2000);
-        assert_eq!(result, Err(Error::ValidationError));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
     }
 
     #[test]
     fn test_withdraw_missing_status() {
         let result = validate_withdraw_response("wd_456", "", 2000);
-        assert_eq!(result, Err(Error::ValidationError));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
     }
 
     // --- validate_quote_response ---
@@ -220,19 +225,22 @@ mod tests {
     #[test]
     fn test_quote_missing_id() {
         let result = validate_quote_response("", "quoted", 100_0000000, "USDC", 500000);
-        assert_eq!(result, Err(Error::ValidationError));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
     }
 
     #[test]
     fn test_quote_missing_status() {
         let result = validate_quote_response("quote_789", "", 100_0000000, "USDC", 500000);
-        assert_eq!(result, Err(Error::ValidationError));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
     }
 
     #[test]
     fn test_quote_missing_asset() {
         let result = validate_quote_response("quote_789", "quoted", 100_0000000, "", 500000);
-        assert_eq!(result, Err(Error::ValidationError));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
     }
 
     #[test]
@@ -261,13 +269,15 @@ mod tests {
     fn test_anchor_info_missing_name() {
         let assets = alloc::vec![alloc::string::String::from("USDC")];
         let result = validate_anchor_info_response("", assets);
-        assert_eq!(result, Err(Error::ValidationError));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
     }
 
     #[test]
     fn test_anchor_info_empty_assets() {
         let result = validate_anchor_info_response("MyAnchor", alloc::vec![]);
-        assert_eq!(result, Err(Error::ValidationError));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code, crate::errors::ErrorCode::ValidationError);
     }
 
     // --- SDK does not crash on validation error ---
@@ -277,7 +287,7 @@ mod tests {
         // Simulates SDK consumer handling the error gracefully
         let result = validate_deposit_response("", "", "", 0);
         match result {
-            Err(Error::ValidationError) => { /* handled, no crash */ }
+            Err(e) if e.code == crate::errors::ErrorCode::ValidationError => { /* handled, no crash */ }
             _ => panic!("Expected ValidationError"),
         }
     }
