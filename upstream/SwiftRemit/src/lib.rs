@@ -850,9 +850,6 @@ impl SwiftRemitContract {
                 }
             }
 
-            // Validate addresses
-            validate_address(&remittance.agent)?;
-
             remittances.push_back(remittance);
         }
 
