@@ -326,9 +326,6 @@ impl SwiftRemitContract {
 
     set_remittance(&env, remittance_id, &remittance);
     set_remittance_counter(&env, remittance_id);
-    
-    // Set initial transfer state
-    set_transfer_state(&env, remittance_id, TransferState::Initiated)?;
 
     Ok(remittance_id)
 }
@@ -367,7 +364,7 @@ impl SwiftRemitContract {
         require_role_settler(&env, &remittance.agent)?;
         
         // Transition to Processing state
-        set_transfer_state(&env, remittance_id, TransferState::Processing)?;
+        crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Processing)?;
 
         // Check rate limit for sender
         check_settlement_rate_limit(&env, &remittance.sender)?;
@@ -417,12 +414,9 @@ impl SwiftRemitContract {
             .ok_or(ContractError::Overflow)?;
         set_accumulated_fees(&env, new_fees);
 
-        // Update remittance status
-        remittance.status = RemittanceStatus::Completed;
+        // Update remittance status via validated transition
+        crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Completed)?;
         set_remittance(&env, remittance_id, &remittance);
-        
-        // Transition to Completed state
-        set_transfer_state(&env, remittance_id, TransferState::Completed)?;
 
         // Mark settlement as executed to prevent duplicates
         set_settlement_hash(&env, remittance_id);
@@ -489,11 +483,9 @@ impl SwiftRemitContract {
             &remittance.amount,
         );
 
-        remittance.status = RemittanceStatus::Cancelled;
+        // Transition to Cancelled state via validated transition
+        crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Cancelled)?;
         set_remittance(&env, remittance_id, &remittance);
-        
-        // Transition to Refunded state
-        set_transfer_state(&env, remittance_id, TransferState::Refunded)?;
 
         // Event: Remittance cancelled - Fires when sender cancels a pending remittance and receives full refund
         // Used by off-chain systems to track cancellations and update transaction status
@@ -1222,8 +1214,8 @@ impl SwiftRemitContract {
     // ═══════════════════════════════════════════════════════════════════════════
     
     /// Gets the current state of a transfer (read-only for indexers)
-    pub fn get_transfer_state(env: Env, transfer_id: u64) -> Option<TransferState> {
-        get_transfer_state(&env, transfer_id)
+    pub fn get_transfer_state(env: Env, transfer_id: u64) -> Option<RemittanceStatus> {
+        get_remittance(&env, transfer_id).ok().map(|r| r.status)
     }
 
     // ========== Asset Verification Functions ==========
