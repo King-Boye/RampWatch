@@ -38,7 +38,9 @@ mod test_transitions;
 #[cfg(test)]
 mod test_protocol_fee;
 #[cfg(test)]
-mod test_property; 
+mod test_property;
+#[cfg(test)]
+mod test_invariants;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
