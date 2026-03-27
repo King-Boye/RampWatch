@@ -38,7 +38,9 @@ mod test_transitions;
 #[cfg(test)]
 mod test_protocol_fee;
 #[cfg(test)]
-mod test_property; 
+mod test_property;
+#[cfg(test)]
+mod test_integrator_fees; 
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
@@ -537,11 +539,45 @@ impl SwiftRemitContract {
 
         set_accumulated_fees(&env, 0);
 
-        // Event: Fees withdrawn - Fires when admin withdraws accumulated platform fees
-        // Used by off-chain systems to track revenue collection and maintain financial records
         emit_fees_withdrawn(&env, caller, to.clone(), usdc_token, fees);
 
         log_withdraw_fees(&env, &to, fees);
+
+        Ok(())
+    }
+
+    /// Withdraws accumulated integrator fees to a specified address.
+    ///
+    /// Transfers all accumulated integrator fees to the recipient and resets the
+    /// counter to zero. Only the designated integrator can withdraw their own fees.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `integrator` - Address of the integrator requesting withdrawal (must authenticate)
+    /// * `to` - Address to receive the withdrawn fees
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Fees successfully withdrawn
+    /// * `Err(ContractError::NoFeesToWithdraw)` - No integrator fees available
+    /// * `Err(ContractError::NotInitialized)` - Contract not initialized
+    ///
+    /// # Authorization
+    ///
+    /// Requires authentication from the integrator address.
+    pub fn withdraw_integrator_fees(env: Env, integrator: Address, to: Address) -> Result<(), ContractError> {
+        let fees = validate_withdraw_integrator_fees_request(&env, &to)?;
+
+        integrator.require_auth();
+
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+        token_client.transfer(&env.current_contract_address(), &to, &fees);
+
+        storage::set_accumulated_integrator_fees(&env, 0);
+
+        emit_integrator_fees_withdrawn(&env, integrator, to, usdc_token, fees);
 
         Ok(())
     }
@@ -564,6 +600,10 @@ impl SwiftRemitContract {
 
     pub fn get_accumulated_fees(env: Env) -> Result<i128, ContractError> {
         get_accumulated_fees(&env)
+    }
+
+    pub fn get_accumulated_integrator_fees(env: Env) -> i128 {
+        storage::get_accumulated_integrator_fees(&env)
     }
 
     /// Checks if an address is registered as an agent.

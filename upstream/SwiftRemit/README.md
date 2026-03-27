@@ -50,7 +50,8 @@ Fees are calculated in basis points (bps):
 - `register_agent(agent)` - Add agent to approved list (admin only)
 - `remove_agent(agent)` - Remove agent from approved list (admin only)
 - `update_fee(fee_bps)` - Update platform fee percentage (admin only)
-- `withdraw_fees(to)` - Withdraw accumulated fees (admin only)
+- `withdraw_fees(to)` - Withdraw accumulated platform fees (admin only)
+- `withdraw_integrator_fees(integrator, to)` - Withdraw accumulated integrator fees (integrator auth required)
 
 ### User Functions
 

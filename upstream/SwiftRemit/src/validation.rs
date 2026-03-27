@@ -186,6 +186,16 @@ pub fn validate_withdraw_fees_request(
     Ok(fees)
 }
 
+pub fn validate_withdraw_integrator_fees_request(
+    env: &Env,
+    to: &Address,
+) -> Result<i128, ContractError> {
+    validate_address(to)?;
+    let fees = crate::storage::get_accumulated_integrator_fees(env);
+    validate_fees_available(fees)?;
+    Ok(fees)
+}
+
 /// Comprehensive validation for update_fee request.
 pub fn validate_update_fee_request(fee_bps: u32) -> Result<(), ContractError> {
     validate_fee_bps(fee_bps)

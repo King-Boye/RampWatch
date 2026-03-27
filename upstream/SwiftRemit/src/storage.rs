@@ -362,6 +362,19 @@ pub fn get_accumulated_fees(env: &Env) -> Result<i128, ContractError> {
         .ok_or(ContractError::NotInitialized)
 }
 
+pub fn set_accumulated_integrator_fees(env: &Env, fees: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::AccumulatedIntegratorFees, &fees);
+}
+
+pub fn get_accumulated_integrator_fees(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::AccumulatedIntegratorFees)
+        .unwrap_or(0)
+}
+
 /// Checks if a settlement hash exists for duplicate detection.
 ///
 /// # Arguments
