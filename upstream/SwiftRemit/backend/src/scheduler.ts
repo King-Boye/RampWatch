@@ -2,26 +2,25 @@ import cron from 'node-cron';
 import { AssetVerifier } from './verifier';
 import { getStaleAssets, saveAssetVerification, getPool } from './database';
 import { storeVerificationOnChain } from './stellar';
-import { KycPoller } from './kyc-poller';
-import { KycUpsertService } from './kyc-upsert-service';
+import { KycService } from './kyc-service';
 
 const verifier = new AssetVerifier();
+const kycService = new KycService();
 
-export function startBackgroundJobs() {
-  // Asset revalidation — every 6 hours
+export async function startBackgroundJobs() {
+  // Initialize KYC service
+  await kycService.initialize();
+
+  // Run every 6 hours
   cron.schedule('0 */6 * * *', async () => {
     console.log('Starting periodic asset revalidation...');
     await revalidateStaleAssets();
   });
 
-  // KYC status polling — every 6 hours
-  const pool = getPool();
-  const kycUpsertService = new KycUpsertService(pool);
-  const kycPoller = new KycPoller(pool, kycUpsertService);
-
-  cron.schedule('0 */6 * * *', async () => {
-    console.log('Starting KYC poll cycle...');
-    await kycPoller.runCycle();
+  // Run KYC polling every 30 minutes
+  cron.schedule('*/30 * * * *', async () => {
+    console.log('Starting KYC status polling...');
+    await pollKycStatuses();
   });
 
   console.log('Background jobs scheduled');
@@ -72,5 +71,14 @@ async function revalidateStaleAssets() {
     console.log('Periodic revalidation completed');
   } catch (error) {
     console.error('Error in revalidation job:', error);
+  }
+}
+
+async function pollKycStatuses() {
+  try {
+    await kycService.pollAllAnchors();
+    console.log('KYC polling completed');
+  } catch (error) {
+    console.error('Error in KYC polling job:', error);
   }
 }

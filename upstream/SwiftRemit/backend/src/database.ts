@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { AssetVerification, VerificationStatus, FxRate, FxRateRecord } from './types';
+import { AssetVerification, VerificationStatus, FxRate, FxRateRecord, KycStatus, UserKycStatus, AnchorKycConfig } from './types';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -84,6 +84,35 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_fx_transaction ON fx_rates(transaction_id);
       CREATE INDEX IF NOT EXISTS idx_fx_timestamp ON fx_rates(timestamp);
       CREATE INDEX IF NOT EXISTS idx_fx_currencies ON fx_rates(from_currency, to_currency);
+
+      CREATE TABLE IF NOT EXISTS anchor_kyc_configs (
+        id SERIAL PRIMARY KEY,
+        anchor_id VARCHAR(100) NOT NULL UNIQUE,
+        kyc_server_url VARCHAR(500) NOT NULL,
+        auth_token VARCHAR(500) NOT NULL,
+        polling_interval_minutes INTEGER NOT NULL DEFAULT 60,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS user_kyc_status (
+        id SERIAL PRIMARY KEY,
+        user_id VARCHAR(56) NOT NULL,
+        anchor_id VARCHAR(100) NOT NULL,
+        status VARCHAR(20) NOT NULL,
+        last_checked TIMESTAMP NOT NULL DEFAULT NOW(),
+        expires_at TIMESTAMP,
+        rejection_reason TEXT,
+        verification_data JSONB,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE(user_id, anchor_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_user_kyc_status ON user_kyc_status(user_id, anchor_id);
+      CREATE INDEX IF NOT EXISTS idx_kyc_status ON user_kyc_status(status);
+      CREATE INDEX IF NOT EXISTS idx_kyc_last_checked ON user_kyc_status(last_checked);
     `);
     console.log('Database initialized successfully');
   } finally {
@@ -252,6 +281,134 @@ export async function getFxRate(transactionId: string): Promise<FxRateRecord | n
     to_currency: row.to_currency,
     created_at: row.created_at,
   };
+}
+
+// KYC-related database functions
+export async function saveAnchorKycConfig(config: AnchorKycConfig): Promise<void> {
+  const query = `
+    INSERT INTO anchor_kyc_configs (
+      anchor_id, kyc_server_url, auth_token, polling_interval_minutes, enabled
+    ) VALUES ($1, $2, $3, $4, $5)
+    ON CONFLICT (anchor_id) 
+    DO UPDATE SET
+      kyc_server_url = EXCLUDED.kyc_server_url,
+      auth_token = EXCLUDED.auth_token,
+      polling_interval_minutes = EXCLUDED.polling_interval_minutes,
+      enabled = EXCLUDED.enabled,
+      updated_at = NOW()
+  `;
+
+  await pool.query(query, [
+    config.anchor_id,
+    config.kyc_server_url,
+    config.auth_token,
+    config.polling_interval_minutes,
+    config.enabled,
+  ]);
+}
+
+export async function getAnchorKycConfigs(): Promise<AnchorKycConfig[]> {
+  const query = `SELECT * FROM anchor_kyc_configs WHERE enabled = TRUE`;
+  const result = await pool.query(query);
+  
+  return result.rows.map(row => ({
+    anchor_id: row.anchor_id,
+    kyc_server_url: row.kyc_server_url,
+    auth_token: row.auth_token,
+    polling_interval_minutes: row.polling_interval_minutes,
+    enabled: row.enabled,
+  }));
+}
+
+export async function saveUserKycStatus(kycStatus: UserKycStatus): Promise<void> {
+  const query = `
+    INSERT INTO user_kyc_status (
+      user_id, anchor_id, status, last_checked, expires_at, rejection_reason, verification_data
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+    ON CONFLICT (user_id, anchor_id) 
+    DO UPDATE SET
+      status = EXCLUDED.status,
+      last_checked = EXCLUDED.last_checked,
+      expires_at = EXCLUDED.expires_at,
+      rejection_reason = EXCLUDED.rejection_reason,
+      verification_data = EXCLUDED.verification_data,
+      updated_at = NOW()
+  `;
+
+  await pool.query(query, [
+    kycStatus.user_id,
+    kycStatus.anchor_id,
+    kycStatus.status,
+    kycStatus.last_checked,
+    kycStatus.expires_at || null,
+    kycStatus.rejection_reason || null,
+    kycStatus.verification_data ? JSON.stringify(kycStatus.verification_data) : null,
+  ]);
+}
+
+export async function getUserKycStatus(userId: string, anchorId: string): Promise<UserKycStatus | null> {
+  const query = `
+    SELECT * FROM user_kyc_status 
+    WHERE user_id = $1 AND anchor_id = $2
+  `;
+  const result = await pool.query(query, [userId, anchorId]);
+  
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  const row = result.rows[0];
+  return {
+    user_id: row.user_id,
+    anchor_id: row.anchor_id,
+    status: row.status as KycStatus,
+    last_checked: row.last_checked,
+    expires_at: row.expires_at,
+    rejection_reason: row.rejection_reason,
+    verification_data: row.verification_data,
+  };
+}
+
+export async function getUsersNeedingKycCheck(anchorId: string, minutesSinceLastCheck: number): Promise<UserKycStatus[]> {
+  const query = `
+    SELECT * FROM user_kyc_status 
+    WHERE anchor_id = $1 
+      AND last_checked < NOW() - INTERVAL '${minutesSinceLastCheck} minutes'
+      AND status IN ('pending', 'approved')
+    ORDER BY last_checked ASC
+    LIMIT 100
+  `;
+  const result = await pool.query(query, [anchorId]);
+  
+  return result.rows.map(row => ({
+    user_id: row.user_id,
+    anchor_id: row.anchor_id,
+    status: row.status as KycStatus,
+    last_checked: row.last_checked,
+    expires_at: row.expires_at,
+    rejection_reason: row.rejection_reason,
+    verification_data: row.verification_data,
+  }));
+}
+
+export async function getApprovedUsers(): Promise<UserKycStatus[]> {
+  const query = `
+    SELECT * FROM user_kyc_status 
+    WHERE status = 'approved' 
+      AND (expires_at IS NULL OR expires_at > NOW())
+    ORDER BY last_checked DESC
+  `;
+  const result = await pool.query(query);
+  
+  return result.rows.map(row => ({
+    user_id: row.user_id,
+    anchor_id: row.anchor_id,
+    status: row.status as KycStatus,
+    last_checked: row.last_checked,
+    expires_at: row.expires_at,
+    rejection_reason: row.rejection_reason,
+    verification_data: row.verification_data,
+  }));
 }
 
 export { pool };
