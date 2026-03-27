@@ -14,103 +14,72 @@ pub enum Role {
     Settler,
 }
 
-/// Transfer state for on-chain registry
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum TransferState {
-    Initiated,
-    Processing,
-    Completed,
-    Refunded,
-}
-
-impl TransferState {
-    /// Validates if transition to new state is allowed
-    pub fn can_transition_to(&self, new_state: &TransferState) -> bool {
-        match (self, new_state) {
-            // From Initiated
-            (TransferState::Initiated, TransferState::Processing) => true,
-            (TransferState::Initiated, TransferState::Refunded) => true,
-            // From Processing
-            (TransferState::Processing, TransferState::Completed) => true,
-            (TransferState::Processing, TransferState::Refunded) => true,
-            // Terminal states cannot transition
-            (TransferState::Completed, _) => false,
-            (TransferState::Refunded, _) => false,
-            // Same state is allowed (idempotent)
-            (a, b) if a == b => true,
-            // All other transitions invalid
-            _ => false,
-        }
-    }
-}
-
-
-/// Status of a remittance transaction following a structured state machine.
+/// Canonical state enum representing the full remittance lifecycle.
 ///
-/// State Transitions:
+/// This single enum replaces the previously separate `RemittanceStatus` and
+/// `TransferState` enums, which modelled the same entity with overlapping states.
+///
+/// # State Machine
+///
 /// ```
-/// Pending → Completed
-///         ↘ Cancelled
+/// Pending → Processing → Completed
+///         ↘            ↘
+///           Cancelled    Cancelled
 /// ```
 ///
-/// Terminal States: Completed, Cancelled
-/// - Once a remittance reaches a terminal state, no further transitions are allowed
-/// - This ensures data integrity and prevents inconsistent transfer statuses
+/// # State Descriptions
 ///
-/// State Descriptions:
-/// - `Pending`: Initial state when remittance is created, funds locked
-/// - `Completed`: Successfully completed, agent received payout
-/// - `Cancelled`: Cancelled by sender, funds refunded
+/// - `Pending`:    Initial state — remittance created, funds locked in escrow
+/// - `Processing`: Agent has accepted and is executing the fiat payout off-chain
+/// - `Completed`:  Terminal — payout confirmed, USDC released to agent
+/// - `Cancelled`:  Terminal — cancelled by sender or failed payout, funds refunded
+///
+/// # Terminal States
+///
+/// `Completed` and `Cancelled` are terminal. No further transitions are allowed
+/// once either is reached, ensuring data integrity.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RemittanceStatus {
-    /// Initial state: Remittance created, funds locked in contract
+    /// Initial state: remittance created, funds locked in contract
     Pending,
-    /// Terminal state: Successfully completed
+    /// In-flight state: agent is processing the fiat payout
+    Processing,
+    /// Terminal state: successfully completed, agent received payout
     Completed,
-    /// Terminal state: Cancelled, funds refunded
+    /// Terminal state: cancelled by sender or failed, funds refunded
     Cancelled,
 }
 
 impl RemittanceStatus {
-    /// Checks if this status is a terminal state.
-    ///
-    /// Terminal states (Completed, Cancelled) cannot transition to any other state.
-    ///
-    /// # Returns
-    ///
-    /// * `true` - Status is terminal (Completed or Cancelled)
-    /// * `false` - Status is non-terminal and can transition
+    /// Returns `true` if this is a terminal state (no further transitions allowed).
     pub fn is_terminal(&self) -> bool {
         matches!(self, RemittanceStatus::Completed | RemittanceStatus::Cancelled)
     }
 
-    /// Checks if a transition to the target status is valid from this status.
-    ///
-    /// # Arguments
-    ///
-    /// * `to` - The target status to transition to
-    ///
-    /// # Returns
-    ///
-    /// * `true` - Transition is valid
-    /// * `false` - Transition is invalid
+    /// Returns `true` if transitioning to `to` is a valid state machine step.
     pub fn can_transition_to(&self, to: &RemittanceStatus) -> bool {
         match (self, to) {
             // From Pending
-            (RemittanceStatus::Pending, RemittanceStatus::Completed) => true,
+            (RemittanceStatus::Pending, RemittanceStatus::Processing) => true,
             (RemittanceStatus::Pending, RemittanceStatus::Cancelled) => true,
-
+            // From Processing
+            (RemittanceStatus::Processing, RemittanceStatus::Completed) => true,
+            (RemittanceStatus::Processing, RemittanceStatus::Cancelled) => true,
             // Terminal states cannot transition
             (RemittanceStatus::Completed, _) => false,
             (RemittanceStatus::Cancelled, _) => false,
-
+            // Same state is allowed (idempotent)
+            (a, b) if a == b => true,
             // All other transitions are invalid
             _ => false,
         }
     }
 }
+
+/// Type alias kept for storage layer backward-compatibility.
+/// All new code should use `RemittanceStatus` directly.
+pub type TransferState = RemittanceStatus;
 
 /// Escrow status for locked funds
 #[contracttype]

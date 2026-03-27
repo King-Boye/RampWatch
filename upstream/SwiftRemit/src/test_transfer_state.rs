@@ -1,6 +1,8 @@
 #![cfg(test)]
 
-use crate::{ContractError, SwiftRemitContract, TransferState};
+// TransferState is now a type alias for RemittanceStatus.
+// These tests validate the unified state machine through the storage layer.
+use crate::{ContractError, SwiftRemitContract, RemittanceStatus};
 use soroban_sdk::Env;
 
 #[test]
@@ -10,26 +12,26 @@ fn test_transfer_state_transitions() {
 
     let transfer_id = 1u64;
 
-    // Initial state: Initiated
     env.as_contract(&contract_id, || {
-        crate::storage::set_transfer_state(&env, transfer_id, TransferState::Initiated).unwrap();
+        // Initial state: Pending
+        crate::storage::set_transfer_state(&env, transfer_id, RemittanceStatus::Pending).unwrap();
         assert_eq!(
             crate::storage::get_transfer_state(&env, transfer_id),
-            Some(TransferState::Initiated)
+            Some(RemittanceStatus::Pending)
         );
 
-        // Valid: Initiated -> Processing
-        crate::storage::set_transfer_state(&env, transfer_id, TransferState::Processing).unwrap();
+        // Valid: Pending -> Processing
+        crate::storage::set_transfer_state(&env, transfer_id, RemittanceStatus::Processing).unwrap();
         assert_eq!(
             crate::storage::get_transfer_state(&env, transfer_id),
-            Some(TransferState::Processing)
+            Some(RemittanceStatus::Processing)
         );
 
         // Valid: Processing -> Completed
-        crate::storage::set_transfer_state(&env, transfer_id, TransferState::Completed).unwrap();
+        crate::storage::set_transfer_state(&env, transfer_id, RemittanceStatus::Completed).unwrap();
         assert_eq!(
             crate::storage::get_transfer_state(&env, transfer_id),
-            Some(TransferState::Completed)
+            Some(RemittanceStatus::Completed)
         );
     });
 }
@@ -41,18 +43,17 @@ fn test_invalid_state_transitions() {
 
     let transfer_id = 2u64;
 
-    // Set to Initiated
     env.as_contract(&contract_id, || {
-        crate::storage::set_transfer_state(&env, transfer_id, TransferState::Initiated).unwrap();
+        crate::storage::set_transfer_state(&env, transfer_id, RemittanceStatus::Pending).unwrap();
 
-        // Invalid: Initiated -> Completed (must go through Processing)
-        let result = crate::storage::set_transfer_state(&env, transfer_id, TransferState::Completed);
+        // Invalid: Pending -> Completed (must go through Processing)
+        let result = crate::storage::set_transfer_state(&env, transfer_id, RemittanceStatus::Completed);
         assert_eq!(result, Err(ContractError::InvalidStateTransition));
 
-        // State should remain Initiated
+        // State should remain Pending
         assert_eq!(
             crate::storage::get_transfer_state(&env, transfer_id),
-            Some(TransferState::Initiated)
+            Some(RemittanceStatus::Pending)
         );
     });
 }
@@ -64,48 +65,48 @@ fn test_terminal_states_cannot_transition() {
 
     let transfer_id = 3u64;
 
-    // Set to Completed (terminal state)
     env.as_contract(&contract_id, || {
-        crate::storage::set_transfer_state(&env, transfer_id, TransferState::Completed).unwrap();
+        // Set to Completed (terminal state)
+        crate::storage::set_transfer_state(&env, transfer_id, RemittanceStatus::Completed).unwrap();
 
         // Cannot transition from Completed
-        let result = crate::storage::set_transfer_state(&env, transfer_id, TransferState::Processing);
+        let result = crate::storage::set_transfer_state(&env, transfer_id, RemittanceStatus::Processing);
         assert_eq!(result, Err(ContractError::InvalidStateTransition));
 
-        // Set to Refunded (terminal state)
+        // Set to Cancelled (terminal state)
         let transfer_id2 = 4u64;
-        crate::storage::set_transfer_state(&env, transfer_id2, TransferState::Refunded).unwrap();
+        crate::storage::set_transfer_state(&env, transfer_id2, RemittanceStatus::Cancelled).unwrap();
 
-        // Cannot transition from Refunded
-        let result = crate::storage::set_transfer_state(&env, transfer_id2, TransferState::Completed);
+        // Cannot transition from Cancelled
+        let result = crate::storage::set_transfer_state(&env, transfer_id2, RemittanceStatus::Completed);
         assert_eq!(result, Err(ContractError::InvalidStateTransition));
     });
 }
 
 #[test]
-fn test_refund_path() {
+fn test_cancellation_path() {
     let env = Env::default();
     let contract_id = env.register_contract(None, SwiftRemitContract {});
 
     let transfer_id = 5u64;
 
-    // Initiated -> Refunded (early cancellation)
     env.as_contract(&contract_id, || {
-        crate::storage::set_transfer_state(&env, transfer_id, TransferState::Initiated).unwrap();
-        crate::storage::set_transfer_state(&env, transfer_id, TransferState::Refunded).unwrap();
+        // Pending -> Cancelled (early cancellation)
+        crate::storage::set_transfer_state(&env, transfer_id, RemittanceStatus::Pending).unwrap();
+        crate::storage::set_transfer_state(&env, transfer_id, RemittanceStatus::Cancelled).unwrap();
         assert_eq!(
             crate::storage::get_transfer_state(&env, transfer_id),
-            Some(TransferState::Refunded)
+            Some(RemittanceStatus::Cancelled)
         );
 
-        // Processing -> Refunded (failed payout)
+        // Processing -> Cancelled (failed payout)
         let transfer_id2 = 6u64;
-        crate::storage::set_transfer_state(&env, transfer_id2, TransferState::Initiated).unwrap();
-        crate::storage::set_transfer_state(&env, transfer_id2, TransferState::Processing).unwrap();
-        crate::storage::set_transfer_state(&env, transfer_id2, TransferState::Refunded).unwrap();
+        crate::storage::set_transfer_state(&env, transfer_id2, RemittanceStatus::Pending).unwrap();
+        crate::storage::set_transfer_state(&env, transfer_id2, RemittanceStatus::Processing).unwrap();
+        crate::storage::set_transfer_state(&env, transfer_id2, RemittanceStatus::Cancelled).unwrap();
         assert_eq!(
             crate::storage::get_transfer_state(&env, transfer_id2),
-            Some(TransferState::Refunded)
+            Some(RemittanceStatus::Cancelled)
         );
     });
 }
@@ -117,16 +118,15 @@ fn test_idempotent_same_state() {
 
     let transfer_id = 7u64;
 
-    // Set to Initiated
     env.as_contract(&contract_id, || {
-        crate::storage::set_transfer_state(&env, transfer_id, TransferState::Initiated).unwrap();
+        crate::storage::set_transfer_state(&env, transfer_id, RemittanceStatus::Pending).unwrap();
 
         // Setting same state should succeed (idempotent)
-        crate::storage::set_transfer_state(&env, transfer_id, TransferState::Initiated).unwrap();
+        crate::storage::set_transfer_state(&env, transfer_id, RemittanceStatus::Pending).unwrap();
 
         assert_eq!(
             crate::storage::get_transfer_state(&env, transfer_id),
-            Some(TransferState::Initiated)
+            Some(RemittanceStatus::Pending)
         );
     });
 }
@@ -138,13 +138,11 @@ fn test_storage_efficiency() {
 
     let transfer_id = 8u64;
 
-    // Set initial state
     env.as_contract(&contract_id, || {
-        crate::storage::set_transfer_state(&env, transfer_id, TransferState::Initiated).unwrap();
+        crate::storage::set_transfer_state(&env, transfer_id, RemittanceStatus::Pending).unwrap();
 
         // Setting same state should not write (storage-efficient)
-        // This is tested by the fact that it returns Ok without error
-        let result = crate::storage::set_transfer_state(&env, transfer_id, TransferState::Initiated);
+        let result = crate::storage::set_transfer_state(&env, transfer_id, RemittanceStatus::Pending);
         assert!(result.is_ok());
     });
 }

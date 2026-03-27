@@ -163,6 +163,11 @@ enum DataKey {
 
     /// TTL for idempotency records in seconds (instance storage)
     IdempotencyTTL,
+
+    // === Migration ===
+    /// Flag indicating a migration is currently in progress (instance storage).
+    /// When set, normal write operations (create_remittance, confirm_payout, etc.) are blocked.
+    MigrationInProgress,
 }
 
 /// Checks if the contract has an admin configured.
