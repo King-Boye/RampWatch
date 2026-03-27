@@ -63,10 +63,10 @@ enum DataKey {
     /// Total accumulated platform fees awaiting withdrawal
     AccumulatedFees,
 
-    /// Integrator fee in basis points
+    /// Integrator fee in basis points (instance storage)
     IntegratorFeeBps,
 
-    /// Total accumulated integrator fees awaiting withdrawal
+    /// Total accumulated integrator fees awaiting withdrawal (instance storage)
     AccumulatedIntegratorFees,
 
     /// Contract pause status for emergency halts
