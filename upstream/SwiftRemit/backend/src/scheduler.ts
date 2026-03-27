@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { AssetVerifier } from './verifier';
-import { getStaleAssets, saveAssetVerification } from './database';
+import { getStaleAssets, saveAssetVerification, getPool } from './database';
 import { storeVerificationOnChain } from './stellar';
 import { KycService } from './kyc-service';
 

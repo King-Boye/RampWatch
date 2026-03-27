@@ -53,12 +53,12 @@ pub fn validate_remittance_exists(env: &Env, remittance_id: u64) -> Result<crate
     get_remittance(env, remittance_id)
 }
 
-/// Validates that a remittance is in pending status.
-pub fn validate_remittance_pending(remittance: &crate::Remittance) -> Result<(), ContractError> {
-    if remittance.status != RemittanceStatus::Pending {
-        return Err(ContractError::InvalidStatus);
+/// Validates that a remittance is in a cancellable state (Pending or Processing).
+pub fn validate_remittance_cancellable(remittance: &crate::Remittance) -> Result<(), ContractError> {
+    match remittance.status {
+        RemittanceStatus::Pending | RemittanceStatus::Processing => Ok(()),
+        _ => Err(ContractError::InvalidStatus),
     }
-    Ok(())
 }
 
 /// Validates that a settlement has not expired.
@@ -91,24 +91,24 @@ pub fn validate_fees_available(fees: i128) -> Result<(), ContractError> {
 /// Comprehensive validation for initialize request.
 pub fn validate_initialize_request(
     env: &Env,
-    admin: &Address,
-    token: &Address,
+    _admin: &Address,
+    _token: &Address,
     fee_bps: u32,
 ) -> Result<(), ContractError> {
     validate_fee_bps(fee_bps)?;
-    
+
     // Check if already initialized
     if crate::has_admin(env) {
         return Err(ContractError::AlreadyInitialized);
     }
-    
+
     Ok(())
 }
 
 /// Comprehensive validation for create_remittance request.
 pub fn validate_create_remittance_request(
     env: &Env,
-    sender: &Address,
+    _sender: &Address,
     agent: &Address,
     amount: i128,
 ) -> Result<(), ContractError> {
@@ -125,7 +125,10 @@ pub fn validate_confirm_payout_request(
 ) -> Result<crate::Remittance, ContractError> {
     validate_not_paused(env)?;
     let remittance = validate_remittance_exists(env, remittance_id)?;
-    validate_remittance_pending(&remittance)?;
+    // confirm_payout is only valid from Pending (transitions Pending → Processing → Completed)
+    if remittance.status != RemittanceStatus::Pending {
+        return Err(ContractError::InvalidStatus);
+    }
     validate_no_duplicate_settlement(env, remittance_id)?;
     validate_settlement_not_expired(env, remittance.expiry)?;
     Ok(remittance)
@@ -133,6 +136,7 @@ pub fn validate_confirm_payout_request(
 
 /// Comprehensive validation for cancel_remittance request.
 /// Returns the remittance to avoid re-reading in the caller.
+
 pub fn validate_cancel_remittance_request(
     env: &Env,
     remittance_id: u64,
@@ -145,6 +149,15 @@ pub fn validate_cancel_remittance_request(
 /// Comprehensive validation for withdraw_fees request.
 /// Returns the fees amount to avoid re-reading in the caller.
 pub fn validate_withdraw_fees_request(
+    env: &Env,
+    _to: &Address,
+) -> Result<i128, ContractError> {
+    let fees = crate::get_accumulated_fees(env)?;
+    validate_fees_available(fees)?;
+    Ok(fees)
+}
+
+pub fn validate_withdraw_integrator_fees_request(
     env: &Env,
     to: &Address,
 ) -> Result<i128, ContractError> {
@@ -159,29 +172,19 @@ pub fn validate_update_fee_request(fee_bps: u32) -> Result<(), ContractError> {
 }
 
 /// Comprehensive validation for admin operations.
+
 pub fn validate_admin_operation(
     env: &Env,
     caller: &Address,
-    target: &Address,
+    _target: &Address,
 ) -> Result<(), ContractError> {
     crate::require_admin(env, caller)?;
     Ok(())
 }
 
 /// Normalizes an asset symbol to uppercase canonical form.
-///
-/// # Arguments
-///
-/// * `env` - The contract execution environment
-/// * `symbol` - The symbol string to normalize
-///
-/// # Returns
-///
-/// * `Ok(String)` - Normalized uppercase symbol
-/// * `Err(ContractError::InvalidSymbol)` - Symbol contains invalid characters or is malformed
 pub fn normalize_symbol(_env: &Env, symbol: &soroban_sdk::String) -> Result<soroban_sdk::String, ContractError> {
-    // For Soroban SDK, we'll use a simpler approach
-    // Convert to uppercase by creating a new string
+
     Ok(symbol.clone())
 }
 

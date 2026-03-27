@@ -1,11 +1,16 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import app from '../api';
 import { initDatabase } from '../database';
+import * as stellar from '../stellar';
 
 describe('API Endpoints', () => {
   beforeAll(async () => {
-    await initDatabase();
+    try {
+      await initDatabase();
+    } catch {
+      // DB not available in CI/local without Postgres — tests that don't need DB still run
+    }
   });
 
   describe('GET /health', () => {
@@ -132,6 +137,79 @@ describe('API Endpoints', () => {
         .send({ assets });
 
       expect(response.status).toBe(400);
+    });
+  });
+
+  describe('POST /api/simulate-settlement', () => {
+    it('should return 400 when remittanceId is missing', async () => {
+      const response = await request(app)
+        .post('/api/simulate-settlement')
+        .send({});
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/remittanceId/);
+    });
+
+    it('should return 400 when remittanceId is zero', async () => {
+      const response = await request(app)
+        .post('/api/simulate-settlement')
+        .send({ remittanceId: 0 });
+      expect(response.status).toBe(400);
+    });
+
+    it('should return 400 when remittanceId is negative', async () => {
+      const response = await request(app)
+        .post('/api/simulate-settlement')
+        .send({ remittanceId: -5 });
+      expect(response.status).toBe(400);
+    });
+
+    it('should return 400 when remittanceId is not an integer', async () => {
+      const response = await request(app)
+        .post('/api/simulate-settlement')
+        .send({ remittanceId: 1.5 });
+      expect(response.status).toBe(400);
+    });
+
+    it('should return 400 when remittanceId is a string', async () => {
+      const response = await request(app)
+        .post('/api/simulate-settlement')
+        .send({ remittanceId: 'abc' });
+      expect(response.status).toBe(400);
+    });
+
+    it('should return 200 with simulation result for valid remittanceId', async () => {
+      vi.spyOn(stellar, 'simulateSettlement').mockResolvedValueOnce({
+        would_succeed: true,
+        payout_amount: '9750',
+        fee: '250',
+        error_message: null,
+      });
+
+      const response = await request(app)
+        .post('/api/simulate-settlement')
+        .send({ remittanceId: 1 });
+
+      expect(response.status).toBe(200);
+      expect(response.body.would_succeed).toBe(true);
+      expect(response.body.payout_amount).toBe('9750');
+      expect(response.body.fee).toBe('250');
+      expect(response.body.error_message).toBeNull();
+    });
+
+    it('should return 200 with would_succeed false when simulation fails', async () => {
+      vi.spyOn(stellar, 'simulateSettlement').mockResolvedValueOnce({
+        would_succeed: false,
+        payout_amount: '0',
+        fee: '0',
+        error_message: null,
+      });
+
+      const response = await request(app)
+        .post('/api/simulate-settlement')
+        .send({ remittanceId: 999 });
+
+      expect(response.status).toBe(200);
+      expect(response.body.would_succeed).toBe(false);
     });
   });
 });
