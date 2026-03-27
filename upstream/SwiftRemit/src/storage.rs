@@ -160,10 +160,9 @@ enum DataKey {
     /// TTL for idempotency records in seconds (instance storage)
     IdempotencyTTL,
 
-    // === Migration ===
-    /// Flag indicating a migration is currently in progress (instance storage).
-    /// When set, normal write operations (create_remittance, confirm_payout, etc.) are blocked.
-    MigrationInProgress,
+    // === Sender Remittance Index ===
+    /// Ordered list of remittance IDs created by a sender (persistent storage)
+    SenderRemittances(Address),
 }
 
 /// Checks if the contract has an admin configured.
@@ -1149,19 +1148,21 @@ pub fn set_idempotency_ttl(env: &Env, ttl_seconds: u64) {
         .set(&DataKey::IdempotencyTTL, &ttl_seconds);
 }
 
-// === Migration State ===
+// === Sender Remittance Index ===
 
-/// Returns true if a migration is currently in progress.
-pub fn is_migration_in_progress(env: &Env) -> bool {
+/// Returns the full list of remittance IDs for a given sender.
+pub fn get_sender_remittances(env: &Env, sender: &Address) -> Vec<u64> {
     env.storage()
-        .instance()
-        .get(&DataKey::MigrationInProgress)
-        .unwrap_or(false)
+        .persistent()
+        .get(&DataKey::SenderRemittances(sender.clone()))
+        .unwrap_or(Vec::new(env))
 }
 
-/// Sets the migration-in-progress flag.
-pub fn set_migration_in_progress(env: &Env, in_progress: bool) {
+/// Appends a remittance ID to the sender's index list.
+pub fn append_sender_remittance(env: &Env, sender: &Address, remittance_id: u64) {
+    let mut ids = get_sender_remittances(env, sender);
+    ids.push_back(remittance_id);
     env.storage()
-        .instance()
-        .set(&DataKey::MigrationInProgress, &in_progress);
+        .persistent()
+        .set(&DataKey::SenderRemittances(sender.clone()), &ids);
 }

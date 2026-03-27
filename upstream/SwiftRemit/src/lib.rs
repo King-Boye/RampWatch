@@ -45,7 +45,7 @@ mod test_integrator_fees;
 #[cfg(test)]
 mod test_treasury;
 #[cfg(test)]
-mod test_migration;
+mod test_fee_corridor; 
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
@@ -361,6 +361,9 @@ impl SwiftRemitContract {
     set_remittance(&env, remittance_id, &remittance);
     set_remittance_counter(&env, remittance_id);
 
+    // Index this remittance under the sender for paginated queries
+    append_sender_remittance(&env, &sender, remittance_id);
+
     // Set initial transfer state
     set_transfer_state(&env, remittance_id, TransferState::Initiated)?;
 
@@ -381,6 +384,55 @@ impl SwiftRemitContract {
 
     Ok(remittance_id)
 }
+
+    /// Creates a remittance using corridor-specific fees when available.
+    ///
+    /// If a corridor is configured for the given country pair, its fee strategy
+    /// is used instead of the global strategy. Falls back to global if not found.
+    pub fn create_remittance_with_corridor(
+    env: Env,
+    sender: Address,
+    agent: Address,
+    amount: i128,
+    expiry: Option<u64>,
+    from_country: Option<String>,
+    to_country: Option<String>,
+) -> Result<u64, ContractError> {
+    validate_create_remittance_request(&env, &sender, &agent, amount)?;
+
+    sender.require_auth();
+
+    let corridor = match (&from_country, &to_country) {
+        (Some(from), Some(to)) => storage::get_fee_corridor(&env, from, to),
+        _ => None,
+    };
+    let fee = fee_service::calculate_fees_with_breakdown(&env, amount, corridor.as_ref())?
+        .platform_fee;
+
+    let usdc_token = get_usdc_token(&env)?;
+    let token_client = token::Client::new(&env, &usdc_token);
+    token_client.transfer(&sender, &env.current_contract_address(), &amount);
+
+    let counter = get_remittance_counter(&env)?;
+    let remittance_id = counter.checked_add(1).ok_or(ContractError::Overflow)?;
+
+    let remittance = Remittance {
+        id: remittance_id,
+        sender: sender.clone(),
+        agent: agent.clone(),
+        amount,
+        fee,
+        status: RemittanceStatus::Pending,
+        expiry,
+    };
+
+    set_remittance(&env, remittance_id, &remittance);
+    set_remittance_counter(&env, remittance_id);
+    set_transfer_state(&env, remittance_id, TransferState::Initiated)?;
+
+    Ok(remittance_id)
+}
+
     /// Confirms a remittance payout to the agent.
     ///
     /// Transfers the remittance amount (minus platform fee) to the agent and marks
@@ -423,7 +475,7 @@ impl SwiftRemitContract {
         require_role_settler(&env, &remittance.agent)?;
 
         // Transition to Processing state
-        set_transfer_state(&env, remittance_id, TransferState::Processing)?;
+        crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Processing)?;
 
         // Check rate limit for sender
         check_settlement_rate_limit(&env, &remittance.sender)?;
@@ -473,12 +525,9 @@ impl SwiftRemitContract {
             .ok_or(ContractError::Overflow)?;
         set_accumulated_fees(&env, new_fees);
 
-        // Update remittance status
-        remittance.status = RemittanceStatus::Completed;
+        // Update remittance status via validated transition
+        crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Completed)?;
         set_remittance(&env, remittance_id, &remittance);
-
-        // Transition to Completed state
-        set_transfer_state(&env, remittance_id, TransferState::Completed)?;
 
         // Mark settlement as executed to prevent duplicates
         set_settlement_hash(&env, remittance_id);
@@ -545,11 +594,9 @@ impl SwiftRemitContract {
             &remittance.amount,
         );
 
-        remittance.status = RemittanceStatus::Cancelled;
+        // Transition to Cancelled state via validated transition
+        crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Cancelled)?;
         set_remittance(&env, remittance_id, &remittance);
-
-        // Transition to Refunded state
-        set_transfer_state(&env, remittance_id, TransferState::Refunded)?;
 
         // Event: Remittance cancelled - Fires when sender cancels a pending remittance and receives full refund
         // Used by off-chain systems to track cancellations and update transaction status
@@ -649,6 +696,42 @@ impl SwiftRemitContract {
     /// * `Err(ContractError::RemittanceNotFound)` - Remittance ID does not exist
     pub fn get_remittance(env: Env, remittance_id: u64) -> Result<Remittance, ContractError> {
         get_remittance(&env, remittance_id)
+    }
+
+    /// Returns a paginated list of remittance IDs for a given sender.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `sender` - Address of the sender to query
+    /// * `offset` - Zero-based index of the first result to return
+    /// * `limit` - Maximum number of IDs to return (capped at 100)
+    ///
+    /// # Returns
+    ///
+    /// * `Vec<u64>` - Slice of remittance IDs in creation order
+    pub fn get_remittances_by_sender(
+        env: Env,
+        sender: Address,
+        offset: u64,
+        limit: u64,
+    ) -> Vec<u64> {
+        const MAX_PAGE_SIZE: u64 = 100;
+        let limit = limit.min(MAX_PAGE_SIZE);
+
+        let all_ids = get_sender_remittances(&env, &sender);
+        let total = all_ids.len() as u64;
+
+        if offset >= total || limit == 0 {
+            return Vec::new(&env);
+        }
+
+        let end = (offset + limit).min(total);
+        let mut page = Vec::new(&env);
+        for i in offset..end {
+            page.push_back(all_ids.get_unchecked(i as u32));
+        }
+        page
     }
 
 
@@ -1034,9 +1117,6 @@ impl SwiftRemitContract {
                 }
             }
 
-            // Validate addresses
-            validate_address(&remittance.agent)?;
-
             remittances.push_back(remittance);
         }
 
@@ -1408,8 +1488,8 @@ impl SwiftRemitContract {
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// Gets the current state of a transfer (read-only for indexers)
-    pub fn get_transfer_state(env: Env, transfer_id: u64) -> Option<TransferState> {
-        get_transfer_state(&env, transfer_id)
+    pub fn get_transfer_state(env: Env, transfer_id: u64) -> Option<RemittanceStatus> {
+        get_remittance(&env, transfer_id).ok().map(|r| r.status)
     }
 
     // ========== Asset Verification Functions ==========

@@ -16,10 +16,8 @@ import {
   saveUserKycStatus,
   getPool,
 } from './database';
-import { storeVerificationOnChain } from './stellar';
-import { VerificationStatus, AnchorKycConfig } from './types';
-import { KycUpsertService } from './kyc-upsert-service';
-import { createTransferGuard, AuthenticatedRequest } from './transfer-guard';
+import { storeVerificationOnChain, simulateSettlement } from './stellar';
+import { VerificationStatus, KycStatus, AnchorKycConfig, UserKycStatus } from './types';
 
 const app = express();
 const verifier = new AssetVerifier();
@@ -404,6 +402,28 @@ app.get('/api/kyc/approved/:userId', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error checking KYC approval:', error);
     res.status(500).json({ error: 'Failed to check KYC approval' });
+  }
+});
+
+// Simulate settlement — preview fees and payout before confirming
+app.post('/api/simulate-settlement', async (req: Request, res: Response) => {
+  try {
+    const { remittanceId } = req.body;
+
+    if (
+      remittanceId === undefined ||
+      remittanceId === null ||
+      !Number.isInteger(remittanceId) ||
+      remittanceId <= 0
+    ) {
+      return res.status(400).json({ error: 'remittanceId must be a positive integer' });
+    }
+
+    const simulation = await simulateSettlement(remittanceId);
+    res.json(simulation);
+  } catch (error) {
+    console.error('Error simulating settlement:', error);
+    res.status(500).json({ error: 'Failed to simulate settlement' });
   }
 });
 
