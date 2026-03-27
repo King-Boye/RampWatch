@@ -117,13 +117,13 @@ pub fn transition_status(
 ) -> Result<(), ContractError> {
     // Validate the transition
     validate_transition(&remittance.status, &new_status)?;
-    
+
     // Log transition for debugging (only in test/debug builds)
     log_transition(env, remittance.id, &remittance.status, &new_status);
-    
+
     // Atomically update the status
     remittance.status = new_status;
-    
+
     Ok(())
 }
 
@@ -161,7 +161,7 @@ pub fn get_valid_next_states(status: &RemittanceStatus) -> soroban_sdk::Vec<Remi
         }
         RemittanceStatus::Completed | RemittanceStatus::Cancelled => {}
     }
-    
+
     result
 }
 
