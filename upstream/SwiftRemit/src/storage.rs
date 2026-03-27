@@ -159,6 +159,10 @@ enum DataKey {
     
     /// TTL for idempotency records in seconds (instance storage)
     IdempotencyTTL,
+
+    // === Sender Remittance Index ===
+    /// Ordered list of remittance IDs created by a sender (persistent storage)
+    SenderRemittances(Address),
 }
 
 /// Checks if the contract has an admin configured.
@@ -1142,4 +1146,23 @@ pub fn set_idempotency_ttl(env: &Env, ttl_seconds: u64) {
     env.storage()
         .instance()
         .set(&DataKey::IdempotencyTTL, &ttl_seconds);
+}
+
+// === Sender Remittance Index ===
+
+/// Returns the full list of remittance IDs for a given sender.
+pub fn get_sender_remittances(env: &Env, sender: &Address) -> Vec<u64> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::SenderRemittances(sender.clone()))
+        .unwrap_or(Vec::new(env))
+}
+
+/// Appends a remittance ID to the sender's index list.
+pub fn append_sender_remittance(env: &Env, sender: &Address, remittance_id: u64) {
+    let mut ids = get_sender_remittances(env, sender);
+    ids.push_back(remittance_id);
+    env.storage()
+        .persistent()
+        .set(&DataKey::SenderRemittances(sender.clone()), &ids);
 }
