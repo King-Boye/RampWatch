@@ -21,33 +21,33 @@ use crate::{ContractError, Remittance, TransferRecord, DailyLimit};
 enum DataKey {
     // === Contract Configuration ===
     // Core contract settings stored in instance storage
-    /// Contract administrator address with privileged access (deprecated - use AdminRole)
+    /// Contract administrator address with privileged access (instance storage, deprecated - use AdminRole)
     Admin,
 
     /// Admin role status indexed by address (persistent storage)
     AdminRole(Address),
 
-    /// Counter for tracking number of admins
+    /// Counter for tracking number of admins (instance storage)
     AdminCount,
 
     /// Role assignment indexed by (address, role) (persistent storage)
     RoleAssignment(Address, crate::Role),
 
-    /// USDC token contract address used for all remittance transactions
+    /// USDC token contract address used for all remittance transactions (instance storage)
     UsdcToken,
 
-    /// Platform fee in basis points (1 bps = 0.01%)
+    /// Platform fee in basis points, 1 bps = 0.01% (instance storage)
     PlatformFeeBps,
 
-    /// Protocol fee in basis points (1 bps = 0.01%)
+    /// Protocol fee in basis points, 1 bps = 0.01% (instance storage)
     ProtocolFeeBps,
 
-    /// Treasury address for protocol fees
+    /// Treasury address that receives protocol fees (instance storage)
     Treasury,
 
     // === Remittance Management ===
     // Keys for tracking and storing remittance transactions
-    /// Global counter for generating unique remittance IDs
+    /// Global counter for generating unique remittance IDs (instance storage)
     RemittanceCounter,
 
     /// Individual remittance record indexed by ID (persistent storage)
@@ -60,7 +60,7 @@ enum DataKey {
 
     // === Fee Tracking ===
     // Keys for managing platform fees
-    /// Total accumulated platform fees awaiting withdrawal
+    /// Total accumulated platform fees awaiting withdrawal (instance storage)
     AccumulatedFees,
 
     /// Integrator fee in basis points (instance storage)
@@ -69,7 +69,7 @@ enum DataKey {
     /// Total accumulated integrator fees awaiting withdrawal (instance storage)
     AccumulatedIntegratorFees,
 
-    /// Contract pause status for emergency halts
+    /// Contract pause status for emergency halts (instance storage)
     Paused,
 
     // === Settlement Deduplication ===
@@ -106,7 +106,7 @@ enum DataKey {
 
     // === Rate Limiting ===
     // Keys for preventing abuse through rate limiting
-    /// Cooldown period in seconds between settlements per sender
+    /// Cooldown period in seconds between settlements per sender (instance storage)
     RateLimitCooldown,
 
     /// Last settlement timestamp for a sender address (persistent storage)
@@ -135,7 +135,7 @@ enum DataKey {
     SettlementCounter,
 
     // === Escrow Management ===
-    /// Escrow counter for generating unique transfer IDs
+    /// Escrow counter for generating unique transfer IDs (instance storage)
     EscrowCounter,
 
     /// Escrow record indexed by transfer ID (persistent storage)
@@ -148,7 +148,7 @@ enum DataKey {
     /// Fee strategy configuration (instance storage)
     FeeStrategy,
 
-    /// Fee corridor configuration indexed by (from_country, to_country)
+    /// Fee corridor configuration indexed by (from_country, to_country) (persistent storage)
     FeeCorridor(String, String),
 
     // === Idempotency Protection ===
