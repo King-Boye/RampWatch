@@ -206,6 +206,7 @@ SwiftRemit uses environment variables for configuration. This allows you to easi
 
 - **[CONFIGURATION.md](CONFIGURATION.md)**: Complete configuration reference with all variables, validation rules, and examples
 - **[MIGRATION.md](MIGRATION.md)**: Migration guide for existing developers
+- **[PRODUCTION_READINESS_REPORT.md](PRODUCTION_READINESS_REPORT.md)**: Current production readiness status — what's complete, what's pending, and known risks before mainnet
 
 ## Usage Flow
 
