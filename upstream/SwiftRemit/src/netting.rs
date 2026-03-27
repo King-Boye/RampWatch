@@ -56,7 +56,7 @@ struct DirectionalFlow {
 /// Vector of NetTransfer structs representing the minimal set of transfers needed
 pub fn compute_net_settlements(env: &Env, remittances: &Vec<Remittance>) -> Vec<NetTransfer> {
     let mut flows: Vec<DirectionalFlow> = Vec::new(env);
-    
+
     // Extract all directional flows from remittances
     for i in 0..remittances.len() {
         let remittance = remittances.get_unchecked(i);
@@ -103,7 +103,7 @@ pub fn compute_net_settlements(env: &Env, remittances: &Vec<Remittance>) -> Vec<
         // Map.get() returns Option, but we know key exists since we just got it from keys()
         // This is safe because keys() returns only existing keys
         let (_net_amount, _total_fees) = net_map.get(key.clone()).unwrap_or((0, 0));
-        
+
         let (net_amount, total_fees) = net_map.get(key.clone()).unwrap();
 
 

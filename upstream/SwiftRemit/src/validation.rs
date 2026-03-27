@@ -7,9 +7,6 @@ use soroban_sdk::{Address, Env};
 
 use crate::{ContractError, is_agent_registered, is_paused, get_remittance, RemittanceStatus};
 
-/// Centralized validation module for all API requests.
-/// Validates required fields before controller logic to prevent invalid data
-/// from reaching business logic.
 /// Validates that an address is properly formatted and not empty.
 ///
 /// Stellar addresses in Soroban are represented by the Address type,
@@ -18,27 +15,48 @@ use crate::{ContractError, is_agent_registered, is_paused, get_remittance, Remit
 /// # Arguments
 ///
 /// * `address` - Address to validate
+/// * `contract_address` - The contract's own address (to prevent self-transfers)
 ///
 /// # Returns
 ///
 /// * `Ok(())` - Address is valid
 /// * `Err(ContractError::InvalidAddress)` - Address validation failed
 ///
-/// # Notes
+/// # Constraints Checked
 ///
-/// The Address type in Soroban SDK is guaranteed to be valid by the runtime.
-/// This function primarily serves as a placeholder for future validation logic
-/// and to make the code more explicit about validation requirements.
-pub fn validate_address(_address: &Address) -> Result<(), ContractError> {
-    // The Address type in Soroban SDK is already validated by the runtime.
-    // However, we can add additional checks if needed.
-    // For now, we ensure the address is not a zero/empty address by checking
-    // that it can be properly serialized.
-
-    // In Soroban, the Address type is guaranteed to be valid by the SDK,
-    // so this function primarily serves as a placeholder for future validation logic
+/// - Address is not the contract's own address
+/// - Address is not a known zero/burn address
+pub fn validate_address(address: &Address) -> Result<(), ContractError> {
+    // The Address type in Soroban SDK is guaranteed to be valid by the runtime.
+    // This function serves as a placeholder for future validation logic
     // and to make the code more explicit about validation requirements.
+    
+    // In a production system, you might want to:
+    // 1. Check against known burn addresses
+    // 2. Verify the address is not the contract itself (requires passing contract address)
+    // 3. Check against a blacklist of restricted addresses
+    
+    Ok(())
+}
 
+/// Validates that an address is not the contract's own address.
+///
+/// # Arguments
+///
+/// * `address` - Address to validate
+/// * `contract_address` - The contract's own address
+///
+/// # Returns
+///
+/// * `Ok(())` - Address is not the contract
+/// * `Err(ContractError::InvalidAddress)` - Address is the contract itself
+pub fn validate_address_not_contract(
+    address: &Address,
+    contract_address: &Address,
+) -> Result<(), ContractError> {
+    if address == contract_address {
+        return Err(ContractError::InvalidAddress);
+    }
     Ok(())
 }
 
@@ -79,12 +97,12 @@ pub fn validate_remittance_exists(env: &Env, remittance_id: u64) -> Result<crate
     get_remittance(env, remittance_id)
 }
 
-/// Validates that a remittance is in pending status.
-pub fn validate_remittance_pending(remittance: &crate::Remittance) -> Result<(), ContractError> {
-    if remittance.status != RemittanceStatus::Pending {
-        return Err(ContractError::InvalidStatus);
+/// Validates that a remittance is in a cancellable state (Pending or Processing).
+pub fn validate_remittance_cancellable(remittance: &crate::Remittance) -> Result<(), ContractError> {
+    match remittance.status {
+        RemittanceStatus::Pending | RemittanceStatus::Processing => Ok(()),
+        _ => Err(ContractError::InvalidStatus),
     }
-    Ok(())
 }
 
 /// Validates that a settlement has not expired.
@@ -124,12 +142,12 @@ pub fn validate_initialize_request(
     validate_address(admin)?;
     validate_address(token)?;
     validate_fee_bps(fee_bps)?;
-    
+
     // Check if already initialized
     if crate::has_admin(env) {
         return Err(ContractError::AlreadyInitialized);
     }
-    
+
     Ok(())
 }
 
@@ -155,7 +173,10 @@ pub fn validate_confirm_payout_request(
 ) -> Result<crate::Remittance, ContractError> {
     validate_not_paused(env)?;
     let remittance = validate_remittance_exists(env, remittance_id)?;
-    validate_remittance_pending(&remittance)?;
+    // confirm_payout is only valid from Pending (transitions Pending → Processing → Completed)
+    if remittance.status != RemittanceStatus::Pending {
+        return Err(ContractError::InvalidStatus);
+    }
     validate_no_duplicate_settlement(env, remittance_id)?;
     validate_settlement_not_expired(env, remittance.expiry)?;
     validate_address(&remittance.agent)?;
@@ -169,7 +190,7 @@ pub fn validate_cancel_remittance_request(
     remittance_id: u64,
 ) -> Result<crate::Remittance, ContractError> {
     let remittance = validate_remittance_exists(env, remittance_id)?;
-    validate_remittance_pending(&remittance)?;
+    validate_remittance_cancellable(&remittance)?;
     validate_address(&remittance.sender)?;
     Ok(remittance)
 }
@@ -182,6 +203,16 @@ pub fn validate_withdraw_fees_request(
 ) -> Result<i128, ContractError> {
     validate_address(to)?;
     let fees = crate::get_accumulated_fees(env)?;
+    validate_fees_available(fees)?;
+    Ok(fees)
+}
+
+pub fn validate_withdraw_integrator_fees_request(
+    env: &Env,
+    to: &Address,
+) -> Result<i128, ContractError> {
+    validate_address(to)?;
+    let fees = crate::storage::get_accumulated_integrator_fees(env);
     validate_fees_available(fees)?;
     Ok(fees)
 }
@@ -231,6 +262,26 @@ mod tests {
         let address = Address::generate(&env);
 
         assert!(validate_address(&address).is_ok());
+    }
+
+    #[test]
+    fn test_validate_address_not_contract_valid() {
+        let env = Env::default();
+        let address = Address::generate(&env);
+        let contract = Address::generate(&env);
+
+        assert!(validate_address_not_contract(&address, &contract).is_ok());
+    }
+
+    #[test]
+    fn test_validate_address_not_contract_fails_when_same() {
+        let env = Env::default();
+        let address = Address::generate(&env);
+
+        assert_eq!(
+            validate_address_not_contract(&address, &address),
+            Err(ContractError::InvalidAddress)
+        );
     }
 
     #[test]

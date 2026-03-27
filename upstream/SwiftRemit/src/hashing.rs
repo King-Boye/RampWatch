@@ -10,7 +10,7 @@
 //!
 //! 1. `remittance_id`  — u64,  big-endian 8 bytes
 //! 2. `sender`         — Address, XDR-encoded bytes
-//! 3. `agent`          — Address, XDR-encoded bytes  
+//! 3. `agent`          — Address, XDR-encoded bytes
 //! 4. `amount`         — i128, big-endian 16 bytes
 //! 5. `fee`            — i128, big-endian 16 bytes
 //! 6. `expiry`         — u64,  big-endian 8 bytes (0x0000000000000000 if None)
@@ -151,6 +151,42 @@ pub fn compute_settlement_id_from_remittance(
 fn address_to_bytes(env: &Env, address: &Address) -> Bytes {
     use soroban_sdk::xdr::ToXdr;
     address.to_xdr(env)
+}
+
+/// Compute a deterministic hash from remittance creation request parameters.
+/// Used for idempotency key validation to detect payload changes.
+///
+/// # Arguments
+/// * `env`    - Soroban environment
+/// * `sender` - Sender address
+/// * `agent`  - Agent address
+/// * `amount` - Payment amount in USDC
+/// * `expiry` - Optional expiry timestamp
+///
+/// # Returns
+/// SHA-256 hash as BytesN<32>
+pub fn compute_request_hash(
+    env: &Env,
+    sender: &Address,
+    agent: &Address,
+    amount: i128,
+    expiry: Option<u64>,
+) -> BytesN<32> {
+    let mut buf = Bytes::new(env);
+
+    // Serialize request parameters in canonical order
+    let sender_bytes = address_to_bytes(env, sender);
+    buf.append(&sender_bytes);
+
+    let agent_bytes = address_to_bytes(env, agent);
+    buf.append(&agent_bytes);
+
+    buf.extend_from_array(&amount.to_be_bytes());
+
+    let expiry_val: u64 = expiry.unwrap_or(0);
+    buf.extend_from_array(&expiry_val.to_be_bytes());
+
+    env.crypto().sha256(&buf).into()
 }
 
 #[cfg(test)]
