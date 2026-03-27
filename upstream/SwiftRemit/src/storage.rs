@@ -156,13 +156,18 @@ enum DataKey {
     /// Idempotency record indexed by idempotency key (persistent storage)
     /// Stores remittance_id and request hash for duplicate detection
     IdempotencyRecord(String),
-    
+
+    /// Reverse mapping: remittance_id -> idempotency key (persistent storage)
+    /// Used to clean up the idempotency record when a remittance reaches a terminal state
+    RemittanceIdempotencyKey(u64),
+
     /// TTL for idempotency records in seconds (instance storage)
     IdempotencyTTL,
 
-    // === Sender Remittance Index ===
-    /// Ordered list of remittance IDs created by a sender (persistent storage)
-    SenderRemittances(Address),
+    // === Migration ===
+    /// Flag indicating a migration is currently in progress (instance storage).
+    /// When set, normal write operations (create_remittance, confirm_payout, etc.) are blocked.
+    MigrationInProgress,
 }
 
 /// Checks if the contract has an admin configured.
@@ -1148,21 +1153,26 @@ pub fn set_idempotency_ttl(env: &Env, ttl_seconds: u64) {
         .set(&DataKey::IdempotencyTTL, &ttl_seconds);
 }
 
-// === Sender Remittance Index ===
-
-/// Returns the full list of remittance IDs for a given sender.
-pub fn get_sender_remittances(env: &Env, sender: &Address) -> Vec<u64> {
+/// Removes an idempotency record (called on terminal state transition)
+pub fn remove_idempotency_record(env: &Env, key: &String) {
     env.storage()
         .persistent()
-        .get(&DataKey::SenderRemittances(sender.clone()))
-        .unwrap_or(Vec::new(env))
+        .remove(&DataKey::IdempotencyRecord(key.clone()));
 }
 
-/// Appends a remittance ID to the sender's index list.
-pub fn append_sender_remittance(env: &Env, sender: &Address, remittance_id: u64) {
-    let mut ids = get_sender_remittances(env, sender);
-    ids.push_back(remittance_id);
+/// Stores the reverse mapping: remittance_id -> idempotency key
+pub fn set_remittance_idempotency_key(env: &Env, remittance_id: u64, key: &String) {
     env.storage()
         .persistent()
-        .set(&DataKey::SenderRemittances(sender.clone()), &ids);
+        .set(&DataKey::RemittanceIdempotencyKey(remittance_id), key);
+}
+
+/// Retrieves and removes the reverse mapping, returning the key if present
+pub fn take_remittance_idempotency_key(env: &Env, remittance_id: u64) -> Option<String> {
+    let storage_key = DataKey::RemittanceIdempotencyKey(remittance_id);
+    let key: Option<String> = env.storage().persistent().get(&storage_key);
+    if key.is_some() {
+        env.storage().persistent().remove(&storage_key);
+    }
+    key
 }
