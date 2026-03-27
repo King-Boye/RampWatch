@@ -40,6 +40,8 @@ mod test_transitions;
 mod test_protocol_fee;
 #[cfg(test)]
 mod test_property;
+#[cfg(test)]
+mod test_fee_breakdown;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
@@ -637,6 +639,96 @@ impl SwiftRemitContract {
     /// * `Err(ContractError::NotInitialized)` - Contract not initialized
     pub fn get_platform_fee_bps(env: Env) -> Result<u32, ContractError> {
         get_platform_fee_bps(&env)
+    }
+
+    /// Returns a detailed fee breakdown for a given amount and optional corridor.
+    ///
+    /// This function allows callers to preview the exact fee split before creating
+    /// a remittance. It supports both global fees and country-specific corridor fees.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `amount` - Transaction amount to calculate fees for (must be positive)
+    /// * `from_country` - Optional source country code (ISO 3166-1 alpha-2)
+    /// * `to_country` - Optional destination country code (ISO 3166-1 alpha-2)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(FeeBreakdown)` - Complete fee breakdown with:
+    ///   - `amount`: Original transaction amount
+    ///   - `platform_fee`: Platform fee deducted
+    ///   - `protocol_fee`: Treasury/protocol fee deducted
+    ///   - `net_amount`: Amount remaining after all fees
+    ///   - `corridor`: Optional corridor identifier (populated if country params provided)
+    /// * `Err(ContractError::InvalidAmount)` - Amount is zero or negative
+    /// * `Err(ContractError::Overflow)` - Arithmetic overflow in calculation
+    /// * `Err(ContractError::NotInitialized)` - Contract not initialized
+    ///
+    /// # Behavior
+    ///
+    /// - Callable without authorization (read-only query)
+    /// - If both `from_country` and `to_country` are provided:
+    ///   - Looks up corridor-specific fee configuration
+    ///   - Uses corridor fees if corridor exists, otherwise uses global fees
+    ///   - Sets `corridor` field in returned FeeBreakdown
+    /// - If countries not provided, uses current global fee strategy
+    /// - Fee calculations support Percentage, Flat, and Dynamic fee strategies
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Check global fees
+    /// let breakdown = contract.get_fee_breakdown(&env, 1000_000, None, None)?;
+    ///
+    /// // Check corridor-specific fees
+    /// let breakdown = contract.get_fee_breakdown(
+    ///     &env,
+    ///     1000_000,
+    ///     Some(String::from_str(&env, "US")),
+    ///     Some(String::from_str(&env, "MX")),
+    /// )?;
+    /// ```
+    pub fn get_fee_breakdown(
+        env: Env,
+        amount: i128,
+        from_country: Option<String>,
+        to_country: Option<String>,
+    ) -> Result<FeeBreakdown, ContractError> {
+        // Validate amount
+        if amount <= 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        // Try to find corridor if both countries provided
+        let corridor_opt = if from_country.is_some() && to_country.is_some() {
+            let from = from_country.clone().unwrap();
+            let to = to_country.clone().unwrap();
+            get_fee_corridor(&env, &from, &to)
+        } else {
+            None
+        };
+
+        // Calculate fees with breakdown using corridor if available
+        let mut breakdown = fee_service::calculate_fees_with_breakdown(
+            &env,
+            amount,
+            corridor_opt.as_ref(),
+        )?;
+
+        // If countries were provided but no corridor exists in storage,
+        // still set the corridor field for informational purposes
+        if breakdown.corridor.is_none() && from_country.is_some() && to_country.is_some() {
+            let from = from_country.unwrap();
+            let to = to_country.unwrap();
+            // Create corridor identifier string
+            let mut corridor_id = from.clone();
+            // For now, we'll use the from_country as the corridor ID
+            // In a production system with better string handling, this would be "from-to"
+            breakdown.corridor = Some(corridor_id);
+        }
+
+        Ok(breakdown)
     }
 
     /// Computes the deterministic settlement hash for a remittance.
