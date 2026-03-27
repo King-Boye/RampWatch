@@ -327,4 +327,141 @@ mod tests {
         assert!(validate_anchor_domain("https://-example.com").is_err());
         assert!(validate_anchor_domain("https://example-.com").is_err());
     }
+
+    #[test]
+    fn test_unicode_idn_domains() {
+        // Unicode/IDN domains should be rejected (not supported)
+        assert!(validate_anchor_domain("https://münchen.de").is_err());
+        assert!(validate_anchor_domain("https://例え.jp").is_err());
+        assert!(validate_anchor_domain("https://россия.рф").is_err());
+        assert!(validate_anchor_domain("https://example.测试").is_err());
+    }
+
+    #[test]
+    fn test_ip_address_inputs() {
+        // IPv4 addresses should be rejected (not valid domain format)
+        assert!(validate_anchor_domain("https://192.168.1.1").is_err());
+        assert!(validate_anchor_domain("https://10.0.0.1").is_err());
+        assert!(validate_anchor_domain("https://127.0.0.1").is_err());
+        
+        // IPv6 addresses should be rejected
+        assert!(validate_anchor_domain("https://[::1]").is_err());
+        assert!(validate_anchor_domain("https://[2001:db8::1]").is_err());
+    }
+
+    #[test]
+    fn test_trailing_slashes() {
+        // Trailing slashes should be allowed
+        assert!(validate_anchor_domain("https://example.com/").is_ok());
+        assert!(validate_anchor_domain("https://example.com/path/").is_ok());
+        assert!(validate_anchor_domain("https://example.com/path/to/resource/").is_ok());
+        
+        // Multiple trailing slashes
+        assert!(validate_anchor_domain("https://example.com//").is_ok());
+    }
+
+    #[test]
+    fn test_length_boundaries() {
+        // Domain exactly at 2048-character limit (should pass)
+        let max_valid_domain = format!("https://{}.com", "a".repeat(2039));
+        assert!(validate_anchor_domain(&max_valid_domain).is_ok());
+        
+        // Domain exceeding 2048-character limit (should fail)
+        let too_long_domain = format!("https://{}.com", "a".repeat(2040));
+        assert!(validate_anchor_domain(&too_long_domain).is_err());
+        
+        // Very short valid domains
+        assert!(validate_anchor_domain("https://a.b").is_ok());
+        assert!(validate_anchor_domain("https://ab.cd").is_ok());
+    }
+
+    #[test]
+    fn test_query_parameters_and_fragments() {
+        // Query parameters should be allowed
+        assert!(validate_anchor_domain("https://example.com?param=value").is_ok());
+        assert!(validate_anchor_domain("https://example.com?param1=value1&param2=value2").is_ok());
+        
+        // Fragments should be allowed
+        assert!(validate_anchor_domain("https://example.com#section").is_ok());
+        assert!(validate_anchor_domain("https://example.com/path#section").is_ok());
+        
+        // Both query and fragment
+        assert!(validate_anchor_domain("https://example.com?param=value#section").is_ok());
+    }
+
+    #[test]
+    fn test_special_characters_in_path() {
+        // Valid special characters in paths
+        assert!(validate_anchor_domain("https://example.com/path-with-dash").is_ok());
+        assert!(validate_anchor_domain("https://example.com/path_with_underscore").is_ok());
+        assert!(validate_anchor_domain("https://example.com/path.with.dot").is_ok());
+        assert!(validate_anchor_domain("https://example.com/path~tilde").is_ok());
+        assert!(validate_anchor_domain("https://example.com/path%20encoded").is_ok());
+        
+        // Invalid characters in paths
+        assert!(validate_anchor_domain("https://example.com/path<invalid>").is_err());
+        assert!(validate_anchor_domain("https://example.com/path{invalid}").is_err());
+        assert!(validate_anchor_domain("https://example.com/path|pipe").is_err());
+        assert!(validate_anchor_domain("https://example.com/path\\backslash").is_err());
+    }
+
+    #[test]
+    fn test_port_edge_cases() {
+        // Valid port ranges
+        assert!(validate_anchor_domain("https://example.com:1").is_ok());
+        assert!(validate_anchor_domain("https://example.com:80").is_ok());
+        assert!(validate_anchor_domain("https://example.com:443").is_ok());
+        assert!(validate_anchor_domain("https://example.com:8080").is_ok());
+        assert!(validate_anchor_domain("https://example.com:65535").is_ok());
+        
+        // Invalid port ranges
+        assert!(validate_anchor_domain("https://example.com:0").is_err());
+        assert!(validate_anchor_domain("https://example.com:65536").is_err());
+        assert!(validate_anchor_domain("https://example.com:99999").is_err());
+        
+        // Port with path
+        assert!(validate_anchor_domain("https://example.com:8080/path").is_ok());
+        assert!(validate_anchor_domain("https://example.com:8080/path?query=value").is_ok());
+    }
+
+    #[test]
+    fn test_whitespace_variations() {
+        // Leading/trailing whitespace should be rejected
+        assert!(validate_anchor_domain(" https://example.com").is_err());
+        assert!(validate_anchor_domain("https://example.com ").is_err());
+        assert!(validate_anchor_domain("  https://example.com  ").is_err());
+        
+        // Internal whitespace should be rejected
+        assert!(validate_anchor_domain("https://example .com").is_err());
+        assert!(validate_anchor_domain("https://exam ple.com").is_err());
+    }
+
+    #[test]
+    fn test_protocol_variations() {
+        // Only HTTPS should be allowed
+        assert!(validate_anchor_domain("https://example.com").is_ok());
+        
+        // All other protocols should be rejected
+        assert!(validate_anchor_domain("http://example.com").is_err());
+        assert!(validate_anchor_domain("ftp://example.com").is_err());
+        assert!(validate_anchor_domain("ws://example.com").is_err());
+        assert!(validate_anchor_domain("wss://example.com").is_err());
+        assert!(validate_anchor_domain("file://example.com").is_err());
+        assert!(validate_anchor_domain("mailto:example@example.com").is_err());
+    }
+
+    #[test]
+    fn test_domain_label_edge_cases() {
+        // Valid labels
+        assert!(validate_anchor_domain("https://a-b-c.example.com").is_ok());
+        assert!(validate_anchor_domain("https://123-456.example.com").is_ok());
+        assert!(validate_anchor_domain("https://a1b2c3.example.com").is_ok());
+        
+        // Invalid labels
+        assert!(validate_anchor_domain("https://-abc.example.com").is_err());
+        assert!(validate_anchor_domain("https://abc-.example.com").is_err());
+        assert!(validate_anchor_domain("https://a--b.example.com").is_ok()); // Double hyphens allowed in middle
+        assert!(validate_anchor_domain("https://.example.com").is_err());
+        assert!(validate_anchor_domain("https://example..com").is_err());
+    }
 }
