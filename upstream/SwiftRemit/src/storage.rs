@@ -150,6 +150,15 @@ enum DataKey {
 
     /// Fee corridor configuration indexed by (from_country, to_country)
     FeeCorridor(String, String),
+
+    // === Idempotency Protection ===
+    // Keys for preventing duplicate remittance creation
+    /// Idempotency record indexed by idempotency key (persistent storage)
+    /// Stores remittance_id and request hash for duplicate detection
+    IdempotencyRecord(String),
+    
+    /// TTL for idempotency records in seconds (instance storage)
+    IdempotencyTTL,
 }
 
 /// Checks if the contract has an admin configured.
@@ -1072,4 +1081,52 @@ pub fn remove_fee_corridor(env: &Env, from_country: &String, to_country: &String
     env.storage()
         .persistent()
         .remove(&key);
+}
+
+// === Idempotency Protection ===
+
+/// Gets an idempotency record if it exists and hasn't expired
+pub fn get_idempotency_record(
+    env: &Env,
+    key: &String,
+) -> Option<crate::IdempotencyRecord> {
+    let storage_key = DataKey::IdempotencyRecord(key.clone());
+    let record: Option<crate::IdempotencyRecord> = env.storage()
+        .persistent()
+        .get(&storage_key);
+    
+    if let Some(rec) = record {
+        let current_time = env.ledger().timestamp();
+        if current_time < rec.expires_at {
+            return Some(rec);
+        }
+    }
+    None
+}
+
+/// Stores an idempotency record
+pub fn set_idempotency_record(
+    env: &Env,
+    key: &String,
+    record: &crate::IdempotencyRecord,
+) {
+    let storage_key = DataKey::IdempotencyRecord(key.clone());
+    env.storage()
+        .persistent()
+        .set(&storage_key, record);
+}
+
+/// Gets the configured TTL for idempotency records (default: 86400 seconds = 24 hours)
+pub fn get_idempotency_ttl(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::IdempotencyTTL)
+        .unwrap_or(86400)
+}
+
+/// Sets the idempotency TTL (admin only)
+pub fn set_idempotency_ttl(env: &Env, ttl_seconds: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::IdempotencyTTL, &ttl_seconds);
 }

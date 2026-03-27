@@ -240,12 +240,17 @@ fn calculate_protocol_fee(amount: i128, protocol_fee_bps: u32) -> Result<i128, C
 ///
 /// Formatted corridor ID (e.g., "US-MX")
 fn format_corridor_id(env: &Env, from_country: &String, to_country: &String) -> String {
-    // Create a simple concatenation: "FROM-TO"
-    let mut result = String::from_str(env, "");
-    result = from_country.clone();
-    // Note: Soroban String doesn't have append, so we'll just use from_country for now
-    // In production, you might want to use a different approach
-    result
+    // Create corridor ID as "FROM-TO" using byte concatenation
+    let from_bytes = from_country.as_bytes();
+    let to_bytes = to_country.as_bytes();
+    let dash = b"-";
+    
+    let mut corridor_bytes = soroban_sdk::Bytes::new(env);
+    corridor_bytes.append(&from_bytes);
+    corridor_bytes.append(&soroban_sdk::Bytes::from_slice(env, dash));
+    corridor_bytes.append(&to_bytes);
+    
+    String::from_utf8(corridor_bytes).unwrap_or_else(|_| String::from_str(env, ""))
 }
 
 #[cfg(test)]
@@ -356,5 +361,35 @@ mod tests {
         };
 
         assert!(breakdown.validate().is_err());
+    }
+
+    #[test]
+    fn test_format_corridor_id_us_mx() {
+        let env = Env::default();
+        let from = String::from_str(&env, "US");
+        let to = String::from_str(&env, "MX");
+        
+        let corridor_id = format_corridor_id(&env, &from, &to);
+        assert_eq!(corridor_id, String::from_str(&env, "US-MX"));
+    }
+
+    #[test]
+    fn test_format_corridor_id_mx_us() {
+        let env = Env::default();
+        let from = String::from_str(&env, "MX");
+        let to = String::from_str(&env, "US");
+        
+        let corridor_id = format_corridor_id(&env, &from, &to);
+        assert_eq!(corridor_id, String::from_str(&env, "MX-US"));
+    }
+
+    #[test]
+    fn test_format_corridor_id_gb_ng() {
+        let env = Env::default();
+        let from = String::from_str(&env, "GB");
+        let to = String::from_str(&env, "NG");
+        
+        let corridor_id = format_corridor_id(&env, &from, &to);
+        assert_eq!(corridor_id, String::from_str(&env, "GB-NG"));
     }
 }
