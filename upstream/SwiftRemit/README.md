@@ -164,6 +164,8 @@ soroban contract invoke \
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment instructions.
 
+For production readiness assessment, see [PRODUCTION_READINESS_REPORT.md](PRODUCTION_READINESS_REPORT.md).
+
 ## Configuration
 
 SwiftRemit uses environment variables for configuration. This allows you to easily configure the system for different environments (local development, testnet, mainnet) without modifying code.
