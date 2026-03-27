@@ -41,6 +41,7 @@ pub enum ErrorCode {
     NoQuotesAvailable = 13,
     ServicesNotConfigured = 14,
     ValidationError = 15,
+    RateLimitExceeded = 16,
 }
 
 impl ErrorCode {
@@ -62,6 +63,7 @@ impl ErrorCode {
             ErrorCode::NoQuotesAvailable => "No quotes are available",
             ErrorCode::ServicesNotConfigured => "Services are not configured",
             ErrorCode::ValidationError => "Response schema validation failed",
+            ErrorCode::RateLimitExceeded => "Rate limit exceeded",
         }
     }
 }
@@ -171,6 +173,10 @@ impl AnchorKitError {
     pub fn validation_error(context: &str) -> Self {
         Self::with_context(ErrorCode::ValidationError, ErrorCode::ValidationError.default_message(), context)
     }
+
+    pub fn rate_limit_exceeded() -> Self {
+        Self::from_code(ErrorCode::RateLimitExceeded)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -259,6 +265,7 @@ mod tests {
             ErrorCode::NoQuotesAvailable,
             ErrorCode::ServicesNotConfigured,
             ErrorCode::ValidationError,
+            ErrorCode::RateLimitExceeded,
         ];
         for code in codes {
             assert!(!code.default_message().is_empty());

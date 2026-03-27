@@ -2,11 +2,13 @@
 /// This test file demonstrates and validates the Transaction State Tracker implementation
 
 use crate::transaction_state_tracker::*;
-use soroban_sdk::{Env, Address};
+use soroban_sdk::Env;
 
 #[cfg(test)]
 mod transaction_state_tracker_tests {
     use super::*;
+    use soroban_sdk::testutils::Address;
+    use soroban_sdk::String;
 
     #[test]
     fn test_transaction_state_to_string() {
@@ -41,7 +43,7 @@ mod transaction_state_tracker_tests {
     fn test_full_transaction_lifecycle() {
         let env = Env::default();
         let mut tracker = TransactionStateTracker::new(true);
-        let initiator = Address::generate(&env);
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         // Create transaction -> Pending
         let tx1_result = tracker.create_transaction(1, initiator.clone(), &env);
@@ -66,12 +68,12 @@ mod transaction_state_tracker_tests {
     fn test_transaction_failure_with_error_message() {
         let env = Env::default();
         let mut tracker = TransactionStateTracker::new(true);
-        let initiator = Address::generate(&env);
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         tracker.create_transaction(1, initiator.clone(), &env).ok();
         tracker.start_transaction(1, &env).ok();
 
-        let error_msg = String::from_slice(&env, "Payment declined".as_bytes());
+        let error_msg = String::from_str(&env, "Payment declined");
         let result = tracker.fail_transaction(1, error_msg.clone(), &env);
 
         assert!(result.is_ok());
@@ -84,7 +86,7 @@ mod transaction_state_tracker_tests {
     fn test_query_transactions_by_state() {
         let env = Env::default();
         let mut tracker = TransactionStateTracker::new(true);
-        let initiator = Address::generate(&env);
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         // Create 5 transactions
         for i in 1..=5 {
@@ -119,7 +121,7 @@ mod transaction_state_tracker_tests {
     fn test_production_mode_flag() {
         let env = Env::default();
         let mut prod_tracker = TransactionStateTracker::new(false);
-        let initiator = Address::generate(&env);
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         // In production mode, cache should not be populated
         let result = prod_tracker.create_transaction(1, initiator.clone(), &env);
@@ -147,8 +149,8 @@ mod transaction_state_tracker_tests {
     fn test_multiple_transactions_isolation() {
         let env = Env::default();
         let mut tracker = TransactionStateTracker::new(true);
-        let initiator1 = Address::generate(&env);
-        let initiator2 = Address::generate(&env);
+        let initiator1 = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+        let initiator2 = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         // Create transactions from different initiators
         tracker.create_transaction(1, initiator1.clone(), &env).ok();
@@ -169,7 +171,7 @@ mod transaction_state_tracker_tests {
     fn test_clear_cache_dev_mode() {
         let env = Env::default();
         let mut tracker = TransactionStateTracker::new(true);
-        let initiator = Address::generate(&env);
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         tracker.create_transaction(1, initiator.clone(), &env).ok();
         tracker.create_transaction(2, initiator.clone(), &env).ok();
@@ -184,7 +186,7 @@ mod transaction_state_tracker_tests {
     fn test_timestamp_tracking() {
         let env = Env::default();
         let mut tracker = TransactionStateTracker::new(true);
-        let initiator = Address::generate(&env);
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         let create_result = tracker.create_transaction(1, initiator.clone(), &env);
         let record1 = create_result.unwrap();
