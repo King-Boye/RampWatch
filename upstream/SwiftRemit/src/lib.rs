@@ -43,7 +43,9 @@ mod test_property;
 #[cfg(test)]
 mod test_integrator_fees;
 #[cfg(test)]
-mod test_treasury; 
+mod test_treasury;
+#[cfg(test)]
+mod test_migration;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
@@ -308,6 +310,9 @@ impl SwiftRemitContract {
     idempotency_key: Option<String>,
     settlement_config: Option<SettlementConfig>,
 ) -> Result<u64, ContractError> {
+    if crate::storage::is_migration_in_progress(&env) {
+        return Err(ContractError::MigrationInProgress);
+    }
     validate_create_remittance_request(&env, &sender, &agent, amount)?;
 
     sender.require_auth();
@@ -406,6 +411,9 @@ impl SwiftRemitContract {
         remittance_id: u64,
         proof: Option<ProofData>,
     ) -> Result<(), ContractError> {
+        if crate::storage::is_migration_in_progress(&env) {
+            return Err(ContractError::MigrationInProgress);
+        }
         // Centralized validation before business logic (returns remittance to avoid re-read)
         let mut remittance = validate_confirm_payout_request(&env, remittance_id)?;
 
@@ -1588,5 +1596,89 @@ impl SwiftRemitContract {
     /// Check if user KYC is approved
     pub fn is_kyc_approved(env: Env, user: Address) -> bool {
         is_kyc_approved(&env, &user) && !is_kyc_expired(&env, &user)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Migration Functions
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Exports a complete snapshot of all contract state for migration purposes.
+    ///
+    /// Sets the `MigrationInProgress` flag, which blocks `create_remittance` and
+    /// `confirm_payout` until the migration is complete. The returned snapshot
+    /// includes a SHA-256 verification hash that must be supplied back to
+    /// `import_migration_batch` for integrity verification.
+    ///
+    /// # Authorization
+    /// Admin only — caller must authenticate.
+    ///
+    /// # Returns
+    /// `MigrationSnapshot` containing all instance and persistent state.
+    ///
+    /// # Errors
+    /// - `NotInitialized` — contract not yet initialized
+    /// - `Unauthorized` — caller is not an admin
+    /// - `MigrationInProgress` — a migration is already active
+    pub fn export_migration_snapshot(env: Env, caller: Address) -> Result<MigrationSnapshot, ContractError> {
+        // Require initialized contract
+        get_admin(&env)?;
+
+        // Admin auth
+        require_admin(&env, &caller)?;
+
+        // Prevent double-export
+        if crate::storage::is_migration_in_progress(&env) {
+            return Err(ContractError::MigrationInProgress);
+        }
+
+        // Lock normal operations
+        crate::storage::set_migration_in_progress(&env, true);
+
+        migration::export_state(&env)
+    }
+
+    /// Imports a single batch of remittances produced by `export_migration_snapshot`.
+    ///
+    /// Each batch carries its own `batch_hash` which is verified before any data is
+    /// written. Batches must be imported in order (0, 1, 2, …). After the final batch
+    /// (`batch_number == total_batches - 1`) the `MigrationInProgress` flag is cleared,
+    /// re-enabling normal operations.
+    ///
+    /// # Authorization
+    /// Admin only — caller must authenticate.
+    ///
+    /// # Parameters
+    /// - `batch` — `MigrationBatch` produced by the off-chain export tooling.
+    ///
+    /// # Errors
+    /// - `NotInitialized` — contract not yet initialized
+    /// - `Unauthorized` — caller is not an admin
+    /// - `InvalidMigrationHash` — batch hash verification failed
+    /// - `InvalidMigrationBatch` — batch_number ≥ total_batches
+    pub fn import_migration_batch(env: Env, caller: Address, batch: MigrationBatch) -> Result<(), ContractError> {
+        // Require initialized contract
+        get_admin(&env)?;
+
+        // Admin auth
+        require_admin(&env, &caller)?;
+
+        // Validate batch metadata
+        if batch.batch_number >= batch.total_batches {
+            return Err(ContractError::InvalidMigrationBatch);
+        }
+
+        // Capture before move
+        let batch_number = batch.batch_number;
+        let total_batches = batch.total_batches;
+
+        // Delegate to migration module (performs hash verification + import)
+        migration::import_batch(&env, batch)?;
+
+        // Clear the lock after the final batch
+        if batch_number == total_batches.saturating_sub(1) {
+            crate::storage::set_migration_in_progress(&env, false);
+        }
+
+        Ok(())
     }
 }

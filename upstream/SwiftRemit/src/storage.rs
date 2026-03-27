@@ -159,6 +159,11 @@ enum DataKey {
     
     /// TTL for idempotency records in seconds (instance storage)
     IdempotencyTTL,
+
+    // === Migration ===
+    /// Flag indicating a migration is currently in progress (instance storage).
+    /// When set, normal write operations (create_remittance, confirm_payout, etc.) are blocked.
+    MigrationInProgress,
 }
 
 /// Checks if the contract has an admin configured.
@@ -1142,4 +1147,21 @@ pub fn set_idempotency_ttl(env: &Env, ttl_seconds: u64) {
     env.storage()
         .instance()
         .set(&DataKey::IdempotencyTTL, &ttl_seconds);
+}
+
+// === Migration State ===
+
+/// Returns true if a migration is currently in progress.
+pub fn is_migration_in_progress(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::MigrationInProgress)
+        .unwrap_or(false)
+}
+
+/// Sets the migration-in-progress flag.
+pub fn set_migration_in_progress(env: &Env, in_progress: bool) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MigrationInProgress, &in_progress);
 }
