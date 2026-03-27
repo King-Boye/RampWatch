@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -25,6 +25,10 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
+const pool = getPool();
+const kycUpsertService = new KycUpsertService(pool);
+const transferGuard = createTransferGuard(kycUpsertService);
+
 // Rate limiting
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'),
@@ -46,6 +50,17 @@ function validateAssetParams(req: Request, res: Response, next: Function) {
     return res.status(400).json({ error: 'Invalid issuer address' });
   }
 
+  next();
+}
+
+function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  const userId = (req.headers['x-user-id'] as string) || '';
+
+  if (!userId || typeof userId !== 'string') {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  req.user = { id: userId };
   next();
 }
 
@@ -216,6 +231,27 @@ app.post('/api/verification/batch', async (req: Request, res: Response) => {
     console.error('Error in batch verification:', error);
     res.status(500).json({ error: 'Batch verification failed' });
   }
+});
+
+// KYC status endpoint
+app.get('/api/kyc/status', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const status = await kycUpsertService.getStatusForUser(userId);
+    return res.status(200).json(status);
+  } catch (error) {
+    console.error('Error fetching KYC status:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Transfer endpoint (guarded)
+app.post('/api/transfer', authMiddleware, transferGuard, async (req: Request, res: Response) => {
+  return res.status(200).json({ success: true, message: 'Transfer allowed' });
 });
 
 // Store FX rate for transaction

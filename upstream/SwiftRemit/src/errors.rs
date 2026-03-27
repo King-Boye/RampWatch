@@ -13,182 +13,182 @@ pub enum ContractError {
     // ═══════════════════════════════════════════════════════════════════════════
     // Initialization Errors (1-2)
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /// Contract has already been initialized.
     /// Cause: Attempting to call initialize() on an already initialized contract.
     AlreadyInitialized = 1,
-    
+
     /// Contract has not been initialized yet.
     /// Cause: Attempting operations before calling initialize().
     NotInitialized = 2,
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Validation Errors (3-10)
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /// Amount must be greater than zero.
     /// Cause: Providing zero or negative amount in remittance creation.
     InvalidAmount = 3,
-    
+
     /// Fee must be between 0 and 10000 basis points (0-100%).
     /// Cause: Setting platform fee outside valid range.
     InvalidFeeBps = 4,
-    
+
     /// Agent is not registered in the system.
     /// Cause: Attempting to create remittance with unregistered agent.
     AgentNotRegistered = 5,
-    
+
     /// Remittance not found.
     /// Cause: Querying or operating on non-existent remittance ID.
     RemittanceNotFound = 6,
-    
+
     /// Invalid remittance status for this operation.
     /// Cause: Attempting operation on remittance in wrong status (e.g., settling completed remittance).
     InvalidStatus = 7,
-    
+
     /// Invalid state transition attempted.
     /// Cause: Attempting to transition remittance to invalid state.
     InvalidStateTransition = 8,
-    
+
     /// No fees available to withdraw.
     /// Cause: Attempting to withdraw fees when accumulated fees is zero or negative.
     NoFeesToWithdraw = 9,
-    
+
     /// Invalid address format or validation failed.
     /// Cause: Address does not meet validation requirements.
     InvalidAddress = 10,
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Settlement Errors (11-15)
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /// Settlement window has expired.
     /// Cause: Attempting to settle remittance after expiry timestamp.
     SettlementExpired = 11,
-    
+
     /// Settlement has already been executed.
     /// Cause: Attempting to settle the same remittance twice (duplicate prevention).
     DuplicateSettlement = 12,
-    
+
     /// Asset verification record not found
     AssetNotFound = 13,
-    
+
     /// Reputation score must be between 0 and 100
     InvalidReputationScore = 14,
-    
+
     /// Asset has been flagged as suspicious
     SuspiciousAsset = 15,
-    
+
     /// Contract is paused. Settlements are temporarily disabled.
     /// Cause: Attempting confirm_payout() while contract is in paused state.
     ContractPaused = 16,
-    
+
     /// User is blacklisted and cannot perform transactions.
     /// Cause: User address is on the blacklist.
     UserBlacklisted = 17,
-    
+
     /// User KYC is not approved.
     /// Cause: User has not completed KYC verification.
     KycNotApproved = 18,
-    
+
     /// User KYC has expired.
     /// Cause: User's KYC verification has expired and needs renewal.
     KycExpired = 19,
-    
+
     /// Transaction record not found.
     /// Cause: Querying non-existent transaction record.
     TransactionNotFound = 20,
-    
+
     /// Anchor transaction failed.
     /// Cause: Anchor withdrawal/deposit operation failed.
     AnchorTransactionFailed = 21,
-    
+
     RateLimitExceeded = 22,
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Authorization Errors (18-21)
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /// Caller is not authorized to perform admin operations.
     /// Cause: Non-admin attempting to perform admin-only operations.
     Unauthorized = 23,
-    
+
     /// Admin address already exists in the system.
     /// Cause: Attempting to add an admin that is already registered.
     AdminAlreadyExists = 24,
-    
+
     /// Admin address does not exist in the system.
     /// Cause: Attempting to remove an admin that is not registered.
     AdminNotFound = 25,
-    
+
     /// Cannot remove the last admin from the system.
     /// Cause: Attempting to remove the only remaining admin.
     CannotRemoveLastAdmin = 26,
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Token Whitelist Errors (22-23)
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /// Token is not whitelisted for use in the system.
     /// Cause: Attempting to initialize contract with non-whitelisted token.
     TokenNotWhitelisted = 27,
-    
+
     /// Token is already whitelisted in the system.
     /// Cause: Attempting to add a token that is already whitelisted.
     TokenAlreadyWhitelisted = 28,
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Migration Errors (24-26)
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /// Migration hash verification failed.
     /// Cause: Snapshot hash doesn't match computed hash (data tampering or corruption).
     InvalidMigrationHash = 29,
-    
+
     /// Migration already in progress or completed.
     /// Cause: Attempting to start migration when one is already active.
     MigrationInProgress = 30,
-    
+
     /// Migration batch out of order or invalid.
     /// Cause: Importing batches in wrong order or invalid batch number.
     InvalidMigrationBatch = 31,
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Rate Limiting Errors (27)
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /// Daily send limit exceeded for this user.
     /// Cause: User's total transfers in the last 24 hours exceed the configured limit.
     DailySendLimitExceeded = 32,
-    
+
     /// Cooldown period is still active.
     /// Cause: Attempting action before cooldown period has elapsed.
     CooldownActive = 33,
-    
+
     /// Suspicious activity detected.
     /// Cause: Pattern matching known abuse behaviors (rapid retries, unusual patterns).
     SuspiciousActivity = 34,
-    
+
     /// Action temporarily blocked due to abuse protection.
     /// Cause: Multiple violations or severe abuse detected.
     ActionBlocked = 35,
-    
+
     /// Arithmetic overflow occurred during calculation.
     /// Cause: Result of arithmetic operation exceeds maximum value.
     Overflow = 36,
-    
+
     /// Net settlement validation failed.
     /// Cause: Net settlement calculations don't match expected values.
     NetSettlementValidationFailed = 37,
-    
+
     /// Escrow not found.
     /// Cause: Querying non-existent escrow record.
     EscrowNotFound = 38,
-    
+
     /// Invalid escrow status for this operation.
     /// Cause: Attempting operation on escrow in wrong status.
     InvalidEscrowStatus = 39,
-    
+
     /// Settlement counter overflow.
     /// Cause: Settlement counter would exceed u64::MAX.
     SettlementCounterOverflow = 40,
@@ -224,4 +224,101 @@ pub enum ContractError {
     /// Arithmetic underflow occurred.
     /// Cause: Result of arithmetic operation is below minimum.
     Underflow = 48,
+
+    /// Idempotency key exists but request payload differs.
+    /// Cause: Same idempotency key used with different request parameters.
+    IdempotencyConflict = 49,
+
+    /// Proof validation failed.
+    /// Cause: Signature is invalid or signer doesn't match expected oracle.
+    InvalidProof = 50,
+    
+    /// Proof is required but not provided.
+    /// Cause: Settlement requires proof validation but proof parameter is None.
+    MissingProof = 51,
+    
+    /// Oracle address is invalid or not configured.
+    /// Cause: Settlement requires proof but oracle_address is None.
+    InvalidOracleAddress = 52,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_codes_are_unique() {
+        let error_codes = [
+            ContractError::AlreadyInitialized as u32,
+            ContractError::NotInitialized as u32,
+            ContractError::InvalidAmount as u32,
+            ContractError::InvalidFeeBps as u32,
+            ContractError::AgentNotRegistered as u32,
+            ContractError::RemittanceNotFound as u32,
+            ContractError::InvalidStatus as u32,
+            ContractError::InvalidStateTransition as u32,
+            ContractError::NoFeesToWithdraw as u32,
+            ContractError::InvalidAddress as u32,
+            ContractError::SettlementExpired as u32,
+            ContractError::DuplicateSettlement as u32,
+            ContractError::AssetNotFound as u32,
+            ContractError::InvalidReputationScore as u32,
+            ContractError::SuspiciousAsset as u32,
+            ContractError::ContractPaused as u32,
+            ContractError::UserBlacklisted as u32,
+            ContractError::KycNotApproved as u32,
+            ContractError::KycExpired as u32,
+            ContractError::TransactionNotFound as u32,
+            ContractError::AnchorTransactionFailed as u32,
+            ContractError::RateLimitExceeded as u32,
+            ContractError::Unauthorized as u32,
+            ContractError::AdminAlreadyExists as u32,
+            ContractError::AdminNotFound as u32,
+            ContractError::CannotRemoveLastAdmin as u32,
+            ContractError::TokenNotWhitelisted as u32,
+            ContractError::TokenAlreadyWhitelisted as u32,
+            ContractError::InvalidMigrationHash as u32,
+            ContractError::MigrationInProgress as u32,
+            ContractError::InvalidMigrationBatch as u32,
+            ContractError::DailySendLimitExceeded as u32,
+            ContractError::CooldownActive as u32,
+            ContractError::SuspiciousActivity as u32,
+            ContractError::ActionBlocked as u32,
+            ContractError::Overflow as u32,
+            ContractError::NetSettlementValidationFailed as u32,
+            ContractError::EscrowNotFound as u32,
+            ContractError::InvalidEscrowStatus as u32,
+            ContractError::SettlementCounterOverflow as u32,
+            ContractError::InvalidBatchSize as u32,
+            ContractError::DataCorruption as u32,
+            ContractError::IndexOutOfBounds as u32,
+            ContractError::EmptyCollection as u32,
+            ContractError::KeyNotFound as u32,
+            ContractError::StringConversionFailed as u32,
+            ContractError::InvalidSymbol as u32,
+            ContractError::Underflow as u32,
+        ];
+
+        // Check for duplicates
+        for i in 0..error_codes.len() {
+            for j in (i + 1)..error_codes.len() {
+                assert_ne!(
+                    error_codes[i], error_codes[j],
+                    "Duplicate error code {} found at indices {} and {}",
+                    error_codes[i], i, j
+                );
+            }
+        }
+
+        // Check sequential ordering (1-48)
+        for (idx, &code) in error_codes.iter().enumerate() {
+            assert_eq!(
+                code, (idx + 1) as u32,
+                "Error code at index {} should be {}, but got {}",
+                idx,
+                idx + 1,
+                code
+            );
+        }
+    }
 }
