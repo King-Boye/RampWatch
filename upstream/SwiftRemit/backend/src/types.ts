@@ -54,34 +54,27 @@ export interface FxRateRecord {
   created_at: Date;
 }
 
-// ── KYC Verification Sync Service types ──────────────────────────────────────
-
-export type KycStatus = 'pending' | 'approved' | 'rejected';
-export type KycLevel  = 'basic' | 'intermediate' | 'advanced';
-
-export interface KycRecord {
-  user_id: string;
-  anchor_id: string;
-  kyc_status: KycStatus;
-  kyc_level?: KycLevel;
-  rejection_reason?: string;
-  verified_at: Date;
-  expires_at?: Date;
-}
-
-export interface AnchorKycRecord {
-  anchor_id: string;
-  kyc_status: KycStatus;
-  kyc_level?: KycLevel;
-  verified_at: Date;
-  expires_at?: Date;
-  rejection_reason?: string;
+export enum KycStatus {
+  Pending = 'pending',
+  Approved = 'approved',
+  Rejected = 'rejected',
+  Expired = 'expired',
 }
 
 export interface UserKycStatus {
-  overall_status: KycStatus;
-  can_transfer: boolean;
-  reason?: 'no_kyc_record' | 'kyc_pending' | 'kyc_rejected' | 'kyc_expired';
-  anchors: AnchorKycRecord[];
+  user_id: string;
+  anchor_id: string;
+  status: KycStatus;
   last_checked: Date;
+  expires_at?: Date;
+  rejection_reason?: string;
+  verification_data?: any;
+}
+
+export interface AnchorKycConfig {
+  anchor_id: string;
+  kyc_server_url: string;
+  auth_token: string;
+  polling_interval_minutes: number;
+  enabled: boolean;
 }
