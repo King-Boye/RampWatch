@@ -48,9 +48,12 @@ mod test_treasury;
 mod test_fee_corridor; 
 #[cfg(test)]
 mod test_blacklist;
+#[cfg(test)]
 mod test_migration;
 #[cfg(test)]
 mod test_limits_and_proof;
+#[cfg(test)]
+mod test_token_whitelist;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
@@ -1471,29 +1474,35 @@ impl SwiftRemitContract {
     }
 
     /// Add a token to the whitelist. Only admins can call this.
-    pub fn whitelist_token(env: Env, caller: Address, token: Address) -> Result<(), ContractError> {
-        // Centralized validation
-        validate_admin_operation(&env, &caller, &token)?;
+    pub fn add_whitelisted_token(env: Env, token: Address) -> Result<(), ContractError> {
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
 
         if is_token_whitelisted(&env, &token) {
             return Err(ContractError::TokenAlreadyWhitelisted);
         }
 
         set_token_whitelisted(&env, &token, true);
+        
+        emit_token_whitelisted(&env, token.clone(), caller);
+        log_whitelist_token(&env, &token);
 
         Ok(())
     }
 
     /// Remove a token from the whitelist. Only admins can call this.
-    pub fn remove_whitelisted_token(env: Env, caller: Address, token: Address) -> Result<(), ContractError> {
-        // Centralized validation
-        validate_admin_operation(&env, &caller, &token)?;
+    pub fn remove_whitelisted_token(env: Env, token: Address) -> Result<(), ContractError> {
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
 
         if !is_token_whitelisted(&env, &token) {
             return Err(ContractError::TokenNotWhitelisted);
         }
 
         set_token_whitelisted(&env, &token, false);
+        
+        emit_token_removed_from_whitelist(&env, token.clone(), caller);
+        log_remove_whitelisted_token(&env, &token);
 
         Ok(())
     }
@@ -1501,6 +1510,14 @@ impl SwiftRemitContract {
     /// Check if a token is whitelisted.
     pub fn is_token_whitelisted(env: Env, token: Address) -> bool {
         crate::storage::is_token_whitelisted(&env, &token)
+    }
+    
+    /// Get all whitelisted tokens.
+    /// 
+    /// Returns a vector of all token addresses that are currently whitelisted.
+    /// This is a public view function that can be called by anyone.
+    pub fn get_whitelisted_tokens(env: Env) -> Vec<Address> {
+        crate::storage::get_all_whitelisted_tokens(&env)
     }
 
     /// Update rate limit configuration. Only admins can call this.
