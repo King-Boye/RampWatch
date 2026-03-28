@@ -2,9 +2,13 @@
   "name": "@anchorkit/ui-components",
   "version": "0.1.0",
   "description": "Reusable React components for AnchorKit applications",
-  "main": "components/index.ts",
-  "types": "components/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "build": "tsc --project tsconfig.build.json",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
