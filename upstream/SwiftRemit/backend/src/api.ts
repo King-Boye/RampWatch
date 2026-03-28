@@ -16,7 +16,7 @@ import {
   saveUserKycStatus,
   getPool,
 } from './database';
-import { storeVerificationOnChain } from './stellar';
+import { storeVerificationOnChain, simulateSettlement } from './stellar';
 import { VerificationStatus, AnchorKycConfig } from './types';
 import { KycUpsertService } from './kyc-upsert-service';
 import { createTransferGuard, AuthenticatedRequest } from './transfer-guard';

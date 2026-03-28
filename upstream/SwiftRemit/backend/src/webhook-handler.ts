@@ -4,6 +4,8 @@ import { WebhookVerifier } from './webhook-verifier';
 import { WebhookLogger } from './webhook-logger';
 import { TransactionStateManager, TransactionUpdate, KYCUpdate } from './transaction-state';
 import { KycUpsertService } from './kyc-upsert-service';
+import { RemittanceCreatedWebhookPayload } from './types';
+import { WebhookDispatcher } from './webhook-dispatcher';
 
 interface WebhookRequest extends Request {
   rawBody?: string;
@@ -14,12 +16,14 @@ export class WebhookHandler {
   private logger: WebhookLogger;
   private stateManager: TransactionStateManager;
   private kycUpsertService: KycUpsertService;
+  private dispatcher: WebhookDispatcher;
 
   constructor(private pool: Pool) {
     this.verifier = new WebhookVerifier(300); // 5 minute replay window
     this.logger = new WebhookLogger(pool);
     this.stateManager = new TransactionStateManager(pool);
     this.kycUpsertService = new KycUpsertService(pool);
+    this.dispatcher = new WebhookDispatcher();
   }
 
   /**
@@ -91,12 +95,13 @@ export class WebhookHandler {
       }
 
       // Process webhook
-      const { event_type, transaction_id } = req.body;
+      const { event_type, transaction_id, remittance_id } = req.body;
+      const correlationId = transaction_id || remittance_id || 'unknown';
 
       // Log webhook
       const webhookId = await this.logger.logWebhook(
         anchorId,
-        transaction_id,
+        correlationId,
         event_type,
         req.body,
         true
@@ -105,7 +110,7 @@ export class WebhookHandler {
       // Check for suspicious patterns
       const suspiciousReasons = await this.logger.checkSuspiciousPatterns(
         anchorId,
-        transaction_id
+        correlationId
       );
 
       if (suspiciousReasons.length > 0) {
@@ -123,6 +128,10 @@ export class WebhookHandler {
         case 'kyc_update':
           await this.handleKYCUpdate(req.body, anchorId);
           break;
+        case 'contract_created':
+        case 'remittance_created':
+          await this.handleRemittanceCreated(req.body);
+          break;
         default:
           res.status(400).json({ error: 'Unknown event type' });
           return;
@@ -138,6 +147,29 @@ export class WebhookHandler {
       console.error('Webhook processing error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
+  }
+
+  /**
+   * Handle contract-created event and fan out remittance.created webhook.
+   */
+  private async handleRemittanceCreated(payload: any): Promise<void> {
+    const requiredFields = ['remittance_id', 'sender', 'agent', 'amount', 'fee', 'expiry'];
+    for (const field of requiredFields) {
+      if (payload[field] === undefined || payload[field] === null) {
+        throw new Error(`Missing required remittance_created field: ${field}`);
+      }
+    }
+
+    const remittancePayload: RemittanceCreatedWebhookPayload = {
+      remittance_id: String(payload.remittance_id),
+      sender: String(payload.sender),
+      agent: String(payload.agent),
+      amount: String(payload.amount),
+      fee: String(payload.fee),
+      expiry: String(payload.expiry),
+    };
+
+    await this.dispatcher.dispatchRemittanceCreated(remittancePayload);
   }
 
   /**
