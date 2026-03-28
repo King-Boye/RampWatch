@@ -126,7 +126,7 @@ pub fn check_rate_limit(env: &Env, address: &Address) -> Result<(), ContractErro
     env.storage().temporary().set(&key, &entry);
     env.storage()
         .temporary()
-        .extend_ttl(&key, ttl as u32, ttl as u32);
+        .extend_ttl(&key, ttl.try_into().unwrap_or(u32::MAX), ttl.try_into().unwrap_or(u32::MAX));
 
     Ok(())
 }
