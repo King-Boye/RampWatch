@@ -1195,7 +1195,7 @@ fn test_get_settlement_hash_for_unsettled_remittance() {
 
     // Attempting to get settlement hash should fail with InvalidStatus
     let result = contract.try_get_settlement_hash(&remittance_id);
-    assert_eq!(result, Err(Ok(crate::ContractError::InvalidStatus)));
+    assert_eq!(result.unwrap_err().unwrap(), crate::ContractError::InvalidStatus);
 }
 
 #[test]
@@ -1212,7 +1212,7 @@ fn test_get_settlement_hash_for_nonexistent_remittance() {
 
     // Attempting to get settlement hash for non-existent remittance should fail
     let result = contract.try_get_settlement_hash(&999);
-    assert_eq!(result, Err(Ok(crate::ContractError::RemittanceNotFound)));
+    assert_eq!(result.unwrap_err().unwrap(), crate::ContractError::RemittanceNotFound);
 }
 
 #[test]
