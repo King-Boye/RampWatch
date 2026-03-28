@@ -75,6 +75,7 @@ pub use validation::*;
 
 /// Maximum number of remittances that can be settled in a single batch
 const MAX_BATCH_SIZE: u32 = 100;
+const MAX_EXPIRED_BATCH_SIZE: u32 = 50;
 const DAILY_LIMIT_WINDOW_SECONDS: u64 = 24 * 60 * 60;
 const DEFAULT_DAILY_LIMIT_CURRENCY: &str = "USDC";
 const DEFAULT_DAILY_LIMIT_COUNTRY: &str = "GLOBAL";
@@ -713,6 +714,82 @@ impl SwiftRemitContract {
         Ok(())
     }
 
+    /// Refunds expired pending remittances in batch.
+    ///
+    /// Callable by anyone. Each provided remittance ID is processed independently:
+    /// only remittances that are both Pending and expired are cancelled and refunded.
+    /// Non-existent, non-pending, or non-expired remittances are skipped.
+    pub fn process_expired_remittances(
+        env: Env,
+        remittance_ids: Vec<u64>,
+    ) -> Result<Vec<u64>, ContractError> {
+        if remittance_ids.len() > MAX_EXPIRED_BATCH_SIZE {
+            return Err(ContractError::InvalidBatchSize);
+        }
+
+        let now = env.ledger().timestamp();
+        let usdc_token = get_usdc_token(&env)?;
+        let token_client = token::Client::new(&env, &usdc_token);
+
+        let mut processed_ids = Vec::new(&env);
+
+        for i in 0..remittance_ids.len() {
+            let remittance_id = remittance_ids.get_unchecked(i);
+            let mut remittance = match get_remittance(&env, remittance_id) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+
+            if remittance.status != RemittanceStatus::Pending {
+                continue;
+            }
+
+            let is_expired = match remittance.expiry {
+                Some(expiry) => now > expiry,
+                None => false,
+            };
+
+            if !is_expired {
+                continue;
+            }
+
+            token_client.transfer(
+                &env.current_contract_address(),
+                &remittance.sender,
+                &remittance.amount,
+            );
+
+            crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Cancelled)?;
+            set_remittance(&env, remittance_id, &remittance);
+
+            emit_remittance_cancelled(
+                &env,
+                remittance_id,
+                remittance.sender.clone(),
+                remittance.agent.clone(),
+                usdc_token.clone(),
+                remittance.amount,
+            );
+            emit_remittance_cancelled_with_reason(
+                &env,
+                remittance_id,
+                remittance.sender,
+                remittance.agent,
+                usdc_token.clone(),
+                remittance.amount,
+                String::from_str(&env, "expired"),
+            );
+
+            if let Some(idem_key) = storage::take_remittance_idempotency_key(&env, remittance_id) {
+                storage::remove_idempotency_record(&env, &idem_key);
+            }
+
+            processed_ids.push_back(remittance_id);
+        }
+
+        Ok(processed_ids)
+    }
+
     /// Withdraws accumulated platform fees to a specified address.
     ///
     /// Transfers all accumulated fees to the recipient address and resets the
@@ -847,6 +924,67 @@ impl SwiftRemitContract {
 
     pub fn get_accumulated_integrator_fees(env: Env) -> i128 {
         storage::get_accumulated_integrator_fees(&env)
+    }
+
+    /// Returns the number of registered admins.
+    pub fn get_admin_count(env: Env) -> Result<u32, ContractError> {
+        storage::get_admin_count(&env)
+    }
+
+    /// Checks whether an address currently has admin privileges.
+    pub fn is_admin(env: Env, address: Address) -> bool {
+        crate::storage::is_admin(&env, &address)
+    }
+
+    /// Adds a new admin. Caller must already be an admin.
+    pub fn add_admin(env: Env, caller: Address, new_admin: Address) -> Result<(), ContractError> {
+        require_admin(&env, &caller)?;
+
+        if crate::storage::is_admin(&env, &new_admin) {
+            return Err(ContractError::AdminAlreadyExists);
+        }
+
+        crate::storage::set_admin_role(&env, &new_admin, true);
+        assign_role(&env, &new_admin, &Role::Admin);
+
+        let count = storage::get_admin_count(&env)?;
+        let next = count.checked_add(1).ok_or(ContractError::Overflow)?;
+        storage::set_admin_count(&env, next);
+
+        log_add_admin(&env, &caller, &new_admin);
+
+        Ok(())
+    }
+
+    /// Removes an admin. Caller must be an admin and at least one admin must remain.
+    pub fn remove_admin(
+        env: Env,
+        caller: Address,
+        admin_to_remove: Address,
+    ) -> Result<(), ContractError> {
+        require_admin(&env, &caller)?;
+
+        if !crate::storage::is_admin(&env, &admin_to_remove) {
+            return Err(ContractError::AdminNotFound);
+        }
+
+        let count = storage::get_admin_count(&env)?;
+        if count <= 1 {
+            return Err(ContractError::CannotRemoveLastAdmin);
+        }
+
+        crate::storage::set_admin_role(&env, &admin_to_remove, false);
+        remove_role(&env, &admin_to_remove, &Role::Admin);
+        storage::set_admin_count(&env, count - 1);
+
+        // Keep legacy single-admin storage aligned so legacy admin-gated paths remain operable.
+        if get_admin(&env)? == admin_to_remove {
+            set_admin(&env, &caller);
+        }
+
+        log_remove_admin(&env, &caller, &admin_to_remove);
+
+        Ok(())
     }
 
     /// Checks if an address is registered as an agent.
@@ -1362,7 +1500,7 @@ impl SwiftRemitContract {
 
     /// Check if a token is whitelisted.
     pub fn is_token_whitelisted(env: Env, token: Address) -> bool {
-        is_token_whitelisted(&env, &token)
+        crate::storage::is_token_whitelisted(&env, &token)
     }
 
     /// Update rate limit configuration. Only admins can call this.
@@ -1402,9 +1540,9 @@ impl SwiftRemitContract {
     ///
     /// # Returns
     /// Tuple of (max_requests, window_seconds, enabled)
-    pub fn get_rate_limit_config(env: Env) -> (u32, u64, bool) {
-        let config = get_rate_limit_config(&env);
-        (config.max_requests, config.window_seconds, config.enabled)
+    pub fn get_rate_limit_config(env: Env) -> Result<(u32, u64, bool), ContractError> {
+        let config = crate::rate_limit::get_rate_limit_config(&env)?;
+        Ok((config.max_requests, config.window_seconds, config.enabled))
     }
 
     /// Get rate limit status for a specific address
@@ -1414,8 +1552,8 @@ impl SwiftRemitContract {
     ///
     /// # Returns
     /// Tuple of (current_requests, max_requests, window_seconds)
-    pub fn get_rate_limit_status(env: Env, address: Address) -> (u32, u32, u64) {
-        get_rate_limit_status(&env, &address)
+    pub fn get_rate_limit_status(env: Env, address: Address) -> Result<(u32, u32, u64), ContractError> {
+        crate::rate_limit::get_rate_limit_status(&env, &address)
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

@@ -65,12 +65,15 @@ Fees are calculated in basis points (bps):
 - `confirm_payout(remittance_id, proof)` - Confirm fiat payout with optional commitment proof
 - `mark_failed(remittance_id)` - Mark payout as failed with refund (agent auth required)
 - `cancel_remittance(remittance_id)` - Cancel pending remittance (sender auth required)
+- `process_expired_remittances(remittance_ids)` - Auto-refund expired pending remittances in batches (max 50 IDs)
 
 ### Query Functions
 
 - `get_remittance(remittance_id)` - Retrieve remittance details
 - `get_accumulated_fees()` - Check total platform fees collected
 - `is_agent_registered(agent)` - Verify agent registration status
+- `is_token_whitelisted(token)` - Check whether a token is currently accepted
+- `get_admin_count()` - Read the number of registered admins
 - `get_platform_fee_bps()` - Get current fee percentage
 - `get_rate_limit_status(address)` - Read current rate-limit usage for an address
 - `get_daily_limit(currency, country)` - Read configured daily send limit for a corridor
@@ -422,5 +425,5 @@ import { VerificationBadge } from './components/VerificationBadge';
 - [ ] Batch remittance processing
 - [ ] Agent reputation system
 - [ ] Dispute resolution mechanism
-- [ ] Time-locked escrow options
+- [x] Time-locked escrow options
 - [ ] Integration with fiat on/off ramps
