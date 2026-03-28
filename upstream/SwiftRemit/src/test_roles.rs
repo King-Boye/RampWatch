@@ -82,10 +82,10 @@ fn test_confirm_payout_requires_settler_role() {
 
     // Create remittance
     usdc_token.mint(&sender, &10000);
-    let remittance_id = client.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = client.create_remittance(&sender, &agent, &1000, &None, &None, &None);
 
     // Agent tries to confirm payout without Settler role - should panic
-    client.confirm_payout(&remittance_id);
+    client.confirm_payout(&remittance_id, &None);
 }
 
 #[test]
@@ -114,10 +114,10 @@ fn test_settler_can_finalize_transfers() {
 
     // Create remittance
     usdc_token.mint(&sender, &10000);
-    let remittance_id = client.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = client.create_remittance(&sender, &agent, &1000, &None, &None, &None);
 
     // Agent with Settler role can confirm payout
-    client.confirm_payout(&remittance_id);
+    client.confirm_payout(&remittance_id, &None);
 }
 
 #[test]

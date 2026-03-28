@@ -44,12 +44,12 @@ fn test_lifecycle_pending_to_completed() {
     let (contract, _token, _admin, agent, sender) = setup_contract(&env);
 
     env.mock_all_auths();
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None, &None, &None);
 
     let remittance = contract.get_remittance(&remittance_id);
     assert_eq!(remittance.status, RemittanceStatus::Pending);
 
-    contract.confirm_payout(&remittance_id);
+    contract.confirm_payout(&remittance_id, &None);
 
     let remittance = contract.get_remittance(&remittance_id);
     assert_eq!(remittance.status, RemittanceStatus::Completed);
@@ -61,7 +61,7 @@ fn test_lifecycle_pending_to_cancelled() {
     let (contract, _token, _admin, agent, sender) = setup_contract(&env);
 
     env.mock_all_auths();
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None, &None, &None);
 
     let remittance = contract.get_remittance(&remittance_id);
     assert_eq!(remittance.status, RemittanceStatus::Pending);
@@ -79,9 +79,9 @@ fn test_invalid_transition_cancel_after_completed() {
     let (contract, _token, _admin, agent, sender) = setup_contract(&env);
 
     env.mock_all_auths();
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None, &None, &None);
 
-    contract.confirm_payout(&remittance_id);
+    contract.confirm_payout(&remittance_id, &None);
     contract.cancel_remittance(&remittance_id);
 }
 
@@ -92,10 +92,10 @@ fn test_invalid_transition_confirm_after_cancelled() {
     let (contract, _token, _admin, agent, sender) = setup_contract(&env);
 
     env.mock_all_auths();
-    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None, &None, &None);
 
     contract.cancel_remittance(&remittance_id);
-    contract.confirm_payout(&remittance_id);
+    contract.confirm_payout(&remittance_id, &None);
 }
 
 #[test]
@@ -105,10 +105,10 @@ fn test_multiple_remittances_independent_lifecycles() {
 
     env.mock_all_auths();
 
-    let remittance_id_1 = contract.create_remittance(&sender, &agent, &1000, &None);
-    let remittance_id_2 = contract.create_remittance(&sender, &agent, &2000, &None);
+    let remittance_id_1 = contract.create_remittance(&sender, &agent, &1000, &None, &None, &None);
+    let remittance_id_2 = contract.create_remittance(&sender, &agent, &2000, &None, &None, &None);
 
-    contract.confirm_payout(&remittance_id_1);
+    contract.confirm_payout(&remittance_id_1, &None);
     contract.cancel_remittance(&remittance_id_2);
 
     let remittance_1 = contract.get_remittance(&remittance_id_1);

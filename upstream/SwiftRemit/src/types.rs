@@ -81,6 +81,34 @@ impl RemittanceStatus {
 /// All new code should use `RemittanceStatus` directly.
 pub type TransferState = RemittanceStatus;
 
+/// Cryptographic proof for off-chain settlement verification.
+///
+/// Contains a signed payload that proves off-chain conditions have been met
+/// (e.g., fiat payment confirmation, oracle attestation).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProofData {
+    /// Ed25519 signature (64 bytes)
+    pub signature: soroban_sdk::BytesN<64>,
+    /// Signed payload containing settlement details
+    pub payload: soroban_sdk::Bytes,
+    /// Address of the signer (oracle or agent)
+    pub signer: Address,
+}
+
+/// Configuration for settlement proof validation.
+///
+/// Determines whether a settlement requires cryptographic proof validation
+/// and specifies the oracle address that must sign the proof.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettlementConfig {
+    /// Whether proof validation is required for this settlement
+    pub require_proof: bool,
+    /// Oracle/signer address for proof validation (required if require_proof is true)
+    pub oracle_address: Option<Address>,
+}
+
 /// Escrow status for locked funds
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -172,6 +200,8 @@ pub struct DailyLimit {
 pub struct TransferRecord {
     pub timestamp: u64,
     pub amount: i128,
+    pub currency: String,
+    pub country: String,
 }
 
 /// Idempotency record for duplicate remittance prevention.
@@ -192,30 +222,3 @@ pub struct IdempotencyRecord {
     pub expires_at: u64,
 }
 
-/// Cryptographic proof for off-chain settlement verification.
-///
-/// Contains a signed payload that proves off-chain conditions have been met
-/// (e.g., fiat payment confirmation, oracle attestation).
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProofData {
-    /// Ed25519 signature (64 bytes)
-    pub signature: soroban_sdk::BytesN<64>,
-    /// Signed payload containing settlement details
-    pub payload: soroban_sdk::Bytes,
-    /// Address of the signer (oracle or agent)
-    pub signer: Address,
-}
-
-/// Configuration for settlement proof validation.
-///
-/// Determines whether a settlement requires cryptographic proof validation
-/// and specifies the oracle address that must sign the proof.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SettlementConfig {
-    /// Whether proof validation is required for this settlement
-    pub require_proof: bool,
-    /// Oracle/signer address for proof validation (required if require_proof is true)
-    pub oracle_address: Option<Address>,
-}
