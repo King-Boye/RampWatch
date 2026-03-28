@@ -569,12 +569,12 @@ proptest! {
             &None
         );
 
-        // Cancel remittance - should transition to Failed
+        // Cancel remittance - should transition to Cancelled
         contract.cancel_remittance(&remittance_id);
 
         let remittance = contract.get_remittance(&remittance_id);
         prop_assert_eq!(remittance.status, crate::RemittanceStatus::Cancelled,
-            "Cancelled remittance not in Failed state");
+            "Cancelled remittance not in Cancelled state");
     }
 }
 
@@ -703,5 +703,4 @@ proptest! {
             "Net settlement did not preserve total fees");
     }
 }
-
 
