@@ -199,6 +199,46 @@ pub fn emit_agent_removed(env: &Env, agent: Address, caller: Address) {
     );
 }
 
+/// Emits an event when a user is added to the blacklist.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `user` - Address of the blacklisted user
+/// * `caller` - Address of the admin who updated the blacklist
+pub fn emit_user_blacklisted(env: &Env, user: Address, caller: Address) {
+    env.events().publish(
+        (symbol_short!("blacklist"), symbol_short!("added")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            user,
+            caller,
+        ),
+    );
+}
+
+/// Emits an event when a user is removed from the blacklist.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `user` - Address of the user removed from the blacklist
+/// * `caller` - Address of the admin who updated the blacklist
+pub fn emit_user_removed_from_blacklist(env: &Env, user: Address, caller: Address) {
+    env.events().publish(
+        (symbol_short!("blacklist"), symbol_short!("removed")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            user,
+            caller,
+        ),
+    );
+}
+
 // ── Fee Events ─────────────────────────────────────────────────────
 
 /// Emits an event when the platform fee is updated.
@@ -333,8 +373,6 @@ pub fn emit_settlement_completed(
         ),
     );
 }
-
-
 // ── Escrow Events ──────────────────────────────────────────────────
 
 /// Emits an event when escrow is created

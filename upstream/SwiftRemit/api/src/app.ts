@@ -3,10 +3,16 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import currenciesRouter from './routes/currencies';
-import anchorsRouter from './routes/anchors';
+import { createAnchorsRouter } from './routes/anchors';
 import { ErrorResponse } from './types';
+import { AnchorStore } from './db/anchorStore';
 
-export function createApp(): Application {
+type AppOptions = {
+  anchorStore?: AnchorStore;
+  anchorAdminApiKey?: string;
+};
+
+export function createApp(options: AppOptions = {}): Application {
   const app = express();
 
   // Security middleware
@@ -43,7 +49,13 @@ export function createApp(): Application {
 
   // API routes
   app.use('/api/currencies', currenciesRouter);
-  app.use('/api/anchors', anchorsRouter);
+  app.use(
+    '/api/anchors',
+    createAnchorsRouter({
+      store: options.anchorStore,
+      adminApiKey: options.anchorAdminApiKey,
+    }),
+  );
 
   // 404 handler
   app.use((req: Request, res: Response) => {

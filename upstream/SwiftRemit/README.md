@@ -258,10 +258,10 @@ All remittance lifecycle state is tracked by a single canonical `RemittanceStatu
 
 | From       | To         | Trigger                        |
 |------------|------------|--------------------------------|
-| Pending    | Processing | Agent calls `confirm_payout`   |
+| Pending    | Processing | Contract enters processing during `confirm_payout` |
 | Pending    | Cancelled  | Sender calls `cancel_remittance` |
-| Processing | Completed  | Payout confirmed, USDC released |
-| Processing | Cancelled  | Payout failed, funds refunded  |
+| Processing | Completed  | `confirm_payout` completes successfully and releases USDC |
+| Processing | Cancelled  | Documented internal failure/refund path; no separate public `mark_failed` entrypoint |
 
 Terminal states (`Completed`, `Cancelled`) cannot transition further.
 
@@ -279,15 +279,15 @@ Terminal states (`Completed`, `Cancelled`) cannot transition further.
    - Remittance ID returned for tracking (status: Pending)
 
 3. **Agent Payout**
-   - Agent calls `start_processing` to signal work has begun (status: Processing)
    - Agent pays out fiat to recipient off-chain
-   - Agent calls `confirm_payout` with remittance ID (status: Completed)
+   - Agent calls `confirm_payout` with remittance ID
+   - During `confirm_payout`, the contract moves the remittance through `Processing` and then to `Completed`
    - Contract transfers USDC minus fee to agent
    - Fee added to accumulated platform fees
 
 4. **Alternative Flows**
    - **Early Cancellation**: Sender calls `cancel_remittance` while Pending
-   - **Failed Payout**: Agent calls `mark_failed` during Processing (full refund)
+   - There is no separate public `start_processing` or `mark_failed` function in the current contract API
 
 5. **Fee Management**
    - Admin monitors accumulated fees
@@ -424,4 +424,3 @@ import { VerificationBadge } from './components/VerificationBadge';
 - [ ] Dispute resolution mechanism
 - [ ] Time-locked escrow options
 - [ ] Integration with fiat on/off ramps
-
