@@ -421,9 +421,9 @@ import { VerificationBadge } from './components/VerificationBadge';
 ## Roadmap
 
 - [x] Asset verification system
-- [ ] Multi-currency support
+- [x] Multi-currency support
 - [x] Batch remittance processing
-- [ ] Agent reputation system
-- [ ] Dispute resolution mechanism
+- [x] Agent reputation system
+- [x] Dispute resolution mechanism
 - [x] Time-locked escrow options
 - [ ] Integration with fiat on/off ramps
