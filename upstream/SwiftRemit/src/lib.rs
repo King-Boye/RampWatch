@@ -46,6 +46,8 @@ mod test_integrator_fees;
 mod test_treasury;
 #[cfg(test)]
 mod test_migration;
+#[cfg(test)]
+mod test_limits_and_proof;
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
 
@@ -70,6 +72,55 @@ pub use validation::*;
 
 /// Maximum number of remittances that can be settled in a single batch
 const MAX_BATCH_SIZE: u32 = 100;
+const DAILY_LIMIT_WINDOW_SECONDS: u64 = 24 * 60 * 60;
+const DEFAULT_DAILY_LIMIT_CURRENCY: &str = "USDC";
+const DEFAULT_DAILY_LIMIT_COUNTRY: &str = "GLOBAL";
+
+fn enforce_daily_send_limit(
+    env: &Env,
+    sender: &Address,
+    currency: &String,
+    country: &String,
+    amount: i128,
+) -> Result<(), ContractError> {
+    let now = env.ledger().timestamp();
+    let window_start = now.saturating_sub(DAILY_LIMIT_WINDOW_SECONDS);
+
+    let transfers = get_user_transfers(env, sender);
+    let mut pruned = Vec::new(env);
+    let mut rolling_total: i128 = 0;
+
+    for i in 0..transfers.len() {
+        let record = transfers.get_unchecked(i);
+        if record.timestamp > window_start {
+            if record.currency == *currency && record.country == *country {
+                rolling_total = rolling_total
+                    .checked_add(record.amount)
+                    .ok_or(ContractError::Overflow)?;
+            }
+            pruned.push_back(record);
+        }
+    }
+
+    if let Some(limit_cfg) = get_daily_limit(env, currency, country) {
+        let next_total = rolling_total
+            .checked_add(amount)
+            .ok_or(ContractError::Overflow)?;
+        if next_total > limit_cfg.limit {
+            return Err(ContractError::DailySendLimitExceeded);
+        }
+    }
+
+    pruned.push_back(TransferRecord {
+        timestamp: now,
+        amount,
+        currency: currency.clone(),
+        country: country.clone(),
+    });
+    set_user_transfers(env, sender, &pruned);
+
+    Ok(())
+}
 
 /// The main SwiftRemit contract for managing cross-border remittances.
 ///
@@ -317,6 +368,10 @@ impl SwiftRemitContract {
 
     sender.require_auth();
 
+    let default_currency = String::from_str(&env, DEFAULT_DAILY_LIMIT_CURRENCY);
+    let default_country = String::from_str(&env, DEFAULT_DAILY_LIMIT_COUNTRY);
+    enforce_daily_send_limit(&env, &sender, &default_currency, &default_country, amount)?;
+
     // Validate settlement config
     if let Some(ref config) = settlement_config {
         if config.require_proof && config.oracle_address.is_none() {
@@ -358,7 +413,10 @@ impl SwiftRemitContract {
         settlement_config: settlement_config.clone(),
     };
 
+    let payout_commitment = compute_payout_commitment(&env, &remittance);
+
     set_remittance(&env, remittance_id, &remittance);
+    set_payout_commitment(&env, remittance_id, &payout_commitment);
     set_remittance_counter(&env, remittance_id);
 
     // Index this remittance under the sender for paginated queries
@@ -403,6 +461,10 @@ impl SwiftRemitContract {
 
     sender.require_auth();
 
+    let limit_currency = String::from_str(&env, DEFAULT_DAILY_LIMIT_CURRENCY);
+    let limit_country = to_country.clone().unwrap_or_else(|| String::from_str(&env, DEFAULT_DAILY_LIMIT_COUNTRY));
+    enforce_daily_send_limit(&env, &sender, &limit_currency, &limit_country, amount)?;
+
     let corridor = match (&from_country, &to_country) {
         (Some(from), Some(to)) => storage::get_fee_corridor(&env, from, to),
         _ => None,
@@ -425,9 +487,13 @@ impl SwiftRemitContract {
         fee,
         status: RemittanceStatus::Pending,
         expiry,
+        settlement_config: None,
     };
 
+    let payout_commitment = compute_payout_commitment(&env, &remittance);
+
     set_remittance(&env, remittance_id, &remittance);
+    set_payout_commitment(&env, remittance_id, &payout_commitment);
     set_remittance_counter(&env, remittance_id);
     set_transfer_state(&env, remittance_id, TransferState::Initiated)?;
 
@@ -462,7 +528,7 @@ impl SwiftRemitContract {
     pub fn confirm_payout(
         env: Env,
         remittance_id: u64,
-        proof: Option<ProofData>,
+        proof: Option<soroban_sdk::BytesN<32>>,
     ) -> Result<(), ContractError> {
         if crate::storage::is_migration_in_progress(&env) {
             return Err(ContractError::MigrationInProgress);
@@ -474,6 +540,17 @@ impl SwiftRemitContract {
 
         // Require Settler role
         require_role_settler(&env, &remittance.agent)?;
+
+        if let Some(config) = remittance.settlement_config.clone() {
+            if config.require_proof {
+                let submitted_proof = proof.ok_or(ContractError::MissingProof)?;
+                let expected = get_payout_commitment(&env, remittance_id)
+                    .ok_or(ContractError::InvalidProof)?;
+                if !verify_proof_commitment(&submitted_proof, &expected) {
+                    return Err(ContractError::InvalidProof);
+                }
+            }
+        }
 
         // Transition to Processing state
         crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Processing)?;
@@ -1038,6 +1115,28 @@ impl SwiftRemitContract {
         get_last_settlement_time(&env, &sender)
     }
 
+    /// Set daily send limit for a currency/country pair (admin only).
+    pub fn set_daily_limit(
+        env: Env,
+        currency: String,
+        country: String,
+        limit: i128,
+    ) -> Result<(), ContractError> {
+        if limit < 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+        crate::storage::set_daily_limit(&env, &currency, &country, limit);
+        Ok(())
+    }
+
+    /// Get daily send limit for a currency/country pair.
+    pub fn get_daily_limit(env: Env, currency: String, country: String) -> Option<i128> {
+        crate::storage::get_daily_limit(&env, &currency, &country).map(|cfg| cfg.limit)
+    }
+
     pub fn get_version(env: Env) -> soroban_sdk::String {
         soroban_sdk::String::from_str(&env, env!("CARGO_PKG_VERSION"))
     }
@@ -1131,7 +1230,8 @@ impl SwiftRemitContract {
             remittances.push_back(remittance);
         }
 
-        // Compute net settlements
+        // Compute net settlements.
+        // Gas note: netting offsets opposing flows so fewer token transfer calls are executed.
         let net_transfers = compute_net_settlements(&env, &remittances);
 
         // Validate net settlement calculations

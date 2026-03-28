@@ -39,6 +39,46 @@ Simulates a settlement to preview fees and payout amount before confirming. No s
 ---
 
 ## Contract Functions
+
+### New and Updated Functions
+
+#### `set_daily_limit(currency, country, limit)`
+
+Set an admin-managed rolling 24h send limit for a currency/country pair.
+
+**Authorization:** Admin only
+
+**Parameters:**
+- `currency: String`
+- `country: String`
+- `limit: i128`
+
+**Returns:** `Result<(), ContractError>`
+
+**Errors:**
+- `Unauthorized` (20)
+- `InvalidAmount` (3)
+
+#### `confirm_payout(remittance_id, proof)`
+
+Confirms payout, optionally validating an off-chain commitment proof.
+
+If `settlement_config.require_proof` is enabled for the remittance, `proof` must be present and match the stored commitment hash.
+
+**Parameters:**
+- `remittance_id: u64`
+- `proof: Option<BytesN<32>>`
+
+**Additional Errors:**
+- `InvalidProof` (50)
+- `MissingProof` (51)
+
+#### `get_rate_limit_status(address)`
+
+Public view function to inspect request usage in the active rate-limit window.
+
+**Returns:** `(requests_used, max_requests, window_seconds)`
+
 ### Administrative Functions
 
 #### `initialize`

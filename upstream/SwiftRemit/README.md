@@ -18,6 +18,8 @@ SwiftRemit is an escrow-based remittance system that enables secure cross-border
 - **Event Emission**: Comprehensive event logging for off-chain monitoring
 - **Cancellation Support**: Senders can cancel pending remittances with full refund
 - **Admin Controls**: Platform fee management and fee withdrawal capabilities
+- **Daily Send Limits**: Admin-configurable rolling 24h limits per currency/country
+- **Off-Chain Proof Commitments**: Optional proof validation before payout confirmation
 
 ## Architecture
 
@@ -52,6 +54,7 @@ Fees are calculated in basis points (bps):
 - `register_agent(agent)` - Add agent to approved list (admin only)
 - `remove_agent(agent)` - Remove agent from approved list (admin only)
 - `update_fee(fee_bps)` - Update platform fee percentage (admin only)
+- `set_daily_limit(currency, country, limit)` - Configure sender limits by corridor (admin only)
 - `withdraw_fees(to)` - Withdraw accumulated platform fees (admin only)
 - `withdraw_integrator_fees(integrator, to)` - Withdraw accumulated integrator fees (integrator auth required)
 
@@ -59,7 +62,7 @@ Fees are calculated in basis points (bps):
 
 - `create_remittance(sender, agent, amount)` - Create new remittance (sender auth required)
 - `start_processing(remittance_id)` - Mark remittance as being processed (agent auth required)
-- `confirm_payout(remittance_id)` - Confirm fiat payout (agent auth required)
+- `confirm_payout(remittance_id, proof)` - Confirm fiat payout with optional commitment proof
 - `mark_failed(remittance_id)` - Mark payout as failed with refund (agent auth required)
 - `cancel_remittance(remittance_id)` - Cancel pending remittance (sender auth required)
 
@@ -69,6 +72,8 @@ Fees are calculated in basis points (bps):
 - `get_accumulated_fees()` - Check total platform fees collected
 - `is_agent_registered(agent)` - Verify agent registration status
 - `get_platform_fee_bps()` - Get current fee percentage
+- `get_rate_limit_status(address)` - Read current rate-limit usage for an address
+- `get_daily_limit(currency, country)` - Read configured daily send limit for a corridor
 
 ## Security Features
 

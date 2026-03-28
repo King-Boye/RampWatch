@@ -168,6 +168,9 @@ enum DataKey {
     /// Flag indicating a migration is currently in progress (instance storage).
     /// When set, normal write operations (create_remittance, confirm_payout, etc.) are blocked.
     MigrationInProgress,
+
+    /// Commitment hash used to validate off-chain payout proofs per remittance.
+    PayoutCommitment(u64),
 }
 
 /// Checks if the contract has an admin configured.
@@ -696,6 +699,19 @@ pub fn set_user_transfers(env: &Env, user: &Address, transfers: &Vec<TransferRec
         .set(&DataKey::UserTransfers(user.clone()), transfers);
 }
 
+pub fn is_migration_in_progress(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::MigrationInProgress)
+        .unwrap_or(false)
+}
+
+pub fn set_migration_in_progress(env: &Env, in_progress: bool) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MigrationInProgress, &in_progress);
+}
+
 // === Admin Role Management ===
 
 pub fn is_admin(env: &Env, address: &Address) -> bool {
@@ -1175,4 +1191,18 @@ pub fn take_remittance_idempotency_key(env: &Env, remittance_id: u64) -> Option<
         env.storage().persistent().remove(&storage_key);
     }
     key
+}
+
+/// Stores the payout commitment for a remittance.
+pub fn set_payout_commitment(env: &Env, remittance_id: u64, commitment: &soroban_sdk::BytesN<32>) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::PayoutCommitment(remittance_id), commitment);
+}
+
+/// Retrieves the payout commitment for a remittance, if any.
+pub fn get_payout_commitment(env: &Env, remittance_id: u64) -> Option<soroban_sdk::BytesN<32>> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::PayoutCommitment(remittance_id))
 }

@@ -148,7 +148,7 @@ proptest! {
             + token_client.balance(&admin); // treasury
 
         // Settle remittance
-        contract.confirm_payout(&remittance_id);
+        contract.confirm_payout(&remittance_id, &None);
 
         // Verify total balance unchanged
         let after_settle_total = token_client.balance(&sender)
@@ -251,7 +251,7 @@ proptest! {
             &None
         );
 
-        contract.confirm_payout(&remittance_id);
+        contract.confirm_payout(&remittance_id, &None);
 
         // Verify all balances are non-negative
         prop_assert!(token_client.balance(&sender) >= 0,
@@ -482,7 +482,7 @@ proptest! {
             let remittance = contract.get_remittance(&remittance_id);
             expected_total_fees += remittance.fee;
 
-            contract.confirm_payout(&remittance_id);
+            contract.confirm_payout(&remittance_id, &None);
         }
 
         let accumulated_fees = contract.get_accumulated_fees();
@@ -534,7 +534,7 @@ proptest! {
             "New remittance not in Pending state");
 
         // Settle remittance - should transition to Settled
-        contract.confirm_payout(&remittance_id);
+        contract.confirm_payout(&remittance_id, &None);
 
         let remittance = contract.get_remittance(&remittance_id);
         prop_assert_eq!(remittance.status, crate::RemittanceStatus::Completed,
@@ -617,13 +617,13 @@ proptest! {
             &None
         );
 
-        contract.confirm_payout(&remittance_id);
+        contract.confirm_payout(&remittance_id, &None);
 
         let agent_balance_after_first = token_client.balance(&agent);
 
         // Attempt duplicate settlement - should fail
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            contract.confirm_payout(&remittance_id);
+            contract.confirm_payout(&remittance_id, &None);
         }));
 
         prop_assert!(result.is_err(), "Duplicate settlement was not prevented");

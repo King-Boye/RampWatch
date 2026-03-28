@@ -3,7 +3,7 @@
 //! This module provides validation functions for Stellar addresses used in
 //! contract operations.
 
-use soroban_sdk::Env;
+use soroban_sdk::{Address, Env};
 
 use crate::{ContractError, is_agent_registered, is_paused, get_remittance, RemittanceStatus};
 
@@ -59,6 +59,14 @@ pub fn validate_remittance_cancellable(remittance: &crate::Remittance) -> Result
         RemittanceStatus::Pending | RemittanceStatus::Processing => Ok(()),
         _ => Err(ContractError::InvalidStatus),
     }
+}
+
+/// Validates remittance is in Pending state.
+pub fn validate_remittance_pending(remittance: &crate::Remittance) -> Result<(), ContractError> {
+    if remittance.status != RemittanceStatus::Pending {
+        return Err(ContractError::InvalidStatus);
+    }
+    Ok(())
 }
 
 /// Validates that a settlement has not expired.
@@ -159,7 +167,7 @@ pub fn validate_withdraw_fees_request(
 
 pub fn validate_withdraw_integrator_fees_request(
     env: &Env,
-    to: &Address,
+    _to: &Address,
 ) -> Result<i128, ContractError> {
     let fees = crate::get_accumulated_fees(env)?;
     validate_fees_available(fees)?;

@@ -37,7 +37,7 @@ fn test_percentage_strategy() {
 
     client.register_agent(&agent);
 
-    let remittance_id = client.create_remittance(&sender, &agent, &10000, &None);
+    let remittance_id = client.create_remittance(&sender, &agent, &10000, &None, &None, &None);
     let remittance = client.get_remittance(&remittance_id);
 
     // Fee should be 5% of 10000 = 500
@@ -68,11 +68,11 @@ fn test_flat_strategy() {
     client.register_agent(&agent);
 
     // Small amount
-    let id1 = client.create_remittance(&sender, &agent, &1000, &None);
+    let id1 = client.create_remittance(&sender, &agent, &1000, &None, &None, &None);
     assert_eq!(client.get_remittance(&id1).fee, 100);
 
     // Large amount - same fee
-    let id2 = client.create_remittance(&sender, &agent, &50000, &None);
+    let id2 = client.create_remittance(&sender, &agent, &50000, &None, &None, &None);
     assert_eq!(client.get_remittance(&id2).fee, 100);
 }
 
@@ -100,15 +100,15 @@ fn test_dynamic_strategy() {
     client.register_agent(&agent);
 
     // Tier 1: amount < 1_000_0000000 -> full 4%
-    let id1 = client.create_remittance(&sender, &agent, &5_000_000_000, &None);
+    let id1 = client.create_remittance(&sender, &agent, &5_000_000_000, &None, &None, &None);
     assert_eq!(client.get_remittance(&id1).fee, 200_000_000);
 
     // Tier 2: 1_000_0000000 <= amount < 10_000_0000000 -> 80% of base = 3.2%
-    let id2 = client.create_remittance(&sender, &agent, &50_000_000_000, &None);
+    let id2 = client.create_remittance(&sender, &agent, &50_000_000_000, &None, &None, &None);
     assert_eq!(client.get_remittance(&id2).fee, 1_600_000_000);
 
     // Tier 3: amount >= 10_000_0000000 -> 60% of base = 2.4%
-    let id3 = client.create_remittance(&sender, &agent, &200_000_000_000, &None);
+    let id3 = client.create_remittance(&sender, &agent, &200_000_000_000, &None, &None, &None);
     assert_eq!(client.get_remittance(&id3).fee, 4_800_000_000);
 }
 
@@ -133,17 +133,17 @@ fn test_strategy_switch_without_redeployment() {
 
     // Start with percentage
     client.update_fee_strategy(&admin, &FeeStrategy::Percentage(250));
-    let id1 = client.create_remittance(&sender, &agent, &10000, &None);
+    let id1 = client.create_remittance(&sender, &agent, &10000, &None, &None, &None);
     assert_eq!(client.get_remittance(&id1).fee, 250);
 
     // Switch to flat
     client.update_fee_strategy(&admin, &FeeStrategy::Flat(150));
-    let id2 = client.create_remittance(&sender, &agent, &10000, &None);
+    let id2 = client.create_remittance(&sender, &agent, &10000, &None, &None, &None);
     assert_eq!(client.get_remittance(&id2).fee, 150);
 
     // Switch to dynamic: Tier 3 (>= 10_000_0000000) -> 60% of 4% = 2.4%
     client.update_fee_strategy(&admin, &FeeStrategy::Dynamic(400));
-    let id3 = client.create_remittance(&sender, &agent, &200_000_000_000, &None);
+    let id3 = client.create_remittance(&sender, &agent, &200_000_000_000, &None, &None, &None);
     assert_eq!(client.get_remittance(&id3).fee, 4_800_000_000);
 }
 
@@ -192,7 +192,7 @@ fn test_backwards_compatibility() {
     client.register_agent(&agent);
 
     // Should default to Percentage strategy with 2.5%
-    let id = client.create_remittance(&sender, &agent, &10000, &None);
+    let id = client.create_remittance(&sender, &agent, &10000, &None, &None, &None);
     assert_eq!(client.get_remittance(&id).fee, 250);
 
     // Old update_fee should still work (updates percentage strategy)
