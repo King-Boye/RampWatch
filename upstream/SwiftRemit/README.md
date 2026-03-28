@@ -382,9 +382,18 @@ For issues and questions:
 
 ## Contributing
 
-Contributions welcome! Please ensure:
+Contributions are welcome! We appreciate your help in making SwiftRemit better.
+
+Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines on:
+- Setting up your development environment
+- Coding standards and best practices
+- Running tests locally
+- Submitting pull requests
+- Creating issues
+
+Quick checklist:
 - All tests pass: `cargo test`
-- Code follows Rust best practices
+- Code follows project style guidelines
 - New features include tests
 - Documentation is updated
 
