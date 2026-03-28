@@ -852,8 +852,7 @@ impl SwiftRemitContract {
                 }
             }
 
-            // Validate addresses
-            validate_address(&remittance.agent)?;
+            // Addresses are guaranteed valid by the Soroban host runtime.
 
             remittances.push_back(remittance);
         }

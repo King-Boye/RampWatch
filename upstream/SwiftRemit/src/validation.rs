@@ -10,37 +10,16 @@ use crate::{ContractError, is_agent_registered, is_paused, get_remittance, Remit
 /// Centralized validation module for all API requests.
 /// Validates required fields before controller logic to prevent invalid data
 /// from reaching business logic.
-/// Validates that an address is properly formatted and not empty.
-///
-/// Stellar addresses in Soroban are represented by the Address type,
-/// which is already validated by the SDK, but we check for additional constraints.
-///
-/// # Arguments
-///
-/// * `address` - Address to validate
-///
-/// # Returns
-///
-/// * `Ok(())` - Address is valid
-/// * `Err(ContractError::InvalidAddress)` - Address validation failed
-///
-/// # Notes
-///
-/// The Address type in Soroban SDK is guaranteed to be valid by the runtime.
-/// This function primarily serves as a placeholder for future validation logic
-/// and to make the code more explicit about validation requirements.
-pub fn validate_address(_address: &Address) -> Result<(), ContractError> {
-    // The Address type in Soroban SDK is already validated by the runtime.
-    // However, we can add additional checks if needed.
-    // For now, we ensure the address is not a zero/empty address by checking
-    // that it can be properly serialized.
-
-    // In Soroban, the Address type is guaranteed to be valid by the SDK,
-    // so this function primarily serves as a placeholder for future validation logic
-    // and to make the code more explicit about validation requirements.
-
-    Ok(())
-}
+// NOTE: validate_address has been intentionally removed.
+//
+// In Soroban SDK, the `Address` type is constructed and validated by the host
+// environment before it ever reaches contract code. An invalid or zero address
+// cannot be passed in — the host will trap before the contract executes.
+// There is no "zero address" concept in Stellar/Soroban, and no runtime API
+// to distinguish account vs contract addresses in SDK v21.
+//
+// Therefore, any `validate_address` call was a no-op that added noise without
+// providing safety. All former call sites have been removed accordingly.
 
 /// Validates fee basis points are within acceptable range (0-10000 = 0%-100%).
 pub fn validate_fee_bps(fee_bps: u32) -> Result<(), ContractError> {
@@ -117,12 +96,10 @@ pub fn validate_fees_available(fees: i128) -> Result<(), ContractError> {
 /// Comprehensive validation for initialize request.
 pub fn validate_initialize_request(
     env: &Env,
-    admin: &Address,
-    token: &Address,
+    _admin: &Address,
+    _token: &Address,
     fee_bps: u32,
 ) -> Result<(), ContractError> {
-    validate_address(admin)?;
-    validate_address(token)?;
     validate_fee_bps(fee_bps)?;
     
     // Check if already initialized
@@ -136,12 +113,10 @@ pub fn validate_initialize_request(
 /// Comprehensive validation for create_remittance request.
 pub fn validate_create_remittance_request(
     env: &Env,
-    sender: &Address,
+    _sender: &Address,
     agent: &Address,
     amount: i128,
 ) -> Result<(), ContractError> {
-    validate_address(sender)?;
-    validate_address(agent)?;
     validate_amount(amount)?;
     validate_agent_registered(env, agent)?;
     Ok(())
@@ -158,7 +133,6 @@ pub fn validate_confirm_payout_request(
     validate_remittance_pending(&remittance)?;
     validate_no_duplicate_settlement(env, remittance_id)?;
     validate_settlement_not_expired(env, remittance.expiry)?;
-    validate_address(&remittance.agent)?;
     Ok(remittance)
 }
 
@@ -170,7 +144,6 @@ pub fn validate_cancel_remittance_request(
 ) -> Result<crate::Remittance, ContractError> {
     let remittance = validate_remittance_exists(env, remittance_id)?;
     validate_remittance_pending(&remittance)?;
-    validate_address(&remittance.sender)?;
     Ok(remittance)
 }
 
@@ -178,9 +151,8 @@ pub fn validate_cancel_remittance_request(
 /// Returns the fees amount to avoid re-reading in the caller.
 pub fn validate_withdraw_fees_request(
     env: &Env,
-    to: &Address,
+    _to: &Address,
 ) -> Result<i128, ContractError> {
-    validate_address(to)?;
     let fees = crate::get_accumulated_fees(env)?;
     validate_fees_available(fees)?;
     Ok(fees)
@@ -195,10 +167,8 @@ pub fn validate_update_fee_request(fee_bps: u32) -> Result<(), ContractError> {
 pub fn validate_admin_operation(
     env: &Env,
     caller: &Address,
-    target: &Address,
+    _target: &Address,
 ) -> Result<(), ContractError> {
-    validate_address(caller)?;
-    validate_address(target)?;
     crate::require_admin(env, caller)?;
     Ok(())
 }
@@ -223,15 +193,9 @@ pub fn normalize_symbol(_env: &Env, symbol: &soroban_sdk::String) -> Result<soro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Env};
+    use soroban_sdk::Env;
 
-    #[test]
-    fn test_validate_valid_address() {
-        let env = Env::default();
-        let address = Address::generate(&env);
-
-        assert!(validate_address(&address).is_ok());
-    }
+    // validate_address was removed — no test needed.
 
     #[test]
     fn test_validate_fee_bps_valid() {
