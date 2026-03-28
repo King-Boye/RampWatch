@@ -156,6 +156,16 @@
   background: #e3f2fd;
 }
 
+.anchor-option.focused {
+  background: #f5f5f5;
+  outline: 2px solid #2196f3;
+  outline-offset: -2px;
+}
+
+.anchor-option.selected.focused {
+  background: #bbdefb;
+}
+
 .anchor-option-header {
   display: flex;
   align-items: center;
