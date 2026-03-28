@@ -72,15 +72,11 @@ pub fn init_rate_limit(env: &Env) {
 }
 
 /// Get current rate limit configuration
-pub fn get_rate_limit_config(env: &Env) -> RateLimitConfig {
+pub fn get_rate_limit_config(env: &Env) -> Result<RateLimitConfig, ContractError> {
     env.storage()
         .instance()
         .get(&RateLimitKey::Config)
-        .unwrap_or(RateLimitConfig {
-            max_requests: 100,
-            window_seconds: 60,
-            enabled: true,
-        })
+        .ok_or(ContractError::NotInitialized)
 }
 
 /// Update rate limit configuration (admin only)
@@ -97,7 +93,7 @@ pub fn set_rate_limit_config(env: &Env, config: RateLimitConfig) {
 /// Check and update rate limit for an address.
 /// Returns `Ok(())` if within limits, `Err(ContractError::RateLimitExceeded)` if exceeded.
 pub fn check_rate_limit(env: &Env, address: &Address) -> Result<(), ContractError> {
-    let config = get_rate_limit_config(env);
+    let config = get_rate_limit_config(env)?;
 
     if !config.enabled {
         return Ok(());
@@ -137,8 +133,8 @@ pub fn check_rate_limit(env: &Env, address: &Address) -> Result<(), ContractErro
 
 /// Get current rate limit status for an address.
 /// Returns `(current_requests, max_requests, window_seconds)`.
-pub fn get_rate_limit_status(env: &Env, address: &Address) -> (u32, u32, u64) {
-    let config = get_rate_limit_config(env);
+pub fn get_rate_limit_status(env: &Env, address: &Address) -> Result<(u32, u32, u64), ContractError> {
+    let config = get_rate_limit_config(env)?;
     let key = RateLimitKey::Entry(address.clone());
 
     let entry: RateLimitEntry = env
@@ -154,9 +150,9 @@ pub fn get_rate_limit_status(env: &Env, address: &Address) -> (u32, u32, u64) {
     let window_elapsed = current_time.saturating_sub(entry.window_start);
 
     if window_elapsed >= config.window_seconds {
-        (0, config.max_requests, config.window_seconds)
+        Ok((0, config.max_requests, config.window_seconds))
     } else {
-        (entry.request_count, config.max_requests, config.window_seconds)
+        Ok((entry.request_count, config.max_requests, config.window_seconds))
     }
 }
 
