@@ -329,6 +329,63 @@ Set up alerts for:
 5. **IP Whitelisting**: Restrict to known anchor IPs
 6. **Audit Trail**: Maintain complete webhook history
 
+## Middleware Enforcement
+
+As of version 2.0, HMAC signature verification is enforced via Express middleware on all `/webhooks/*` routes. This ensures that:
+
+- Every inbound webhook request is verified before processing
+- No handler can accidentally skip verification
+- Invalid/missing signatures return 401 immediately
+
+### Middleware Usage
+
+```typescript
+import { createWebhookVerificationMiddleware } from './webhook-middleware';
+
+// Apply to your Express app
+const verifyWebhook = createWebhookVerificationMiddleware({
+  timestampWindowSeconds: 300,  // 5 minute window
+  requireSignature: true,
+  getAnchorSecret: async (anchorId) => {
+    // Fetch from your database or config
+    return getSecretFromDb(anchorId);
+  },
+});
+
+app.use('/webhooks', verifyWebhook);
+```
+
+### Required Headers
+
+All webhook requests must include:
+
+| Header | Required | Description |
+|--------|----------|-------------|
+| x-anchor-id | Yes | Anchor identifier |
+| x-signature | Yes* | HMAC-SHA256 signature |
+| x-timestamp | No** | ISO-8601 timestamp |
+| x-nonce | No** | Unique request ID |
+
+*Required unless `requireSignature: false` in middleware options
+**Recommended for replay attack prevention
+
+### Testing Verification
+
+Run the unit tests to verify middleware correctly rejects tampered payloads:
+
+```bash
+cd backend
+npm test -- webhook-middleware.test.ts
+```
+
+Test coverage includes:
+- ✅ Valid signatures accepted
+- ✅ Invalid signatures rejected
+- ✅ Tampered payloads rejected
+- ✅ Missing signatures rejected (when required)
+- ✅ Expired timestamps rejected
+- ✅ Duplicate nonces rejected (replay attack)
+
 ## Troubleshooting
 
 ### Signature Verification Fails
