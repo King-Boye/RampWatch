@@ -88,7 +88,33 @@ pub struct AnchorServices {
     pub services: Vec<u32>,
 }
 
+pub const SERVICE_DEPOSITS: u32 = 1;
+pub const SERVICE_WITHDRAWALS: u32 = 2;
 pub const SERVICE_QUOTES: u32 = 3;
+pub const SERVICE_KYC: u32 = 4;
+
+/// Typed representation of a service capability an anchor can support.
+///
+/// Each variant maps to a stable `u32` discriminant stored on-chain.
+/// Use [`ServiceType::as_u32`] to convert before passing to contract functions.
+#[derive(Clone, PartialEq)]
+pub enum ServiceType {
+    Deposits,
+    Withdrawals,
+    Quotes,
+    KYC,
+}
+
+impl ServiceType {
+    pub fn as_u32(&self) -> u32 {
+        match self {
+            ServiceType::Deposits => SERVICE_DEPOSITS,
+            ServiceType::Withdrawals => SERVICE_WITHDRAWALS,
+            ServiceType::Quotes => SERVICE_QUOTES,
+            ServiceType::KYC => SERVICE_KYC,
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Routing types
