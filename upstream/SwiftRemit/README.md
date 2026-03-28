@@ -422,7 +422,7 @@ import { VerificationBadge } from './components/VerificationBadge';
 
 - [x] Asset verification system
 - [ ] Multi-currency support
-- [ ] Batch remittance processing
+- [x] Batch remittance processing
 - [ ] Agent reputation system
 - [ ] Dispute resolution mechanism
 - [x] Time-locked escrow options
