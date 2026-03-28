@@ -6,7 +6,11 @@ mod routing_tests {
         Address, Env, String, Symbol, Vec,
     };
 
+    use ed25519_dalek::SigningKey;
+    use rand::rngs::OsRng;
+
     use crate::contract::{AnchorKitContract, AnchorKitContractClient, RoutingOptions, RoutingRequest};
+    use crate::sep10_test_util::register_attestor_with_sep10;
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -36,7 +40,8 @@ mod routing_tests {
     }
 
     fn register_anchor(env: &Env, client: &AnchorKitContractClient, anchor: &Address) {
-        client.register_attestor(anchor);
+        let signing_key = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(env, client, anchor, anchor, &signing_key);
         let mut services = Vec::new(env);
         services.push_back(1u32);
         services.push_back(3u32);
