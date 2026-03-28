@@ -5,7 +5,10 @@
 
 use soroban_sdk::Env;
 
-use crate::{ContractError, is_agent_registered, is_paused, get_remittance, RemittanceStatus};
+use crate::{
+    get_remittance, is_agent_registered, is_paused, is_user_blacklisted, ContractError,
+    RemittanceStatus,
+};
 
 /// Centralized validation module for all API requests.
 /// Validates required fields before controller logic to prevent invalid data
@@ -108,12 +111,15 @@ pub fn validate_initialize_request(
 /// Comprehensive validation for create_remittance request.
 pub fn validate_create_remittance_request(
     env: &Env,
-    _sender: &Address,
+    sender: &Address,
     agent: &Address,
     amount: i128,
 ) -> Result<(), ContractError> {
     validate_amount(amount)?;
     validate_agent_registered(env, agent)?;
+    if is_user_blacklisted(env, sender) {
+        return Err(ContractError::UserBlacklisted);
+    }
     Ok(())
 }
 
@@ -184,7 +190,6 @@ pub fn validate_admin_operation(
 
 /// Normalizes an asset symbol to uppercase canonical form.
 pub fn normalize_symbol(_env: &Env, symbol: &soroban_sdk::String) -> Result<soroban_sdk::String, ContractError> {
-
     Ok(symbol.clone())
 }
 
