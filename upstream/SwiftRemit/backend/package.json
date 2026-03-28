@@ -10,7 +10,8 @@
     "test": "vitest",
     "test:webhook": "vitest webhook",
     "lint": "eslint src --ext .ts",
-    "webhook:example": "tsx examples/send-webhook.ts"
+    "webhook:example": "tsx examples/send-webhook.ts",
+    "validate:openapi": "swagger-cli validate openapi.yaml"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.0.0",
@@ -22,7 +23,9 @@
     "helmet": "^7.1.0",
     "node-cron": "^3.0.3",
     "pg": "^8.11.0",
-    "toml": "^3.0.0"
+    "toml": "^3.0.0",
+    "swagger-ui-express": "^5.0.0",
+    "js-yaml": "^4.1.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -31,6 +34,8 @@
     "@types/node-cron": "^3.0.11",
     "@types/pg": "^8.10.9",
     "@types/supertest": "^7.2.0",
+    "@types/swagger-ui-express": "^4.1.6",
+    "@types/js-yaml": "^4.0.9",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
     "eslint": "^8.56.0",
@@ -38,6 +43,7 @@
     "supertest": "^7.2.2",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3",
-    "vitest": "^1.0.4"
+    "vitest": "^1.0.4",
+    "@apidevtools/swagger-cli": "^4.0.4"
   }
 }

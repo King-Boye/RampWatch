@@ -1,0 +1,15 @@
+﻿openapi: 3.0.0
+info:
+  title: SwiftRemit Backend Service
+  version: 1.0.0
+  description: Asset verification, KYC, and webhook handling service
+servers:
+  - url: http://localhost:3001
+    description: Development
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK

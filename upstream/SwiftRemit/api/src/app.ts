@@ -4,6 +4,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import currenciesRouter from './routes/currencies';
 import { createAnchorsRouter } from './routes/anchors';
+import docsRouter from './routes/docs';
 import { ErrorResponse } from './types';
 import { AnchorStore } from './db/anchorStore';
 
@@ -56,6 +57,9 @@ export function createApp(options: AppOptions = {}): Application {
       adminApiKey: options.anchorAdminApiKey,
     }),
   );
+  
+  // API documentation
+  app.use('/api/docs', docsRouter);
 
   // 404 handler
   app.use((req: Request, res: Response) => {
