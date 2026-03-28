@@ -60,6 +60,46 @@ pub fn emit_unpaused(env: &Env, admin: Address) {
     );
 }
 
+/// Emits an event when a new admin is added.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `caller` - Address of the admin who added the new admin
+/// * `new_admin` - Address of the newly added admin
+pub fn emit_admin_added(env: &Env, caller: Address, new_admin: Address) {
+    env.events().publish(
+        (symbol_short!("admin"), symbol_short!("added")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            caller,
+            new_admin,
+        ),
+    );
+}
+
+/// Emits an event when an admin is removed.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `caller` - Address of the admin who removed the admin
+/// * `removed_admin` - Address of the removed admin
+pub fn emit_admin_removed(env: &Env, caller: Address, removed_admin: Address) {
+    env.events().publish(
+        (symbol_short!("admin"), symbol_short!("removed")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            caller,
+            removed_admin,
+        ),
+    );
+}
+
 // ── Remittance Events ──────────────────────────────────────────────
 
 /// Emits an event when a new remittance is created.

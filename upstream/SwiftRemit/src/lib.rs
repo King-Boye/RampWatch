@@ -951,6 +951,7 @@ impl SwiftRemitContract {
         let next = count.checked_add(1).ok_or(ContractError::Overflow)?;
         storage::set_admin_count(&env, next);
 
+        emit_admin_added(&env, caller.clone(), new_admin.clone());
         log_add_admin(&env, &caller, &new_admin);
 
         Ok(())
@@ -982,6 +983,7 @@ impl SwiftRemitContract {
             set_admin(&env, &caller);
         }
 
+        emit_admin_removed(&env, caller.clone(), admin_to_remove.clone());
         log_remove_admin(&env, &caller, &admin_to_remove);
 
         Ok(())
