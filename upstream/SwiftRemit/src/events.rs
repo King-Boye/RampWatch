@@ -4,7 +4,7 @@
 //! contract operations. Events include schema versioning and ledger metadata
 //! for comprehensive audit trails.
 
-use soroban_sdk::{symbol_short, Address, Env};
+use soroban_sdk::{symbol_short, Address, Env, String};
 
 // ============================================================================
 // Event Schema Version
@@ -153,6 +153,32 @@ pub fn emit_remittance_cancelled(
             agent,
             token,
             amount,
+        ),
+    );
+}
+
+/// Emits an event when a remittance is cancelled with a structured reason.
+pub fn emit_remittance_cancelled_with_reason(
+    env: &Env,
+    remittance_id: u64,
+    sender: Address,
+    agent: Address,
+    token: Address,
+    amount: i128,
+    reason: String,
+) {
+    env.events().publish(
+        (symbol_short!("remit"), symbol_short!("cancel_r")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            remittance_id,
+            sender,
+            agent,
+            token,
+            amount,
+            reason,
         ),
     );
 }

@@ -133,7 +133,7 @@ pub fn export_state(env: &Env) -> Result<MigrationSnapshot, ContractError> {
         remittance_counter: crate::storage::get_remittance_counter(env)?,
         accumulated_fees: crate::storage::get_accumulated_fees(env)?,
         paused: crate::storage::is_paused(env),
-        admin_count: crate::storage::get_admin_count(env),
+        admin_count: crate::storage::get_admin_count(env)?,
     };
 
     // Collect all remittances

@@ -193,6 +193,113 @@ fn test_public_get_rate_limit_status_within_and_across_windows() {
 }
 
 #[test]
+fn test_rate_limit_getters_return_not_initialized_before_initialize() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract = create_swiftremit_contract(&env);
+    let addr = Address::generate(&env);
+
+    let cfg_result = contract.try_get_rate_limit_config();
+    assert_eq!(cfg_result.unwrap_err().unwrap(), ContractError::NotInitialized);
+
+    let status_result = contract.try_get_rate_limit_status(&addr);
+    assert_eq!(status_result.unwrap_err().unwrap(), ContractError::NotInitialized);
+}
+
+#[test]
+fn test_public_is_token_whitelisted_query() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, token, admin, _sender, _agent, token_admin) = setup(&env);
+    let other_token = create_token_contract(&env, &token_admin);
+
+    // Initialized token should be whitelisted, unrelated token should not.
+    assert!(contract.is_token_whitelisted(&token.address));
+    assert!(!contract.is_token_whitelisted(&other_token.address));
+
+    // Whitelisting updates the public query value.
+    contract.whitelist_token(&admin, &other_token.address);
+    assert!(contract.is_token_whitelisted(&other_token.address));
+}
+
+#[test]
+fn test_get_admin_count_after_add_remove() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, admin, _sender, _agent, _token_admin) = setup(&env);
+    let admin2 = Address::generate(&env);
+
+    assert_eq!(contract.get_admin_count(), 1);
+
+    contract.add_admin(&admin, &admin2);
+    assert_eq!(contract.get_admin_count(), 2);
+
+    contract.remove_admin(&admin, &admin2);
+    assert_eq!(contract.get_admin_count(), 1);
+}
+
+#[test]
+fn test_process_expired_remittances_only_processes_eligible_ids() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, token, _admin, sender, agent, _token_admin) = setup(&env);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 10_000;
+    });
+
+    let active_id = contract.create_remittance(&sender, &agent, &1_000, &Some(10_100), &None, &None);
+    let expired_id = contract.create_remittance(&sender, &agent, &2_000, &Some(10_001), &None, &None);
+    let already_cancelled_id = contract.create_remittance(&sender, &agent, &500, &Some(10_001), &None, &None);
+    contract.cancel_remittance(&already_cancelled_id);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 10_002;
+    });
+
+    let sender_balance_before = token::Client::new(&env, &token.address).balance(&sender);
+
+    let mut ids = Vec::new(&env);
+    ids.push_back(active_id);
+    ids.push_back(expired_id);
+    ids.push_back(already_cancelled_id);
+
+    let processed = contract.process_expired_remittances(&ids);
+    assert_eq!(processed.len(), 1);
+    assert_eq!(processed.get_unchecked(0), expired_id);
+
+    assert_eq!(contract.get_remittance(&active_id).status, crate::RemittanceStatus::Pending);
+    assert_eq!(contract.get_remittance(&expired_id).status, crate::RemittanceStatus::Cancelled);
+    assert_eq!(
+        contract.get_remittance(&already_cancelled_id).status,
+        crate::RemittanceStatus::Cancelled
+    );
+
+    let sender_balance_after = token::Client::new(&env, &token.address).balance(&sender);
+    assert_eq!(sender_balance_after, sender_balance_before + 2_000);
+}
+
+#[test]
+fn test_process_expired_remittances_enforces_batch_size_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, _admin, _sender, _agent, _token_admin) = setup(&env);
+
+    let mut ids = Vec::new(&env);
+    for i in 0..51u64 {
+        ids.push_back(i + 1);
+    }
+
+    let result = contract.try_process_expired_remittances(&ids);
+    assert_eq!(result.unwrap_err().unwrap(), ContractError::InvalidBatchSize);
+}
+
+#[test]
 fn test_batch_netting_opposing_flow_scenario_one() {
     let env = Env::default();
     env.mock_all_auths();
