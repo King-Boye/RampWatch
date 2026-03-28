@@ -727,11 +727,11 @@ pub fn set_admin_role(env: &Env, address: &Address, is_admin: bool) {
         .set(&DataKey::AdminRole(address.clone()), &is_admin);
 }
 
-pub fn get_admin_count(env: &Env) -> u32 {
+pub fn get_admin_count(env: &Env) -> Result<u32, ContractError> {
     env.storage()
         .instance()
         .get(&DataKey::AdminCount)
-        .unwrap_or(0)
+        .ok_or(ContractError::NotInitialized)
 }
 
 pub fn set_admin_count(env: &Env, count: u32) {
