@@ -1146,6 +1146,44 @@ impl SwiftRemitContract {
         let remittance = get_remittance(&env, remittance_id)?;
         Ok(compute_settlement_id_from_remittance(&env, &remittance))
     }
+    /// Retrieves the stored settlement hash for a given remittance ID.
+    ///
+    /// This function allows external systems to retrieve and verify the settlement hash
+    /// that was stored on-chain when the remittance was settled. External systems that
+    /// implement the same hashing algorithm can verify their computed hash against the
+    /// stored one.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment
+    /// * `remittance_id` - The remittance ID to retrieve the hash for
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(BytesN<32>)` - The 32-byte SHA-256 settlement hash if the remittance is settled
+    /// * `Err(ContractError::RemittanceNotFound)` - Remittance ID does not exist
+    /// * `Err(ContractError::InvalidStatus)` - Remittance has not been settled yet
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let stored_hash = contract.get_settlement_hash(&env, remittance_id)?;
+    /// let computed_hash = contract.compute_settlement_hash(&env, remittance_id)?;
+    /// assert_eq!(stored_hash, computed_hash);
+    /// ```
+    pub fn get_settlement_hash(env: Env, remittance_id: u64) -> Result<soroban_sdk::BytesN<32>, ContractError> {
+        // Check if remittance exists
+        let remittance = get_remittance(&env, remittance_id)?;
+
+        // Check if settlement has been executed
+        if !has_settlement_hash(&env, remittance_id) {
+            return Err(ContractError::InvalidStatus);
+        }
+
+        // Return the computed hash (which is deterministic and matches what was stored)
+        Ok(compute_settlement_id_from_remittance(&env, &remittance))
+    }
+
 
     pub fn pause(env: Env) -> Result<(), ContractError> {
         let caller = get_admin(&env)?;

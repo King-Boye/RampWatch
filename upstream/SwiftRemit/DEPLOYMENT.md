@@ -248,6 +248,54 @@ Then redeploy the frontend.
 - **Stellar Expert**: https://stellar.expert/explorer/testnet
 - **Horizon API**: https://horizon-testnet.stellar.org
 
+### Contract Function Examples
+
+#### Get Settlement Hash
+
+Retrieve the stored settlement hash for a settled remittance:
+
+```bash
+# Get settlement hash for a remittance
+stellar contract invoke \
+  --id $CONTRACT_ID \
+  --network testnet \
+  -- \
+  get_settlement_hash \
+  --remittance_id 1
+```
+
+This function returns the 32-byte SHA-256 settlement hash that was stored when the remittance was settled. External systems can use this to verify their computed hash matches the on-chain value.
+
+**Example Response:**
+```
+"a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
+```
+
+**Error Cases:**
+- `RemittanceNotFound`: The remittance ID doesn't exist
+- `InvalidStatus`: The remittance hasn't been settled yet
+
+#### Compute Settlement Hash
+
+Compute the deterministic settlement hash for any remittance (settled or not):
+
+```bash
+# Compute settlement hash for a remittance
+stellar contract invoke \
+  --id $CONTRACT_ID \
+  --network testnet \
+  -- \
+  compute_settlement_hash \
+  --remittance_id 1
+```
+
+This function computes the hash using the canonical ordering specified in the contract. External systems can use this to pre-compute hashes before settlement or verify their hashing implementation matches the contract's.
+
+**Use Cases:**
+- Pre-compute settlement IDs before submission
+- Verify external system hashing matches contract implementation
+- Enable cross-system reconciliation using deterministic IDs
+
 ### Logs
 - **Frontend**: Check Vercel/Netlify deployment logs
 - **Contract**: Use Stellar CLI to query contract state

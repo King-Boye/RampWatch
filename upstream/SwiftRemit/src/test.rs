@@ -1142,6 +1142,80 @@ contract.register_agent(&agent);
 }
 
 #[test]
+fn test_get_settlement_hash_for_settled_remittance() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250, &0, &0, &admin);
+    contract.register_agent(&agent);
+
+    // Create and settle a remittance
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+    contract.authorize_remittance(&admin);
+    contract.confirm_payout(&remittance_id);
+
+    // Get the stored settlement hash
+    let stored_hash = contract.get_settlement_hash(&remittance_id);
+
+    // Compute the expected hash
+    let computed_hash = contract.compute_settlement_hash(&remittance_id);
+
+    // Verify they match
+    assert_eq!(stored_hash, computed_hash);
+}
+
+#[test]
+fn test_get_settlement_hash_for_unsettled_remittance() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250, &0, &0, &admin);
+    contract.register_agent(&agent);
+
+    // Create a remittance but don't settle it
+    let remittance_id = contract.create_remittance(&sender, &agent, &1000, &None);
+
+    // Attempting to get settlement hash should fail with InvalidStatus
+    let result = contract.try_get_settlement_hash(&remittance_id);
+    assert_eq!(result, Err(Ok(crate::ContractError::InvalidStatus)));
+}
+
+#[test]
+fn test_get_settlement_hash_for_nonexistent_remittance() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250, &0, &0, &admin);
+
+    // Attempting to get settlement hash for non-existent remittance should fail
+    let result = contract.try_get_settlement_hash(&999);
+    assert_eq!(result, Err(Ok(crate::ContractError::RemittanceNotFound)));
+}
+
+#[test]
 fn test_settlement_completed_event() {
     let env = Env::default();
     env.mock_all_auths();
