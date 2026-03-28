@@ -4,6 +4,7 @@ import { WebhookVerifier } from './webhook-verifier';
 import { WebhookLogger } from './webhook-logger';
 import { TransactionStateManager, TransactionUpdate, KYCUpdate } from './transaction-state';
 import { KycUpsertService } from './kyc-upsert-service';
+import { Sep24Service } from './sep24-service';
 
 interface WebhookRequest extends Request {
   rawBody?: string;
@@ -14,12 +15,14 @@ export class WebhookHandler {
   private logger: WebhookLogger;
   private stateManager: TransactionStateManager;
   private kycUpsertService: KycUpsertService;
+  private sep24Service: Sep24Service;
 
   constructor(private pool: Pool) {
     this.verifier = new WebhookVerifier(300); // 5 minute replay window
     this.logger = new WebhookLogger(pool);
     this.stateManager = new TransactionStateManager(pool);
     this.kycUpsertService = new KycUpsertService(pool);
+    this.sep24Service = new Sep24Service(pool);
   }
 
   /**
@@ -123,6 +126,10 @@ export class WebhookHandler {
         case 'kyc_update':
           await this.handleKYCUpdate(req.body, anchorId);
           break;
+        case 'sep24_deposit_update':
+        case 'sep24_withdrawal_update':
+          await this.handleSep24Update(req.body);
+          break;
         default:
           res.status(400).json({ error: 'Unknown event type' });
           return;
@@ -208,6 +215,22 @@ export class WebhookHandler {
     }
 
     await this.stateManager.updateTransactionState(update, 'withdrawal');
+  }
+
+  /**
+   * Handle SEP-24 deposit/withdrawal update webhook
+   */
+  private async handleSep24Update(payload: any): Promise<void> {
+    await this.sep24Service.handleWebhookNotification({
+      transaction_id: payload.transaction_id,
+      status: payload.status,
+      amount_in: payload.amount_in,
+      amount_out: payload.amount_out,
+      amount_fee: payload.amount_fee,
+      stellar_transaction_id: payload.stellar_transaction_id,
+      external_transaction_id: payload.external_transaction_id,
+      message: payload.message,
+    });
   }
 
   /**
