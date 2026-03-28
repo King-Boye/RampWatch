@@ -1,6 +1,24 @@
 # Retry & Exponential Backoff
 
+> **Status: Implemented** — `src/retry.rs` (`retry_with_backoff`, `RetryConfig`, `is_retryable`)
+
 AnchorKit includes robust retry logic with exponential backoff for handling transient failures in anchor communications.
+
+## Implementation
+
+```rust
+use anchorkit::retry::{RetryConfig, retry_with_backoff, is_retryable};
+
+let config = RetryConfig::default(); // max_attempts=3, base_delay_ms=100, max_delay_ms=5000, backoff_multiplier=2
+
+let result = retry_with_backoff(
+    &config,
+    |attempt| fetch_stellar_toml(attempt),
+    |e| is_retryable(e.code as u32),
+    |delay_ms| std::thread::sleep(std::time::Duration::from_millis(delay_ms)),
+);
+```
+
 
 ## Features
 
