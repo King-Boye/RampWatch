@@ -1,20 +1,20 @@
 .send-flow-card {
   width: min(100%, 760px);
-  border: 1px solid #d6dde8;
+  border: 1px solid var(--color-border-secondary);
   border-radius: 14px;
   padding: 1rem;
-  background: linear-gradient(155deg, #ffffff 0%, #f7f8fd 100%);
+  background: var(--gradient-secondary);
 }
 
 .send-flow-header h2 {
   margin: 0;
-  color: #1c2640;
+  color: var(--color-text-primary);
   font-size: 1.15rem;
 }
 
 .send-flow-header p {
   margin: 0.35rem 0 0;
-  color: #54627a;
+  color: var(--color-text-secondary);
   font-size: 0.9rem;
 }
 
@@ -29,19 +29,19 @@
 
 .send-step-indicator li {
   text-align: center;
-  border: 1px solid #cfdaea;
+  border: 1px solid var(--color-border-tertiary);
   border-radius: 999px;
   padding: 0.35rem 0;
-  background: #f6f9ff;
-  color: #5b6982;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-tertiary);
   font-size: 0.82rem;
   font-weight: 600;
 }
 
 .send-step-indicator li.active {
-  border-color: #0f62fe;
-  background: #dce8ff;
-  color: #0f4cca;
+  border-color: var(--color-secondary);
+  background: var(--color-secondary-light);
+  color: var(--color-secondary-dark);
 }
 
 .send-flow-body {
@@ -54,25 +54,25 @@
 }
 
 .flow-field span {
-  color: #34435e;
+  color: var(--color-text-secondary);
   font-size: 0.9rem;
   font-weight: 600;
 }
 
 .flow-field input,
 .flow-field select {
-  border: 1px solid #b7c4d8;
+  border: 1px solid var(--color-border-secondary);
   border-radius: 8px;
   padding: 0.6rem 0.75rem;
   font-size: 0.95rem;
-  color: #1a2a49;
-  background: #ffffff;
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
 }
 
 .flow-field input:focus,
 .flow-field select:focus {
-  outline: 2px solid #9dc1ff;
-  border-color: #0f62fe;
+  outline: 2px solid var(--color-border-focus);
+  border-color: var(--color-secondary);
 }
 
 .flow-review {
@@ -85,21 +85,21 @@
   display: grid;
   grid-template-columns: 120px 1fr;
   gap: 0.65rem;
-  border: 1px solid #d8e2f0;
+  border: 1px solid var(--color-border-secondary);
   border-radius: 8px;
   padding: 0.6rem 0.75rem;
-  background: #fbfdff;
+  background: var(--color-bg-secondary);
 }
 
 .flow-review dt {
   margin: 0;
-  color: #62728b;
+  color: var(--color-text-tertiary);
   font-size: 0.86rem;
 }
 
 .flow-review dd {
   margin: 0;
-  color: #1f2f50;
+  color: var(--color-text-primary);
   font-weight: 600;
   word-break: break-word;
 }
@@ -125,28 +125,28 @@
 }
 
 .flow-button.primary {
-  background: #0f62fe;
-  color: #ffffff;
+  background: var(--color-secondary);
+  color: var(--color-text-light);
 }
 
 .flow-button.muted {
-  background: #e2e8f4;
-  color: #2a3853;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .flow-error {
   margin-top: 0.8rem;
   margin-bottom: 0;
-  color: #ad1f0f;
+  color: var(--color-error);
   font-size: 0.9rem;
 }
 
 .flow-success {
   margin-top: 0.85rem;
   margin-bottom: 0;
-  border: 1px solid #bde6d1;
-  background: #ecfbf2;
-  color: #0b6242;
+  border: 1px solid var(--color-success-border);
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
   border-radius: 8px;
   padding: 0.8rem;
   font-weight: 600;

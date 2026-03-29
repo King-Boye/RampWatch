@@ -22,15 +22,23 @@ import { VerificationStatus, AnchorKycConfig } from './types';
 import { KycUpsertService } from './kyc-upsert-service';
 import { createTransferGuard, AuthenticatedRequest } from './transfer-guard';
 import { getFxRateCache } from './fx-rate-cache';
+import { correlationIdMiddleware, createLogger } from './correlation-id';
+import { getMetricsService } from './metrics';
 
 const app = express();
 const fxRateCache = getFxRateCache();
 const verifier = new AssetVerifier();
+const logger = createLogger('api');
+const pool = getPool();
+const metricsService = getMetricsService(pool);
 
 // Security middleware
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+
+// Correlation ID middleware
+app.use(correlationIdMiddleware);
 
 const pool = getPool();
 const kycUpsertService = new KycUpsertService(pool);
@@ -54,6 +62,18 @@ const limiter = rateLimit({
 });
 
 app.use('/api/', limiter);
+
+// Metrics endpoint (excluded from rate limiting)
+app.get('/metrics', async (req: Request, res: Response) => {
+  try {
+    const metrics = await metricsService.getMetrics();
+    res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.send(metrics);
+  } catch (error) {
+    logger.error('Error generating metrics', error);
+    res.status(500).send('# Error generating metrics\n');
+  }
+});
 
 // API documentation
 app.use('/api/docs', docsRouter);
