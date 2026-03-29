@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import './WalletConnection.css';
+import { FreighterService } from '../utils/freighter';
+import type { NetworkType } from '../utils/freighter';
 
-export type NetworkType = 'Testnet' | 'Mainnet';
+export type { NetworkType };
 
 interface WalletConnectionResult {
   publicKey: string;
@@ -14,8 +16,6 @@ interface WalletConnectionProps {
   onDisconnect?: () => Promise<void> | void;
   onRequestSignature?: () => Promise<void>;
 }
-
-const DEFAULT_DEMO_KEY = 'GBZXN7PIRZGNMHGAU2LYGAZGQG4RYSQ3TB2T6O3COVGW6OLBDEQ2COFQ';
 
 function truncatePublicKey(publicKey: string): string {
   if (publicKey.length <= 16) return publicKey;
@@ -51,24 +51,44 @@ export const WalletConnection: React.FC<WalletConnectionProps> = ({
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [isSigning, setIsSigning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [networkWarning, setNetworkWarning] = useState<string | null>(null);
+
+  const isFreighterInstalled = FreighterService.isInstalled();
 
   const publicKeyText = useMemo(() => truncatePublicKey(publicKey), [publicKey]);
 
   const handleConnect = async () => {
     setError(null);
+    setNetworkWarning(null);
     setIsConnecting(true);
 
     try {
       const result = onConnect
         ? await onConnect()
-        : { publicKey: DEFAULT_DEMO_KEY, network: defaultNetwork };
+        : await FreighterService.connect();
 
       setPublicKey(result.publicKey);
-      setNetwork(result.network ?? defaultNetwork);
+      const connectedNetwork = result.network ?? defaultNetwork;
+      setNetwork(connectedNetwork);
       setConnected(true);
+
+      // Check for network mismatch
+      if (FreighterService.isNetworkMismatch(connectedNetwork, defaultNetwork)) {
+        setNetworkWarning(
+          `Warning: Wallet is connected to ${connectedNetwork}, but ${defaultNetwork} is expected.`
+        );
+      }
     } catch (connectError) {
       setConnected(false);
-      setError('Failed to connect wallet. Please try again.');
+      const errorMessage = connectError instanceof Error ? connectError.message : 'Unknown error';
+      
+      if (errorMessage.includes('not installed')) {
+        setError('Freighter wallet is not installed.');
+      } else if (errorMessage.includes('not connected')) {
+        setError('Please unlock your Freighter wallet and try again.');
+      } else {
+        setError('Failed to connect wallet. Please try again.');
+      }
       console.error(connectError);
     } finally {
       setIsConnecting(false);
@@ -77,6 +97,7 @@ export const WalletConnection: React.FC<WalletConnectionProps> = ({
 
   const handleDisconnect = async () => {
     setError(null);
+    setNetworkWarning(null);
     setIsDisconnecting(true);
 
     try {
@@ -142,14 +163,26 @@ export const WalletConnection: React.FC<WalletConnectionProps> = ({
 
       <div className="wallet-actions">
         {!connected ? (
-          <button
-            type="button"
-            className="wallet-button primary"
-            onClick={handleConnect}
-            disabled={isConnecting}
-          >
-            {isConnecting ? 'Connecting...' : 'Connect'}
-          </button>
+          <>
+            <button
+              type="button"
+              className="wallet-button primary"
+              onClick={handleConnect}
+              disabled={isConnecting || !isFreighterInstalled}
+            >
+              {isConnecting ? 'Connecting...' : 'Connect'}
+            </button>
+            {!isFreighterInstalled && (
+              <a
+                href={FreighterService.getInstallUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="wallet-install-link"
+              >
+                Install Freighter Wallet
+              </a>
+            )}
+          </>
         ) : (
           <>
             <button
@@ -173,6 +206,7 @@ export const WalletConnection: React.FC<WalletConnectionProps> = ({
       </div>
 
       {error && <p className="wallet-error">{error}</p>}
+      {networkWarning && <p className="wallet-warning">{networkWarning}</p>}
     </section>
   );
 };

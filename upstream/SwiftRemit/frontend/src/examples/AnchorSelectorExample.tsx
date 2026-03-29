@@ -11,7 +11,8 @@
  *   - Restores original fetch on unmount
  */
 import React, { useState, useEffect } from 'react';
-import { AnchorSelector, AnchorProvider } from '../components/AnchorSelector';
+import { AnchorSelector } from '../components/AnchorSelector';
+import type { AnchorProvider } from '../components/AnchorSelector';
 
 // ---------------------------------------------------------------------------
 // Mock data
