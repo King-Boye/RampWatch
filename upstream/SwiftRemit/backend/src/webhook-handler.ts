@@ -94,12 +94,13 @@ export class WebhookHandler {
       }
 
       // Process webhook
-      const { event_type, transaction_id } = req.body;
+      const { event_type, transaction_id, remittance_id } = req.body;
+      const correlationId = transaction_id || remittance_id || 'unknown';
 
       // Log webhook
       const webhookId = await this.logger.logWebhook(
         anchorId,
-        transaction_id,
+        correlationId,
         event_type,
         req.body,
         true
@@ -108,7 +109,7 @@ export class WebhookHandler {
       // Check for suspicious patterns
       const suspiciousReasons = await this.logger.checkSuspiciousPatterns(
         anchorId,
-        transaction_id
+        correlationId
       );
 
       if (suspiciousReasons.length > 0) {
@@ -145,6 +146,29 @@ export class WebhookHandler {
       console.error('Webhook processing error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
+  }
+
+  /**
+   * Handle contract-created event and fan out remittance.created webhook.
+   */
+  private async handleRemittanceCreated(payload: any): Promise<void> {
+    const requiredFields = ['remittance_id', 'sender', 'agent', 'amount', 'fee', 'expiry'];
+    for (const field of requiredFields) {
+      if (payload[field] === undefined || payload[field] === null) {
+        throw new Error(`Missing required remittance_created field: ${field}`);
+      }
+    }
+
+    const remittancePayload: RemittanceCreatedWebhookPayload = {
+      remittance_id: String(payload.remittance_id),
+      sender: String(payload.sender),
+      agent: String(payload.agent),
+      amount: String(payload.amount),
+      fee: String(payload.fee),
+      expiry: String(payload.expiry),
+    };
+
+    await this.dispatcher.dispatchRemittanceCreated(remittancePayload);
   }
 
   /**
