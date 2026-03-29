@@ -124,38 +124,37 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_kyc_status ON user_kyc_status(status);
       CREATE INDEX IF NOT EXISTS idx_kyc_last_checked ON user_kyc_status(last_checked);
 
-      CREATE TABLE IF NOT EXISTS webhook_subscribers (
+      -- SEP-24 transactions table
+      CREATE TABLE IF NOT EXISTS sep24_transactions (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        url TEXT NOT NULL,
-        secret VARCHAR(255),
-        active BOOLEAN NOT NULL DEFAULT true,
+        transaction_id VARCHAR(255) UNIQUE NOT NULL,
+        anchor_id VARCHAR(100) NOT NULL,
+        direction VARCHAR(20) NOT NULL CHECK (direction IN ('deposit', 'withdrawal')),
+        status VARCHAR(50) NOT NULL,
+        asset_code VARCHAR(12) NOT NULL,
+        amount VARCHAR(40),
+        amount_in VARCHAR(40),
+        amount_out VARCHAR(40),
+        amount_fee VARCHAR(40),
+        stellar_transaction_id VARCHAR(64),
+        external_transaction_id VARCHAR(255),
+        user_id VARCHAR(255) NOT NULL,
+        interactive_url TEXT,
+        instructions_url TEXT,
+        kyc_status VARCHAR(20),
+        kyc_web_url TEXT,
+        status_eta INTEGER,
+        last_polled TIMESTAMP,
+        message TEXT,
         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
 
-      CREATE INDEX IF NOT EXISTS idx_webhook_subscribers_active ON webhook_subscribers(active);
-
-      CREATE TABLE IF NOT EXISTS webhook_deliveries (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        event_type VARCHAR(80) NOT NULL,
-        event_key VARCHAR(255) NOT NULL,
-        subscriber_id UUID NOT NULL REFERENCES webhook_subscribers(id) ON DELETE CASCADE,
-        target_url TEXT NOT NULL,
-        payload JSONB NOT NULL,
-        status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'success', 'failed')),
-        attempt_count INTEGER NOT NULL DEFAULT 0,
-        max_attempts INTEGER NOT NULL DEFAULT 5,
-        next_retry_at TIMESTAMP NOT NULL DEFAULT NOW(),
-        last_error TEXT,
-        response_status INTEGER,
-        delivered_at TIMESTAMP,
-        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-        CONSTRAINT uq_webhook_delivery_subscriber_event UNIQUE (event_type, event_key, subscriber_id)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_pending ON webhook_deliveries(status, next_retry_at);
-      CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_subscriber ON webhook_deliveries(subscriber_id);
+      CREATE INDEX IF NOT EXISTS idx_sep24_transaction_id ON sep24_transactions(transaction_id);
+      CREATE INDEX IF NOT EXISTS idx_sep24_anchor_id ON sep24_transactions(anchor_id);
+      CREATE INDEX IF NOT EXISTS idx_sep24_user_id ON sep24_transactions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_sep24_status ON sep24_transactions(status);
+      CREATE INDEX IF NOT EXISTS idx_sep24_last_polled ON sep24_transactions(last_polled);
     `);
     console.log('Database initialized successfully');
   } finally {
@@ -454,158 +453,189 @@ export async function getApprovedUsers(): Promise<DbUserKycStatus[]> {
   }));
 }
 
-export async function getActiveWebhookSubscribers(): Promise<WebhookSubscriber[]> {
-  const result = await pool.query(
-    `SELECT id, url, secret, active, created_at, updated_at
-     FROM webhook_subscribers
-     WHERE active = true`
-  );
+// ========== SEP-24 Transaction Functions ==========
 
-  return result.rows.map(row => ({
-    id: row.id,
-    url: row.url,
-    secret: row.secret,
-    active: row.active,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  }));
+/**
+ * SEP-24 transaction record for database
+ */
+export interface Sep24TransactionDbRecord {
+  id?: number;
+  transaction_id: string;
+  anchor_id: string;
+  direction: 'deposit' | 'withdrawal';
+  status: string;
+  asset_code: string;
+  amount?: string;
+  amount_in?: string;
+  amount_out?: string;
+  amount_fee?: string;
+  stellar_transaction_id?: string;
+  external_transaction_id?: string;
+  user_id: string;
+  interactive_url?: string;
+  instructions_url?: string;
+  kyc_status?: string;
+  kyc_web_url?: string;
+  status_eta?: number;
+  last_polled?: Date;
+  message?: string;
+  created_at?: Date;
+  updated_at?: Date;
 }
 
-export async function enqueueWebhookDelivery(
-  eventType: string,
-  eventKey: string,
-  subscriber: WebhookSubscriber,
-  payload: any,
-  maxAttempts: number = 5
-): Promise<WebhookDelivery> {
-  const result = await pool.query(
-    `INSERT INTO webhook_deliveries (
-       event_type,
-       event_key,
-       subscriber_id,
-       target_url,
-       payload,
-       status,
-       max_attempts,
-       next_retry_at
-     ) VALUES ($1, $2, $3, $4, $5, 'pending', $6, NOW())
-     ON CONFLICT (event_type, event_key, subscriber_id)
-     DO UPDATE SET
-       target_url = EXCLUDED.target_url,
-       payload = EXCLUDED.payload,
-       updated_at = NOW()
-     RETURNING
-       id,
-       event_type,
-       event_key,
-       subscriber_id,
-       target_url,
-       payload,
-       status,
-       attempt_count,
-       max_attempts,
-       next_retry_at,
-       last_error,
-       response_status,
-       delivered_at`,
-    [eventType, eventKey, subscriber.id, subscriber.url, JSON.stringify(payload), maxAttempts]
-  );
-
-  const row = result.rows[0];
-  return {
-    id: row.id,
-    event_type: row.event_type,
-    event_key: row.event_key,
-    subscriber_id: row.subscriber_id,
-    target_url: row.target_url,
-    payload: row.payload,
-    status: row.status,
-    attempt_count: row.attempt_count,
-    max_attempts: row.max_attempts,
-    next_retry_at: row.next_retry_at,
-    last_error: row.last_error,
-    response_status: row.response_status,
-    delivered_at: row.delivered_at,
-  };
-}
-
-export async function getPendingWebhookDeliveries(limit: number = 100): Promise<WebhookDelivery[]> {
-  const result = await pool.query(
-    `SELECT
-       id,
-       event_type,
-       event_key,
-       subscriber_id,
-       target_url,
-       payload,
-       status,
-       attempt_count,
-       max_attempts,
-       next_retry_at,
-       last_error,
-       response_status,
-       delivered_at
-     FROM webhook_deliveries
-     WHERE status = 'pending'
-       AND next_retry_at <= NOW()
-       AND attempt_count < max_attempts
-     ORDER BY next_retry_at ASC
-     LIMIT $1`,
-    [limit]
-  );
-
-  return result.rows.map(row => ({
-    id: row.id,
-    event_type: row.event_type,
-    event_key: row.event_key,
-    subscriber_id: row.subscriber_id,
-    target_url: row.target_url,
-    payload: row.payload,
-    status: row.status,
-    attempt_count: row.attempt_count,
-    max_attempts: row.max_attempts,
-    next_retry_at: row.next_retry_at,
-    last_error: row.last_error,
-    response_status: row.response_status,
-    delivered_at: row.delivered_at,
-  }));
-}
-
-export async function markWebhookDeliverySuccess(
-  deliveryId: string,
-  responseStatus: number
+/**
+ * Save a SEP-24 transaction
+ */
+export async function saveSep24Transaction(
+  record: Omit<Sep24TransactionDbRecord, 'id' | 'created_at' | 'updated_at'>
 ): Promise<void> {
-  await pool.query(
-    `UPDATE webhook_deliveries
-     SET status = 'success',
-         response_status = $2,
-         delivered_at = NOW(),
-         updated_at = NOW()
-     WHERE id = $1`,
-    [deliveryId, responseStatus]
-  );
+  const query = `
+    INSERT INTO sep24_transactions (
+      transaction_id, anchor_id, direction, status, asset_code,
+      amount, amount_in, amount_out, amount_fee,
+      stellar_transaction_id, external_transaction_id,
+      user_id, interactive_url, instructions_url,
+      kyc_status, kyc_web_url, status_eta, message
+    ) VALUES (
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+    )
+    ON CONFLICT (transaction_id) 
+    DO UPDATE SET
+      status = EXCLUDED.status,
+      amount_in = COALESCE(EXCLUDED.amount_in, sep24_transactions.amount_in),
+      amount_out = COALESCE(EXCLUDED.amount_out, sep24_transactions.amount_out),
+      amount_fee = COALESCE(EXCLUDED.amount_fee, sep24_transactions.amount_fee),
+      stellar_transaction_id = COALESCE(EXCLUDED.stellar_transaction_id, sep24_transactions.stellar_transaction_id),
+      external_transaction_id = COALESCE(EXCLUDED.external_transaction_id, sep24_transactions.external_transaction_id),
+      kyc_status = COALESCE(EXCLUDED.kyc_status, sep24_transactions.kyc_status),
+      message = COALESCE(EXCLUDED.message, sep24_transactions.message),
+      updated_at = NOW()
+  `;
+
+  await pool.query(query, [
+    record.transaction_id,
+    record.anchor_id,
+    record.direction,
+    record.status,
+    record.asset_code,
+    record.amount || null,
+    record.amount_in || null,
+    record.amount_out || null,
+    record.amount_fee || null,
+    record.stellar_transaction_id || null,
+    record.external_transaction_id || null,
+    record.user_id,
+    record.interactive_url || null,
+    record.instructions_url || null,
+    record.kyc_status || null,
+    record.kyc_web_url || null,
+    record.status_eta || null,
+    record.message || null,
+  ]);
 }
 
-export async function markWebhookDeliveryFailure(
-  deliveryId: string,
-  attemptCount: number,
-  maxAttempts: number,
-  nextRetryAt: Date,
-  errorMessage: string,
-  responseStatus: number | null
+/**
+ * Get a SEP-24 transaction by transaction_id
+ */
+export async function getSep24Transaction(
+  transactionId: string
+): Promise<Sep24TransactionDbRecord | null> {
+  const query = `
+    SELECT * FROM sep24_transactions 
+    WHERE transaction_id = $1
+  `;
+  const result = await pool.query(query, [transactionId]);
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  return result.rows[0] as Sep24TransactionDbRecord;
+}
+
+/**
+ * Get a SEP-24 transaction by ID (numeric)
+ */
+export async function getSep24TransactionById(
+  transactionId: string
+): Promise<Sep24TransactionDbRecord | null> {
+  return getSep24Transaction(transactionId);
+}
+
+/**
+ * Get pending SEP-24 transactions for an anchor
+ */
+export async function getPendingSep24Transactions(
+  anchorId: string,
+  minutesSinceLastPoll: number
+): Promise<Sep24TransactionDbRecord[]> {
+  const query = `
+    SELECT * FROM sep24_transactions 
+    WHERE anchor_id = $1 
+      AND status NOT IN ('completed', 'refunded', 'expired', 'error')
+      AND (last_polled IS NULL OR last_polled < NOW() - INTERVAL '${minutesSinceLastPoll} minutes')
+    ORDER BY created_at ASC
+    LIMIT 50
+  `;
+  const result = await pool.query(query, [anchorId]);
+
+  return result.rows as Sep24TransactionDbRecord[];
+}
+
+/**
+ * Update SEP-24 transaction status
+ */
+export async function updateSep24TransactionStatus(
+  transactionId: string,
+  status: string,
+  amountIn?: string,
+  amountOut?: string,
+  amountFee?: string,
+  stellarTransactionId?: string,
+  externalTransactionId?: string,
+  message?: string
 ): Promise<void> {
-  const terminal = attemptCount >= maxAttempts;
-  await pool.query(
-    `UPDATE webhook_deliveries
-     SET attempt_count = $2,
-         status = $3,
-         next_retry_at = $4,
-         last_error = $5,
-         response_status = $6,
-         updated_at = NOW()
-     WHERE id = $1`,
-    [deliveryId, attemptCount, terminal ? 'failed' : 'pending', nextRetryAt, errorMessage, responseStatus]
-  );
+  const query = `
+    UPDATE sep24_transactions 
+    SET status = $2,
+        amount_in = COALESCE($3, amount_in),
+        amount_out = COALESCE($4, amount_out),
+        amount_fee = COALESCE($5, amount_fee),
+        stellar_transaction_id = COALESCE($6, stellar_transaction_id),
+        external_transaction_id = COALESCE($7, external_transaction_id),
+        message = COALESCE($8, message),
+        last_polled = NOW(),
+        updated_at = NOW()
+    WHERE transaction_id = $1
+  `;
+
+  await pool.query(query, [
+    transactionId,
+    status,
+    amountIn || null,
+    amountOut || null,
+    amountFee || null,
+    stellarTransactionId || null,
+    externalTransactionId || null,
+    message || null,
+  ]);
+}
+
+/**
+ * Get all SEP-24 transactions for a user
+ */
+export async function getSep24TransactionsByUser(
+  userId: string
+): Promise<Sep24TransactionDbRecord[]> {
+  const query = `
+    SELECT * FROM sep24_transactions 
+    WHERE user_id = $1
+    ORDER BY created_at DESC
+    LIMIT 100
+  `;
+  const result = await pool.query(query, [userId]);
+
+  return result.rows as Sep24TransactionDbRecord[];
 }
 
 export { pool };
