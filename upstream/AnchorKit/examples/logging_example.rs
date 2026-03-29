@@ -47,7 +47,7 @@ fn main() {
     // 4. Attestor registration (SEP-10 JWT required on-chain)
     println!("\n🔄 Step 4: Attestor registration");
     println!("ℹ️  On-chain registration requires admin + set_sep10_jwt_verifying_key + register_attestor(..., token, issuer).");
-    println!("   See SEP10_AUTH.md and the Sep10AuthFlow UI for the full SEP-10 challenge → JWT flow.");
+    println!("   See docs/features/SEP10_AUTH.md and the Sep10AuthFlow UI for the full SEP-10 challenge → JWT flow.");
 
     // 5. Demonstrate request/response logging
     println!("\n🌐 Step 5: Demonstrate request/response logging");

@@ -1,5 +1,7 @@
 # SEP-10 Authentication Module
 
+> **Location:** This file is the canonical SEP-10 doc (`docs/features/SEP10_AUTH.md`). A short pointer also exists at the repo root as [`SEP10_AUTH.md`](../../SEP10_AUTH.md) for older links.
+
 ## Overview
 
 Minimal SEP-10 (Stellar Web Authentication) support in AnchorKit, aligned with the [SEP-10 specification](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md).
