@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './AnchorSelector.css';
 
 export interface AnchorProvider {
@@ -55,6 +55,11 @@ export const AnchorSelector: React.FC<AnchorSelectorProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [selectedAnchor, setSelectedAnchor] = useState<AnchorProvider | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+  
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const listboxId = useRef(`anchor-listbox-${Math.random().toString(36).substr(2, 9)}`).current;
 
   useEffect(() => {
     fetchAnchors();
@@ -91,8 +96,104 @@ export const AnchorSelector: React.FC<AnchorSelectorProps> = ({
   const handleSelect = (anchor: AnchorProvider) => {
     setSelectedAnchor(anchor);
     setIsOpen(false);
+    setFocusedIndex(-1);
     onSelect(anchor);
+    // Return focus to trigger button
+    setTimeout(() => triggerRef.current?.focus(), 0);
   };
+
+  const handleToggle = () => {
+    if (!isOpen) {
+      setIsOpen(true);
+      // Set focus to selected item or first item when opening
+      const selectedIndex = selectedAnchor 
+        ? anchors.findIndex(a => a.id === selectedAnchor.id)
+        : 0;
+      setFocusedIndex(selectedIndex >= 0 ? selectedIndex : 0);
+    } else {
+      setIsOpen(false);
+      setFocusedIndex(-1);
+    }
+  };
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!isOpen) {
+      // When closed, open on Enter, Space, or Arrow keys
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        setIsOpen(true);
+        const selectedIndex = selectedAnchor 
+          ? anchors.findIndex(a => a.id === selectedAnchor.id)
+          : 0;
+        setFocusedIndex(selectedIndex >= 0 ? selectedIndex : 0);
+      }
+      return;
+    }
+
+    // When open, handle navigation
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setFocusedIndex(prev => (prev < anchors.length - 1 ? prev + 1 : prev));
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setFocusedIndex(prev => (prev > 0 ? prev - 1 : prev));
+        break;
+      case 'Home':
+        e.preventDefault();
+        setFocusedIndex(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        setFocusedIndex(anchors.length - 1);
+        break;
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        if (focusedIndex >= 0 && focusedIndex < anchors.length) {
+          handleSelect(anchors[focusedIndex]);
+        }
+        break;
+      case 'Escape':
+        e.preventDefault();
+        setIsOpen(false);
+        setFocusedIndex(-1);
+        triggerRef.current?.focus();
+        break;
+      case 'Tab':
+        // Close on tab and allow default behavior
+        setIsOpen(false);
+        setFocusedIndex(-1);
+        break;
+    }
+  }, [isOpen, focusedIndex, anchors, selectedAnchor]);
+
+  // Scroll focused option into view
+  useEffect(() => {
+    if (isOpen && focusedIndex >= 0 && menuRef.current) {
+      const focusedElement = menuRef.current.querySelector(`[data-index="${focusedIndex}"]`);
+      if (focusedElement && typeof focusedElement.scrollIntoView === 'function') {
+        focusedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [focusedIndex, isOpen]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node) &&
+          triggerRef.current && !triggerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setFocusedIndex(-1);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen]);
 
   const formatFee = (percent: number, fixed?: number) => 
     fixed && fixed > 0 ? `${percent}% + $${fixed.toFixed(2)}` : `${percent}%`;
@@ -120,31 +221,59 @@ export const AnchorSelector: React.FC<AnchorSelectorProps> = ({
 
   return (
     <div className="anchor-selector">
-      <label className="anchor-label">Select Anchor Provider</label>
+      <label className="anchor-label" id={`${listboxId}-label`}>Select Anchor Provider</label>
       <div className="anchor-dropdown">
-        <button className={`anchor-dropdown-trigger ${isOpen ? 'open' : ''}`} onClick={() => setIsOpen(!isOpen)}>
+        <button 
+          ref={triggerRef}
+          className={`anchor-dropdown-trigger ${isOpen ? 'open' : ''}`} 
+          onClick={handleToggle}
+          onKeyDown={handleKeyDown}
+          aria-haspopup="listbox"
+          aria-expanded={isOpen}
+          aria-labelledby={`${listboxId}-label`}
+          aria-controls={isOpen ? listboxId : undefined}
+          aria-activedescendant={isOpen && focusedIndex >= 0 ? `${listboxId}-option-${focusedIndex}` : undefined}
+        >
           {selectedAnchor ? (
             <div className="selected-anchor">
               {selectedAnchor.logo_url && <img src={selectedAnchor.logo_url} alt="" className="anchor-logo" />}
               <div className="anchor-info">
                 <span className="anchor-name">{selectedAnchor.name}</span>
-                {selectedAnchor.verified && <span className="verified-badge">✓</span>}
+                {selectedAnchor.verified && <span className="verified-badge" aria-label="Verified">✓</span>}
               </div>
             </div>
           ) : <span className="placeholder">Choose an anchor provider...</span>}
-          <span className="dropdown-arrow">{isOpen ? '▲' : '▼'}</span>
+          <span className="dropdown-arrow" aria-hidden="true">{isOpen ? '▲' : '▼'}</span>
         </button>
         {isOpen && (
-          <div className="anchor-dropdown-menu">
-            {anchors.map((anchor) => (
-              <div key={anchor.id} className={`anchor-option ${selectedAnchor?.id === anchor.id ? 'selected' : ''}`} onClick={() => handleSelect(anchor)}>
+          <div 
+            ref={menuRef}
+            className="anchor-dropdown-menu"
+            role="listbox"
+            id={listboxId}
+            aria-labelledby={`${listboxId}-label`}
+            tabIndex={-1}
+          >
+            {anchors.map((anchor, index) => (
+              <div 
+                key={anchor.id} 
+                className={`anchor-option ${selectedAnchor?.id === anchor.id ? 'selected' : ''} ${focusedIndex === index ? 'focused' : ''}`}
+                onClick={() => handleSelect(anchor)}
+                role="option"
+                id={`${listboxId}-option-${index}`}
+                aria-selected={selectedAnchor?.id === anchor.id}
+                data-index={index}
+              >
                 <div className="anchor-option-header">
                   {anchor.logo_url && <img src={anchor.logo_url} alt="" className="anchor-logo" />}
                   <div className="anchor-option-info">
-                    <div className="anchor-option-name">{anchor.name}{anchor.verified && <span className="verified-badge">✓</span>}</div>
+                    <div className="anchor-option-name">
+                      {anchor.name}
+                      {anchor.verified && <span className="verified-badge" aria-label="Verified">✓</span>}
+                    </div>
                     <div className="anchor-option-domain">{anchor.domain}</div>
                   </div>
-                  {anchor.rating && <div className="anchor-rating">⭐ {anchor.rating.toFixed(1)}</div>}
+                  {anchor.rating && <div className="anchor-rating" aria-label={`Rating: ${anchor.rating.toFixed(1)} stars`}>⭐ {anchor.rating.toFixed(1)}</div>}
                 </div>
                 <div className="anchor-option-details">
                   <div className="detail-row"><span className="detail-label">Fees:</span><span className="detail-value">{formatFee(anchor.fees.withdrawal_fee_percent, anchor.fees.withdrawal_fee_fixed)}</span></div>
@@ -158,9 +287,16 @@ export const AnchorSelector: React.FC<AnchorSelectorProps> = ({
       </div>
       {selectedAnchor && (
         <div className="anchor-details-section">
-          <button className="show-details-button" onClick={() => setShowDetails(!showDetails)}>{showDetails ? '▼' : '▶'} {showDetails ? 'Hide' : 'Show'} Details</button>
+          <button 
+            className="show-details-button" 
+            onClick={() => setShowDetails(!showDetails)}
+            aria-expanded={showDetails}
+            aria-controls="anchor-details-panel"
+          >
+            <span aria-hidden="true">{showDetails ? '▼' : '▶'}</span> {showDetails ? 'Hide' : 'Show'} Details
+          </button>
           {showDetails && (
-            <div className="anchor-details-panel">
+            <div className="anchor-details-panel" id="anchor-details-panel">
               <div className="details-section">
                 <h4>Fee Structure</h4>
                 <div className="details-grid">
