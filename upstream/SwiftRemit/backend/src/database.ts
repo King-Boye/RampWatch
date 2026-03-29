@@ -1,5 +1,15 @@
 import { Pool } from 'pg';
-import { AssetVerification, VerificationStatus, FxRate, FxRateRecord, KycStatus, DbUserKycStatus, AnchorKycConfig } from './types';
+import {
+  AssetVerification,
+  VerificationStatus,
+  FxRate,
+  FxRateRecord,
+  KycStatus,
+  DbUserKycStatus,
+  AnchorKycConfig,
+  WebhookSubscriber,
+  WebhookDelivery,
+} from './types';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,

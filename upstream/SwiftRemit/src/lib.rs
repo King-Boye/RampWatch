@@ -1382,6 +1382,8 @@ impl SwiftRemitContract {
                 }
             }
 
+            // Addresses are guaranteed valid by the Soroban host runtime.
+
             remittances.push_back(remittance);
         }
 
