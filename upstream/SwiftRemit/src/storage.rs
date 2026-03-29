@@ -7,7 +7,7 @@
 
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
-use crate::{ContractError, Remittance, TransferRecord, DailyLimit};
+use crate::{ContractError, Remittance, TransferRecord, DailyLimit, AgentStats};
 
 /// Storage keys for the SwiftRemit contract.
 ///
@@ -171,6 +171,15 @@ enum DataKey {
 
     /// Commitment hash used to validate off-chain payout proofs per remittance.
     PayoutCommitment(u64),
+
+    /// Reputation statistics for an agent address (persistent storage)
+    AgentStats(Address),
+
+    /// Configurable window for raising disputes in seconds (instance storage)
+    DisputeWindow,
+
+    /// List of remittance IDs for a specific sender (persistent storage)
+    SenderRemittances(Address),
 }
 
 /// Checks if the contract has an admin configured.
@@ -727,11 +736,11 @@ pub fn set_admin_role(env: &Env, address: &Address, is_admin: bool) {
         .set(&DataKey::AdminRole(address.clone()), &is_admin);
 }
 
-pub fn get_admin_count(env: &Env) -> Result<u32, ContractError> {
+pub fn get_admin_count(env: &Env) -> u32 {
     env.storage()
         .instance()
         .get(&DataKey::AdminCount)
-        .ok_or(ContractError::NotInitialized)
+        .unwrap_or(0)
 }
 
 pub fn set_admin_count(env: &Env, count: u32) {
@@ -1205,4 +1214,34 @@ pub fn get_payout_commitment(env: &Env, remittance_id: u64) -> Option<soroban_sd
     env.storage()
         .persistent()
         .get(&DataKey::PayoutCommitment(remittance_id))
+}
+
+pub fn get_agent_stats(env: &Env, agent: &Address) -> AgentStats {
+    env.storage().persistent().get(&DataKey::AgentStats(agent.clone())).unwrap_or(AgentStats {
+        total_settlements: 0,
+        failed_settlements: 0,
+        total_settlement_time: 0,
+    })
+}
+
+pub fn set_agent_stats(env: &Env, agent: &Address, stats: &AgentStats) {
+    env.storage().persistent().set(&DataKey::AgentStats(agent.clone()), stats);
+}
+
+pub fn get_dispute_window(env: &Env) -> u64 {
+    env.storage().instance().get(&DataKey::DisputeWindow).unwrap_or(172800) // Default 48h
+}
+
+pub fn set_dispute_window(env: &Env, window: u64) {
+    env.storage().instance().set(&DataKey::DisputeWindow, &window);
+}
+
+pub fn get_sender_remittances(env: &Env, sender: &Address) -> Vec<u64> {
+    env.storage().persistent().get(&DataKey::SenderRemittances(sender.clone())).unwrap_or(Vec::new(env))
+}
+
+pub fn append_sender_remittance(env: &Env, sender: &Address, id: u64) {
+    let mut ids = get_sender_remittances(env, sender);
+    ids.push_back(id);
+    env.storage().persistent().set(&DataKey::SenderRemittances(sender.clone()), &ids);
 }
