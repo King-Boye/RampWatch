@@ -17,8 +17,8 @@ pub use errors::Error;
 pub use rate_limiter::{RateLimiter, RateLimitConfig, RateLimitState};
 pub use response_validator::{
     validate_anchor_info_response, validate_deposit_response, validate_quote_response,
-    validate_withdraw_response, AnchorInfoResponse, DepositResponse, QuoteResponse,
-    WithdrawResponse,
+    validate_withdraw_response, AnchorInfoResponse, DepositResponse as ValidatorDepositResponse,
+    QuoteResponse, WithdrawResponse,
 };
 
 #[cfg(test)]
@@ -53,3 +53,6 @@ mod anchor_info_discovery_tests;
 
 #[cfg(test)]
 mod routing_tests;
+
+#[cfg(test)]
+mod capability_detection_tests;
