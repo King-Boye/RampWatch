@@ -21,7 +21,7 @@ import { storeVerificationOnChain, simulateSettlement } from './stellar';
 import { VerificationStatus, AnchorKycConfig } from './types';
 import { KycUpsertService } from './kyc-upsert-service';
 import { createTransferGuard, AuthenticatedRequest } from './transfer-guard';
-import { sanitizeInput } from './sanitizer';
+import docsRouter from './routes/docs';
 
 const app = express();
 const verifier = new AssetVerifier();
@@ -53,6 +53,9 @@ const limiter = rateLimit({
 });
 
 app.use('/api/', limiter);
+
+// API documentation
+app.use('/api/docs', docsRouter);
 
 // Input validation middleware
 function validateAssetParams(req: Request, res: Response, next: Function) {
