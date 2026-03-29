@@ -5,7 +5,10 @@
 
 use soroban_sdk::{Address, Env};
 
-use crate::{ContractError, is_agent_registered, is_paused, get_remittance, RemittanceStatus};
+use crate::{
+    get_remittance, is_agent_registered, is_paused, is_user_blacklisted, ContractError,
+    RemittanceStatus,
+};
 
 /// Centralized validation module for all API requests.
 /// Validates required fields before controller logic to prevent invalid data
@@ -58,7 +61,15 @@ pub fn validate_remittance_exists(env: &Env, remittance_id: u64) -> Result<crate
     get_remittance(env, remittance_id)
 }
 
-/// Validates that a remittance is in pending status.
+/// Validates that a remittance is in a cancellable state (Pending or Processing).
+pub fn validate_remittance_cancellable(remittance: &crate::Remittance) -> Result<(), ContractError> {
+    match remittance.status {
+        RemittanceStatus::Pending | RemittanceStatus::Processing => Ok(()),
+        _ => Err(ContractError::InvalidStatus),
+    }
+}
+
+/// Validates remittance is in Pending state.
 pub fn validate_remittance_pending(remittance: &crate::Remittance) -> Result<(), ContractError> {
     if remittance.status != RemittanceStatus::Pending {
         return Err(ContractError::InvalidStatus);
@@ -101,12 +112,12 @@ pub fn validate_initialize_request(
     fee_bps: u32,
 ) -> Result<(), ContractError> {
     validate_fee_bps(fee_bps)?;
-    
+
     // Check if already initialized
     if crate::has_admin(env) {
         return Err(ContractError::AlreadyInitialized);
     }
-    
+
     Ok(())
 }
 
@@ -119,6 +130,9 @@ pub fn validate_create_remittance_request(
 ) -> Result<(), ContractError> {
     validate_amount(amount)?;
     validate_agent_registered(env, agent)?;
+    if is_user_blacklisted(env, sender) {
+        return Err(ContractError::UserBlacklisted);
+    }
     Ok(())
 }
 
@@ -130,7 +144,10 @@ pub fn validate_confirm_payout_request(
 ) -> Result<crate::Remittance, ContractError> {
     validate_not_paused(env)?;
     let remittance = validate_remittance_exists(env, remittance_id)?;
-    validate_remittance_pending(&remittance)?;
+    // confirm_payout is only valid from Pending (transitions Pending → Processing → Completed)
+    if remittance.status != RemittanceStatus::Pending {
+        return Err(ContractError::InvalidStatus);
+    }
     validate_no_duplicate_settlement(env, remittance_id)?;
     validate_settlement_not_expired(env, remittance.expiry)?;
     Ok(remittance)
@@ -138,6 +155,7 @@ pub fn validate_confirm_payout_request(
 
 /// Comprehensive validation for cancel_remittance request.
 /// Returns the remittance to avoid re-reading in the caller.
+
 pub fn validate_cancel_remittance_request(
     env: &Env,
     remittance_id: u64,
@@ -164,6 +182,7 @@ pub fn validate_update_fee_request(fee_bps: u32) -> Result<(), ContractError> {
 }
 
 /// Comprehensive validation for admin operations.
+
 pub fn validate_admin_operation(
     env: &Env,
     caller: &Address,
@@ -174,19 +193,7 @@ pub fn validate_admin_operation(
 }
 
 /// Normalizes an asset symbol to uppercase canonical form.
-///
-/// # Arguments
-///
-/// * `env` - The contract execution environment
-/// * `symbol` - The symbol string to normalize
-///
-/// # Returns
-///
-/// * `Ok(String)` - Normalized uppercase symbol
-/// * `Err(ContractError::InvalidSymbol)` - Symbol contains invalid characters or is malformed
 pub fn normalize_symbol(_env: &Env, symbol: &soroban_sdk::String) -> Result<soroban_sdk::String, ContractError> {
-    // For Soroban SDK, we'll use a simpler approach
-    // Convert to uppercase by creating a new string
     Ok(symbol.clone())
 }
 

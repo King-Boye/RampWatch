@@ -4,7 +4,7 @@
 //! contract operations. Events include schema versioning and ledger metadata
 //! for comprehensive audit trails.
 
-use soroban_sdk::{symbol_short, Address, Env};
+use soroban_sdk::{symbol_short, Address, Env, String};
 
 // ============================================================================
 // Event Schema Version
@@ -157,6 +157,32 @@ pub fn emit_remittance_cancelled(
     );
 }
 
+/// Emits an event when a remittance is cancelled with a structured reason.
+pub fn emit_remittance_cancelled_with_reason(
+    env: &Env,
+    remittance_id: u64,
+    sender: Address,
+    agent: Address,
+    token: Address,
+    amount: i128,
+    reason: String,
+) {
+    env.events().publish(
+        (symbol_short!("remit"), symbol_short!("cancel_r")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            remittance_id,
+            sender,
+            agent,
+            token,
+            amount,
+            reason,
+        ),
+    );
+}
+
 // ── Agent Events ───────────────────────────────────────────────────
 
 /// Emits an event when a new agent is registered.
@@ -199,6 +225,46 @@ pub fn emit_agent_removed(env: &Env, agent: Address, caller: Address) {
     );
 }
 
+/// Emits an event when a user is added to the blacklist.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `user` - Address of the blacklisted user
+/// * `caller` - Address of the admin who updated the blacklist
+pub fn emit_user_blacklisted(env: &Env, user: Address, caller: Address) {
+    env.events().publish(
+        (symbol_short!("blacklist"), symbol_short!("added")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            user,
+            caller,
+        ),
+    );
+}
+
+/// Emits an event when a user is removed from the blacklist.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `user` - Address of the user removed from the blacklist
+/// * `caller` - Address of the admin who updated the blacklist
+pub fn emit_user_removed_from_blacklist(env: &Env, user: Address, caller: Address) {
+    env.events().publish(
+        (symbol_short!("blacklist"), symbol_short!("removed")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            user,
+            caller,
+        ),
+    );
+}
+
 // ── Fee Events ─────────────────────────────────────────────────────
 
 /// Emits an event when the platform fee is updated.
@@ -236,6 +302,35 @@ pub fn emit_fees_withdrawn(env: &Env, caller: Address, to: Address, token: Addre
             env.ledger().sequence(),
             env.ledger().timestamp(),
             caller,
+            to,
+            token,
+            amount,
+        ),
+    );
+}
+
+pub fn emit_treasury_updated(env: &Env, admin: Address, old_treasury: Option<Address>, new_treasury: Address) {
+    env.events().publish(
+        (symbol_short!("treasury"), symbol_short!("upd")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            admin,
+            old_treasury,
+            new_treasury,
+        ),
+    );
+}
+
+pub fn emit_integrator_fees_withdrawn(env: &Env, integrator: Address, to: Address, token: Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("fee"), symbol_short!("int_with")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            integrator,
             to,
             token,
             amount,
@@ -304,8 +399,6 @@ pub fn emit_settlement_completed(
         ),
     );
 }
-
-
 // ── Escrow Events ──────────────────────────────────────────────────
 
 /// Emits an event when escrow is created

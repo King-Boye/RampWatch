@@ -21,33 +21,33 @@ use crate::{ContractError, Remittance, TransferRecord, DailyLimit};
 enum DataKey {
     // === Contract Configuration ===
     // Core contract settings stored in instance storage
-    /// Contract administrator address with privileged access (deprecated - use AdminRole)
+    /// Contract administrator address with privileged access (instance storage, deprecated - use AdminRole)
     Admin,
 
     /// Admin role status indexed by address (persistent storage)
     AdminRole(Address),
 
-    /// Counter for tracking number of admins
+    /// Counter for tracking number of admins (instance storage)
     AdminCount,
 
     /// Role assignment indexed by (address, role) (persistent storage)
     RoleAssignment(Address, crate::Role),
 
-    /// USDC token contract address used for all remittance transactions
+    /// USDC token contract address used for all remittance transactions (instance storage)
     UsdcToken,
 
-    /// Platform fee in basis points (1 bps = 0.01%)
+    /// Platform fee in basis points, 1 bps = 0.01% (instance storage)
     PlatformFeeBps,
-    
-    /// Protocol fee in basis points (1 bps = 0.01%)
+
+    /// Protocol fee in basis points, 1 bps = 0.01% (instance storage)
     ProtocolFeeBps,
-    
-    /// Treasury address for protocol fees
+
+    /// Treasury address that receives protocol fees (instance storage)
     Treasury,
 
     // === Remittance Management ===
     // Keys for tracking and storing remittance transactions
-    /// Global counter for generating unique remittance IDs
+    /// Global counter for generating unique remittance IDs (instance storage)
     RemittanceCounter,
 
     /// Individual remittance record indexed by ID (persistent storage)
@@ -60,39 +60,39 @@ enum DataKey {
 
     // === Fee Tracking ===
     // Keys for managing platform fees
-    /// Total accumulated platform fees awaiting withdrawal
+    /// Total accumulated platform fees awaiting withdrawal (instance storage)
     AccumulatedFees,
 
-    /// Integrator fee in basis points
+    /// Integrator fee in basis points (instance storage)
     IntegratorFeeBps,
 
-    /// Total accumulated integrator fees awaiting withdrawal
+    /// Total accumulated integrator fees awaiting withdrawal (instance storage)
     AccumulatedIntegratorFees,
 
-    /// Contract pause status for emergency halts
+    /// Contract pause status for emergency halts (instance storage)
     Paused,
 
     // === Settlement Deduplication ===
     // Keys for preventing duplicate settlement execution
     /// Settlement hash for duplicate detection (legacy persistent storage)
     SettlementHash(u64),
-    
+
     // === User Management ===
     // Keys for user eligibility and KYC tracking
     /// User blacklist status (persistent storage)
     UserBlacklisted(Address),
-    
+
     /// User KYC approval status (persistent storage)
     KycApproved(Address),
-    
+
     /// User KYC expiry timestamp (persistent storage)
     KycExpiry(Address),
-    
+
     // === Transaction Controller ===
     // Keys for transaction tracking and anchor operations
     /// Transaction record indexed by remittance ID (persistent storage)
     TransactionRecord(u64),
-    
+
     /// Anchor transaction mapping (persistent storage)
     AnchorTransaction(u64),
 
@@ -103,53 +103,74 @@ enum DataKey {
     /// Packed settlement flags (persistent storage)
     /// Replaces scattered settlement keys with a compact bitfield.
     SettlementPacked(u64),
-    
+
     // === Rate Limiting ===
     // Keys for preventing abuse through rate limiting
-    /// Cooldown period in seconds between settlements per sender
+    /// Cooldown period in seconds between settlements per sender (instance storage)
     RateLimitCooldown,
-    
+
     /// Last settlement timestamp for a sender address (persistent storage)
     LastSettlementTime(Address),
-    
+
     // === Daily Limits ===
     // Keys for tracking daily transfer limits
     /// Daily limit configuration indexed by currency and country (persistent storage)
     DailyLimit(String, String),
-    
+
     /// User transfer records indexed by user address (persistent storage)
     UserTransfers(Address),
-    
+
     // === Token Whitelist ===
     // Keys for managing whitelisted tokens
     /// Token whitelist status indexed by token address (persistent storage)
     TokenWhitelisted(Address),
-    
+
     /// Settlement completion event emission tracking (legacy persistent storage)
     /// Tracks whether the completion event has been emitted for a settlement
     SettlementEventEmitted(u64),
 
-    
+
     /// Total number of successfully finalized settlements (instance storage)
     /// Incremented atomically each time a settlement is successfully completed
     SettlementCounter,
 
     // === Escrow Management ===
-    /// Escrow counter for generating unique transfer IDs
+    /// Escrow counter for generating unique transfer IDs (instance storage)
     EscrowCounter,
-    
+
     /// Escrow record indexed by transfer ID (persistent storage)
     Escrow(u64),
-    
+
     // === Transfer State Registry ===
     /// Transfer state indexed by transfer ID (persistent storage)
     TransferState(u64),
-    
+
     /// Fee strategy configuration (instance storage)
     FeeStrategy,
-    
-    /// Fee corridor configuration indexed by (from_country, to_country)
+
+    /// Fee corridor configuration indexed by (from_country, to_country) (persistent storage)
     FeeCorridor(String, String),
+
+    // === Idempotency Protection ===
+    // Keys for preventing duplicate remittance creation
+    /// Idempotency record indexed by idempotency key (persistent storage)
+    /// Stores remittance_id and request hash for duplicate detection
+    IdempotencyRecord(String),
+
+    /// Reverse mapping: remittance_id -> idempotency key (persistent storage)
+    /// Used to clean up the idempotency record when a remittance reaches a terminal state
+    RemittanceIdempotencyKey(u64),
+
+    /// TTL for idempotency records in seconds (instance storage)
+    IdempotencyTTL,
+
+    // === Migration ===
+    /// Flag indicating a migration is currently in progress (instance storage).
+    /// When set, normal write operations (create_remittance, confirm_payout, etc.) are blocked.
+    MigrationInProgress,
+
+    /// Commitment hash used to validate off-chain payout proofs per remittance.
+    PayoutCommitment(u64),
 }
 
 /// Checks if the contract has an admin configured.
@@ -360,6 +381,19 @@ pub fn get_accumulated_fees(env: &Env) -> Result<i128, ContractError> {
         .instance()
         .get(&DataKey::AccumulatedFees)
         .ok_or(ContractError::NotInitialized)
+}
+
+pub fn set_accumulated_integrator_fees(env: &Env, fees: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::AccumulatedIntegratorFees, &fees);
+}
+
+pub fn get_accumulated_integrator_fees(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::AccumulatedIntegratorFees)
+        .unwrap_or(0)
 }
 
 /// Checks if a settlement hash exists for duplicate detection.
@@ -617,21 +651,21 @@ pub fn get_last_settlement_time(env: &Env, sender: &Address) -> Option<u64> {
 
 pub fn check_settlement_rate_limit(env: &Env, sender: &Address) -> Result<(), ContractError> {
     let cooldown = get_rate_limit_cooldown(env)?;
-    
+
     // If cooldown is 0, rate limiting is disabled
     if cooldown == 0 {
         return Ok(());
     }
-    
+
     if let Some(last_time) = get_last_settlement_time(env, sender) {
         let current_time = env.ledger().timestamp();
         let elapsed = current_time.saturating_sub(last_time);
-        
+
         if elapsed < cooldown {
             return Err(ContractError::RateLimitExceeded);
         }
     }
-    
+
     Ok(())
 }
 
@@ -665,6 +699,19 @@ pub fn set_user_transfers(env: &Env, user: &Address, transfers: &Vec<TransferRec
         .set(&DataKey::UserTransfers(user.clone()), transfers);
 }
 
+pub fn is_migration_in_progress(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::MigrationInProgress)
+        .unwrap_or(false)
+}
+
+pub fn set_migration_in_progress(env: &Env, in_progress: bool) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MigrationInProgress, &in_progress);
+}
+
 // === Admin Role Management ===
 
 pub fn is_admin(env: &Env, address: &Address) -> bool {
@@ -680,11 +727,11 @@ pub fn set_admin_role(env: &Env, address: &Address, is_admin: bool) {
         .set(&DataKey::AdminRole(address.clone()), &is_admin);
 }
 
-pub fn get_admin_count(env: &Env) -> u32 {
+pub fn get_admin_count(env: &Env) -> Result<u32, ContractError> {
     env.storage()
         .instance()
         .get(&DataKey::AdminCount)
-        .unwrap_or(0)
+        .ok_or(ContractError::NotInitialized)
 }
 
 pub fn set_admin_count(env: &Env, count: u32) {
@@ -974,12 +1021,12 @@ pub fn set_transfer_state(
             return Ok(());
         }
     }
-    
+
     // Write new state
     env.storage()
         .persistent()
         .set(&DataKey::TransferState(transfer_id), &new_state);
-    
+
     Ok(())
 }
 
@@ -1072,4 +1119,90 @@ pub fn remove_fee_corridor(env: &Env, from_country: &String, to_country: &String
     env.storage()
         .persistent()
         .remove(&key);
+}
+
+// === Idempotency Protection ===
+
+/// Gets an idempotency record if it exists and hasn't expired
+pub fn get_idempotency_record(
+    env: &Env,
+    key: &String,
+) -> Option<crate::IdempotencyRecord> {
+    let storage_key = DataKey::IdempotencyRecord(key.clone());
+    let record: Option<crate::IdempotencyRecord> = env.storage()
+        .persistent()
+        .get(&storage_key);
+    
+    if let Some(rec) = record {
+        let current_time = env.ledger().timestamp();
+        if current_time < rec.expires_at {
+            return Some(rec);
+        }
+    }
+    None
+}
+
+/// Stores an idempotency record
+pub fn set_idempotency_record(
+    env: &Env,
+    key: &String,
+    record: &crate::IdempotencyRecord,
+) {
+    let storage_key = DataKey::IdempotencyRecord(key.clone());
+    env.storage()
+        .persistent()
+        .set(&storage_key, record);
+}
+
+/// Gets the configured TTL for idempotency records (default: 86400 seconds = 24 hours)
+pub fn get_idempotency_ttl(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::IdempotencyTTL)
+        .unwrap_or(86400)
+}
+
+/// Sets the idempotency TTL (admin only)
+pub fn set_idempotency_ttl(env: &Env, ttl_seconds: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::IdempotencyTTL, &ttl_seconds);
+}
+
+/// Removes an idempotency record (called on terminal state transition)
+pub fn remove_idempotency_record(env: &Env, key: &String) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::IdempotencyRecord(key.clone()));
+}
+
+/// Stores the reverse mapping: remittance_id -> idempotency key
+pub fn set_remittance_idempotency_key(env: &Env, remittance_id: u64, key: &String) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::RemittanceIdempotencyKey(remittance_id), key);
+}
+
+/// Retrieves and removes the reverse mapping, returning the key if present
+pub fn take_remittance_idempotency_key(env: &Env, remittance_id: u64) -> Option<String> {
+    let storage_key = DataKey::RemittanceIdempotencyKey(remittance_id);
+    let key: Option<String> = env.storage().persistent().get(&storage_key);
+    if key.is_some() {
+        env.storage().persistent().remove(&storage_key);
+    }
+    key
+}
+
+/// Stores the payout commitment for a remittance.
+pub fn set_payout_commitment(env: &Env, remittance_id: u64, commitment: &soroban_sdk::BytesN<32>) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::PayoutCommitment(remittance_id), commitment);
+}
+
+/// Retrieves the payout commitment for a remittance, if any.
+pub fn get_payout_commitment(env: &Env, remittance_id: u64) -> Option<soroban_sdk::BytesN<32>> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::PayoutCommitment(remittance_id))
 }
