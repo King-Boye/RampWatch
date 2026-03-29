@@ -15,12 +15,13 @@ import {
   getUserKycStatus,
   saveUserKycStatus,
   getPool,
+  saveAssetReport,
 } from './database';
 import { storeVerificationOnChain, simulateSettlement } from './stellar';
 import { VerificationStatus, AnchorKycConfig } from './types';
 import { KycUpsertService } from './kyc-upsert-service';
 import { createTransferGuard, AuthenticatedRequest } from './transfer-guard';
-import { Sep24Service, Sep24InitiateRequest, Sep24ConfigError, Sep24AnchorError } from './sep24-service';
+import { sanitizeInput } from './sanitizer';
 
 const app = express();
 const verifier = new AssetVerifier();
@@ -162,6 +163,9 @@ app.post('/api/verification/report', validateAssetParams, async (req: Request, r
       return res.status(400).json({ error: 'Invalid or missing reason' });
     }
 
+    // Sanitize input to prevent XSS attacks
+    const sanitizedReason = sanitizeInput(reason);
+
     // Check if asset exists
     const existing = await getAssetVerification(assetCode, issuer);
     if (!existing) {
@@ -170,6 +174,9 @@ app.post('/api/verification/report', validateAssetParams, async (req: Request, r
 
     // Increment report count
     await reportSuspiciousAsset(assetCode, issuer);
+
+    // Save the report with sanitized reason for audit trail
+    await saveAssetReport(assetCode, issuer, sanitizedReason);
 
     // If reports exceed threshold, mark as suspicious
     const updated = await getAssetVerification(assetCode, issuer);

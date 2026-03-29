@@ -79,6 +79,17 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_status ON verified_assets(status);
       CREATE INDEX IF NOT EXISTS idx_last_verified ON verified_assets(last_verified);
 
+      CREATE TABLE IF NOT EXISTS asset_reports (
+        id SERIAL PRIMARY KEY,
+        asset_code VARCHAR(12) NOT NULL,
+        issuer VARCHAR(56) NOT NULL,
+        reason VARCHAR(500) NOT NULL,
+        reporter_id VARCHAR(100),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_asset_reports_lookup ON asset_reports(asset_code, issuer);
+
       CREATE TABLE IF NOT EXISTS fx_rates (
         id SERIAL PRIMARY KEY,
         transaction_id VARCHAR(100) NOT NULL,
@@ -258,6 +269,19 @@ export async function reportSuspiciousAsset(
     WHERE asset_code = $1 AND issuer = $2
   `;
   await pool.query(query, [assetCode, issuer]);
+}
+
+export async function saveAssetReport(
+  assetCode: string,
+  issuer: string,
+  reason: string,
+  reporterId?: string
+): Promise<void> {
+  const query = `
+    INSERT INTO asset_reports (asset_code, issuer, reason, reporter_id)
+    VALUES ($1, $2, $3, $4)
+  `;
+  await pool.query(query, [assetCode, issuer, reason, reporterId || null]);
 }
 
 export async function getVerifiedAssets(limit: number = 100): Promise<AssetVerification[]> {
