@@ -7,7 +7,7 @@
 
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
-use crate::{ContractError, Remittance, TransferRecord, DailyLimit};
+use crate::{ContractError, Remittance, TransferRecord, DailyLimit, AgentStats};
 
 /// Storage keys for the SwiftRemit contract.
 ///
@@ -734,11 +734,11 @@ pub fn set_admin_role(env: &Env, address: &Address, is_admin: bool) {
         .set(&DataKey::AdminRole(address.clone()), &is_admin);
 }
 
-pub fn get_admin_count(env: &Env) -> Result<u32, ContractError> {
+pub fn get_admin_count(env: &Env) -> u32 {
     env.storage()
         .instance()
         .get(&DataKey::AdminCount)
-        .ok_or(ContractError::NotInitialized)
+        .unwrap_or(0)
 }
 
 pub fn set_admin_count(env: &Env, count: u32) {
