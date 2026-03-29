@@ -1,5 +1,15 @@
 import { Pool } from 'pg';
-import { AssetVerification, VerificationStatus, FxRate, FxRateRecord, KycStatus, DbUserKycStatus, AnchorKycConfig } from './types';
+import {
+  AssetVerification,
+  VerificationStatus,
+  FxRate,
+  FxRateRecord,
+  KycStatus,
+  DbUserKycStatus,
+  AnchorKycConfig,
+  WebhookSubscriber,
+  WebhookDelivery,
+} from './types';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -113,6 +123,39 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_user_kyc_status ON user_kyc_status(user_id, anchor_id);
       CREATE INDEX IF NOT EXISTS idx_kyc_status ON user_kyc_status(status);
       CREATE INDEX IF NOT EXISTS idx_kyc_last_checked ON user_kyc_status(last_checked);
+
+      CREATE TABLE IF NOT EXISTS webhook_subscribers (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        url TEXT NOT NULL,
+        secret VARCHAR(255),
+        active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_webhook_subscribers_active ON webhook_subscribers(active);
+
+      CREATE TABLE IF NOT EXISTS webhook_deliveries (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        event_type VARCHAR(80) NOT NULL,
+        event_key VARCHAR(255) NOT NULL,
+        subscriber_id UUID NOT NULL REFERENCES webhook_subscribers(id) ON DELETE CASCADE,
+        target_url TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'success', 'failed')),
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 5,
+        next_retry_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        last_error TEXT,
+        response_status INTEGER,
+        delivered_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_webhook_delivery_subscriber_event UNIQUE (event_type, event_key, subscriber_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_pending ON webhook_deliveries(status, next_retry_at);
+      CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_subscriber ON webhook_deliveries(subscriber_id);
     `);
     console.log('Database initialized successfully');
   } finally {
@@ -409,6 +452,160 @@ export async function getApprovedUsers(): Promise<DbUserKycStatus[]> {
     rejection_reason: row.rejection_reason,
     verification_data: row.verification_data,
   }));
+}
+
+export async function getActiveWebhookSubscribers(): Promise<WebhookSubscriber[]> {
+  const result = await pool.query(
+    `SELECT id, url, secret, active, created_at, updated_at
+     FROM webhook_subscribers
+     WHERE active = true`
+  );
+
+  return result.rows.map(row => ({
+    id: row.id,
+    url: row.url,
+    secret: row.secret,
+    active: row.active,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }));
+}
+
+export async function enqueueWebhookDelivery(
+  eventType: string,
+  eventKey: string,
+  subscriber: WebhookSubscriber,
+  payload: any,
+  maxAttempts: number = 5
+): Promise<WebhookDelivery> {
+  const result = await pool.query(
+    `INSERT INTO webhook_deliveries (
+       event_type,
+       event_key,
+       subscriber_id,
+       target_url,
+       payload,
+       status,
+       max_attempts,
+       next_retry_at
+     ) VALUES ($1, $2, $3, $4, $5, 'pending', $6, NOW())
+     ON CONFLICT (event_type, event_key, subscriber_id)
+     DO UPDATE SET
+       target_url = EXCLUDED.target_url,
+       payload = EXCLUDED.payload,
+       updated_at = NOW()
+     RETURNING
+       id,
+       event_type,
+       event_key,
+       subscriber_id,
+       target_url,
+       payload,
+       status,
+       attempt_count,
+       max_attempts,
+       next_retry_at,
+       last_error,
+       response_status,
+       delivered_at`,
+    [eventType, eventKey, subscriber.id, subscriber.url, JSON.stringify(payload), maxAttempts]
+  );
+
+  const row = result.rows[0];
+  return {
+    id: row.id,
+    event_type: row.event_type,
+    event_key: row.event_key,
+    subscriber_id: row.subscriber_id,
+    target_url: row.target_url,
+    payload: row.payload,
+    status: row.status,
+    attempt_count: row.attempt_count,
+    max_attempts: row.max_attempts,
+    next_retry_at: row.next_retry_at,
+    last_error: row.last_error,
+    response_status: row.response_status,
+    delivered_at: row.delivered_at,
+  };
+}
+
+export async function getPendingWebhookDeliveries(limit: number = 100): Promise<WebhookDelivery[]> {
+  const result = await pool.query(
+    `SELECT
+       id,
+       event_type,
+       event_key,
+       subscriber_id,
+       target_url,
+       payload,
+       status,
+       attempt_count,
+       max_attempts,
+       next_retry_at,
+       last_error,
+       response_status,
+       delivered_at
+     FROM webhook_deliveries
+     WHERE status = 'pending'
+       AND next_retry_at <= NOW()
+       AND attempt_count < max_attempts
+     ORDER BY next_retry_at ASC
+     LIMIT $1`,
+    [limit]
+  );
+
+  return result.rows.map(row => ({
+    id: row.id,
+    event_type: row.event_type,
+    event_key: row.event_key,
+    subscriber_id: row.subscriber_id,
+    target_url: row.target_url,
+    payload: row.payload,
+    status: row.status,
+    attempt_count: row.attempt_count,
+    max_attempts: row.max_attempts,
+    next_retry_at: row.next_retry_at,
+    last_error: row.last_error,
+    response_status: row.response_status,
+    delivered_at: row.delivered_at,
+  }));
+}
+
+export async function markWebhookDeliverySuccess(
+  deliveryId: string,
+  responseStatus: number
+): Promise<void> {
+  await pool.query(
+    `UPDATE webhook_deliveries
+     SET status = 'success',
+         response_status = $2,
+         delivered_at = NOW(),
+         updated_at = NOW()
+     WHERE id = $1`,
+    [deliveryId, responseStatus]
+  );
+}
+
+export async function markWebhookDeliveryFailure(
+  deliveryId: string,
+  attemptCount: number,
+  maxAttempts: number,
+  nextRetryAt: Date,
+  errorMessage: string,
+  responseStatus: number | null
+): Promise<void> {
+  const terminal = attemptCount >= maxAttempts;
+  await pool.query(
+    `UPDATE webhook_deliveries
+     SET attempt_count = $2,
+         status = $3,
+         next_retry_at = $4,
+         last_error = $5,
+         response_status = $6,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [deliveryId, attemptCount, terminal ? 'failed' : 'pending', nextRetryAt, errorMessage, responseStatus]
+  );
 }
 
 export { pool };

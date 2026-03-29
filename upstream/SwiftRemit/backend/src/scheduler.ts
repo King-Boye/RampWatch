@@ -3,9 +3,11 @@ import { AssetVerifier } from './verifier';
 import { getStaleAssets, saveAssetVerification, getPool } from './database';
 import { storeVerificationOnChain } from './stellar';
 import { KycService } from './kyc-service';
+import { WebhookDispatcher } from './webhook-dispatcher';
 
 const verifier = new AssetVerifier();
 const kycService = new KycService();
+const webhookDispatcher = new WebhookDispatcher();
 
 export async function startBackgroundJobs() {
   // Initialize KYC service
@@ -21,6 +23,11 @@ export async function startBackgroundJobs() {
   cron.schedule('*/30 * * * *', async () => {
     console.log('Starting KYC status polling...');
     await pollKycStatuses();
+  });
+
+  // Run outbound webhook retry processing every minute.
+  cron.schedule('* * * * *', async () => {
+    await retryWebhookDeliveries();
   });
 
   console.log('Background jobs scheduled');
@@ -80,5 +87,13 @@ async function pollKycStatuses() {
     console.log('KYC polling completed');
   } catch (error) {
     console.error('Error in KYC polling job:', error);
+  }
+}
+
+async function retryWebhookDeliveries() {
+  try {
+    await webhookDispatcher.retryPendingDeliveries(100);
+  } catch (error) {
+    console.error('Error in webhook retry job:', error);
   }
 }
