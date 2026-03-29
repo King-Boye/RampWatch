@@ -13,6 +13,7 @@ mod events;
 mod fee_service;
 mod fee_strategy;
 mod hashing;
+mod health;
 mod migration;
 mod netting;
 mod rate_limit;
@@ -24,6 +25,8 @@ mod validation;
 mod verification;
 #[cfg(all(test, feature = "legacy-tests"))]
 mod test;
+#[cfg(test)]
+mod health_test;
 #[cfg(test)]
 mod test_escrow;
 #[cfg(test)]
@@ -449,9 +452,11 @@ impl SwiftRemitContract {
     set_payout_commitment(&env, remittance_id, &payout_commitment);
     set_remittance_counter(&env, remittance_id);
 
+    // Increment analytics counter
+    storage::increment_remittance_count(&env)?;
+
     // Index this remittance under the sender for paginated queries
     append_sender_remittance(&env, &sender, remittance_id);
-
     // Set initial transfer state
     set_transfer_state(&env, remittance_id, RemittanceStatus::Pending)?;
 
@@ -744,6 +749,9 @@ impl SwiftRemitContract {
             .checked_add(remittance.fee)
             .ok_or(ContractError::Overflow)?;
         set_accumulated_fees(&env, new_fees);
+
+        // Update analytics: add completed volume
+        storage::add_completed_volume(&env, remittance.amount)?;
 
         // Update remittance status via validated transition
         crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Completed)?;
@@ -1124,6 +1132,16 @@ impl SwiftRemitContract {
         storage::get_admin_count(&env)
     }
 
+    /// Returns the total number of remittances ever created.
+    pub fn get_remittance_count(env: Env) -> u64 {
+        storage::get_total_remittance_count(&env)
+    }
+
+    /// Returns the cumulative volume of all completed remittances (original amounts).
+    pub fn get_total_volume(env: Env) -> i128 {
+        storage::get_total_completed_volume(&env)
+    }
+
     /// Checks whether an address currently has admin privileges.
     pub fn is_admin(env: Env, address: Address) -> bool {
         crate::storage::is_admin(&env, &address)
@@ -1487,6 +1505,14 @@ impl SwiftRemitContract {
 
     pub fn get_version(env: Env) -> soroban_sdk::String {
         soroban_sdk::String::from_str(&env, env!("CARGO_PKG_VERSION"))
+    }
+
+    /// Returns the current health status of the contract.
+    ///
+    /// Reports initialization state, pause status, admin count, total remittances
+    /// created, and accumulated platform fees. Safe to call at any time.
+    pub fn health(env: Env) -> health::HealthStatus {
+        health::health(&env)
     }
 
     /// Batch settle multiple remittances with net settlement optimization.

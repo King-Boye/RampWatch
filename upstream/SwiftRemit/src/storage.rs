@@ -172,14 +172,12 @@ enum DataKey {
     /// Commitment hash used to validate off-chain payout proofs per remittance.
     PayoutCommitment(u64),
 
-    /// Reputation statistics for an agent address (persistent storage)
-    AgentStats(Address),
+    // === Analytics ===
+    /// Total number of remittances ever created (instance storage).
+    TotalRemittanceCount,
 
-    /// Configurable window for raising disputes in seconds (instance storage)
-    DisputeWindow,
-
-    /// List of remittance IDs for a specific sender (persistent storage)
-    SenderRemittances(Address),
+    /// Cumulative volume of completed remittances in USDC stroops (instance storage).
+    TotalCompletedVolume,
 }
 
 /// Checks if the contract has an admin configured.
@@ -1216,32 +1214,40 @@ pub fn get_payout_commitment(env: &Env, remittance_id: u64) -> Option<soroban_sd
         .get(&DataKey::PayoutCommitment(remittance_id))
 }
 
-pub fn get_agent_stats(env: &Env, agent: &Address) -> AgentStats {
-    env.storage().persistent().get(&DataKey::AgentStats(agent.clone())).unwrap_or(AgentStats {
-        total_settlements: 0,
-        failed_settlements: 0,
-        total_settlement_time: 0,
-    })
+// === Analytics Counters ===
+
+/// Returns the total number of remittances ever created.
+pub fn get_total_remittance_count(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::TotalRemittanceCount)
+        .unwrap_or(0)
 }
 
-pub fn set_agent_stats(env: &Env, agent: &Address, stats: &AgentStats) {
-    env.storage().persistent().set(&DataKey::AgentStats(agent.clone()), stats);
+/// Increments the total remittance count by 1.
+pub fn increment_remittance_count(env: &Env) -> Result<(), ContractError> {
+    let current = get_total_remittance_count(env);
+    let next = current.checked_add(1).ok_or(ContractError::Overflow)?;
+    env.storage()
+        .instance()
+        .set(&DataKey::TotalRemittanceCount, &next);
+    Ok(())
 }
 
-pub fn get_dispute_window(env: &Env) -> u64 {
-    env.storage().instance().get(&DataKey::DisputeWindow).unwrap_or(172800) // Default 48h
+/// Returns the cumulative volume of completed remittances (original amounts, before fees).
+pub fn get_total_completed_volume(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::TotalCompletedVolume)
+        .unwrap_or(0)
 }
 
-pub fn set_dispute_window(env: &Env, window: u64) {
-    env.storage().instance().set(&DataKey::DisputeWindow, &window);
-}
-
-pub fn get_sender_remittances(env: &Env, sender: &Address) -> Vec<u64> {
-    env.storage().persistent().get(&DataKey::SenderRemittances(sender.clone())).unwrap_or(Vec::new(env))
-}
-
-pub fn append_sender_remittance(env: &Env, sender: &Address, id: u64) {
-    let mut ids = get_sender_remittances(env, sender);
-    ids.push_back(id);
-    env.storage().persistent().set(&DataKey::SenderRemittances(sender.clone()), &ids);
+/// Adds `amount` to the cumulative completed volume.
+pub fn add_completed_volume(env: &Env, amount: i128) -> Result<(), ContractError> {
+    let current = get_total_completed_volume(env);
+    let next = current.checked_add(amount).ok_or(ContractError::Overflow)?;
+    env.storage()
+        .instance()
+        .set(&DataKey::TotalCompletedVolume, &next);
+    Ok(())
 }
