@@ -21,9 +21,10 @@ import { storeVerificationOnChain, simulateSettlement } from './stellar';
 import { VerificationStatus, AnchorKycConfig } from './types';
 import { KycUpsertService } from './kyc-upsert-service';
 import { createTransferGuard, AuthenticatedRequest } from './transfer-guard';
-import docsRouter from './routes/docs';
+import { getFxRateCache } from './fx-rate-cache';
 
 const app = express();
+const fxRateCache = getFxRateCache();
 const verifier = new AssetVerifier();
 
 // Security middleware
@@ -335,6 +336,28 @@ app.get('/api/fx-rate/:transactionId', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching FX rate:', error);
     res.status(500).json({ error: 'Failed to fetch FX rate' });
+  }
+});
+
+// Get current FX rate (cached)
+app.get('/api/fx-rate/current', async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+
+    if (!from || typeof from !== 'string' || from.length > 10) {
+      return res.status(400).json({ error: 'Invalid from currency' });
+    }
+
+    if (!to || typeof to !== 'string' || to.length > 10) {
+      return res.status(400).json({ error: 'Invalid to currency' });
+    }
+
+    const rate = await fxRateCache.getCurrentRate(from.toUpperCase(), to.toUpperCase());
+
+    res.json(rate);
+  } catch (error) {
+    console.error('Error fetching current FX rate:', error);
+    res.status(500).json({ error: 'Failed to fetch current FX rate' });
   }
 });
 
