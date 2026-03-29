@@ -112,6 +112,34 @@
   opacity: 0.85;
 }
 
+.transaction-tracker-step.failed {
+  background: #ffe8e8;
+  border-color: #f1a3a3;
+}
+
+.transaction-tracker-step.failed .step-marker {
+  border-color: #d13030;
+  background: #d13030;
+}
+
+.transaction-tracker-step.failed .step-label {
+  color: #961d1d;
+}
+
+.transaction-tracker-step.cancelled {
+  background: #f5f5f5;
+  border-color: #c4c4c4;
+}
+
+.transaction-tracker-step.cancelled .step-marker {
+  border-color: #6b6b6b;
+  background: #6b6b6b;
+}
+
+.transaction-tracker-step.cancelled .step-label {
+  color: #4a4a4a;
+}
+
 @media (max-width: 860px) {
   .transaction-tracker-steps {
     grid-template-columns: repeat(3, minmax(0, 1fr));
