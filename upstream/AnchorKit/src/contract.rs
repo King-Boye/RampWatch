@@ -3,6 +3,7 @@ use soroban_sdk::{
 };
 
 use crate::errors::ErrorCode;
+use crate::sep10_jwt;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -353,8 +354,52 @@ impl AnchorKitContract {
     // Attestor management
     // -----------------------------------------------------------------------
 
-    pub fn register_attestor(env: Env, attestor: Address) {
+    /// Stores the 32-byte Ed25519 public key used to verify SEP-10 JWTs for `issuer`
+    /// (the anchor identity whose signing key appears in stellar.toml / SEP-10 flow).
+    pub fn set_sep10_jwt_verifying_key(env: Env, issuer: Address, public_key: Bytes) {
         Self::require_admin(&env);
+        if public_key.len() != 32 {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        let storage_key = (symbol_short!("SEP10KEY"), issuer.clone());
+        env.storage().persistent().set(&storage_key, &public_key);
+        env.storage()
+            .persistent()
+            .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
+    }
+
+    /// Verifies a SEP-10 JWT (JWS compact, EdDSA) using the stored key for `issuer`: signature, `exp`, and `sub`.
+    pub fn verify_sep10_token(env: Env, token: String, issuer: Address) {
+        let pk: Bytes = env
+            .storage()
+            .persistent()
+            .get(&(symbol_short!("SEP10KEY"), issuer.clone()))
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::InvalidSep10Token));
+        if sep10_jwt::verify_sep10_jwt(&env, &token, &pk, None).is_err() {
+            panic_with_error!(&env, ErrorCode::InvalidSep10Token);
+        }
+    }
+
+    fn verify_sep10_token_matches_attestor(
+        env: &Env,
+        token: &String,
+        issuer: &Address,
+        attestor: &Address,
+    ) {
+        let pk: Bytes = env
+            .storage()
+            .persistent()
+            .get(&(symbol_short!("SEP10KEY"), issuer.clone()))
+            .unwrap_or_else(|| panic_with_error!(env, ErrorCode::InvalidSep10Token));
+        let expected = attestor.to_string();
+        if sep10_jwt::verify_sep10_jwt(env, token, &pk, Some(&expected)).is_err() {
+            panic_with_error!(env, ErrorCode::InvalidSep10Token);
+        }
+    }
+
+    pub fn register_attestor(env: Env, attestor: Address, sep10_token: String, sep10_issuer: Address) {
+        Self::require_admin(&env);
+        Self::verify_sep10_token_matches_attestor(&env, &sep10_token, &sep10_issuer, &attestor);
         let key = (symbol_short!("ATTESTOR"), attestor.clone());
         if env.storage().persistent().has(&key) {
             panic_with_error!(&env, ErrorCode::AttestorAlreadyRegistered);

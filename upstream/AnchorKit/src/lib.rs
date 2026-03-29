@@ -3,6 +3,7 @@ extern crate alloc;
 
 mod domain_validator;
 mod errors;
+mod sep10_jwt;
 mod rate_limiter;
 mod response_validator;
 mod transaction_state_tracker;
@@ -50,6 +51,12 @@ mod session_tests;
 
 #[cfg(test)]
 mod anchor_info_discovery_tests;
+
+#[cfg(test)]
+mod sep10_test_util;
+
+#[cfg(test)]
+mod sep10_contract_tests;
 
 #[cfg(test)]
 mod routing_tests;

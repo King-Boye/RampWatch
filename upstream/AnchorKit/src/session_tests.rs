@@ -6,7 +6,11 @@ mod session_tests {
         Address, Bytes, Env, String,
     };
 
+    use ed25519_dalek::SigningKey;
+    use rand::rngs::OsRng;
+
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
+    use crate::sep10_test_util::register_attestor_with_sep10;
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -136,7 +140,8 @@ mod session_tests {
         client.initialize(&admin);
 
         let session_id = client.create_session(&user);
-        client.register_attestor(&attestor);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         client.submit_attestation_with_session(
             &session_id,

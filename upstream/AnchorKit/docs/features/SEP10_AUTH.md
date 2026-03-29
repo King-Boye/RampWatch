@@ -1,142 +1,77 @@
 # SEP-10 Authentication Module
 
+> **Location:** This file is the canonical SEP-10 doc (`docs/features/SEP10_AUTH.md`). A short pointer also exists at the repo root as [`SEP10_AUTH.md`](../../SEP10_AUTH.md) for older links.
+
 ## Overview
-Minimal SEP-10 (Stellar Web Authentication) implementation for AnchorKit following the Stellar SEP-10 specification.
 
-## Features
-- ✅ Challenge fetching from anchor
-- ✅ Signature verification (Ed25519)
-- ✅ Home domain validation with caching
-- ✅ Secure JWT session storage with TTL
-- ✅ Complete authentication flow
+Minimal SEP-10 (Stellar Web Authentication) support in AnchorKit, aligned with the [SEP-10 specification](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md).
 
-## Module Structure
+Off-chain flows (challenge, wallet signing, obtaining a JWT from the anchor) are documented for integrators and reflected in the UI (`Sep10AuthFlow.tsx`). **On-chain**, the Soroban contract enforces SEP-10 **JWT** verification before sensitive operations such as attestor registration.
 
-### Types (`src/sep10_auth.rs`)
+## On-chain implementation (`src/sep10_jwt.rs` + `AnchorKitContract`)
 
-#### `Sep10Challenge`
-```rust
-pub struct Sep10Challenge {
-    pub transaction: String,
-    pub network_passphrase: String,
-}
-```
+The contract verifies **JWS compact** tokens whose header uses **EdDSA** (Ed25519), matching common SEP-10 JWT issuance:
 
-#### `Sep10Session`
-```rust
-pub struct Sep10Session {
-    pub jwt: String,
-    pub anchor: Address,
-    pub expires_at: u64,
-    pub home_domain: String,
-}
-```
+1. **Anchor public key** — The admin stores the anchor’s JWT verification key (32-byte Ed25519 public key) per logical issuer:
+   - `set_sep10_jwt_verifying_key(env, issuer, public_key)`  
+   - Persistent key: `("SEP10KEY", issuer) -> Bytes` (32 bytes).
 
-### Functions
+2. **JWT verification** — `verify_sep10_token(env, token, issuer)`:
+   - Loads the stored public key for `issuer`.
+   - Parses the JWT (`header.payload.signature`), base64url-decodes segments.
+   - Requires header JSON to contain `EdDSA`.
+   - Verifies Ed25519 over the ASCII signing input `header_b64 + "." + payload_b64` via `env.crypto().ed25519_verify`.
+   - Decodes the payload JSON and requires:
+     - `exp` (Unix seconds) **strictly greater** than `env.ledger().timestamp()`.
+     - A parseable string `sub` claim (Stellar strkey of the authenticated account).
 
-#### `fetch_challenge(env, anchor, client_account) -> Sep10Challenge`
-Fetches SEP-10 challenge transaction from anchor.
+3. **Attestor registration** — `register_attestor(env, attestor, sep10_token, sep10_issuer)`:
+   - Requires admin auth (unchanged).
+   - Runs the same checks as `verify_sep10_token`, and additionally requires `sub` to equal **`attestor.to_string()`** (the strkey of the address being registered).
 
-#### `verify_signature(env, challenge, signature, public_key) -> bool`
-Verifies Ed25519 signature on challenge transaction.
+Token length is capped (`MAX_JWT_LEN`, 2048 characters) to bound host work.
 
-#### `validate_home_domain(env, anchor, home_domain) -> bool`
-Validates and caches home domain for anchor. Returns false if domain doesn't match cached value.
+### Error handling
 
-#### `store_session(env, session)`
-Stores JWT session securely with 1-day TTL in persistent storage.
+Failures (missing key, bad format, wrong signature, expired `exp`, `sub` mismatch on registration) panic with **`ErrorCode::InvalidSep10Token`** (see `src/errors.rs`).
 
-#### `get_session(env, anchor) -> Option<Sep10Session>`
-Retrieves stored session for anchor.
-
-#### `authenticate(env, anchor, client_account, signature, public_key, home_domain) -> Result<Sep10Session, u32>`
-Complete authentication flow:
-1. Fetches challenge
-2. Verifies signature
-3. Validates home domain
-4. Creates and stores session
-
-Returns `Err(401)` for invalid signature, `Err(403)` for invalid domain.
-
-## Contract Methods
-
-The following methods are available on `AnchorKitContract`:
+### Contract API (summary)
 
 ```rust
-// Fetch challenge
-sep10_fetch_challenge(env, anchor, client_account) -> Result<Sep10Challenge, Error>
+// Admin: store the anchor JWT signing public key (Ed25519, 32 bytes) for `issuer`.
+pub fn set_sep10_jwt_verifying_key(env: Env, issuer: Address, public_key: Bytes);
 
-// Verify signature
-sep10_verify_signature(env, challenge, signature, public_key) -> bool
+// Verify signature + exp + parseable sub (sub not compared to an address).
+pub fn verify_sep10_token(env: Env, token: String, issuer: Address);
 
-// Validate domain
-sep10_validate_domain(env, anchor, home_domain) -> Result<bool, Error>
-
-// Store session
-sep10_store_session(env, session) -> Result<(), Error>
-
-// Get session
-sep10_get_session(env, anchor) -> Option<Sep10Session>
-
-// Complete flow
-sep10_authenticate(env, anchor, client_account, signature, public_key, home_domain) 
-    -> Result<Sep10Session, Error>
+// Register attestor; requires valid SEP-10 JWT whose sub matches `attestor`.
+pub fn register_attestor(env: Env, attestor: Address, sep10_token: String, sep10_issuer: Address);
 ```
 
-## Usage Example
+## Off-chain / SDK-style types (reference)
 
-```rust
-use anchorkit::{Sep10Challenge, Sep10Session};
-
-// 1. Fetch challenge from anchor
-let challenge = contract.sep10_fetch_challenge(&anchor, &client)?;
-
-// 2. Client signs challenge (off-chain)
-let signature = sign_challenge(&challenge);
-
-// 3. Complete authentication
-let session = contract.sep10_authenticate(
-    &anchor,
-    &client,
-    signature,
-    public_key,
-    home_domain
-)?;
-
-// 4. Use JWT for subsequent requests
-let jwt = session.jwt;
-```
+Higher-level types such as `Sep10Challenge` / `Sep10Session` may appear in docs or SDK layers; the **on-chain** enforcement for AnchorKit is the JWT path above.
 
 ## Testing
 
-Run SEP-10 tests:
 ```bash
 cargo test --lib sep10
 ```
 
-Current test coverage:
-- ✅ Challenge fetching
-- ✅ Signature verification
+Coverage includes:
 
-## Compliance
+- Valid token (Ed25519 JWS, future `exp`).
+- Expired token (`exp` ≤ ledger timestamp).
+- Invalid signature (wrong verifying key).
+- Contract integration: `verify_sep10_token`, `register_attestor` with `set_sep10_jwt_verifying_key`.
 
-Follows [SEP-10: Stellar Web Authentication](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md) specification:
-- Challenge transaction format
-- Ed25519 signature verification
-- Home domain validation
-- JWT session management
+## Compliance notes
+
+- Challenge-response and JWT issuance follow SEP-10; **on-chain** validation uses the JWT’s **EdDSA** JWS profile and `exp` / `sub` claims.
+- Anchors must publish signing material consistent with their SEP-10 endpoint; operators store the corresponding **verification** public key on-chain via `set_sep10_jwt_verifying_key`.
 
 ## Security
 
-- Signatures verified using Soroban SDK's Ed25519 verification
-- Home domains cached and validated on each auth
-- Sessions stored with 1-day TTL
-- Persistent storage for session data
-
-## Integration
-
-The module is fully integrated into AnchorKit:
-- Exported types: `Sep10Challenge`, `Sep10Session`
-- Contract methods prefixed with `sep10_`
-- Error handling via `Error` enum
-- Requires anchor to be registered attestor
+- Ed25519 verification uses the Soroban host’s `ed25519_verify`.
+- Registration binds the JWT’s `sub` to the `attestor` address being added.
+- Admin-only setup of verification keys; registration remains admin-gated.
