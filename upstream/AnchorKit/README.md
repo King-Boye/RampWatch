@@ -62,7 +62,7 @@ See complete deposit/withdraw workflow:
 cargo run --example cli_example
 ```
 
-See **[CLI_EXAMPLE.md](./CLI_EXAMPLE.md)** for full documentation.
+See **[docs/guides/DOCTOR_COMMAND.md](./docs/guides/DOCTOR_COMMAND.md)** for CLI documentation.
 
 ## Key Features
 
@@ -117,20 +117,29 @@ const auditLog = await contract.get_audit_log(0);
 - **[CHANGELOG.md](./CHANGELOG.md)** - Version history and changes
 
 ### Feature Documentation
-- **[ANCHOR_INFO_DISCOVERY.md](./ANCHOR_INFO_DISCOVERY.md)** - Anchor info discovery service (stellar.toml)
-- **[ANCHOR_ADAPTER.md](./ANCHOR_ADAPTER.md)** - Unified anchor adapter interface
-- **[SESSION_TRACEABILITY.md](./SESSION_TRACEABILITY.md)** - Complete feature guide with usage patterns
-- **[SECURE_CREDENTIALS.md](./SECURE_CREDENTIALS.md)** - Secure credential injection and management
-- **[HEALTH_MONITORING.md](./HEALTH_MONITORING.md)** - Anchor health monitoring interface
-- **[METADATA_CACHE.md](./METADATA_CACHE.md)** - Metadata and capabilities caching
-- **[REQUEST_ID_PROPAGATION.md](./REQUEST_ID_PROPAGATION.md)** - Request ID tracking and tracing
-- **[API_SPEC.md](./API_SPEC.md)** - API specification and error codes
+- **[docs/features/ANCHOR_INFO_DISCOVERY.md](./docs/features/ANCHOR_INFO_DISCOVERY.md)** - Anchor info discovery service (stellar.toml)
+- **[docs/features/ANCHOR_ADAPTER.md](./docs/features/ANCHOR_ADAPTER.md)** - Unified anchor adapter interface
+- **[docs/features/METADATA_CACHE.md](./docs/features/METADATA_CACHE.md)** - Metadata and capabilities caching
+- **[docs/features/REQUEST_ID_PROPAGATION.md](./docs/features/REQUEST_ID_PROPAGATION.md)** - Request ID tracking and tracing
+- **[docs/features/LOGGING.md](./docs/features/LOGGING.md)** - Logging system
+- **[docs/features/DOMAIN_VALIDATION.md](./docs/features/DOMAIN_VALIDATION.md)** - Domain validation
+- **[docs/features/ERROR_CODES_REFERENCE.md](./docs/features/ERROR_CODES_REFERENCE.md)** - API error codes reference
+- **[docs/features/RETRY_BACKOFF.md](./docs/features/RETRY_BACKOFF.md)** - Retry and backoff strategies
+- **[docs/features/WEBHOOK_MIDDLEWARE.md](./docs/features/WEBHOOK_MIDDLEWARE.md)** - Webhook middleware
+- **[docs/features/WEBHOOK_MONITOR.md](./docs/features/WEBHOOK_MONITOR.md)** - Webhook monitoring
+- **[docs/features/TRANSACTION_STATE_TRACKER.md](./docs/features/TRANSACTION_STATE_TRACKER.md)** - Transaction state tracking
+- **[docs/features/SEP10_AUTH.md](./docs/features/SEP10_AUTH.md)** - SEP-10 authentication
+- **[docs/features/SDK_CONFIG.md](./docs/features/SDK_CONFIG.md)** - SDK configuration
+- **[docs/features/STATUS_MONITOR.md](./docs/features/STATUS_MONITOR.md)** - Status monitoring
 
-### Technical Documentation
-- **[IMPLEMENTATION_GUIDE.md](./IMPLEMENTATION_GUIDE.md)** - Technical implementation details
-- **[IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md)** - Implementation overview
-- **[DEPLOYMENT_WITH_CREDENTIALS.md](./DEPLOYMENT_WITH_CREDENTIALS.md)** - Deployment guide with secure credentials
-- **[VERIFICATION_CHECKLIST.md](./VERIFICATION_CHECKLIST.md)** - Verification and quality assurance
+### Guides
+- **[docs/guides/DOCTOR_COMMAND.md](./docs/guides/DOCTOR_COMMAND.md)** - CLI doctor command and environment diagnostics
+- **[docs/guides/CONTRIBUTING.md](./docs/guides/CONTRIBUTING.md)** - Contribution guidelines
+- **[docs/guides/ERROR_IMPLEMENTATION_GUIDE.md](./docs/guides/ERROR_IMPLEMENTATION_GUIDE.md)** - Error handling implementation guide
+- **[docs/guides/RETRY_QUICK_REFERENCE.md](./docs/guides/RETRY_QUICK_REFERENCE.md)** - Retry quick reference
+
+### Full Index
+See **[docs/README.md](./docs/README.md)** for the complete documentation index.
 
 ## New API Methods
 
@@ -290,7 +299,7 @@ The doctor command checks:
 - ✅ Config file validity
 - ✅ Network connectivity
 
-See **[DOCTOR_COMMAND.md](./DOCTOR_COMMAND.md)** for complete documentation.
+See **[docs/guides/DOCTOR_COMMAND.md](./docs/guides/DOCTOR_COMMAND.md)** for complete documentation.
 
 ## Testing
 
