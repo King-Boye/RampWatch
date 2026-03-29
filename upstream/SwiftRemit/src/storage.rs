@@ -124,6 +124,9 @@ enum DataKey {
     // Keys for managing whitelisted tokens
     /// Token whitelist status indexed by token address (persistent storage)
     TokenWhitelisted(Address),
+    
+    /// List of all whitelisted token addresses (instance storage)
+    WhitelistedTokensList,
 
     /// Settlement completion event emission tracking (legacy persistent storage)
     /// Tracks whether the completion event has been emitted for a settlement
@@ -765,9 +768,52 @@ pub fn is_token_whitelisted(env: &Env, token: &Address) -> bool {
 }
 
 pub fn set_token_whitelisted(env: &Env, token: &Address, whitelisted: bool) {
+    let was_whitelisted = is_token_whitelisted(env, token);
+    
     env.storage()
         .persistent()
         .set(&DataKey::TokenWhitelisted(token.clone()), &whitelisted);
+    
+    // Update the list of whitelisted tokens
+    let mut tokens: Vec<Address> = env.storage()
+        .instance()
+        .get(&DataKey::WhitelistedTokensList)
+        .unwrap_or(Vec::new(env));
+    
+    if whitelisted && !was_whitelisted {
+        // Add token to list if not already present
+        let mut found = false;
+        for i in 0..tokens.len() {
+            if tokens.get_unchecked(i) == *token {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            tokens.push_back(token.clone());
+        }
+    } else if !whitelisted && was_whitelisted {
+        // Remove token from list
+        let mut new_tokens = Vec::new(env);
+        for i in 0..tokens.len() {
+            let t = tokens.get_unchecked(i);
+            if t != *token {
+                new_tokens.push_back(t);
+            }
+        }
+        tokens = new_tokens;
+    }
+    
+    env.storage()
+        .instance()
+        .set(&DataKey::WhitelistedTokensList, &tokens);
+}
+
+pub fn get_all_whitelisted_tokens(env: &Env) -> Vec<Address> {
+    env.storage()
+        .instance()
+        .get(&DataKey::WhitelistedTokensList)
+        .unwrap_or(Vec::new(env))
 }
 
 // === Settlement Event Emission Tracking ===

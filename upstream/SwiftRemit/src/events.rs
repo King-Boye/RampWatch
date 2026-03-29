@@ -305,6 +305,48 @@ pub fn emit_user_removed_from_blacklist(env: &Env, user: Address, caller: Addres
     );
 }
 
+// ── Token Whitelist Events ─────────────────────────────────────────
+
+/// Emits an event when a token is added to the whitelist.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `token` - Address of the token added to whitelist
+/// * `caller` - Address of the admin who added the token
+pub fn emit_token_whitelisted(env: &Env, token: Address, caller: Address) {
+    env.events().publish(
+        (symbol_short!("token"), symbol_short!("whitelist")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            token,
+            caller,
+        ),
+    );
+}
+
+/// Emits an event when a token is removed from the whitelist.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `token` - Address of the token removed from whitelist
+/// * `caller` - Address of the admin who removed the token
+pub fn emit_token_removed_from_whitelist(env: &Env, token: Address, caller: Address) {
+    env.events().publish(
+        (symbol_short!("token"), symbol_short!("rm_white")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            token,
+            caller,
+        ),
+    );
+}
+
 // ── Fee Events ─────────────────────────────────────────────────────
 
 /// Emits an event when the platform fee is updated.
