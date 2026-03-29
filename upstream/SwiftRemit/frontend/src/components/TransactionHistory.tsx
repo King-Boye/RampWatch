@@ -21,6 +21,8 @@ interface TransactionHistoryProps {
   pageSize?: number;
   currentPage?: number;
   onPageChange?: (page: number) => void;
+  onLoadMore?: () => void;
+  isLoading?: boolean;
 }
 
 function formatAmount(amount: number, asset: string): string {
@@ -37,9 +39,11 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   transactions,
   defaultView = 'table',
   title = 'Transaction History',
-  pageSize = 10,
+  pageSize = 20,
   currentPage: controlledPage,
   onPageChange,
+  onLoadMore,
+  isLoading = false,
 }) => {
   const [view, setView] = useState<HistoryViewMode>(defaultView);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -83,6 +87,8 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   const handleNextPage = () => {
     if (currentPage < paginationData.totalPages) {
       handlePageChange(currentPage + 1);
+    } else if (onLoadMore) {
+      onLoadMore();
     }
   };
 
@@ -122,6 +128,13 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
           </button>
         </div>
       </header>
+
+      {isLoading && (
+        <div className="history-loading" aria-live="polite">
+          <div className="history-loading-spinner" />
+          <span>Loading more transactions...</span>
+        </div>
+      )}
 
       {!hasTransactions && <p className="history-empty">No transactions yet.</p>}
 
@@ -247,7 +260,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
             <button
               type="button"
               onClick={handlePrevPage}
-              disabled={currentPage === 1}
+              disabled={currentPage === 1 || isLoading}
               aria-label="Previous page"
             >
               Previous
@@ -258,10 +271,10 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
             <button
               type="button"
               onClick={handleNextPage}
-              disabled={currentPage === paginationData.totalPages}
+              disabled={currentPage === paginationData.totalPages || isLoading}
               aria-label="Next page"
             >
-              Next
+              {onLoadMore && currentPage === paginationData.totalPages ? 'Load More' : 'Next'}
             </button>
           </nav>
         </>
