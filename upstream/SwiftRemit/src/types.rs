@@ -163,6 +163,19 @@ pub struct BatchSettlementEntry {
     pub remittance_id: u64,
 }
 
+/// Entry for batch remittance creation.
+/// Each entry represents a single remittance to be created in a batch.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchCreateEntry {
+    /// Address of the agent who will receive the payout
+    pub agent: Address,
+    /// Amount to send (in USDC)
+    pub amount: i128,
+    /// Optional expiry timestamp (seconds since epoch) for settlement
+    pub expiry: Option<u64>,
+}
+
 /// Result of a batch settlement operation.
 /// Contains the IDs of successfully settled remittances.
 #[contracttype]
