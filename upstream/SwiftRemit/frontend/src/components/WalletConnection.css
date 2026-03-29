@@ -101,6 +101,30 @@
   font-size: 0.9rem;
 }
 
+.wallet-warning {
+  margin-top: 0.75rem;
+  margin-bottom: 0;
+  color: #8a5300;
+  font-size: 0.9rem;
+  background: #fff4e0;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border-left: 3px solid #f1c21b;
+}
+
+.wallet-install-link {
+  display: inline-block;
+  margin-top: 0.5rem;
+  color: #0f62fe;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.wallet-install-link:hover {
+  text-decoration: underline;
+}
+
 @media (max-width: 640px) {
   .wallet-card {
     padding: 0.9rem;
