@@ -232,7 +232,7 @@ pub fn emit_remittance_cancelled_with_reason(
 /// * `env` - The contract execution environment
 /// * `agent` - Address of the registered agent
 /// * `caller` - Address of the admin who registered the agent
-pub fn emit_agent_registered(env: &Env, agent: Address, caller: Address) {
+pub fn emit_agent_registered(env: &Env, agent: Address, caller: Address, kyc_hash: Option<soroban_sdk::BytesN<32>>) {
     env.events().publish(
         (symbol_short!("agent"), symbol_short!("register")),
         (
@@ -241,6 +241,7 @@ pub fn emit_agent_registered(env: &Env, agent: Address, caller: Address) {
             env.ledger().timestamp(),
             agent,
             caller,
+            kyc_hash,
         ),
     );
 }
