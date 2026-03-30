@@ -3,7 +3,6 @@
 //! This module defines the core data structures used throughout the contract,
 //! including remittance records and status enums.
 
-
 use soroban_sdk::{contracttype, Address, String, Vec};
 
 /// Role types for authorization
@@ -58,7 +57,10 @@ pub enum RemittanceStatus {
 impl RemittanceStatus {
     /// Returns `true` if this is a terminal state (no further transitions allowed).
     pub fn is_terminal(&self) -> bool {
-        matches!(self, RemittanceStatus::Completed | RemittanceStatus::Cancelled)
+        matches!(
+            self,
+            RemittanceStatus::Completed | RemittanceStatus::Cancelled
+        )
     }
 
     /// Returns `true` if transitioning to `to` is a valid state machine step.
@@ -133,6 +135,7 @@ pub struct Escrow {
     pub sender: Address,
     pub recipient: Address,
     pub amount: i128,
+    pub expiry: Option<u64>,
     pub status: EscrowStatus,
 }
 
@@ -175,6 +178,7 @@ pub struct AgentStats {
     pub total_settlements: u32,
     pub failed_settlements: u32,
     pub total_settlement_time: u64,
+    pub dispute_count: u32,
 }
 
 /// Entry for batch settlement processing.

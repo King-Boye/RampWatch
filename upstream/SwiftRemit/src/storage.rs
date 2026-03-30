@@ -7,7 +7,7 @@
 
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
-use crate::{ContractError, Remittance, TransferRecord, DailyLimit, AgentStats};
+use crate::{AgentStats, ContractError, DailyLimit, Remittance, TransferRecord};
 
 /// Storage keys for the SwiftRemit contract.
 ///
@@ -57,6 +57,9 @@ enum DataKey {
     // Keys for tracking registered agents
     /// Agent registration status indexed by agent address (persistent storage)
     AgentRegistered(Address),
+
+    /// Agent performance statistics (persistent storage)
+    AgentStats(Address),
 
     // === Fee Tracking ===
     // Keys for managing platform fees
@@ -124,14 +127,13 @@ enum DataKey {
     // Keys for managing whitelisted tokens
     /// Token whitelist status indexed by token address (persistent storage)
     TokenWhitelisted(Address),
-    
+
     /// List of all whitelisted token addresses (instance storage)
     WhitelistedTokensList,
 
     /// Settlement completion event emission tracking (legacy persistent storage)
     /// Tracks whether the completion event has been emitted for a settlement
     SettlementEventEmitted(u64),
-
 
     /// Total number of successfully finalized settlements (instance storage)
     /// Incremented atomically each time a settlement is successfully completed
@@ -140,6 +142,9 @@ enum DataKey {
     // === Escrow Management ===
     /// Escrow counter for generating unique transfer IDs (instance storage)
     EscrowCounter,
+
+    /// Configured escrow TTL in seconds; zero means expiry disabled.
+    EscrowTtl,
 
     /// Escrow record indexed by transfer ID (persistent storage)
     Escrow(u64),
@@ -288,6 +293,28 @@ pub fn get_platform_fee_bps(env: &Env) -> Result<u32, ContractError> {
         .ok_or(ContractError::NotInitialized)
 }
 
+pub fn get_token_fee_bps(env: &Env, token: &Address) -> Option<u32> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::TokenFeeBps(token.clone()))
+}
+
+pub fn get_effective_platform_fee_bps(env: &Env, token: &Address) -> Result<u32, ContractError> {
+    if let Some(token_fee) = get_token_fee_bps(env, token) {
+        Ok(token_fee)
+    } else {
+        get_platform_fee_bps(env)
+    }
+}
+
+pub fn set_token_fee_bps(env: &Env, token: &Address, fee_bps: u32) -> Result<(), ContractError> {
+    crate::validation::validate_fee_bps(fee_bps)?;
+    env.storage()
+        .persistent()
+        .set(&DataKey::TokenFeeBps(token.clone()), &fee_bps);
+    Ok(())
+}
+
 /// Sets the remittance counter for ID generation.
 ///
 /// # Arguments
@@ -432,8 +459,7 @@ pub fn get_accumulated_integrator_fees(env: &Env) -> i128 {
 ///
 /// * `true` - Settlement has been executed
 /// * `false` - Settlement has not been executed
-
-use crate::config::{SETTLEMENT_EXECUTED_FLAG, SETTLEMENT_EVENT_EMITTED_FLAG};
+use crate::config::{SETTLEMENT_EVENT_EMITTED_FLAG, SETTLEMENT_EXECUTED_FLAG};
 
 #[contracttype]
 #[derive(Clone)]
@@ -500,7 +526,9 @@ fn load_or_migrate_settlement_packed(env: &Env, remittance_id: u64) -> Settlemen
     {
         let packed = SettlementPacked::new(legacy.executed, legacy.event_emitted);
         env.storage().persistent().set(&packed_key, &packed);
-        env.storage().persistent().remove(&DataKey::SettlementData(remittance_id));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::SettlementData(remittance_id));
         return packed;
     }
 
@@ -518,8 +546,12 @@ fn load_or_migrate_settlement_packed(env: &Env, remittance_id: u64) -> Settlemen
     let packed = SettlementPacked::new(executed, event_emitted);
 
     env.storage().persistent().set(&packed_key, &packed);
-    env.storage().persistent().remove(&DataKey::SettlementHash(remittance_id));
-    env.storage().persistent().remove(&DataKey::SettlementEventEmitted(remittance_id));
+    env.storage()
+        .persistent()
+        .remove(&DataKey::SettlementHash(remittance_id));
+    env.storage()
+        .persistent()
+        .remove(&DataKey::SettlementEventEmitted(remittance_id));
 
     packed
 }
@@ -581,7 +613,8 @@ pub fn set_kyc_approved(env: &Env, user: &Address, approved: bool) {
 }
 
 pub fn is_kyc_expired(env: &Env, user: &Address) -> bool {
-    if let Some(expiry) = env.storage()
+    if let Some(expiry) = env
+        .storage()
         .persistent()
         .get::<DataKey, u64>(&DataKey::KycExpiry(user.clone()))
     {
@@ -632,10 +665,7 @@ pub fn set_anchor_transaction(
     Ok(())
 }
 
-pub fn get_anchor_transaction(
-    env: &Env,
-    anchor_tx_id: u64,
-) -> Result<u64, ContractError> {
+pub fn get_anchor_transaction(env: &Env, anchor_tx_id: u64) -> Result<u64, ContractError> {
     env.storage()
         .persistent()
         .get(&DataKey::AnchorTransaction(anchor_tx_id))
@@ -700,9 +730,10 @@ pub fn set_daily_limit(env: &Env, currency: &String, country: &String, limit: i1
         country: country.clone(),
         limit,
     };
-    env.storage()
-        .persistent()
-        .set(&DataKey::DailyLimit(currency.clone(), country.clone()), &daily_limit);
+    env.storage().persistent().set(
+        &DataKey::DailyLimit(currency.clone(), country.clone()),
+        &daily_limit,
+    );
 }
 
 pub fn get_daily_limit(env: &Env, currency: &String, country: &String) -> Option<DailyLimit> {
@@ -784,17 +815,18 @@ pub fn is_token_whitelisted(env: &Env, token: &Address) -> bool {
 
 pub fn set_token_whitelisted(env: &Env, token: &Address, whitelisted: bool) {
     let was_whitelisted = is_token_whitelisted(env, token);
-    
+
     env.storage()
         .persistent()
         .set(&DataKey::TokenWhitelisted(token.clone()), &whitelisted);
-    
+
     // Update the list of whitelisted tokens
-    let mut tokens: Vec<Address> = env.storage()
+    let mut tokens: Vec<Address> = env
+        .storage()
         .instance()
         .get(&DataKey::WhitelistedTokensList)
         .unwrap_or(Vec::new(env));
-    
+
     if whitelisted && !was_whitelisted {
         // Add token to list if not already present
         let mut found = false;
@@ -818,7 +850,7 @@ pub fn set_token_whitelisted(env: &Env, token: &Address, whitelisted: bool) {
         }
         tokens = new_tokens;
     }
-    
+
     env.storage()
         .instance()
         .set(&DataKey::WhitelistedTokensList, &tokens);
@@ -888,9 +920,10 @@ pub fn bench_settlement_scattered_write(
     env.storage()
         .persistent()
         .set(&DataKey::SettlementHash(remittance_id), &executed);
-    env.storage()
-        .persistent()
-        .set(&DataKey::SettlementEventEmitted(remittance_id), &event_emitted);
+    env.storage().persistent().set(
+        &DataKey::SettlementEventEmitted(remittance_id),
+        &event_emitted,
+    );
 }
 
 #[cfg(feature = "benchmarks")]
@@ -927,7 +960,6 @@ pub fn bench_settlement_packed_read(env: &Env, remittance_id: u64) -> Settlement
         .get(&DataKey::SettlementPacked(remittance_id))
         .unwrap_or(SettlementPacked::new(false, false))
 }
-
 
 // === Settlement Counter ===
 
@@ -1005,7 +1037,84 @@ pub fn get_escrow_counter(env: &Env) -> Result<u64, ContractError> {
 }
 
 pub fn set_escrow_counter(env: &Env, counter: u64) {
-    env.storage().instance().set(&DataKey::EscrowCounter, &counter);
+    env.storage()
+        .instance()
+        .set(&DataKey::EscrowCounter, &counter);
+}
+
+pub fn get_agent_stats(env: &Env, agent: &Address) -> AgentStats {
+    env.storage()
+        .persistent()
+        .get(&DataKey::AgentStats(agent.clone()))
+        .unwrap_or(AgentStats {
+            total_settlements: 0,
+            failed_settlements: 0,
+            total_settlement_time: 0,
+            dispute_count: 0,
+        })
+}
+
+pub fn set_agent_stats(env: &Env, agent: &Address, stats: &AgentStats) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::AgentStats(agent.clone()), stats);
+}
+
+pub fn compute_agent_reputation(stats: &AgentStats) -> u32 {
+    let total = stats.total_settlements;
+    let successful = total.saturating_sub(stats.failed_settlements);
+    let success_score = if total == 0 {
+        100
+    } else {
+        successful
+            .saturating_mul(100)
+            .checked_div(total)
+            .unwrap_or(0)
+    };
+
+    let avg_time = if total == 0 {
+        0
+    } else {
+        stats.total_settlement_time / (total as u64)
+    };
+    let time_score: u32 = if avg_time <= 3600 {
+        100
+    } else if avg_time <= 7200 {
+        80
+    } else if avg_time <= 14400 {
+        60
+    } else if avg_time <= 28800 {
+        40
+    } else if avg_time <= 43200 {
+        20
+    } else {
+        0
+    };
+
+    let dispute_score: u32 = match stats.dispute_count {
+        0 => 100,
+        1 => 75,
+        2 => 50,
+        3 => 25,
+        _ => 0,
+    };
+
+    let weighted = success_score.saturating_mul(50u32)
+        + time_score.saturating_mul(25u32)
+        + dispute_score.saturating_mul(25u32);
+    let score = weighted.checked_add(50u32).unwrap_or(weighted) / 100u32;
+    score.min(100)
+}
+
+pub fn get_escrow_ttl(env: &Env) -> Result<u64, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::EscrowTtl)
+        .ok_or(ContractError::NotInitialized)
+}
+
+pub fn set_escrow_ttl(env: &Env, ttl: u64) {
+    env.storage().instance().set(&DataKey::EscrowTtl, &ttl);
 }
 
 pub fn get_escrow(env: &Env, transfer_id: u64) -> Result<crate::Escrow, ContractError> {
@@ -1021,14 +1130,14 @@ pub fn set_escrow(env: &Env, transfer_id: u64, escrow: &crate::Escrow) {
         .set(&DataKey::Escrow(transfer_id), escrow);
 }
 
-
 // === Role-Based Authorization ===
 
 /// Assigns a role to an address
 pub fn assign_role(env: &Env, address: &Address, role: &crate::Role) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::RoleAssignment(address.clone(), role.clone()), &true);
+    env.storage().persistent().set(
+        &DataKey::RoleAssignment(address.clone(), role.clone()),
+        &true,
+    );
 }
 
 /// Removes a role from an address
@@ -1061,7 +1170,6 @@ pub fn require_role_settler(env: &Env, address: &Address) -> Result<(), Contract
     }
     Ok(())
 }
-
 
 // === Transfer State Registry ===
 
@@ -1098,7 +1206,6 @@ pub fn set_transfer_state(
     Ok(())
 }
 
-
 // === Fee Strategy Management ===
 
 /// Gets the current fee strategy
@@ -1115,7 +1222,6 @@ pub fn set_fee_strategy(env: &Env, strategy: &crate::FeeStrategy) {
         .instance()
         .set(&DataKey::FeeStrategy, strategy);
 }
-
 
 // === Protocol Fee Management ===
 
@@ -1151,22 +1257,15 @@ pub fn get_treasury(env: &Env) -> Result<Address, ContractError> {
 
 /// Sets the treasury address
 pub fn set_treasury(env: &Env, treasury: &Address) {
-    env.storage()
-        .instance()
-        .set(&DataKey::Treasury, treasury);
+    env.storage().instance().set(&DataKey::Treasury, treasury);
 }
 
 // === Fee Corridor Management ===
 
 /// Sets a fee corridor configuration for a country pair
 pub fn set_fee_corridor(env: &Env, corridor: &crate::fee_service::FeeCorridor) {
-    let key = DataKey::FeeCorridor(
-        corridor.from_country.clone(),
-        corridor.to_country.clone(),
-    );
-    env.storage()
-        .persistent()
-        .set(&key, corridor);
+    let key = DataKey::FeeCorridor(corridor.from_country.clone(), corridor.to_country.clone());
+    env.storage().persistent().set(&key, corridor);
 }
 
 /// Gets a fee corridor configuration for a country pair
@@ -1176,31 +1275,22 @@ pub fn get_fee_corridor(
     to_country: &String,
 ) -> Option<crate::fee_service::FeeCorridor> {
     let key = DataKey::FeeCorridor(from_country.clone(), to_country.clone());
-    env.storage()
-        .persistent()
-        .get(&key)
+    env.storage().persistent().get(&key)
 }
 
 /// Removes a fee corridor configuration
 pub fn remove_fee_corridor(env: &Env, from_country: &String, to_country: &String) {
     let key = DataKey::FeeCorridor(from_country.clone(), to_country.clone());
-    env.storage()
-        .persistent()
-        .remove(&key);
+    env.storage().persistent().remove(&key);
 }
 
 // === Idempotency Protection ===
 
 /// Gets an idempotency record if it exists and hasn't expired
-pub fn get_idempotency_record(
-    env: &Env,
-    key: &String,
-) -> Option<crate::IdempotencyRecord> {
+pub fn get_idempotency_record(env: &Env, key: &String) -> Option<crate::IdempotencyRecord> {
     let storage_key = DataKey::IdempotencyRecord(key.clone());
-    let record: Option<crate::IdempotencyRecord> = env.storage()
-        .persistent()
-        .get(&storage_key);
-    
+    let record: Option<crate::IdempotencyRecord> = env.storage().persistent().get(&storage_key);
+
     if let Some(rec) = record {
         let current_time = env.ledger().timestamp();
         if current_time < rec.expires_at {
@@ -1211,15 +1301,9 @@ pub fn get_idempotency_record(
 }
 
 /// Stores an idempotency record
-pub fn set_idempotency_record(
-    env: &Env,
-    key: &String,
-    record: &crate::IdempotencyRecord,
-) {
+pub fn set_idempotency_record(env: &Env, key: &String, record: &crate::IdempotencyRecord) {
     let storage_key = DataKey::IdempotencyRecord(key.clone());
-    env.storage()
-        .persistent()
-        .set(&storage_key, record);
+    env.storage().persistent().set(&storage_key, record);
 }
 
 /// Gets the configured TTL for idempotency records (default: 86400 seconds = 24 hours)

@@ -347,6 +347,28 @@ pub fn emit_token_removed_from_whitelist(env: &Env, token: Address, caller: Addr
     );
 }
 
+/// Emits an event when a token-specific fee configuration is updated.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `caller` - The admin who updated the fee
+/// * `token` - The token address whose fee was updated
+/// * `fee_bps` - New platform fee in basis points
+pub fn emit_token_fee_updated(env: &Env, caller: Address, token: Address, fee_bps: u32) {
+    env.events().publish(
+        (symbol_short!("token"), symbol_short!("fee_updated")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            caller,
+            token,
+            fee_bps,
+        ),
+    );
+}
+
 // ── Fee Events ─────────────────────────────────────────────────────
 
 /// Emits an event when the platform fee is updated.
