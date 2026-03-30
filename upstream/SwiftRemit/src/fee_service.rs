@@ -9,9 +9,12 @@
 //! All fee calculations route through this module to ensure consistency
 //! and prevent calculation errors.
 
-use soroban_sdk::{ contracttype, Env, String };
+use soroban_sdk::{contracttype, Address, Env, String};
 
-use crate::{ config::FEE_DIVISOR, ContractError, FeeStrategy, get_fee_strategy, get_protocol_fee_bps, storage };
+use crate::{
+    config::FEE_DIVISOR, get_fee_strategy, get_platform_fee_bps, get_protocol_fee_bps, storage,
+    ContractError, FeeStrategy,
+};
 
 /// Complete breakdown of all fees applied to a transaction
 #[contracttype]
@@ -39,7 +42,8 @@ impl FeeBreakdown {
     /// * `Ok(())` - Breakdown is valid
     /// * `Err(ContractError::InvalidAmount)` - Breakdown is inconsistent
     pub fn validate(&self) -> Result<(), ContractError> {
-        let total = self.platform_fee
+        let total = self
+            .platform_fee
             .checked_add(self.protocol_fee)
             .and_then(|sum| sum.checked_add(self.net_amount))
             .ok_or(ContractError::Overflow)?;
@@ -49,7 +53,8 @@ impl FeeBreakdown {
         }
 
         // Ensure no negative values
-        if self.amount < 0 || self.platform_fee < 0 || self.protocol_fee < 0 || self.net_amount < 0 {
+        if self.amount < 0 || self.platform_fee < 0 || self.protocol_fee < 0 || self.net_amount < 0
+        {
             return Err(ContractError::InvalidAmount);
         }
 
@@ -85,12 +90,16 @@ pub struct FeeCorridor {
 /// * `Ok(i128)` - Calculated platform fee
 /// * `Err(ContractError::InvalidAmount)` - Amount is zero or negative
 /// * `Err(ContractError::Overflow)` - Arithmetic overflow in calculation
-pub fn calculate_platform_fee(env: &Env, amount: i128) -> Result<i128, ContractError> {
+pub fn calculate_platform_fee(
+    env: &Env,
+    amount: i128,
+    token: Option<&Address>,
+) -> Result<i128, ContractError> {
     if amount <= 0 {
         return Err(ContractError::InvalidAmount);
     }
 
-    let strategy = get_fee_strategy(env);
+    let strategy = get_effective_fee_strategy(env, token)?;
     calculate_fee_by_strategy(amount, &strategy)
 }
 
@@ -111,7 +120,8 @@ pub fn calculate_platform_fee(env: &Env, amount: i128) -> Result<i128, ContractE
 pub fn calculate_fees_with_breakdown(
     env: &Env,
     amount: i128,
-    corridor: Option<&FeeCorridor>
+    token: Option<&Address>,
+    corridor: Option<&FeeCorridor>,
 ) -> Result<FeeBreakdown, ContractError> {
     if amount <= 0 {
         return Err(ContractError::InvalidAmount);
@@ -119,15 +129,19 @@ pub fn calculate_fees_with_breakdown(
 
     // Determine which strategy and protocol fee to use
     let (strategy, protocol_fee_bps, corridor_id) = if let Some(c) = corridor {
-        let protocol_bps = c.protocol_fee_bps.unwrap_or_else(|| get_protocol_fee_bps(env));
+        let protocol_bps = c
+            .protocol_fee_bps
+            .unwrap_or_else(|| get_protocol_fee_bps(env));
         let id = format_corridor_id(env, &c.from_country, &c.to_country);
         (c.strategy.clone(), protocol_bps, Some(id))
     } else {
         (get_fee_strategy(env), get_protocol_fee_bps(env), None)
     };
 
+    let effective_strategy = get_effective_fee_strategy_for_strategy(env, &strategy, token)?;
+
     // Calculate platform fee
-    let platform_fee = calculate_fee_by_strategy(amount, &strategy)?;
+    let platform_fee = calculate_fee_by_strategy(amount, &effective_strategy)?;
 
     // Calculate protocol fee
     let protocol_fee = calculate_protocol_fee(amount, protocol_fee_bps)?;
@@ -150,6 +164,33 @@ pub fn calculate_fees_with_breakdown(
     breakdown.validate()?;
 
     Ok(breakdown)
+}
+
+fn get_effective_fee_strategy(
+    env: &Env,
+    token: Option<&Address>,
+) -> Result<FeeStrategy, ContractError> {
+    let strategy = get_fee_strategy(env);
+    get_effective_fee_strategy_for_strategy(env, &strategy, token)
+}
+
+fn get_effective_fee_strategy_for_strategy(
+    env: &Env,
+    strategy: &FeeStrategy,
+    token: Option<&Address>,
+) -> Result<FeeStrategy, ContractError> {
+    match strategy {
+        FeeStrategy::Percentage(_) => {
+            if let Some(token) = token {
+                let default_fee_bps = get_platform_fee_bps(env)?;
+                let fee_bps = storage::get_token_fee_bps(env, token).unwrap_or(default_fee_bps);
+                Ok(FeeStrategy::Percentage(fee_bps))
+            } else {
+                Ok(strategy.clone())
+            }
+        }
+        _ => Ok(strategy.clone()),
+    }
 }
 
 /// Calculates fee based on the specified strategy.
@@ -252,7 +293,7 @@ fn format_corridor_id(env: &Env, from_country: &String, to_country: &String) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{ Env, String };
+    use soroban_sdk::{Env, String};
 
     #[test]
     fn test_calculate_fee_percentage() {

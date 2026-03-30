@@ -122,6 +122,14 @@ pub fn validate_initialize_request(
     Ok(())
 }
 
+pub fn validate_escrow_ttl(ttl: u64) -> Result<(), ContractError> {
+    // Zero means expiry disabled. Any positive TTL is allowed.
+    if ttl == u64::MAX {
+        return Err(ContractError::InvalidAmount);
+    }
+    Ok(())
+}
+
 /// Comprehensive validation for create_remittance request.
 pub fn validate_create_remittance_request(
     env: &Env,
