@@ -1,7 +1,9 @@
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Bytes, Env, String, Symbol, Vec,
+    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, String,
+    Symbol, Vec,
 };
 
+use crate::deterministic_hash::{compute_payload_hash, verify_payload_hash};
 use crate::errors::ErrorCode;
 use crate::sep10_jwt;
 
@@ -655,6 +657,36 @@ impl AnchorKitContract {
             .persistent()
             .get::<_, Attestation>(&(symbol_short!("ATTEST"), id))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound))
+    }
+
+    // -----------------------------------------------------------------------
+    // Deterministic hash utilities (#192)
+    // -----------------------------------------------------------------------
+
+    /// Compute a canonical SHA-256 hash for an attestation payload.
+    /// Field order: subject || timestamp (8-byte BE) || data.
+    pub fn compute_payload_hash(
+        env: Env,
+        subject: Address,
+        timestamp: u64,
+        data: Bytes,
+    ) -> BytesN<32> {
+        compute_payload_hash(&env, &subject, timestamp, &data)
+    }
+
+    /// Verify that the hash stored in an attestation matches the expected hash.
+    pub fn verify_payload_hash(env: Env, attestation_id: u64, expected_hash: BytesN<32>) -> bool {
+        let attestation = env
+            .storage()
+            .persistent()
+            .get::<_, Attestation>(&(symbol_short!("ATTEST"), attestation_id))
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound));
+
+        // Convert stored Bytes payload_hash to BytesN<32>
+        let stored: BytesN<32> = attestation.payload_hash.try_into().unwrap_or_else(|_| {
+            panic_with_error!(&env, ErrorCode::ValidationError)
+        });
+        verify_payload_hash(&stored, &expected_hash)
     }
 
     // -----------------------------------------------------------------------

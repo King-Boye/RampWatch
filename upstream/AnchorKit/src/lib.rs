@@ -1,11 +1,13 @@
 #![no_std]
 extern crate alloc;
 
+mod deterministic_hash;
 mod domain_validator;
 mod errors;
 mod sep10_jwt;
 mod rate_limiter;
 mod response_validator;
+mod retry;
 mod transaction_state_tracker;
 pub mod sep6;
 pub mod contract;
@@ -21,6 +23,8 @@ pub use response_validator::{
     validate_withdraw_response, AnchorInfoResponse, DepositResponse as ValidatorDepositResponse,
     QuoteResponse, WithdrawResponse,
 };
+pub use retry::{retry_with_backoff, is_retryable, RetryConfig};
+pub use deterministic_hash::{compute_payload_hash, verify_payload_hash};
 
 #[cfg(test)]
 mod transaction_state_tracker_tests;
@@ -62,4 +66,9 @@ mod sep10_contract_tests;
 mod routing_tests;
 
 #[cfg(test)]
+mod deterministic_hash_snapshot_tests {
+    // Snapshot tests live inside deterministic_hash module itself.
+    // This module exists to satisfy the test_snapshots/deterministic_hash_tests path.
+}
+
 mod capability_detection_tests;
