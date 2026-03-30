@@ -181,6 +181,21 @@ enum DataKey {
 
     /// Cumulative volume of completed remittances in USDC stroops (instance storage).
     TotalCompletedVolume,
+
+    // === Dispute Window ===
+    /// Duration in seconds within which a sender can raise a dispute after a failed payout.
+    DisputeWindow,
+
+    // === Partial Payout Tracking ===
+    /// Amount already disbursed for a remittance (persistent storage).
+    DisbursedAmount(u64),
+
+    // === Per-Agent Daily Withdrawal Cap ===
+    /// Maximum USDC an agent may withdraw in a rolling 24-hour window (persistent storage).
+    AgentDailyCap(Address),
+
+    /// Rolling withdrawal records for an agent (persistent storage).
+    AgentWithdrawals(Address),
 }
 
 /// Checks if the contract has an admin configured.
@@ -1295,5 +1310,116 @@ pub fn add_completed_volume(env: &Env, amount: i128) -> Result<(), ContractError
     env.storage()
         .instance()
         .set(&DataKey::TotalCompletedVolume, &next);
+    Ok(())
+}
+
+// === Dispute Window ===
+
+/// Default dispute window: 72 hours in seconds.
+pub const DEFAULT_DISPUTE_WINDOW_SECONDS: u64 = 72 * 3600;
+
+/// Returns the configured dispute window in seconds.
+pub fn get_dispute_window(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::DisputeWindow)
+        .unwrap_or(DEFAULT_DISPUTE_WINDOW_SECONDS)
+}
+
+/// Sets the dispute window (admin only, enforced at call site).
+pub fn set_dispute_window(env: &Env, seconds: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::DisputeWindow, &seconds);
+}
+
+// === Partial Payout Tracking ===
+
+/// Returns the total amount already disbursed for a remittance.
+pub fn get_disbursed_amount(env: &Env, remittance_id: u64) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::DisbursedAmount(remittance_id))
+        .unwrap_or(0)
+}
+
+/// Adds `amount` to the disbursed total for a remittance.
+pub fn add_disbursed_amount(env: &Env, remittance_id: u64, amount: i128) -> Result<(), ContractError> {
+    let current = get_disbursed_amount(env, remittance_id);
+    let next = current.checked_add(amount).ok_or(ContractError::Overflow)?;
+    env.storage()
+        .persistent()
+        .set(&DataKey::DisbursedAmount(remittance_id), &next);
+    Ok(())
+}
+
+// === Per-Agent Daily Withdrawal Cap ===
+
+/// Rolling 24-hour window in seconds.
+pub const AGENT_CAP_WINDOW_SECONDS: u64 = 86_400;
+
+/// Returns the per-agent daily withdrawal cap (0 = no cap).
+pub fn get_agent_daily_cap(env: &Env, agent: &Address) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::AgentDailyCap(agent.clone()))
+        .unwrap_or(0)
+}
+
+/// Sets the per-agent daily withdrawal cap.
+pub fn set_agent_daily_cap(env: &Env, agent: &Address, cap: i128) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::AgentDailyCap(agent.clone()), &cap);
+}
+
+/// Checks and records an agent withdrawal against the rolling cap.
+/// Returns `Err(ContractError::DailySendLimitExceeded)` if the cap would be breached.
+pub fn check_and_record_agent_withdrawal(
+    env: &Env,
+    agent: &Address,
+    amount: i128,
+) -> Result<(), ContractError> {
+    let cap = get_agent_daily_cap(env, agent);
+    if cap == 0 {
+        return Ok(()); // no cap configured
+    }
+
+    let now = env.ledger().timestamp();
+    let window_start = now.saturating_sub(AGENT_CAP_WINDOW_SECONDS);
+
+    let records: Vec<TransferRecord> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::AgentWithdrawals(agent.clone()))
+        .unwrap_or(Vec::new(env));
+
+    let mut pruned = Vec::new(env);
+    let mut rolling: i128 = 0;
+
+    for i in 0..records.len() {
+        let r = records.get_unchecked(i);
+        if r.timestamp > window_start {
+            rolling = rolling.checked_add(r.amount).ok_or(ContractError::Overflow)?;
+            pruned.push_back(r);
+        }
+    }
+
+    let next = rolling.checked_add(amount).ok_or(ContractError::Overflow)?;
+    if next > cap {
+        return Err(ContractError::DailySendLimitExceeded);
+    }
+
+    let empty_str = soroban_sdk::String::from_str(env, "");
+    pruned.push_back(TransferRecord {
+        timestamp: now,
+        amount,
+        currency: empty_str.clone(),
+        country: empty_str,
+    });
+    env.storage()
+        .persistent()
+        .set(&DataKey::AgentWithdrawals(agent.clone()), &pruned);
+
     Ok(())
 }
