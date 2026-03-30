@@ -1,4 +1,5 @@
 //! SwiftRemit - A Soroban smart contract for cross-border remittance services.
+// Initial commit: project setup and contract scaffolding
 //!
 //! This contract enables secure, fee-based remittance transactions between senders and agents,
 //! with built-in duplicate settlement protection and expiry mechanisms.
