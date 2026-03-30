@@ -29,7 +29,7 @@ pub use sep6::{
     RawDepositResponse, RawTransactionResponse, RawWithdrawalResponse, TransactionKind,
     TransactionStatus, TransactionStatusResponse, WithdrawalResponse,
 };
-pub use contract::AnchorKitContract;
+pub use contract::{AnchorKitContract, EndpointUpdated, get_endpoint, set_endpoint};
 
 #[cfg(test)]
 mod request_id_tests;
@@ -63,3 +63,6 @@ mod routing_tests;
 
 #[cfg(test)]
 mod capability_detection_tests;
+
+#[cfg(test)]
+mod attestor_endpoint_tests;

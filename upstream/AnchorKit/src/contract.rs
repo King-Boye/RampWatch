@@ -278,6 +278,13 @@ struct AttestEvent {
     timestamp: u64,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct EndpointUpdated {
+    pub attestor: Address,
+    pub endpoint: String,
+}
+
 // ---------------------------------------------------------------------------
 // TTLs (in ledgers)
 // ---------------------------------------------------------------------------
@@ -427,12 +434,45 @@ impl AnchorKitContract {
         );
     }
 
-    pub fn is_attestor(env: Env, attestor: Address) -> bool {
+pub fn is_attestor(env: Env, attestor: Address) -> bool {
         env.storage()
             .persistent()
             .get::<_, bool>(&(symbol_short!("ATTESTOR"), attestor))
             .unwrap_or(false)
     }
+
+    // -----------------------------------------------------------------------
+    // Attestor endpoint management
+    // -----------------------------------------------------------------------
+
+    /// Set the attestor&#39;s HTTPS endpoint URL (validated via validate_anchor_domain).
+    /// Only the attestor themselves can update their endpoint.
+    pub fn set_endpoint(env: Env, attestor: Address, endpoint: String) {
+        attestor.require_auth();
+        Self::check_attestor(&env, &attestor);
+        crate::validate_anchor_domain(endpoint.as_str()).map_err(|_| panic_with_error!(&env, ErrorCode::InvalidEndpointFormat))?;
+        let key = (symbol_short!("ENDPOINT"), attestor.clone());
+        env.storage().persistent().set(&key, &endpoint);
+        env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+        env.events().publish(
+            (symbol_short!("endpoint"), symbol_short!("updated")),
+            EndpointUpdated {
+                attestor,
+                endpoint,
+            },
+        );
+    }
+
+    /// Retrieve the attestor&#39;s stored endpoint URL.
+    pub fn get_endpoint(env: Env, attestor: Address) -> String {
+        if !Self::is_attestor(env.clone(), attestor.clone()) {
+            panic_with_error!(&env, ErrorCode::AttestorNotRegistered);
+        }
+        env.storage().persistent()
+            .get::<_, String>(&(symbol_short!("ENDPOINT"), attestor))
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestorNotRegistered))
+    }
+
 
     // -----------------------------------------------------------------------
     // Service configuration
