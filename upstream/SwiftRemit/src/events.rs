@@ -4,7 +4,7 @@
 //! contract operations. Events include schema versioning and ledger metadata
 //! for comprehensive audit trails.
 
-use soroban_sdk::{symbol_short, Address, Env, String};
+use soroban_sdk::{symbol_short, Address, Env, String, Symbol};
 
 // ============================================================================
 // Event Schema Version
@@ -439,4 +439,25 @@ pub fn emit_dispute_resolved(env: &Env, id: u64, in_favour_of_sender: bool) {
 
 pub fn emit_remittance_failed(env: &Env, id: u64, agent: Address) {
     env.events().publish((Symbol::new(env, "remittance_failed"), id), agent);
+}
+
+pub fn emit_dispute_raised(env: &Env, id: u64, sender: Address, evidence_hash: soroban_sdk::BytesN<32>) {
+    env.events().publish(
+        (Symbol::new(env, "dispute_raised"), id),
+        (sender, evidence_hash),
+    );
+}
+
+pub fn emit_partial_payout(env: &Env, remittance_id: u64, agent: Address, amount: i128, disbursed_total: i128) {
+    env.events().publish(
+        (Symbol::new(env, "partial_payout"), remittance_id),
+        (agent, amount, disbursed_total),
+    );
+}
+
+pub fn emit_agent_cap_set(env: &Env, agent: Address, cap: i128, caller: Address) {
+    env.events().publish(
+        (Symbol::new(env, "agent_cap_set"),),
+        (agent, cap, caller),
+    );
 }

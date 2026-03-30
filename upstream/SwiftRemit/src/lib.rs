@@ -1,4 +1,5 @@
 //! SwiftRemit - A Soroban smart contract for cross-border remittance services.
+// Initial commit: project setup and contract scaffolding
 //!
 //! This contract enables secure, fee-based remittance transactions between senders and agents,
 //! with built-in duplicate settlement protection and expiry mechanisms.
@@ -733,6 +734,9 @@ impl SwiftRemitContract {
         // Check rate limit for sender
         check_settlement_rate_limit(&env, &remittance.sender)?;
 
+        // Enforce per-agent daily withdrawal cap
+        storage::check_and_record_agent_withdrawal(&env, &remittance.agent, remittance.amount)?;
+
         // Use centralized fee service to get complete breakdown
         let fee_breakdown = fee_service::calculate_fees_with_breakdown(
             &env,
@@ -907,6 +911,117 @@ impl SwiftRemitContract {
         set_remittance(&env, remittance_id, &remittance);
         emit_dispute_resolved(&env, remittance_id, in_favour_of_sender);
         Ok(())
+    }
+
+    /// Sets the dispute window duration (admin only).
+    ///
+    /// Senders have this many seconds after a payout is marked Failed to raise a dispute.
+    pub fn set_dispute_window(env: Env, seconds: u64) -> Result<(), ContractError> {
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
+        storage::set_dispute_window(&env, seconds);
+        Ok(())
+    }
+
+    /// Returns the current dispute window in seconds.
+    pub fn get_dispute_window(env: Env) -> u64 {
+        storage::get_dispute_window(&env)
+    }
+
+    /// Confirms a partial payout for a remittance, disbursing `amount` to the agent.
+    ///
+    /// Large remittances can be split into multiple disbursements. Each call transfers
+    /// `amount` from escrow to the agent. When the total disbursed equals the net payout
+    /// (amount - fee), the remittance is automatically marked Completed.
+    ///
+    /// # Authorization
+    /// Requires authentication from the agent assigned to the remittance.
+    pub fn confirm_partial_payout(
+        env: Env,
+        remittance_id: u64,
+        amount: i128,
+    ) -> Result<(), ContractError> {
+        if amount <= 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        let mut remittance = get_remittance(&env, remittance_id)?;
+        remittance.agent.require_auth();
+
+        if remittance.status != RemittanceStatus::Pending
+            && remittance.status != RemittanceStatus::Processing
+        {
+            return Err(ContractError::InvalidStatus);
+        }
+
+        // Enforce per-agent daily cap
+        storage::check_and_record_agent_withdrawal(&env, &remittance.agent, amount)?;
+
+        let fee_breakdown = fee_service::calculate_fees_with_breakdown(&env, remittance.amount, None)?;
+        let net_payout = fee_breakdown.net_amount;
+
+        let already_disbursed = storage::get_disbursed_amount(&env, remittance_id);
+        let remaining = net_payout
+            .checked_sub(already_disbursed)
+            .ok_or(ContractError::Underflow)?;
+
+        if amount > remaining {
+            return Err(ContractError::InvalidAmount);
+        }
+
+        // Move to Processing on first partial disbursement
+        if remittance.status == RemittanceStatus::Pending {
+            crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Processing)?;
+        }
+
+        let token_client = token::Client::new(&env, &remittance.token);
+        token_client.transfer(&env.current_contract_address(), &remittance.agent, &amount);
+
+        storage::add_disbursed_amount(&env, remittance_id, amount)?;
+        let new_total = already_disbursed.checked_add(amount).ok_or(ContractError::Overflow)?;
+
+        emit_partial_payout(&env, remittance_id, remittance.agent.clone(), amount, new_total);
+
+        // If fully disbursed, collect fee and complete
+        if new_total >= net_payout {
+            let current_fees = get_accumulated_fees(&env)?;
+            let new_fees = current_fees
+                .checked_add(remittance.fee)
+                .ok_or(ContractError::Overflow)?;
+            set_accumulated_fees(&env, new_fees);
+
+            storage::add_completed_volume(&env, remittance.amount)?;
+
+            crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Completed)?;
+            set_remittance(&env, remittance_id, &remittance);
+            set_settlement_hash(&env, remittance_id);
+
+            emit_remittance_completed(&env, remittance_id, remittance.sender, remittance.agent);
+        } else {
+            set_remittance(&env, remittance_id, &remittance);
+        }
+
+        Ok(())
+    }
+
+    /// Sets a per-agent daily withdrawal cap (admin only).
+    ///
+    /// The agent may not withdraw more than `cap` USDC in any rolling 24-hour window.
+    /// Set `cap` to 0 to remove the cap.
+    pub fn set_agent_daily_cap(env: Env, agent: Address, cap: i128) -> Result<(), ContractError> {
+        if cap < 0 {
+            return Err(ContractError::InvalidAmount);
+        }
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
+        storage::set_agent_daily_cap(&env, &agent, cap);
+        emit_agent_cap_set(&env, agent, cap, caller);
+        Ok(())
+    }
+
+    /// Returns the per-agent daily withdrawal cap (0 = no cap).
+    pub fn get_agent_daily_cap(env: Env, agent: Address) -> i128 {
+        storage::get_agent_daily_cap(&env, &agent)
     }
 
     pub fn get_agent_stats(env: Env, agent: Address) -> AgentStats {
