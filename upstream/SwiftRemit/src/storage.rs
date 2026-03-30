@@ -58,8 +58,8 @@ enum DataKey {
     /// Agent registration status indexed by agent address (persistent storage)
     AgentRegistered(Address),
 
-    /// Agent performance statistics (persistent storage)
-    AgentStats(Address),
+    /// KYC metadata hash for compliance auditing, indexed by agent address (persistent storage)
+    AgentKycHash(Address),
 
     // === Fee Tracking ===
     // Keys for managing platform fees
@@ -404,6 +404,20 @@ pub fn is_agent_registered(env: &Env, agent: &Address) -> bool {
         .persistent()
         .get(&DataKey::AgentRegistered(agent.clone()))
         .unwrap_or(false)
+}
+
+/// Stores the KYC metadata hash for an agent (32-byte hash of off-chain KYC document).
+pub fn set_agent_kyc_hash(env: &Env, agent: &Address, hash: &soroban_sdk::BytesN<32>) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::AgentKycHash(agent.clone()), hash);
+}
+
+/// Retrieves the KYC metadata hash for an agent, if one was provided at registration.
+pub fn get_agent_kyc_hash(env: &Env, agent: &Address) -> Option<soroban_sdk::BytesN<32>> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::AgentKycHash(agent.clone()))
 }
 
 /// Sets the accumulated platform fees.

@@ -275,16 +275,20 @@ impl SwiftRemitContract {
     /// # Authorization
     ///
     /// Requires authentication from the contract admin.
-    pub fn register_agent(env: Env, agent: Address) -> Result<(), ContractError> {
+    pub fn register_agent(env: Env, agent: Address, kyc_hash: Option<soroban_sdk::BytesN<32>>) -> Result<(), ContractError> {
         let caller = get_admin(&env)?;
         require_admin(&env, &caller)?;
 
         set_agent_registered(&env, &agent, true);
         assign_role(&env, &agent, &Role::Settler);
 
+        if let Some(ref hash) = kyc_hash {
+            set_agent_kyc_hash(&env, &agent, hash);
+        }
+
         // Event: Agent registered - Fires when admin adds a new agent to the approved list
         // Used by off-chain systems to track which addresses can confirm payouts
-        emit_agent_registered(&env, agent, caller);
+        emit_agent_registered(&env, agent, caller, kyc_hash);
 
         Ok(())
     }
@@ -1413,6 +1417,11 @@ impl SwiftRemitContract {
     /// * `false` - Address is not registered
     pub fn is_agent_registered(env: Env, agent: Address) -> bool {
         is_agent_registered(&env, &agent)
+    }
+
+    /// Returns the KYC metadata hash stored for an agent, or `None` if not set.
+    pub fn get_agent_kyc_hash(env: Env, agent: Address) -> Option<soroban_sdk::BytesN<32>> {
+        get_agent_kyc_hash(&env, &agent)
     }
 
     /// Retrieves the current platform fee rate.
