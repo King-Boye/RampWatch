@@ -44,6 +44,7 @@ pub enum ErrorCode {
     RateLimitExceeded = 16,
     NotInitialized = 16,
     AttestationNotFound = 17,
+    InvalidSep10Token = 18,
     CacheExpired = 48,
     CacheNotFound = 49,
 }
@@ -70,6 +71,7 @@ impl ErrorCode {
             ErrorCode::RateLimitExceeded => "Rate limit exceeded",
             ErrorCode::NotInitialized => "Contract is not initialized",
             ErrorCode::AttestationNotFound => "Attestation not found",
+            ErrorCode::InvalidSep10Token => "SEP-10 JWT is missing, expired, or invalid",
             ErrorCode::CacheExpired => "Cache entry has expired",
             ErrorCode::CacheNotFound => "Cache entry not found",
         }
@@ -186,6 +188,10 @@ impl AnchorKitError {
         Self::from_code(ErrorCode::AttestationNotFound)
     }
 
+    pub fn invalid_sep10_token() -> Self {
+        Self::from_code(ErrorCode::InvalidSep10Token)
+    }
+
     pub fn validation_error(context: &str) -> Self {
         Self::with_context(ErrorCode::ValidationError, ErrorCode::ValidationError.default_message(), context)
     }
@@ -254,6 +260,7 @@ mod tests {
         assert_eq!(AnchorKitError::invalid_endpoint_format().code, ErrorCode::InvalidEndpointFormat);
         assert_eq!(AnchorKitError::no_quotes_available().code, ErrorCode::NoQuotesAvailable);
         assert_eq!(AnchorKitError::services_not_configured().code, ErrorCode::ServicesNotConfigured);
+        assert_eq!(AnchorKitError::invalid_sep10_token().code, ErrorCode::InvalidSep10Token);
     }
 
     #[test]
@@ -284,6 +291,9 @@ mod tests {
             ErrorCode::RateLimitExceeded,
             ErrorCode::NotInitialized,
             ErrorCode::AttestationNotFound,
+            ErrorCode::InvalidSep10Token,
+            ErrorCode::CacheExpired,
+            ErrorCode::CacheNotFound,
         ];
         for code in codes {
             assert!(!code.default_message().is_empty());

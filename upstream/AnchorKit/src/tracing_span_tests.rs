@@ -6,7 +6,11 @@ mod tracing_span_tests {
         Address, Bytes, Env, String,
     };
 
+    use ed25519_dalek::SigningKey;
+    use rand::rngs::OsRng;
+
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
+    use crate::sep10_test_util::register_attestor_with_sep10;
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -43,7 +47,8 @@ mod tracing_span_tests {
 
         client.initialize(&admin);
         let req_id = client.generate_request_id();
-        client.register_attestor(&attestor);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         let span = client.get_tracing_span(&req_id.id);
         assert!(span.is_none());
@@ -70,7 +75,8 @@ mod tracing_span_tests {
         let subject = Address::generate(&env);
 
         client.initialize(&admin);
-        client.register_attestor(&attestor);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         let req_id = client.generate_request_id();
         client.submit_with_request_id(
@@ -108,7 +114,8 @@ mod tracing_span_tests {
         let subject = Address::generate(&env);
 
         client.initialize(&admin);
-        client.register_attestor(&attestor);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         let req_id = client.generate_request_id();
         client.submit_with_request_id(
@@ -149,7 +156,8 @@ mod tracing_span_tests {
         let subject = Address::generate(&env);
 
         client.initialize(&admin);
-        client.register_attestor(&attestor);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         let req_id = client.generate_request_id();
         client.submit_with_request_id(

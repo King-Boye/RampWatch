@@ -11,11 +11,20 @@ crate-type = ["cdylib", "rlib"]
 name = "anchorkit"
 path = "src/main.rs"
 
+[[example]]
+name = "cli_example"
+path = "examples/cli_example.rs"
+
+[[example]]
+name = "request_history_example"
+path = "examples/request_history_example.rs"
+
 [features]
 default = ["std"]
 std = []
 wasm = []
 mock-only = []
+stress-tests = []
 
 [dependencies]
 soroban-sdk = "21.7.0"
@@ -23,6 +32,9 @@ clap = { version = "4.5", features = ["derive"] }
 
 [dev-dependencies]
 soroban-sdk = { version = "21.7.0", features = ["testutils"] }
+base64 = "0.22"
+ed25519-dalek = "2"
+rand = "0.8"
 
 [profile.release]
 opt-level = "z"

@@ -6,7 +6,11 @@ mod streaming_flow_tests {
         Address, Bytes, Env, String,
     };
 
+    use ed25519_dalek::SigningKey;
+    use rand::rngs::OsRng;
+
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
+    use crate::sep10_test_util::register_attestor_with_sep10;
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -39,7 +43,8 @@ mod streaming_flow_tests {
         let user = Address::generate(&env);
 
         client.initialize(&admin);
-        client.register_attestor(&anchor);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &anchor, &anchor, &sk);
 
         let mut services = soroban_sdk::Vec::new(&env);
         services.push_back(1u32);
@@ -81,7 +86,8 @@ mod streaming_flow_tests {
         let user = Address::generate(&env);
 
         client.initialize(&admin);
-        client.register_attestor(&attestor);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         let mut services = soroban_sdk::Vec::new(&env);
         services.push_back(1u32);
@@ -129,7 +135,8 @@ mod streaming_flow_tests {
         let user2 = Address::generate(&env);
 
         client.initialize(&admin);
-        client.register_attestor(&anchor);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &anchor, &anchor, &sk);
 
         let mut services = soroban_sdk::Vec::new(&env);
         services.push_back(1u32);
