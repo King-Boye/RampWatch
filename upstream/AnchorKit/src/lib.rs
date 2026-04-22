@@ -9,6 +9,8 @@ mod rate_limiter;
 mod response_validator;
 mod retry;
 mod transaction_state_tracker;
+pub mod types;
+pub mod events;
 pub mod sep6;
 pub mod contract;
 
@@ -33,7 +35,8 @@ pub use sep6::{
     RawDepositResponse, RawTransactionResponse, RawWithdrawalResponse, TransactionKind,
     TransactionStatus, TransactionStatusResponse, WithdrawalResponse,
 };
-pub use contract::{AnchorKitContract, EndpointUpdated, get_admin, get_endpoint, set_endpoint};
+pub use contract::{AnchorKitContract, get_endpoint, set_endpoint};
+pub use events::EndpointUpdated;
 
 #[cfg(test)]
 mod request_id_tests;
