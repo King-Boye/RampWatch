@@ -24,15 +24,23 @@ fn decode_base64url_char(c: u8) -> Option<u8> {
     }
 }
 
-/// Base64url decode (no padding required).
+/// Base64url decode — accepts padded, unpadded, and over-padded input.
+///
+/// Padding characters (`=`) are stripped before decoding. This matches the behaviour
+/// of most JWT libraries, which omit padding entirely per RFC 7515 §2.
 pub fn base64url_decode(input: &[u8]) -> Result<Vec<u8>, ()> {
+    // Strip all trailing `=` so padded, unpadded, and over-padded inputs are equivalent.
+    let input = {
+        let mut end = input.len();
+        while end > 0 && input[end - 1] == b'=' {
+            end -= 1;
+        }
+        &input[..end]
+    };
     let mut out: Vec<u8> = Vec::new();
     let mut buffer: u32 = 0;
     let mut bits: u32 = 0;
     for &ch in input {
-        if ch == b'=' {
-            break;
-        }
         let val = decode_base64url_char(ch).ok_or(())?;
         buffer = (buffer << 6) | (val as u32);
         bits += 6;
@@ -117,11 +125,16 @@ fn parse_json_sub(env: &Env, payload: &[u8]) -> Result<String, ()> {
 ///
 /// When `expected_sub` is [`None`], the token must still contain a parseable `sub` claim, but it
 /// is not compared to a caller-supplied address (see contract `verify_sep10_token`).
+///
+/// `clock_skew_seconds` is added to `exp` before comparing against the ledger timestamp,
+/// accommodating the lag between wall-clock JWT issuance and Soroban ledger time.
+/// Pass `0` for strict enforcement. A value of `60` is a reasonable default.
 pub fn verify_sep10_jwt(
     env: &Env,
     token: &String,
     anchor_public_key: &Bytes,
     expected_sub: Option<&String>,
+    clock_skew_seconds: u64,
 ) -> Result<(), ()> {
     if anchor_public_key.len() != 32 {
         return Err(());
@@ -182,7 +195,7 @@ pub fn verify_sep10_jwt(
     let payload_dec = base64url_decode(payload_b64).map_err(|_| ())?;
     let exp = parse_json_exp(&payload_dec)?;
     let now = env.ledger().timestamp();
-    if exp <= now {
+    if exp.saturating_add(clock_skew_seconds) <= now {
         return Err(());
     }
 
@@ -235,8 +248,19 @@ mod tests {
 
     #[test]
     fn base64url_roundtrip_simple() {
-        let dec = base64url_decode(b"SGVsbG8").unwrap();
-        assert_eq!(dec, b"Hello");
+        // "Hello" = SGVsbG8 (unpadded), SGVsbG8= (1-pad), SGVsbG8== (over-padded)
+        let expected = b"Hello";
+        assert_eq!(base64url_decode(b"SGVsbG8").unwrap(), expected);   // unpadded
+        assert_eq!(base64url_decode(b"SGVsbG8=").unwrap(), expected);  // standard padded
+        assert_eq!(base64url_decode(b"SGVsbG8==").unwrap(), expected); // over-padded
+        assert_eq!(base64url_decode(b"SGVsbG8===").unwrap(), expected); // extra over-padded
+
+        // "Man" = TWFu (no padding needed), TWFu= (spurious pad)
+        assert_eq!(base64url_decode(b"TWFu").unwrap(), b"Man");
+        assert_eq!(base64url_decode(b"TWFu=").unwrap(), b"Man");
+
+        // Invalid character should still error
+        assert!(base64url_decode(b"SGVs!G8").is_err());
     }
 
     #[test]
@@ -252,8 +276,8 @@ mod tests {
         let jwt = build_jwt(&signing_key, sub_str.as_str(), 2_000);
         let token = String::from_str(&env, jwt.as_str());
 
-        assert!(verify_sep10_jwt(&env, &token, &pk, Some(&sub)).is_ok());
-        assert!(verify_sep10_jwt(&env, &token, &pk, None).is_ok());
+        assert!(verify_sep10_jwt(&env, &token, &pk, Some(&sub), 0).is_ok());
+        assert!(verify_sep10_jwt(&env, &token, &pk, None, 0).is_ok());
     }
 
     #[test]
@@ -269,7 +293,7 @@ mod tests {
         let jwt = build_jwt(&signing_key, sub_str.as_str(), 1_000);
         let token = String::from_str(&env, jwt.as_str());
 
-        assert!(verify_sep10_jwt(&env, &token, &pk, Some(&sub)).is_err());
+        assert!(verify_sep10_jwt(&env, &token, &pk, Some(&sub), 0).is_err());
     }
 
     #[test]
@@ -286,7 +310,7 @@ mod tests {
         let jwt = build_jwt(&signing_key, sub_str.as_str(), 2_000);
         let token = String::from_str(&env, jwt.as_str());
 
-        assert!(verify_sep10_jwt(&env, &token, &pk, Some(&sub)).is_err());
+        assert!(verify_sep10_jwt(&env, &token, &pk, Some(&sub), 0).is_err());
 
         // Malformed payloads should also return Err, not panic
         let malformed_cases: &[&[u8]] = &[
@@ -325,5 +349,28 @@ mod tests {
                 payload
             );
         }
+    }
+
+    #[test]
+    fn verify_accepts_token_within_clock_skew_window() {
+        let env = Env::default();
+        // Ledger is 30 s ahead of the token's exp — within a 60 s skew tolerance.
+        ledger(&env, 1_030);
+        let signing_key = SigningKey::generate(&mut OsRng);
+        let pk = Bytes::from_slice(&env, signing_key.verifying_key().as_bytes());
+
+        let attestor = Address::generate(&env);
+        let sub = attestor.to_string();
+        let sub_str: std::string::String = sub.to_string();
+        // Token expired at t=1_000, ledger is at t=1_030 (30 s lag).
+        let jwt = build_jwt(&signing_key, sub_str.as_str(), 1_000);
+        let token = String::from_str(&env, jwt.as_str());
+
+        // Without skew: rejected.
+        assert!(verify_sep10_jwt(&env, &token, &pk, None, 0).is_err());
+        // With 60 s skew: accepted (exp + 60 = 1_060 > 1_030).
+        assert!(verify_sep10_jwt(&env, &token, &pk, None, 60).is_ok());
+        // With skew exactly equal to lag (30 s): exp + 30 = 1_030, not strictly greater — rejected.
+        assert!(verify_sep10_jwt(&env, &token, &pk, None, 30).is_err());
     }
 }

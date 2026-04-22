@@ -85,6 +85,8 @@ pub struct WithdrawalResponse {
     pub transaction_id: String,
     /// Stellar account the user should send funds to.
     pub account_id: String,
+    /// Destination bank/wallet account for the off-chain withdrawal, if provided.
+    pub dest_account_id: Option<String>,
     /// Optional memo to attach to the Stellar payment.
     pub memo: Option<String>,
     /// Optional memo type (`text`, `id`, `hash`).
@@ -150,6 +152,7 @@ pub struct RawDepositResponse {
 pub struct RawWithdrawalResponse {
     pub transaction_id: String,
     pub account_id: String,
+    pub dest_account_id: Option<String>,
     pub memo: Option<String>,
     pub memo_type: Option<String>,
     pub min_amount: Option<u64>,
@@ -205,6 +208,7 @@ pub fn initiate_withdrawal(raw: RawWithdrawalResponse) -> Result<WithdrawalRespo
     Ok(WithdrawalResponse {
         transaction_id: raw.transaction_id,
         account_id: raw.account_id,
+        dest_account_id: raw.dest_account_id,
         memo: raw.memo,
         memo_type: raw.memo_type,
         min_amount: raw.min_amount,
@@ -266,6 +270,7 @@ mod tests {
         RawWithdrawalResponse {
             transaction_id: "txn-002".to_string(),
             account_id: "GABC123".to_string(),
+            dest_account_id: Some("bank-account-9876".to_string()),
             memo: Some("12345".to_string()),
             memo_type: Some("id".to_string()),
             min_amount: Some(5),
@@ -316,6 +321,7 @@ mod tests {
         assert_eq!(resp.transaction_id, "txn-002");
         assert_eq!(resp.status, TransactionStatus::PendingUser);
         assert_eq!(resp.memo_type, Some("id".to_string()));
+        assert_eq!(resp.dest_account_id, Some("bank-account-9876".to_string()));
     }
 
     #[test]

@@ -405,7 +405,7 @@ impl AnchorKitContract {
             .persistent()
             .get(&(symbol_short!("SEP10KEY"), issuer.clone()))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::InvalidSep10Token));
-        if sep10_jwt::verify_sep10_jwt(&env, &token, &pk, None).is_err() {
+        if sep10_jwt::verify_sep10_jwt(&env, &token, &pk, None, 0).is_err() {
             panic_with_error!(&env, ErrorCode::InvalidSep10Token);
         }
     }
@@ -422,7 +422,7 @@ impl AnchorKitContract {
             .get(&(symbol_short!("SEP10KEY"), issuer.clone()))
             .unwrap_or_else(|| panic_with_error!(env, ErrorCode::InvalidSep10Token));
         let expected = attestor.to_string();
-        if sep10_jwt::verify_sep10_jwt(env, token, &pk, Some(&expected)).is_err() {
+        if sep10_jwt::verify_sep10_jwt(env, token, &pk, Some(&expected), 0).is_err() {
             panic_with_error!(env, ErrorCode::InvalidSep10Token);
         }
     }
