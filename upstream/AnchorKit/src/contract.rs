@@ -287,6 +287,23 @@ pub struct EndpointUpdated {
     pub endpoint: String,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct HealthStatus {
+    pub anchor: Address,
+    pub latency_ms: u64,
+    pub failure_count: u32,
+    pub availability_percent: u32,
+}
+
+#[contracttype]
+#[derive(Clone)]
+struct AnchorDeactivated {
+    anchor: Address,
+    failure_count: u32,
+    threshold: u32,
+}
+
 // ---------------------------------------------------------------------------
 // TTLs (in ledgers)
 // ---------------------------------------------------------------------------
@@ -317,6 +334,9 @@ impl AnchorKitContract {
 
     pub fn initialize(env: Env, admin: Address) {
         admin.require_auth();
+        if admin == env.current_contract_address() {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
         let inst = env.storage().instance();
         if inst.has(&admin_key(&env)) {
             panic_with_error!(&env, ErrorCode::AlreadyInitialized);
@@ -775,7 +795,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
 
         // Convert stored Bytes payload_hash to BytesN<32>
         let stored: BytesN<32> = attestation.payload_hash.try_into().unwrap_or_else(|_| {
-            panic_with_error!(&env, ErrorCode::ValidationError)
+            panic_with_error!(&env, ErrorCode::StorageCorrupted)
         });
         verify_payload_hash(&stored, &expected_hash)
     }
@@ -1175,6 +1195,74 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         Self::require_admin(&env);
         let key = (symbol_short!("CAPCACHE"), anchor);
         env.storage().temporary().remove(&key);
+    }
+
+    // -----------------------------------------------------------------------
+    // Health monitoring
+    // -----------------------------------------------------------------------
+
+    /// Set the consecutive-failure threshold after which an anchor is auto-deactivated.
+    /// Admin-only. Default is 0 (feature disabled).
+    pub fn set_health_failure_threshold(env: Env, threshold: u32) {
+        Self::require_admin(&env);
+        env.storage().instance().set(&symbol_short!("HTHRESH"), &threshold);
+        env.storage().instance().extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+    }
+
+    /// Record a health check result for `anchor`.
+    /// `failure_count` is the current consecutive failure count (caller-supplied).
+    /// If `failure_count` >= configured threshold (and threshold > 0), sets `is_active = false`
+    /// on the anchor's routing metadata and emits `AnchorDeactivated`.
+    pub fn update_health_status(
+        env: Env,
+        anchor: Address,
+        latency_ms: u64,
+        failure_count: u32,
+        availability_percent: u32,
+    ) {
+        let status = HealthStatus {
+            anchor: anchor.clone(),
+            latency_ms,
+            failure_count,
+            availability_percent,
+        };
+        let key = (symbol_short!("HEALTH"), anchor.clone());
+        env.storage().persistent().set(&key, &status);
+        env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("HTHRESH"))
+            .unwrap_or(0u32);
+
+        if threshold > 0 && failure_count >= threshold {
+            let meta_key = (symbol_short!("ANCHMETA"), anchor.clone());
+            if let Some(mut meta) = env
+                .storage()
+                .persistent()
+                .get::<_, RoutingAnchorMeta>(&meta_key)
+            {
+                if meta.is_active {
+                    meta.is_active = false;
+                    env.storage().persistent().set(&meta_key, &meta);
+                    env.storage()
+                        .persistent()
+                        .extend_ttl(&meta_key, PERSISTENT_TTL, PERSISTENT_TTL);
+                    env.events().publish(
+                        (symbol_short!("anchor"), symbol_short!("deactivate")),
+                        AnchorDeactivated { anchor, failure_count, threshold },
+                    );
+                }
+            }
+        }
+    }
+
+    /// Retrieve the last recorded health status for `anchor`, or `None` if not set.
+    pub fn get_health_status(env: Env, anchor: Address) -> Option<HealthStatus> {
+        env.storage()
+            .persistent()
+            .get::<_, HealthStatus>(&(symbol_short!("HEALTH"), anchor))
     }
 
     // -----------------------------------------------------------------------
