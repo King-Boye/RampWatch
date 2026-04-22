@@ -317,6 +317,9 @@ impl AnchorKitContract {
 
     pub fn initialize(env: Env, admin: Address) {
         admin.require_auth();
+        if admin == env.current_contract_address() {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
         let inst = env.storage().instance();
         if inst.has(&admin_key(&env)) {
             panic_with_error!(&env, ErrorCode::AlreadyInitialized);
@@ -724,7 +727,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
 
         // Convert stored Bytes payload_hash to BytesN<32>
         let stored: BytesN<32> = attestation.payload_hash.try_into().unwrap_or_else(|_| {
-            panic_with_error!(&env, ErrorCode::ValidationError)
+            panic_with_error!(&env, ErrorCode::StorageCorrupted)
         });
         verify_payload_hash(&stored, &expected_hash)
     }
