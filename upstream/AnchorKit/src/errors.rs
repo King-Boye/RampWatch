@@ -42,7 +42,7 @@ pub enum ErrorCode {
     ServicesNotConfigured = 14,
     ValidationError = 15,
     RateLimitExceeded = 16,
-    NotInitialized = 16,
+    NotInitialized = 101,
     AttestationNotFound = 17,
     InvalidSep10Token = 18,
     CacheExpired = 48,

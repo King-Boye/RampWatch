@@ -3,7 +3,7 @@
 //! This module implements per-attestor rate limiting for attestation submissions
 //! to prevent spam and abuse of the contract.
 
-use soroban_sdk::{contracttype, Address, Env};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String};
 use crate::errors::{AnchorKitError, ErrorCode};
 
 /// Rate limit configuration stored in contract storage
@@ -27,20 +27,22 @@ pub struct RateLimitState {
 }
 
 /// Rate limiter for attestation submissions
+#[contract]
 pub struct RateLimiter;
 
+#[contractimpl]
 impl RateLimiter {
     /// Check if an attestor can submit an attestation and increment their counter
     ///
     /// Returns `Ok(())` if the attestor is within the rate limit.
     /// Returns `Err(AnchorKitError::rate_limit_exceeded())` if the limit is exceeded.
     pub fn check_and_increment(
-        env: &Env,
-        attestor: &Address,
-        config: &RateLimitConfig,
+        env: Env,
+        attestor: Address,
+        config: RateLimitConfig,
     ) -> Result<(), AnchorKitError> {
         let current_ledger = env.ledger().sequence();
-        let state_key = Self::get_state_key(env, attestor);
+        let state_key = Self::get_state_key(&env, &attestor);
         
         // Get or initialize rate limit state
         let mut state = env.storage().persistent().get::<_, RateLimitState>(&state_key)
@@ -70,8 +72,8 @@ impl RateLimiter {
     }
     
     /// Get the current rate limit state for an attestor
-    pub fn get_state(env: &Env, attestor: &Address) -> RateLimitState {
-        let state_key = Self::get_state_key(env, attestor);
+    pub fn get_state(env: Env, attestor: Address) -> RateLimitState {
+        let state_key = Self::get_state_key(&env, &attestor);
         env.storage().persistent().get::<_, RateLimitState>(&state_key)
             .unwrap_or(RateLimitState {
                 submission_count: 0,
@@ -81,20 +83,20 @@ impl RateLimiter {
     
     /// Update the rate limit configuration (admin only)
     pub fn update_config(
-        env: &Env,
-        _admin: &Address,
-        config: &RateLimitConfig,
+        env: Env,
+        _admin: Address,
+        config: RateLimitConfig,
     ) -> Result<(), AnchorKitError> {
         // In a real contract, you would check that admin is authorized
         // For now, we'll just store the config
-        let config_key = Self::get_config_key(env);
-        env.storage().persistent().set(&config_key, config);
+        let config_key = Self::get_config_key(&env);
+        env.storage().persistent().set(&config_key, &config);
         Ok(())
     }
     
     /// Get the current rate limit configuration
-    pub fn get_config(env: &Env) -> RateLimitConfig {
-        let config_key = Self::get_config_key(env);
+    pub fn get_config(env: Env) -> RateLimitConfig {
+        let config_key = Self::get_config_key(&env);
         env.storage().persistent().get::<_, RateLimitConfig>(&config_key)
             .unwrap_or(RateLimitConfig {
                 max_submissions: 10,
@@ -109,17 +111,13 @@ impl RateLimiter {
     
     /// Generate storage key for rate limit state
     fn get_state_key(env: &Env, attestor: &Address) -> soroban_sdk::BytesN<32> {
-        // Use the address bytes directly as the key
-        // Convert address to bytes using its internal representation
-        // We use the address string representation and hash it
         let address_str = attestor.to_string();
-        // Use env.crypto().sha256() to hash the address string
-        // Convert the string to bytes using copy_into_slice
-        let mut address_bytes = [0u8; 56]; // Stellar addresses are 56 characters
-        address_str.copy_into_slice(&mut address_bytes);
-        let bytes = soroban_sdk::Bytes::from_slice(env, &address_bytes);
+        let mut address_bytes = [0u8; 128]; // Buffer for address string
+        let len = address_str.len() as usize;
+        let final_len = if len > 128 { 128 } else { len };
+        address_str.copy_into_slice(&mut address_bytes[..final_len]);
+        let bytes = soroban_sdk::Bytes::from_slice(env, &address_bytes[..final_len]);
         let hash = env.crypto().sha256(&bytes);
-        // Convert Hash<32> to BytesN<32>
         hash.into()
     }
     
@@ -139,27 +137,27 @@ mod tests {
     #[test]
     fn test_rate_limit_under_limit() {
         let env = Env::default();
-        let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+        let attestor = Address::generate(&env);
         let config = RateLimitConfig {
             max_submissions: 10,
             window_length: 100,
         };
         
         // Create a dummy contract address for testing
-        let contract_address = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+        let contract_address = Address::generate(&env);
         
         // Register a dummy contract for testing
         let contract_id = env.register_contract(&contract_address, crate::rate_limiter::RateLimiter);
         
         // Should succeed for first submission
         let result = env.as_contract(&contract_id, &|| {
-            RateLimiter::check_and_increment(&env, &attestor, &config)
+            RateLimiter::check_and_increment(env.clone(), attestor.clone(), config.clone())
         });
         assert!(result.is_ok());
         
         // Check state
         let state = env.as_contract(&contract_id, &|| {
-            RateLimiter::get_state(&env, &attestor)
+            RateLimiter::get_state(env.clone(), attestor.clone())
         });
         assert_eq!(state.submission_count, 1);
     }
@@ -167,26 +165,26 @@ mod tests {
     #[test]
     fn test_rate_limit_at_limit() {
         let env = Env::default();
-        let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+        let attestor = Address::generate(&env);
         let config = RateLimitConfig {
             max_submissions: 2,
             window_length: 100,
         };
         
         // Create a dummy contract address for testing
-        let contract_address = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+        let contract_address = Address::generate(&env);
         
         // First two submissions should succeed
         assert!(env.as_contract(&contract_address, &|| {
-            RateLimiter::check_and_increment(&env, &attestor, &config)
+            RateLimiter::check_and_increment(env.clone(), attestor.clone(), config.clone())
         }).is_ok());
         assert!(env.as_contract(&contract_address, &|| {
-            RateLimiter::check_and_increment(&env, &attestor, &config)
+            RateLimiter::check_and_increment(env.clone(), attestor.clone(), config.clone())
         }).is_ok());
         
         // Third submission should fail
         let result = env.as_contract(&contract_address, &|| {
-            RateLimiter::check_and_increment(&env, &attestor, &config)
+            RateLimiter::check_and_increment(env.clone(), attestor.clone(), config.clone())
         });
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code, ErrorCode::RateLimitExceeded);
@@ -195,23 +193,23 @@ mod tests {
     #[test]
     fn test_rate_limit_over_limit() {
         let env = Env::default();
-        let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+        let attestor = Address::generate(&env);
         let config = RateLimitConfig {
             max_submissions: 1,
             window_length: 100,
         };
         
         // Create a dummy contract address for testing
-        let contract_address = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+        let contract_address = Address::generate(&env);
         
         // First submission should succeed
         assert!(env.as_contract(&contract_address, &|| {
-            RateLimiter::check_and_increment(&env, &attestor, &config)
+            RateLimiter::check_and_increment(env.clone(), attestor.clone(), config.clone())
         }).is_ok());
         
         // Second submission should fail
         let result = env.as_contract(&contract_address, &|| {
-            RateLimiter::check_and_increment(&env, &attestor, &config)
+            RateLimiter::check_and_increment(env.clone(), attestor.clone(), config.clone())
         });
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code, ErrorCode::RateLimitExceeded);
@@ -220,30 +218,30 @@ mod tests {
     #[test]
     fn test_rate_limit_window_reset() {
         let env = Env::default();
-        let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+        let attestor = Address::generate(&env);
         let config = RateLimitConfig {
             max_submissions: 1,
             window_length: 10,
         };
         
         // Create a dummy contract address for testing
-        let contract_address = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+        let contract_address = Address::generate(&env);
         
         // First submission should succeed
         assert!(env.as_contract(&contract_address, &|| {
-            RateLimiter::check_and_increment(&env, &attestor, &config)
+            RateLimiter::check_and_increment(env.clone(), attestor.clone(), config.clone())
         }).is_ok());
         
         // Second submission should fail
         assert!(env.as_contract(&contract_address, &|| {
-            RateLimiter::check_and_increment(&env, &attestor, &config)
+            RateLimiter::check_and_increment(env.clone(), attestor.clone(), config.clone())
         }).is_err());
         
         // Note: In Soroban SDK, we cannot directly set the ledger sequence in tests
         // The window reset logic will be tested in integration tests with actual ledger progression
         // For now, we verify the state is correct
         let state = env.as_contract(&contract_address, &|| {
-            RateLimiter::get_state(&env, &attestor)
+            RateLimiter::get_state(env.clone(), attestor.clone())
         });
         assert_eq!(state.submission_count, 2);
     }
@@ -251,24 +249,24 @@ mod tests {
     #[test]
     fn test_rate_limit_config_update() {
         let env = Env::default();
-        let admin = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+        let admin = Address::generate(&env);
         let new_config = RateLimitConfig {
             max_submissions: 20,
             window_length: 200,
         };
         
         // Create a dummy contract address for testing
-        let contract_address = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+        let contract_address = Address::generate(&env);
         
         // Update config
         let result = env.as_contract(&contract_address, &|| {
-            RateLimiter::update_config(&env, &admin, &new_config)
+            RateLimiter::update_config(env.clone(), admin.clone(), new_config.clone())
         });
         assert!(result.is_ok());
         
         // Verify config was updated
         let config = env.as_contract(&contract_address, &|| {
-            RateLimiter::get_config(&env)
+            RateLimiter::get_config(env.clone())
         });
         assert_eq!(config.max_submissions, 20);
         assert_eq!(config.window_length, 200);
@@ -279,11 +277,11 @@ mod tests {
         let env = Env::default();
         
         // Create a dummy contract address for testing
-        let contract_address = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+        let contract_address = Address::generate(&env);
         
         // Get default config
         let config = env.as_contract(&contract_address, &|| {
-            RateLimiter::get_config(&env)
+            RateLimiter::get_config(env.clone())
         });
         assert_eq!(config.max_submissions, 10);
         assert_eq!(config.window_length, 100);

@@ -8,7 +8,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use soroban_sdk::{Bytes, Env, String};
+use soroban_sdk::{Bytes, BytesN, Env, String};
 
 /// Maximum JWT character length accepted by the contract (defensive bound).
 pub const MAX_JWT_LEN: u32 = 2048;
@@ -166,12 +166,10 @@ pub fn verify_sep10_jwt(
     let signing_input = Bytes::from_slice(env, &buf[..d1]);
     let sig_bytes = Bytes::from_slice(env, sig_dec.as_slice());
 
-    if !env
-        .crypto()
-        .ed25519_verify(anchor_public_key, &signing_input, &sig_bytes)
-    {
-        return Err(());
-    }
+    let pk_bytesn: BytesN<32> = anchor_public_key.clone().try_into().map_err(|_| ())?;
+    let sig_bytesn: BytesN<64> = sig_bytes.try_into().map_err(|_| ())?;
+
+    env.crypto().ed25519_verify(&pk_bytesn, &signing_input, &sig_bytesn);
 
     let payload_dec = base64url_decode(payload_b64).map_err(|_| ())?;
     let exp = parse_json_exp(&payload_dec)?;
@@ -195,6 +193,8 @@ mod tests {
     extern crate std;
 
     use super::*;
+    use alloc::format;
+    use alloc::string::ToString;
     use ed25519_dalek::{Signer, SigningKey};
     use rand::rngs::OsRng;
     use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
