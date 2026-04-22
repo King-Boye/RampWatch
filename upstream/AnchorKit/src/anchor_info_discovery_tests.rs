@@ -6,7 +6,8 @@ mod anchor_info_discovery_tests {
         Address, Env, String, Vec,
     };
 
-    use crate::contract::{AnchorKitContract, AnchorKitContractClient, AssetInfo, StellarToml};
+    use crate::contract::{AnchorKitContract, AnchorKitContractClient};
+    use crate::types::{AssetInfo, StellarToml};
 
     fn make_env() -> Env {
         let env = Env::default();

@@ -7,10 +7,6 @@ license = "MIT"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[[bin]]
-name = "anchorkit"
-path = "src/main.rs"
-
 [[example]]
 name = "cli_example"
 path = "examples/cli_example.rs"
