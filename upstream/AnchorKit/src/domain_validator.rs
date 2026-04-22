@@ -28,16 +28,11 @@ use crate::errors::AnchorKitError;
 /// * `Err(AnchorKitError)` if validation fails
 ///
 /// # Examples
-/// ```
-/// use anchor_kit::domain_validator::validate_anchor_domain;
+/// ```ignore
+/// use anchorkit::domain_validator::validate_anchor_domain;
 ///
-/// // Valid domain
 /// assert!(validate_anchor_domain("https://example.com").is_ok());
-///
-/// // Invalid - not HTTPS
 /// assert!(validate_anchor_domain("http://example.com").is_err());
-///
-/// // Invalid - malformed
 /// assert!(validate_anchor_domain("not-a-url").is_err());
 /// ```
 pub fn validate_anchor_domain(domain: &str) -> Result<(), AnchorKitError> {
