@@ -67,17 +67,16 @@ mod get_attestation_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
+        let attestor = Address::generate(&env);
+        let subject = Address::generate(&env);
         client.initialize(&admin);
 
         let mut csprng = OsRng;
         let signing_key = SigningKey::generate(&mut csprng);
-        let issuer = Address::generate(&env);
-        let subject = Address::generate(&env);
-
-        register_attestor_with_sep10(&env, &client, &admin, &issuer, &signing_key);
+        register_attestor_with_sep10(&env, &client, &attestor, &admin, &signing_key);
 
         let id = client.submit_attestation(
-            &issuer,
+            &attestor,
             &subject,
             &1700000000u64,
             &payload(&env, 0xAB),

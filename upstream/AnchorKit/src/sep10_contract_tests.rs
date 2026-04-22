@@ -44,8 +44,12 @@ mod sep10_contract_tests {
 
         let attestor = Address::generate(&env);
         let sub = attestor.to_string();
-        let sub_std: std::string::String = sub.to_string();
-        let jwt = build_sep10_jwt(&sk, sub_std.as_str(), 2000);
+        let mut buf = [0u8; 128];
+        let len = sub.len() as usize;
+        let final_len = if len > 128 { 128 } else { len };
+        sub.copy_into_slice(&mut buf[..final_len]);
+        let sub_std = core::str::from_utf8(&buf[..final_len]).unwrap_or("");
+        let jwt = build_sep10_jwt(&sk, sub_std, 2000);
         let token = String::from_str(&env, jwt.as_str());
         client.verify_sep10_token(&token, &issuer);
     }

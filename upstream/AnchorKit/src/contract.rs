@@ -1257,7 +1257,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
                         .persistent()
                         .extend_ttl(&meta_key, PERSISTENT_TTL, PERSISTENT_TTL);
                     env.events().publish(
-                        (symbol_short!("anchor"), symbol_short!("deactivate")),
+                        (symbol_short!("anchor"), symbol_short!("deactiv")),
                         AnchorDeactivated { anchor, failure_count, threshold },
                     );
                 }

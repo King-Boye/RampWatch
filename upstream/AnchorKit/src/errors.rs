@@ -47,6 +47,7 @@ pub enum ErrorCode {
     InvalidSep10Token = 18,
     CacheExpired = 48,
     CacheNotFound = 49,
+    StorageCorrupted = 50,
 }
 
 impl ErrorCode {
