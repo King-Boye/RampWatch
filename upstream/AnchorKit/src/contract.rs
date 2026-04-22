@@ -1310,6 +1310,15 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         }
     }
 
+    /// Return all anchor addresses that have been registered via `set_anchor_metadata`.
+    /// Returns an empty `Vec` when no anchors have been registered.
+    pub fn get_routing_anchors(env: Env) -> Vec<Address> {
+        let list_key = soroban_sdk::vec![&env, symbol_short!("ANCHLIST")];
+        env.storage().persistent()
+            .get::<_, Vec<Address>>(&list_key)
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
     pub fn route_transaction(env: Env, options: RoutingOptions) -> Quote {
         let now = env.ledger().timestamp();
         let list_key = soroban_sdk::vec![&env, symbol_short!("ANCHLIST")];

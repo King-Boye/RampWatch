@@ -24,6 +24,8 @@ pub struct RateLimitState {
     pub submission_count: u32,
     /// Ledger number when the current window started
     pub window_start_ledger: u32,
+    /// Cumulative total requests across all windows (never reset)
+    pub total_requests: u64,
 }
 
 /// Rate limiter for attestation submissions
@@ -52,22 +54,25 @@ impl RateLimiter {
             .unwrap_or(RateLimitState {
                 submission_count: 0,
                 window_start_ledger: current_ledger,
+                total_requests: 0,
             });
         
         // Check if window has expired and reset if needed
         if Self::is_window_expired(current_ledger, state.window_start_ledger, config.window_length) {
-            state = RateLimitState {
-                submission_count: 0,
-                window_start_ledger: current_ledger,
-            };
+            state.submission_count = 0;
+            state.window_start_ledger = current_ledger;
         }
         
+        // Increment total_requests on every call regardless of window state
+        state.total_requests += 1;
+
         // Check if limit is exceeded
         if state.submission_count >= config.max_submissions {
+            env.storage().persistent().set(&state_key, &state);
             return Err(AnchorKitError::rate_limit_exceeded());
         }
         
-        // Increment counter and save state
+        // Increment window counter and save state
         state.submission_count += 1;
         env.storage().persistent().set(&state_key, &state);
         
@@ -81,6 +86,7 @@ impl RateLimiter {
             .unwrap_or(RateLimitState {
                 submission_count: 0,
                 window_start_ledger: env.ledger().sequence(),
+                total_requests: 0,
             })
     }
     

@@ -82,7 +82,7 @@ fn parse_json_exp(payload: &[u8]) -> Result<u64, ()> {
     Ok(n)
 }
 
-/// Parse first `"sub":"..."` string value (no escape sequences inside value).
+/// Parse first `"sub":"..."` string value, handling `\"` escape sequences.
 fn parse_json_sub(env: &Env, payload: &[u8]) -> Result<String, ()> {
     let key = b"\"sub\":";
     let pos = find_bytes(payload, key).ok_or(())?;
@@ -96,6 +96,14 @@ fn parse_json_sub(env: &Env, payload: &[u8]) -> Result<String, ()> {
     i += 1;
     let start = i;
     while i < payload.len() {
+        if payload[i] == b'\\' {
+            // skip escaped character; if nothing follows, it's malformed
+            if i + 1 >= payload.len() {
+                return Err(());
+            }
+            i += 2;
+            continue;
+        }
         if payload[i] == b'"' {
             let sub = &payload[start..i];
             return Ok(String::from_bytes(env, sub));
@@ -279,5 +287,43 @@ mod tests {
         let token = String::from_str(&env, jwt.as_str());
 
         assert!(verify_sep10_jwt(&env, &token, &pk, Some(&sub)).is_err());
+
+        // Malformed payloads should also return Err, not panic
+        let malformed_cases: &[&[u8]] = &[
+            b"",                                    // empty payload
+            b"not json at all",                     // bad JSON
+            b"{\"sub\":\"val\\\"ue\",\"exp\":9999}", // escaped quote in sub value
+            b"{\"sub\":\"unterminated",             // truncated / no closing quote
+        ];
+        for payload in malformed_cases {
+            assert!(
+                parse_json_sub(&env, payload).is_err(),
+                "expected Err for payload: {:?}",
+                payload
+            );
+        }
+    }
+
+    #[test]
+    fn parse_json_sub_malformed_inputs_return_none() {
+        let env = Env::default();
+        ledger(&env, 1_000);
+
+        let cases: &[&[u8]] = &[
+            b"",                                          // empty
+            b"{}",                                        // no sub key
+            b"{\"sub\":42}",                              // sub not a string
+            b"{\"sub\":\"val\\\"ue\",\"exp\":9999}",      // escaped quote in sub
+            b"{\"sub\":\"unterminated",                   // truncated base64 / no closing quote
+            b"{\"sub\":\"\\",                             // backslash at end (malformed escape)
+        ];
+
+        for payload in cases {
+            assert!(
+                parse_json_sub(&env, payload).is_err(),
+                "expected Err for: {:?}",
+                payload
+            );
+        }
     }
 }

@@ -124,7 +124,7 @@ pub enum TransactionKind {
 
 impl TransactionKind {
     pub fn from_str(s: &str) -> Self {
-        match s {
+        match s.to_lowercase().as_str() {
             "withdrawal" | "withdraw" => Self::Withdrawal,
             _ => Self::Deposit,
         }
@@ -360,5 +360,19 @@ mod tests {
         raw.kind = Some("withdraw".to_string());
         let resp = fetch_transaction_status(raw).unwrap();
         assert_eq!(resp.kind, TransactionKind::Withdrawal);
+
+        // Mixed-case withdrawal variants
+        for s in &["Withdrawal", "WITHDRAWAL", "Withdraw", "WITHDRAW"] {
+            let mut r = raw_tx_status();
+            r.kind = Some(s.to_string());
+            assert_eq!(fetch_transaction_status(r).unwrap().kind, TransactionKind::Withdrawal, "failed for {s}");
+        }
+
+        // Mixed-case deposit variants
+        for s in &["Deposit", "DEPOSIT", "deposit"] {
+            let mut r = raw_tx_status();
+            r.kind = Some(s.to_string());
+            assert_eq!(fetch_transaction_status(r).unwrap().kind, TransactionKind::Deposit, "failed for {s}");
+        }
     }
 }
