@@ -1576,7 +1576,8 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         let inst = env.storage().instance();
         let ck = soroban_sdk::vec![env, symbol_short!("COUNTER")];
         let id: u64 = inst.get(&ck).unwrap_or(0u64);
-        inst.set(&ck, &(id + 1));
+        let next = id.checked_add(1).unwrap_or_else(|| panic_with_error!(env, ErrorCode::ValidationError));
+        inst.set(&ck, &next);
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
         id
     }
