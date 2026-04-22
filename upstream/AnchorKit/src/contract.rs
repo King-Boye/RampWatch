@@ -41,6 +41,7 @@ fn admin_key(env: &Env) -> soroban_sdk::Vec<soroban_sdk::Symbol> {
 pub struct AnchorKitContract;
 
 #[contractimpl]
+#[allow(clippy::too_many_arguments)]
 impl AnchorKitContract {
     // -----------------------------------------------------------------------
     // Initialization
@@ -72,7 +73,7 @@ impl AnchorKitContract {
 
     pub fn generate_request_id(env: Env) -> RequestId {
         let ts = env.ledger().timestamp();
-        let seq = env.ledger().sequence() as u32;
+        let seq = env.ledger().sequence();
 
         let mut input = Bytes::new(&env);
         for b in ts.to_be_bytes().iter() {
@@ -229,7 +230,7 @@ impl AnchorKitContract {
         }
         let mut seen = Vec::new(&env);
         for s in services.iter() {
-            if seen.contains(&s) {
+            if seen.contains(s) {
                 panic_with_error!(&env, ErrorCode::InvalidServiceType);
             }
             seen.push_back(s);
@@ -260,7 +261,7 @@ impl AnchorKitContract {
             .persistent()
             .get::<_, AnchorServices>(&(symbol_short!("SERVICES"), anchor))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::ServicesNotConfigured));
-        record.services.contains(&service)
+        record.services.contains(service)
     }
 
     // -----------------------------------------------------------------------
@@ -342,6 +343,7 @@ impl AnchorKitContract {
     // -----------------------------------------------------------------------
 
     #[allow(unused_variables)]
+    #[allow(clippy::too_many_arguments)]
     pub fn quote_with_request_id(
         env: Env,
         request_id: RequestId,
@@ -361,7 +363,7 @@ impl AnchorKitContract {
             .persistent()
             .get::<_, AnchorServices>(&(symbol_short!("SERVICES"), anchor.clone()))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::ServicesNotConfigured));
-        if !services_record.services.contains(&SERVICE_QUOTES) {
+        if !services_record.services.contains(SERVICE_QUOTES) {
             panic_with_error!(&env, ErrorCode::ServicesNotConfigured);
         }
 
@@ -502,6 +504,7 @@ impl AnchorKitContract {
     // Quote management
     // -----------------------------------------------------------------------
 
+    #[allow(clippy::too_many_arguments)]
     pub fn submit_quote(
         env: Env,
         anchor: Address,
@@ -837,7 +840,7 @@ impl AnchorKitContract {
                     env.storage().persistent().set(&meta_key, &meta);
                     env.storage().persistent().extend_ttl(&meta_key, PERSISTENT_TTL, PERSISTENT_TTL);
                     env.events().publish(
-                        (symbol_short!("anchor"), symbol_short!("deactivate")),
+                        (symbol_short!("anchor"), symbol_short!("deactiv")),
                         AnchorDeactivated { anchor, failure_count, threshold },
                     );
                 }
@@ -1107,7 +1110,8 @@ impl AnchorKitContract {
         let inst = env.storage().instance();
         let ck = soroban_sdk::vec![env, symbol_short!("COUNTER")];
         let id: u64 = inst.get(&ck).unwrap_or(0u64);
-        inst.set(&ck, &(id + 1));
+        let next = id.checked_add(1).unwrap_or_else(|| panic_with_error!(env, ErrorCode::ValidationError));
+        inst.set(&ck, &next);
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
         id
     }
@@ -1158,4 +1162,8 @@ pub fn get_endpoint(env: Env, attestor: Address) -> String {
 
 pub fn set_endpoint(env: Env, attestor: Address, endpoint: String) {
     AnchorKitContract::set_endpoint(env, attestor, endpoint)
+}
+
+pub fn get_admin(env: Env) -> Address {
+    AnchorKitContract::get_admin(env)
 }

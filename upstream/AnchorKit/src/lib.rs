@@ -80,4 +80,4 @@ mod capability_detection_tests;
 mod attestor_endpoint_tests;
 
 #[cfg(test)]
-mod attestation_pagination_tests;
+mod attestation_validation_tests;
