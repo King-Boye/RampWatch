@@ -134,9 +134,20 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
         return Err(AnchorKitError::invalid_endpoint_format());
     }
 
-    // Must contain at least one dot for valid domain
+    // Must contain at least one dot for valid domain (rejects single-label hostnames
+    // like "anchor", "localhost", "intranet" which have no TLD — issue #275)
     if !domain_without_port.contains('.') {
         return Err(AnchorKitError::invalid_endpoint_format());
+    }
+
+    // Must have at least two non-empty labels (e.g. "anchor.example"), rejecting
+    // single-label domains even when a trailing dot is somehow present
+    {
+        let labels: Vec<&str> = domain_without_port.split('.').collect();
+        let non_empty_labels = labels.iter().filter(|l| !l.is_empty()).count();
+        if non_empty_labels < 2 {
+            return Err(AnchorKitError::invalid_endpoint_format());
+        }
     }
 
     // Check for consecutive dots
@@ -246,9 +257,13 @@ mod tests {
         assert!(validate_anchor_domain("https://example.com.").is_err());
         assert!(validate_anchor_domain("https://example..com").is_err());
         
-        // No TLD
+        // Issue #275: single-label domains (no TLD) must be rejected — they are
+        // internal hostnames and not valid anchor endpoints
         assert!(validate_anchor_domain("https://localhost").is_err());
         assert!(validate_anchor_domain("https://example").is_err());
+        assert!(validate_anchor_domain("https://anchor").is_err());
+        assert!(validate_anchor_domain("https://anchor/sep6").is_err());
+        assert!(validate_anchor_domain("https://intranet/path").is_err());
         
         // Spaces in domain
         assert!(validate_anchor_domain("https://example .com").is_err());

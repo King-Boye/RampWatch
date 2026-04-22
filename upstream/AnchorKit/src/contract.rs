@@ -754,10 +754,21 @@ impl AnchorKitContract {
         Self::require_admin(&env);
         let now = env.ledger().timestamp();
         let entry = MetadataCache { metadata, cached_at: now, ttl_seconds };
-        let key = (symbol_short!("METACACHE"), anchor);
+        let key = (symbol_short!("METACACHE"), anchor.clone());
         let ledger_ttl = if ttl_seconds as u32 > MIN_TEMP_TTL { ttl_seconds as u32 } else { MIN_TEMP_TTL };
         env.storage().temporary().set(&key, &entry);
         env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
+
+        // Issue #276: maintain CACHED_ANCHORS set
+        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
+        let mut list: Vec<Address> = env.storage().persistent()
+            .get::<_, Vec<Address>>(&list_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        if !list.contains(&anchor) {
+            list.push_back(anchor);
+            env.storage().persistent().set(&list_key, &list);
+            env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        }
     }
 
     pub fn get_cached_metadata(env: Env, anchor: Address) -> AnchorMetadata {
@@ -773,8 +784,29 @@ impl AnchorKitContract {
 
     pub fn refresh_metadata_cache(env: Env, anchor: Address) {
         Self::require_admin(&env);
-        let key = (symbol_short!("METACACHE"), anchor);
+        let key = (symbol_short!("METACACHE"), anchor.clone());
         env.storage().temporary().remove(&key);
+
+        // Issue #276: remove from CACHED_ANCHORS set
+        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
+        if let Some(list) = env.storage().persistent().get::<_, Vec<Address>>(&list_key) {
+            let mut new_list = Vec::new(&env);
+            for a in list.iter() {
+                if a != anchor {
+                    new_list.push_back(a);
+                }
+            }
+            env.storage().persistent().set(&list_key, &new_list);
+            env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        }
+    }
+
+    /// Issue #276: list all anchors that currently have active metadata cache entries.
+    pub fn list_cached_anchors(env: Env) -> Vec<Address> {
+        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
+        env.storage().persistent()
+            .get::<_, Vec<Address>>(&list_key)
+            .unwrap_or_else(|| Vec::new(&env))
     }
 
     // -----------------------------------------------------------------------
