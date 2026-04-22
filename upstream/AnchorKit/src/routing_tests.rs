@@ -331,4 +331,49 @@ mod routing_tests {
         assert_eq!(best.anchor, anchor2);
         assert_eq!(best.fee_percentage, 25);
     }
+
+    #[test]
+    fn test_auto_deactivation() {
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let anchor = Address::generate(&env);
+        register_anchor(&env, &client, &anchor);
+        client.set_anchor_metadata(&anchor, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.submit_quote(
+            &anchor,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &20u32, &100u64, &100000u64, &1_003_600u64,
+        );
+
+        // Set threshold to 3 consecutive failures
+        client.set_health_failure_threshold(&3u32);
+
+        // Two failures — below threshold, anchor still active
+        client.update_health_status(&anchor, &100u64, &2u32, &9800u32);
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy: strategy.clone(),
+            min_reputation: 0,
+            max_anchors: 1,
+            require_kyc: false,
+        };
+        let best = client.route_transaction(&options);
+        assert_eq!(best.anchor, anchor);
+
+        // Third failure — threshold breached, anchor deactivated
+        client.update_health_status(&anchor, &100u64, &3u32, &9500u32);
+
+        // Health status recorded
+        let health = client.get_health_status(&anchor).unwrap();
+        assert_eq!(health.failure_count, 3);
+
+        // Anchor no longer routable
+        let result = client.try_route_transaction(&options);
+        assert!(result.is_err());
+    }
 }
