@@ -78,3 +78,6 @@ mod attestor_endpoint_tests;
 
 #[cfg(test)]
 mod attestation_pagination_tests;
+
+#[cfg(test)]
+mod payload_hash_vectors_tests;
