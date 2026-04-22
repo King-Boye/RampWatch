@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Bytes, BytesN, Env};
+use soroban_sdk::{xdr::ToXdr, Address, Bytes, BytesN, Env};
 
 /// Compute a canonical SHA-256 hash over attestation payload fields.
 ///
@@ -24,7 +24,7 @@ pub fn compute_payload_hash(
     // 3. data payload
     input.append(data);
 
-    env.crypto().sha256(&input)
+    env.crypto().sha256(&input).into()
 }
 
 /// Verify that the stored attestation's payload hash matches the expected hash.

@@ -1,6 +1,6 @@
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, String,
-    Symbol, Vec,
+    contract, contractimpl, contracttype, panic_with_error, symbol_short, Address, Bytes, BytesN,
+    Env, String, Symbol, Vec,
 };
 
 use crate::deterministic_hash::{compute_payload_hash, verify_payload_hash};
@@ -371,9 +371,10 @@ impl AnchorKitContract {
         }
 
         let hash = env.crypto().sha256(&input);
+        let hash_bytes = Bytes::from_array(&env, &hash.into());
         let mut id = Bytes::new(&env);
         for i in 0..16u32 {
-            id.push_back(hash.get(i).unwrap());
+            id.push_back(hash_bytes.get(i).unwrap());
         }
 
         RequestId { id, created_at: ts }
@@ -472,7 +473,20 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     pub fn set_endpoint(env: Env, attestor: Address, endpoint: String) {
         attestor.require_auth();
         Self::check_attestor(&env, &attestor);
-        crate::validate_anchor_domain(endpoint.as_str()).map_err(|_| panic_with_error!(&env, ErrorCode::InvalidEndpointFormat))?;
+        
+        // Convert soroban String to Rust String for validation
+        let len = endpoint.len() as usize;
+        let mut rust_buf = [0u8; 128];
+        if len > 128 {
+            panic_with_error!(&env, ErrorCode::InvalidEndpointFormat);
+        }
+        endpoint.copy_into_slice(&mut rust_buf[..len]);
+        let endpoint_str = core::str::from_utf8(&rust_buf[..len]).unwrap_or("");
+
+        if crate::validate_anchor_domain(endpoint_str).is_err() {
+            panic_with_error!(&env, ErrorCode::InvalidEndpointFormat);
+        }
+
         let key = (symbol_short!("ENDPOINT"), attestor.clone());
         env.storage().persistent().set(&key, &endpoint);
         env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
@@ -717,6 +731,43 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
             .persistent()
             .get::<_, Attestation>(&(symbol_short!("ATTEST"), id))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound))
+    }
+
+    /// List attestations for a given subject with pagination support.
+    /// Returns up to `limit` attestations (max 50) starting from `offset`.
+    pub fn list_attestations(
+        env: Env,
+        subject: Address,
+        offset: u64,
+        limit: u32,
+    ) -> Vec<Attestation> {
+        let actual_limit = if limit > 50 { 50 } else { limit };
+        let mut results = Vec::new(&env);
+
+        let count_key = (symbol_short!("SUBCNT"), subject.clone());
+        let total_count: u64 = env.storage().persistent().get(&count_key).unwrap_or(0);
+
+        if offset >= total_count || actual_limit == 0 {
+            return results;
+        }
+
+        let end = if offset + (actual_limit as u64) > total_count {
+            total_count
+        } else {
+            offset + (actual_limit as u64)
+        };
+
+        for i in offset..end {
+            let index_key = (symbol_short!("SUBATT"), subject.clone(), i);
+            if let Some(attestation_id) = env.storage().persistent().get::<_, u64>(&index_key) {
+                let main_key = (symbol_short!("ATTEST"), attestation_id);
+                if let Some(attestation) = env.storage().persistent().get::<_, Attestation>(&main_key) {
+                    results.push_back(attestation);
+                }
+            }
+        }
+
+        results
     }
 
     // -----------------------------------------------------------------------
@@ -1532,7 +1583,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         let attestation = Attestation {
             id,
             issuer,
-            subject,
+            subject: subject.clone(),
             timestamp,
             payload_hash,
             signature,
@@ -1542,6 +1593,22 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         env.storage()
             .persistent()
             .extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+
+        // Subject-specific index for pagination support (#215)
+        // Store only the ID to save storage space (O(1) extra space)
+        let count_key = (symbol_short!("SUBCNT"), subject.clone());
+        let count: u64 = env.storage().persistent().get(&count_key).unwrap_or(0);
+
+        let subj_att_key = (symbol_short!("SUBATT"), subject.clone(), count);
+        env.storage().persistent().set(&subj_att_key, &id);
+        env.storage()
+            .persistent()
+            .extend_ttl(&subj_att_key, PERSISTENT_TTL, PERSISTENT_TTL);
+
+        env.storage().persistent().set(&count_key, &(count + 1));
+        env.storage()
+            .persistent()
+            .extend_ttl(&count_key, PERSISTENT_TTL, PERSISTENT_TTL);
     }
 
     fn store_span(
@@ -1566,4 +1633,12 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
             .temporary()
             .extend_ttl(&key, SPAN_TTL, SPAN_TTL);
     }
+}
+
+pub fn get_endpoint(env: Env, attestor: Address) -> String {
+    AnchorKitContract::get_endpoint(env, attestor)
+}
+
+pub fn set_endpoint(env: Env, attestor: Address, endpoint: String) {
+    AnchorKitContract::set_endpoint(env, attestor, endpoint)
 }
