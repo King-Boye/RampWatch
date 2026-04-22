@@ -3,8 +3,8 @@
 //! This module implements per-attestor rate limiting for attestation submissions
 //! to prevent spam and abuse of the contract.
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String};
-use crate::errors::{AnchorKitError, ErrorCode};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env};
+use crate::errors::ErrorCode;
 
 /// Rate limit configuration stored in contract storage
 #[contracttype]
