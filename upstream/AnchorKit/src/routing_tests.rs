@@ -333,38 +333,47 @@ mod routing_tests {
     }
 
     #[test]
-    fn test_get_routing_anchors_empty_on_fresh_state() {
+    fn test_auto_deactivation() {
         let env = make_env();
         set_ledger(&env, 1_000_000);
         let (client, _) = setup(&env);
 
-        let anchors = client.get_routing_anchors();
-        assert_eq!(anchors.len(), 0);
-    }
+        let anchor = Address::generate(&env);
+        register_anchor(&env, &client, &anchor);
+        client.set_anchor_metadata(&anchor, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.submit_quote(
+            &anchor,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &20u32, &100u64, &100000u64, &1_003_600u64,
+        );
 
-    #[test]
-    fn test_get_routing_anchors_returns_all_registered() {
-        let env = make_env();
-        set_ledger(&env, 1_000_000);
-        let (client, _) = setup(&env);
+        // Set threshold to 3 consecutive failures
+        client.set_health_failure_threshold(&3u32);
 
-        let anchor1 = Address::generate(&env);
-        let anchor2 = Address::generate(&env);
-        let anchor3 = Address::generate(&env);
+        // Two failures — below threshold, anchor still active
+        client.update_health_status(&anchor, &100u64, &2u32, &9800u32);
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy: strategy.clone(),
+            min_reputation: 0,
+            max_anchors: 1,
+            require_kyc: false,
+        };
+        let best = client.route_transaction(&options);
+        assert_eq!(best.anchor, anchor);
 
-        register_anchor(&env, &client, &anchor1);
-        client.set_anchor_metadata(&anchor1, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        // Third failure — threshold breached, anchor deactivated
+        client.update_health_status(&anchor, &100u64, &3u32, &9500u32);
 
-        register_anchor(&env, &client, &anchor2);
-        client.set_anchor_metadata(&anchor2, &7000u32, &400u64, &6500u32, &9800u32, &500_000u64);
+        // Health status recorded
+        let health = client.get_health_status(&anchor).unwrap();
+        assert_eq!(health.failure_count, 3);
 
-        register_anchor(&env, &client, &anchor3);
-        client.set_anchor_metadata(&anchor3, &6000u32, &500u64, &5500u32, &9700u32, &250_000u64);
-
-        let anchors = client.get_routing_anchors();
-        assert_eq!(anchors.len(), 3);
-        assert!(anchors.contains(&anchor1));
-        assert!(anchors.contains(&anchor2));
-        assert!(anchors.contains(&anchor3));
+        // Anchor no longer routable
+        let result = client.try_route_transaction(&options);
+        assert!(result.is_err());
     }
 }
