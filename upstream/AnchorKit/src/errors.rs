@@ -8,7 +8,6 @@
 //! provided constructor helpers (e.g. [`AnchorKitError::already_initialized`])
 //! to build errors without touching raw codes.
 
-#![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
 

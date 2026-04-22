@@ -3,7 +3,6 @@
 //! Verifies the anchor-signed token using a 32-byte Ed25519 public key stored on-chain.
 //! Payload must include integer `exp` (Unix seconds) and string `sub` (Stellar strkey of the client).
 
-#![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
 
@@ -137,8 +136,8 @@ pub fn verify_sep10_jwt(
 
     let mut dots: [usize; 2] = [0; 2];
     let mut dot_count = 0usize;
-    for i in 0..n_usize {
-        if buf[i] == b'.' {
+    for (i, &byte) in buf[..n_usize].iter().enumerate() {
+        if byte == b'.' {
             if dot_count < 2 {
                 dots[dot_count] = i;
                 dot_count += 1;

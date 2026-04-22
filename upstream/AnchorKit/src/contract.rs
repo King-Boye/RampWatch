@@ -365,7 +365,7 @@ impl AnchorKitContract {
     /// Generate a deterministic request ID: sha256(timestamp_u64_be || sequence_number_u32_be)[:16]
     pub fn generate_request_id(env: Env) -> RequestId {
         let ts = env.ledger().timestamp();
-        let seq = env.ledger().sequence() as u32;
+        let seq = env.ledger().sequence();
 
         // Build input: 8-byte timestamp || 4-byte sequence number (big-endian)
         let mut input = Bytes::new(&env);
@@ -534,7 +534,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         }
         let mut seen = Vec::new(&env);
         for s in services.iter() {
-            if seen.contains(&s) {
+            if seen.contains(s) {
                 panic_with_error!(&env, ErrorCode::InvalidServiceType);
             }
             seen.push_back(s);
@@ -565,7 +565,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
             .persistent()
             .get::<_, AnchorServices>(&(symbol_short!("SERVICES"), anchor))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::ServicesNotConfigured));
-        record.services.contains(&service)
+        record.services.contains(service)
     }
 
     // -----------------------------------------------------------------------
@@ -684,6 +684,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     // -----------------------------------------------------------------------
 
     #[allow(unused_variables)]
+    #[allow(clippy::too_many_arguments)]
     pub fn quote_with_request_id(
         env: Env,
         request_id: RequestId,
@@ -703,7 +704,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
             .persistent()
             .get::<_, AnchorServices>(&(symbol_short!("SERVICES"), anchor.clone()))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::ServicesNotConfigured));
-        if !services_record.services.contains(&SERVICE_QUOTES) {
+        if !services_record.services.contains(SERVICE_QUOTES) {
             panic_with_error!(&env, ErrorCode::ServicesNotConfigured);
         }
 
@@ -845,6 +846,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     // Quote management
     // -----------------------------------------------------------------------
 
+    #[allow(clippy::too_many_arguments)]
     pub fn submit_quote(
         env: Env,
         anchor: Address,
@@ -1534,9 +1536,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         anchor: Address,
         asset_code: String,
     ) -> bool {
-        match Self::get_anchor_asset_info(env, anchor, asset_code) {
-            asset => asset.deposit_enabled,
-        }
+        Self::get_anchor_asset_info(env, anchor, asset_code).deposit_enabled
     }
 
     pub fn anchor_supports_withdrawals(
@@ -1544,9 +1544,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         anchor: Address,
         asset_code: String,
     ) -> bool {
-        match Self::get_anchor_asset_info(env, anchor, asset_code) {
-            asset => asset.withdrawal_enabled,
-        }
+        Self::get_anchor_asset_info(env, anchor, asset_code).withdrawal_enabled
     }
 
     // -----------------------------------------------------------------------

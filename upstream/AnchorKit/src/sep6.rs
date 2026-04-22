@@ -3,10 +3,11 @@
 //! Provides normalized service functions for initiating deposits, withdrawals,
 //! and fetching transaction status across different anchors.
 
-#![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
-use alloc::string::{String, ToString};
+use alloc::string::String;
+#[cfg(test)]
+use alloc::string::ToString;
 
 use crate::errors::Error;
 
@@ -28,6 +29,7 @@ pub enum TransactionStatus {
 }
 
 impl TransactionStatus {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "pending_external" => Self::PendingExternal,
@@ -123,6 +125,7 @@ pub enum TransactionKind {
 }
 
 impl TransactionKind {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "withdrawal" | "withdraw" => Self::Withdrawal,
