@@ -1250,7 +1250,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
                         .persistent()
                         .extend_ttl(&meta_key, PERSISTENT_TTL, PERSISTENT_TTL);
                     env.events().publish(
-                        (symbol_short!("anchor"), symbol_short!("deactivate")),
+                        (symbol_short!("anchor"), symbol_short!("deactiv")),
                         AnchorDeactivated { anchor, failure_count, threshold },
                     );
                 }
@@ -1659,4 +1659,8 @@ pub fn get_endpoint(env: Env, attestor: Address) -> String {
 
 pub fn set_endpoint(env: Env, attestor: Address, endpoint: String) {
     AnchorKitContract::set_endpoint(env, attestor, endpoint)
+}
+
+pub fn get_admin(env: Env) -> Address {
+    AnchorKitContract::get_admin(env)
 }

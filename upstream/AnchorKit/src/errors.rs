@@ -45,6 +45,7 @@ pub enum ErrorCode {
     NotInitialized = 101,
     AttestationNotFound = 17,
     InvalidSep10Token = 18,
+    StorageCorrupted = 50,
     CacheExpired = 48,
     CacheNotFound = 49,
 }
