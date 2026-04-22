@@ -42,9 +42,10 @@ pub enum ErrorCode {
     ServicesNotConfigured = 14,
     ValidationError = 15,
     RateLimitExceeded = 16,
-    NotInitialized = 16,
-    AttestationNotFound = 17,
-    InvalidSep10Token = 18,
+    NotInitialized = 17,
+    AttestationNotFound = 18,
+    InvalidSep10Token = 19,
+    StorageCorrupted = 20,
     CacheExpired = 48,
     CacheNotFound = 49,
 }
@@ -72,6 +73,7 @@ impl ErrorCode {
             ErrorCode::NotInitialized => "Contract is not initialized",
             ErrorCode::AttestationNotFound => "Attestation not found",
             ErrorCode::InvalidSep10Token => "SEP-10 JWT is missing, expired, or invalid",
+            ErrorCode::StorageCorrupted => "On-chain storage entry is corrupted or unreadable",
             ErrorCode::CacheExpired => "Cache entry has expired",
             ErrorCode::CacheNotFound => "Cache entry not found",
         }
@@ -199,6 +201,10 @@ impl AnchorKitError {
     pub fn rate_limit_exceeded() -> Self {
         Self::from_code(ErrorCode::RateLimitExceeded)
     }
+
+    pub fn storage_corrupted() -> Self {
+        Self::from_code(ErrorCode::StorageCorrupted)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -292,6 +298,7 @@ mod tests {
             ErrorCode::NotInitialized,
             ErrorCode::AttestationNotFound,
             ErrorCode::InvalidSep10Token,
+            ErrorCode::StorageCorrupted,
             ErrorCode::CacheExpired,
             ErrorCode::CacheNotFound,
         ];
