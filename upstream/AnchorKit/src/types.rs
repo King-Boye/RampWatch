@@ -141,6 +141,31 @@ pub struct RoutingRequest {
     pub operation_type: u32,
 }
 
+/// Options passed to `route_transaction` to control anchor selection.
+///
+/// # Strategy
+///
+/// The `strategy` field is a single-element `Vec<Symbol>` that selects how the
+/// best anchor is chosen from all valid candidates. Valid strategy symbols:
+///
+/// | Symbol                | Behaviour                                                  |
+/// |-----------------------|------------------------------------------------------------|
+/// | `"LowestFee"`         | Selects the anchor with the lowest `fee_percentage`.       |
+/// | `"FastestSettlement"` | Selects the anchor with the lowest `average_settlement_time`. |
+/// | `"HighestReputation"` | Selects the anchor with the highest `reputation_score`.    |
+///
+/// **Default:** `strategy` is required and must contain exactly one symbol.
+/// Passing an empty `Vec` causes the call to panic with `NoQuotesAvailable`.
+/// An unrecognised symbol falls through all branches and returns the first
+/// candidate in iteration order (no explicit sort).
+///
+/// # Other fields
+///
+/// - `min_reputation` — anchors with a `reputation_score` strictly below this
+///   value are excluded before strategy selection. Set to `0` (the default) to
+///   include all active anchors regardless of reputation.
+/// - `max_anchors` / `require_kyc` — reserved for future filtering; not yet
+///   enforced by the current implementation.
 #[contracttype]
 #[derive(Clone)]
 pub struct RoutingOptions {
