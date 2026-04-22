@@ -8,8 +8,6 @@
 //! provided constructor helpers (e.g. [`AnchorKitError::already_initialized`])
 //! to build errors without touching raw codes.
 
-#![cfg_attr(not(test), no_std)]
-
 extern crate alloc;
 
 use alloc::string::String;
@@ -45,6 +43,7 @@ pub enum ErrorCode {
     NotInitialized = 101,
     AttestationNotFound = 17,
     InvalidSep10Token = 18,
+    StorageCorrupted = 50,
     CacheExpired = 48,
     CacheNotFound = 49,
 }

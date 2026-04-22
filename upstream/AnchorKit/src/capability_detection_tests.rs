@@ -3,10 +3,8 @@
 mod capability_detection_tests {
     use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
 
-    use crate::contract::{
-        AnchorKitContract, AnchorKitContractClient, ServiceType,
-        SERVICE_DEPOSITS, SERVICE_WITHDRAWALS, SERVICE_QUOTES, SERVICE_KYC,
-    };
+    use crate::contract::{AnchorKitContract, AnchorKitContractClient};
+    use crate::types::{ServiceType, SERVICE_DEPOSITS, SERVICE_WITHDRAWALS, SERVICE_QUOTES, SERVICE_KYC};
     use crate::errors::ErrorCode;
 
     fn make_env() -> Env {

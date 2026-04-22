@@ -34,7 +34,8 @@ pub use sep6::{
     RawDepositResponse, RawTransactionResponse, RawWithdrawalResponse, TransactionKind,
     TransactionStatus, TransactionStatusResponse, WithdrawalResponse,
 };
-pub use contract::{AnchorKitContract, EndpointUpdated, get_admin, get_endpoint, set_endpoint};
+pub use contract::{AnchorKitContract, get_endpoint, set_endpoint};
+pub use events::EndpointUpdated;
 
 #[cfg(test)]
 mod request_id_tests;
@@ -79,3 +80,6 @@ mod attestor_endpoint_tests;
 
 #[cfg(test)]
 mod attestation_pagination_tests;
+
+#[cfg(test)]
+mod payload_hash_vectors_tests;

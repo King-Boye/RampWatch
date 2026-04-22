@@ -1,5 +1,5 @@
 use soroban_sdk::{
-    contract, contractimpl, contracttype, panic_with_error, symbol_short, Address, Bytes, BytesN,
+    contract, contractimpl, panic_with_error, symbol_short, Address, Bytes, BytesN,
     Env, String, Symbol, Vec,
 };
 
@@ -315,6 +315,7 @@ struct AnchorDeactivated {
 const PERSISTENT_TTL: u32 = 1_555_200;
 const SPAN_TTL: u32 = 17_280;
 const INSTANCE_TTL: u32 = 518_400;
+const MIN_TEMP_TTL: u32 = 15;
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -324,6 +325,7 @@ const INSTANCE_TTL: u32 = 518_400;
 pub struct AnchorKitContract;
 
 #[contractimpl]
+#[allow(clippy::too_many_arguments)]
 impl AnchorKitContract {
     // -----------------------------------------------------------------------
     // Initialization
@@ -353,12 +355,10 @@ impl AnchorKitContract {
     // Request ID generation
     // -----------------------------------------------------------------------
 
-    /// Generate a deterministic request ID: sha256(timestamp_u64_be || sequence_number_u32_be)[:16]
     pub fn generate_request_id(env: Env) -> RequestId {
         let ts = env.ledger().timestamp();
-        let seq = env.ledger().sequence() as u32;
+        let seq = env.ledger().sequence();
 
-        // Build input: 8-byte timestamp || 4-byte sequence number (big-endian)
         let mut input = Bytes::new(&env);
         for b in ts.to_be_bytes().iter() {
             input.push_back(*b);
@@ -381,8 +381,6 @@ impl AnchorKitContract {
     // Attestor management
     // -----------------------------------------------------------------------
 
-    /// Stores the 32-byte Ed25519 public key used to verify SEP-10 JWTs for `issuer`
-    /// (the anchor identity whose signing key appears in stellar.toml / SEP-10 flow).
     pub fn set_sep10_jwt_verifying_key(env: Env, issuer: Address, public_key: Bytes) {
         Self::require_admin(&env);
         if public_key.len() != 32 {
@@ -395,7 +393,6 @@ impl AnchorKitContract {
             .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
     }
 
-    /// Verifies a SEP-10 JWT (JWS compact, EdDSA) using the stored key for `issuer`: signature, `exp`, and `sub`.
     pub fn verify_sep10_token(env: Env, token: String, issuer: Address) {
         let pk: Bytes = env
             .storage()
@@ -454,7 +451,7 @@ impl AnchorKitContract {
         );
     }
 
-pub fn is_attestor(env: Env, attestor: Address) -> bool {
+    pub fn is_attestor(env: Env, attestor: Address) -> bool {
         env.storage()
             .persistent()
             .get::<_, bool>(&StorageKey::Attestor(attestor))
@@ -465,13 +462,10 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     // Attestor endpoint management
     // -----------------------------------------------------------------------
 
-    /// Set the attestor&#39;s HTTPS endpoint URL (validated via validate_anchor_domain).
-    /// Only the attestor themselves can update their endpoint.
     pub fn set_endpoint(env: Env, attestor: Address, endpoint: String) {
         attestor.require_auth();
         Self::check_attestor(&env, &attestor);
-        
-        // Convert soroban String to Rust String for validation
+
         let len = endpoint.len() as usize;
         let mut rust_buf = [0u8; 128];
         if len > 128 {
@@ -489,14 +483,10 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
         env.events().publish(
             (symbol_short!("endpoint"), symbol_short!("updated")),
-            EndpointUpdated {
-                attestor,
-                endpoint,
-            },
+            EndpointUpdated { attestor, endpoint },
         );
     }
 
-    /// Retrieve the attestor&#39;s stored endpoint URL.
     pub fn get_endpoint(env: Env, attestor: Address) -> String {
         if !Self::is_attestor(env.clone(), attestor.clone()) {
             panic_with_error!(&env, ErrorCode::AttestorNotRegistered);
@@ -505,7 +495,6 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
             .get::<_, String>(&StorageKey::Endpoint(attestor))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestorNotRegistered))
     }
-
 
     // -----------------------------------------------------------------------
     // Service configuration
@@ -525,7 +514,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         }
         let mut seen = Vec::new(&env);
         for s in services.iter() {
-            if seen.contains(&s) {
+            if seen.contains(s) {
                 panic_with_error!(&env, ErrorCode::InvalidServiceType);
             }
             seen.push_back(s);
@@ -556,7 +545,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
             .persistent()
             .get::<_, AnchorServices>(&StorageKey::Services(anchor))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::ServicesNotConfigured));
-        record.services.contains(&service)
+        record.services.contains(service)
     }
 
     // -----------------------------------------------------------------------
@@ -581,28 +570,13 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         }
 
         let id = Self::next_attestation_id(&env);
-        Self::store_attestation(
-            &env,
-            id,
-            issuer.clone(),
-            subject.clone(),
-            timestamp,
-            payload_hash.clone(),
-            signature,
-        );
+        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature);
 
         env.storage().persistent().set(&used_key, &true);
-        env.storage()
-            .persistent()
-            .extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        env.storage().persistent().extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         env.events().publish(
-            (
-                symbol_short!("attest"),
-                symbol_short!("recorded"),
-                id,
-                subject,
-            ),
+            (symbol_short!("attest"), symbol_short!("recorded"), id, subject),
             AttestEvent { payload_hash, timestamp },
         );
 
@@ -632,38 +606,16 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         }
 
         let id = Self::next_attestation_id(&env);
-        Self::store_attestation(
-            &env,
-            id,
-            issuer.clone(),
-            subject.clone(),
-            timestamp,
-            payload_hash.clone(),
-            signature,
-        );
+        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature);
 
         env.storage().persistent().set(&used_key, &true);
-        env.storage()
-            .persistent()
-            .extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        env.storage().persistent().extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         let now = env.ledger().timestamp();
-        Self::store_span(
-            &env,
-            &request_id,
-            String::from_str(&env, "submit_attestation"),
-            issuer.clone(),
-            now,
-            String::from_str(&env, "success"),
-        );
+        Self::store_span(&env, &request_id, String::from_str(&env, "submit_attestation"), issuer.clone(), now, String::from_str(&env, "success"));
 
         env.events().publish(
-            (
-                symbol_short!("attest"),
-                symbol_short!("recorded"),
-                id,
-                subject,
-            ),
+            (symbol_short!("attest"), symbol_short!("recorded"), id, subject),
             AttestEvent { payload_hash, timestamp },
         );
 
@@ -675,6 +627,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     // -----------------------------------------------------------------------
 
     #[allow(unused_variables)]
+    #[allow(clippy::too_many_arguments)]
     pub fn quote_with_request_id(
         env: Env,
         request_id: RequestId,
@@ -694,19 +647,12 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
             .persistent()
             .get::<_, AnchorServices>(&StorageKey::Services(anchor.clone()))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::ServicesNotConfigured));
-        if !services_record.services.contains(&SERVICE_QUOTES) {
+        if !services_record.services.contains(SERVICE_QUOTES) {
             panic_with_error!(&env, ErrorCode::ServicesNotConfigured);
         }
 
         let now = env.ledger().timestamp();
-        Self::store_span(
-            &env,
-            &request_id,
-            String::from_str(&env, "submit_quote"),
-            anchor,
-            now,
-            String::from_str(&env, "success"),
-        );
+        Self::store_span(&env, &request_id, String::from_str(&env, "submit_quote"), anchor, now, String::from_str(&env, "success"));
     }
 
     // -----------------------------------------------------------------------
@@ -730,14 +676,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound))
     }
 
-    /// List attestations for a given subject with pagination support.
-    /// Returns up to `limit` attestations (max 50) starting from `offset`.
-    pub fn list_attestations(
-        env: Env,
-        subject: Address,
-        offset: u64,
-        limit: u32,
-    ) -> Vec<Attestation> {
+    pub fn list_attestations(env: Env, subject: Address, offset: u64, limit: u32) -> Vec<Attestation> {
         let actual_limit = if limit > 50 { 50 } else { limit };
         let mut results = Vec::new(&env);
 
@@ -768,21 +707,13 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     }
 
     // -----------------------------------------------------------------------
-    // Deterministic hash utilities (#192)
+    // Deterministic hash utilities
     // -----------------------------------------------------------------------
 
-    /// Compute a canonical SHA-256 hash for an attestation payload.
-    /// Field order: subject || timestamp (8-byte BE) || data.
-    pub fn compute_payload_hash(
-        env: Env,
-        subject: Address,
-        timestamp: u64,
-        data: Bytes,
-    ) -> BytesN<32> {
+    pub fn compute_payload_hash(env: Env, subject: Address, timestamp: u64, data: Bytes) -> BytesN<32> {
         compute_payload_hash(&env, &subject, timestamp, &data)
     }
 
-    /// Verify that the hash stored in an attestation matches the expected hash.
     pub fn verify_payload_hash(env: Env, attestation_id: u64, expected_hash: BytesN<32>) -> bool {
         let attestation = env
             .storage()
@@ -790,7 +721,6 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
             .get::<_, Attestation>(&StorageKey::Attest(attestation_id))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound));
 
-        // Convert stored Bytes payload_hash to BytesN<32>
         let stored: BytesN<32> = attestation.payload_hash.try_into().unwrap_or_else(|_| {
             panic_with_error!(&env, ErrorCode::StorageCorrupted)
         });
@@ -833,10 +763,32 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         session_id
     }
 
+    pub fn get_session(env: Env, session_id: u64) -> Session {
+        env.storage()
+            .persistent()
+            .get::<_, Session>(&(symbol_short!("SESS"), session_id))
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound))
+    }
+
+    pub fn get_audit_log(env: Env, log_id: u64) -> AuditLog {
+        env.storage()
+            .persistent()
+            .get::<_, AuditLog>(&(symbol_short!("AUDIT"), log_id))
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound))
+    }
+
+    pub fn get_session_operation_count(env: Env, session_id: u64) -> u64 {
+        env.storage()
+            .persistent()
+            .get::<_, u64>(&(symbol_short!("SOPCNT"), session_id))
+            .unwrap_or(0)
+    }
+
     // -----------------------------------------------------------------------
     // Quote management
     // -----------------------------------------------------------------------
 
+    #[allow(clippy::too_many_arguments)]
     pub fn submit_quote(
         env: Env,
         anchor: Address,
@@ -876,14 +828,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
 
         env.events().publish(
             (symbol_short!("quote"), symbol_short!("submit"), next),
-            QuoteSubmitEvent {
-                quote_id: next,
-                anchor,
-                base_asset,
-                quote_asset,
-                rate,
-                valid_until,
-            },
+            QuoteSubmitEvent { quote_id: next, anchor, base_asset, quote_asset, rate, valid_until },
         );
 
         next
@@ -897,11 +842,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
 
         env.events().publish(
             (symbol_short!("quote"), symbol_short!("received"), quote_id),
-            QuoteReceivedEvent {
-                quote_id,
-                receiver,
-                timestamp: env.ledger().timestamp(),
-            },
+            QuoteReceivedEvent { quote_id, receiver, timestamp: env.ledger().timestamp() },
         );
 
         quote
@@ -930,15 +871,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         }
 
         let id = Self::next_attestation_id(&env);
-        Self::store_attestation(
-            &env,
-            id,
-            issuer.clone(),
-            subject.clone(),
-            timestamp,
-            payload_hash.clone(),
-            signature,
-        );
+        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature);
 
         env.storage().persistent().set(&used_key, &true);
         env.storage().persistent().extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
@@ -949,7 +882,6 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         env.storage().persistent().set(&sopcnt_key, &(op_index + 1));
         env.storage().persistent().extend_ttl(&sopcnt_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
-        // Write audit log
         let inst = env.storage().instance();
         let acnt_key = key_audit_counter(&env);
         let log_id: u64 = inst.get(&acnt_key).unwrap_or(0u64);
@@ -975,15 +907,9 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         env.storage().persistent().extend_ttl(&audit_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         env.events().publish(
-            (
-                symbol_short!("attest"),
-                symbol_short!("recorded"),
-                id,
-                subject,
-            ),
+            (symbol_short!("attest"), symbol_short!("recorded"), id, subject),
             AttestEvent { payload_hash, timestamp },
         );
-
         env.events().publish(
             (symbol_short!("audit"), symbol_short!("logged"), log_id),
             AuditLogEvent {
@@ -1039,10 +965,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         env.storage().persistent().set(&audit_key, &audit);
         env.storage().persistent().extend_ttl(&audit_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
-        env.events().publish(
-            (symbol_short!("attestor"), symbol_short!("added"), attestor),
-            (),
-        );
+        env.events().publish((symbol_short!("attestor"), symbol_short!("added"), attestor), ());
         env.events().publish(
             (symbol_short!("audit"), symbol_short!("logged"), log_id),
             AuditLogEvent {
@@ -1095,10 +1018,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         env.storage().persistent().set(&audit_key, &audit);
         env.storage().persistent().extend_ttl(&audit_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
-        env.events().publish(
-            (symbol_short!("attestor"), symbol_short!("removed"), attestor),
-            (),
-        );
+        env.events().publish((symbol_short!("attestor"), symbol_short!("removed"), attestor), ());
         env.events().publish(
             (symbol_short!("audit"), symbol_short!("logged"), log_id),
             AuditLogEvent {
@@ -1198,18 +1118,12 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     // Health monitoring
     // -----------------------------------------------------------------------
 
-    /// Set the consecutive-failure threshold after which an anchor is auto-deactivated.
-    /// Admin-only. Default is 0 (feature disabled).
     pub fn set_health_failure_threshold(env: Env, threshold: u32) {
         Self::require_admin(&env);
         env.storage().instance().set(&key_health_threshold(&env), &threshold);
         env.storage().instance().extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
     }
 
-    /// Record a health check result for `anchor`.
-    /// `failure_count` is the current consecutive failure count (caller-supplied).
-    /// If `failure_count` >= configured threshold (and threshold > 0), sets `is_active = false`
-    /// on the anchor's routing metadata and emits `AnchorDeactivated`.
     pub fn update_health_status(
         env: Env,
         anchor: Address,
@@ -1243,11 +1157,9 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
                 if meta.is_active {
                     meta.is_active = false;
                     env.storage().persistent().set(&meta_key, &meta);
-                    env.storage()
-                        .persistent()
-                        .extend_ttl(&meta_key, PERSISTENT_TTL, PERSISTENT_TTL);
+                    env.storage().persistent().extend_ttl(&meta_key, PERSISTENT_TTL, PERSISTENT_TTL);
                     env.events().publish(
-                        (symbol_short!("anchor"), symbol_short!("deactivate")),
+                        (symbol_short!("anchor"), symbol_short!("deactiv")),
                         AnchorDeactivated { anchor, failure_count, threshold },
                     );
                 }
@@ -1255,7 +1167,6 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         }
     }
 
-    /// Retrieve the last recorded health status for `anchor`, or `None` if not set.
     pub fn get_health_status(env: Env, anchor: Address) -> Option<HealthStatus> {
         env.storage()
             .persistent()
@@ -1307,8 +1218,6 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         }
     }
 
-    /// Return all anchor addresses that have been registered via `set_anchor_metadata`.
-    /// Returns an empty `Vec` when no anchors have been registered.
     pub fn get_routing_anchors(env: Env) -> Vec<Address> {
         let list_key = key_anchor_list(&env);
         env.storage().persistent()
@@ -1323,7 +1232,6 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
             .get::<_, Vec<Address>>(&list_key)
             .unwrap_or_else(|| Vec::new(&env));
 
-        // Collect valid quotes from active anchors
         let mut candidates: Vec<Quote> = Vec::new(&env);
         for anchor in anchors.iter() {
             // Check reputation filter
@@ -1347,13 +1255,8 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
                 None => continue,
             };
 
-            // Filter expired quotes
             if quote.valid_until <= now { continue; }
-
-            // Filter by amount limits
-            if options.request.amount < quote.minimum_amount
-                || options.request.amount > quote.maximum_amount
-            {
+            if options.request.amount < quote.minimum_amount || options.request.amount > quote.maximum_amount {
                 continue;
             }
 
@@ -1364,7 +1267,6 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
             panic_with_error!(&env, ErrorCode::NoQuotesAvailable);
         }
 
-        // Apply strategy: pick best candidate
         let strategy_sym = options.strategy.get(0)
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NoQuotesAvailable));
 
@@ -1424,12 +1326,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     // Anchor Info Discovery
     // -----------------------------------------------------------------------
 
-    pub fn fetch_anchor_info(
-        env: Env,
-        anchor: Address,
-        toml_data: StellarToml,
-        ttl_seconds: u64,
-    ) {
+    pub fn fetch_anchor_info(env: Env, anchor: Address, toml_data: StellarToml, ttl_seconds: u64) {
         anchor.require_auth();
         let now = env.ledger().timestamp();
         let cached = CachedToml {
@@ -1469,11 +1366,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         assets
     }
 
-    pub fn get_anchor_asset_info(
-        env: Env,
-        anchor: Address,
-        asset_code: String,
-    ) -> AssetInfo {
+    pub fn get_anchor_asset_info(env: Env, anchor: Address, asset_code: String) -> AssetInfo {
         let toml = Self::get_anchor_toml(env.clone(), anchor);
         for asset in toml.currencies.iter() {
             if asset.code == asset_code {
@@ -1483,57 +1376,33 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         panic_with_error!(&env, ErrorCode::ValidationError);
     }
 
-    pub fn get_anchor_deposit_limits(
-        env: Env,
-        anchor: Address,
-        asset_code: String,
-    ) -> (u64, u64) {
+    pub fn get_anchor_deposit_limits(env: Env, anchor: Address, asset_code: String) -> (u64, u64) {
         let asset = Self::get_anchor_asset_info(env, anchor, asset_code);
         (asset.deposit_min_amount, asset.deposit_max_amount)
     }
 
-    pub fn get_anchor_withdrawal_limits(
-        env: Env,
-        anchor: Address,
-        asset_code: String,
-    ) -> (u64, u64) {
+    pub fn get_anchor_withdrawal_limits(env: Env, anchor: Address, asset_code: String) -> (u64, u64) {
         let asset = Self::get_anchor_asset_info(env, anchor, asset_code);
         (asset.withdrawal_min_amount, asset.withdrawal_max_amount)
     }
 
-    pub fn get_anchor_deposit_fees(
-        env: Env,
-        anchor: Address,
-        asset_code: String,
-    ) -> (u64, u32) {
+    pub fn get_anchor_deposit_fees(env: Env, anchor: Address, asset_code: String) -> (u64, u32) {
         let asset = Self::get_anchor_asset_info(env, anchor, asset_code);
         (asset.deposit_fee_fixed, asset.deposit_fee_percent)
     }
 
-    pub fn get_anchor_withdrawal_fees(
-        env: Env,
-        anchor: Address,
-        asset_code: String,
-    ) -> (u64, u32) {
+    pub fn get_anchor_withdrawal_fees(env: Env, anchor: Address, asset_code: String) -> (u64, u32) {
         let asset = Self::get_anchor_asset_info(env, anchor, asset_code);
         (asset.withdrawal_fee_fixed, asset.withdrawal_fee_percent)
     }
 
-    pub fn anchor_supports_deposits(
-        env: Env,
-        anchor: Address,
-        asset_code: String,
-    ) -> bool {
+    pub fn anchor_supports_deposits(env: Env, anchor: Address, asset_code: String) -> bool {
         match Self::get_anchor_asset_info(env, anchor, asset_code) {
             asset => asset.deposit_enabled,
         }
     }
 
-    pub fn anchor_supports_withdrawals(
-        env: Env,
-        anchor: Address,
-        asset_code: String,
-    ) -> bool {
+    pub fn anchor_supports_withdrawals(env: Env, anchor: Address, asset_code: String) -> bool {
         match Self::get_anchor_asset_info(env, anchor, asset_code) {
             asset => asset.withdrawal_enabled,
         }
@@ -1572,7 +1441,8 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         let inst = env.storage().instance();
         let ck = key_counter(env);
         let id: u64 = inst.get(&ck).unwrap_or(0u64);
-        inst.set(&ck, &(id + 1));
+        let next = id.checked_add(1).unwrap_or_else(|| panic_with_error!(env, ErrorCode::ValidationError));
+        inst.set(&ck, &next);
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
         id
     }
@@ -1596,9 +1466,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         };
         let key = StorageKey::Attest(id);
         env.storage().persistent().set(&key, &attestation);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+        env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         // Subject-specific index for pagination support (#215)
         // Store only the ID to save storage space (O(1) extra space)
@@ -1607,24 +1475,13 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
 
         let subj_att_key = StorageKey::SubjectAttestation(subject.clone(), count);
         env.storage().persistent().set(&subj_att_key, &id);
-        env.storage()
-            .persistent()
-            .extend_ttl(&subj_att_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        env.storage().persistent().extend_ttl(&subj_att_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         env.storage().persistent().set(&count_key, &(count + 1));
-        env.storage()
-            .persistent()
-            .extend_ttl(&count_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        env.storage().persistent().extend_ttl(&count_key, PERSISTENT_TTL, PERSISTENT_TTL);
     }
 
-    fn store_span(
-        env: &Env,
-        request_id: &RequestId,
-        operation: String,
-        actor: Address,
-        now: u64,
-        status: String,
-    ) {
+    fn store_span(env: &Env, request_id: &RequestId, operation: String, actor: Address, now: u64, status: String) {
         let span = TracingSpan {
             request_id: request_id.clone(),
             operation,
@@ -1635,9 +1492,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         };
         let key = StorageKey::Span(request_id.id.clone());
         env.storage().temporary().set(&key, &span);
-        env.storage()
-            .temporary()
-            .extend_ttl(&key, SPAN_TTL, SPAN_TTL);
+        env.storage().temporary().extend_ttl(&key, SPAN_TTL, SPAN_TTL);
     }
 }
 
@@ -1647,4 +1502,8 @@ pub fn get_endpoint(env: Env, attestor: Address) -> String {
 
 pub fn set_endpoint(env: Env, attestor: Address, endpoint: String) {
     AnchorKitContract::set_endpoint(env, attestor, endpoint)
+}
+
+pub fn get_admin(env: Env) -> Address {
+    AnchorKitContract::get_admin(env)
 }
