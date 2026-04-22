@@ -3,7 +3,7 @@
 //! This module implements per-attestor rate limiting for attestation submissions
 //! to prevent spam and abuse of the contract.
 
-use soroban_sdk::{contracttype, Address, Env};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String};
 use crate::errors::{AnchorKitError, ErrorCode};
 
 /// Rate limit configuration stored in contract storage
@@ -27,8 +27,10 @@ pub struct RateLimitState {
 }
 
 /// Rate limiter for attestation submissions
+#[contract]
 pub struct RateLimiter;
 
+#[contractimpl]
 impl RateLimiter {
     /// Check if an attestor can submit an attestation and increment their counter.
     ///
@@ -43,7 +45,7 @@ impl RateLimiter {
     ) -> Result<(), AnchorKitError> {
         let config = Self::get_effective_config(env, attestor);
         let current_ledger = env.ledger().sequence();
-        let state_key = Self::get_state_key(env, attestor);
+        let state_key = Self::get_state_key(&env, &attestor);
         
         // Get or initialize rate limit state
         let mut state = env.storage().persistent().get::<_, RateLimitState>(&state_key)
@@ -73,8 +75,8 @@ impl RateLimiter {
     }
     
     /// Get the current rate limit state for an attestor
-    pub fn get_state(env: &Env, attestor: &Address) -> RateLimitState {
-        let state_key = Self::get_state_key(env, attestor);
+    pub fn get_state(env: Env, attestor: Address) -> RateLimitState {
+        let state_key = Self::get_state_key(&env, &attestor);
         env.storage().persistent().get::<_, RateLimitState>(&state_key)
             .unwrap_or(RateLimitState {
                 submission_count: 0,
@@ -104,8 +106,8 @@ impl RateLimiter {
     }
 
     /// Get the current rate limit configuration
-    pub fn get_config(env: &Env) -> RateLimitConfig {
-        let config_key = Self::get_config_key(env);
+    pub fn get_config(env: Env) -> RateLimitConfig {
+        let config_key = Self::get_config_key(&env);
         env.storage().persistent().get::<_, RateLimitConfig>(&config_key)
             .unwrap_or(RateLimitConfig {
                 max_submissions: 10,
@@ -127,17 +129,13 @@ impl RateLimiter {
     
     /// Generate storage key for rate limit state
     fn get_state_key(env: &Env, attestor: &Address) -> soroban_sdk::BytesN<32> {
-        // Use the address bytes directly as the key
-        // Convert address to bytes using its internal representation
-        // We use the address string representation and hash it
         let address_str = attestor.to_string();
-        // Use env.crypto().sha256() to hash the address string
-        // Convert the string to bytes using copy_into_slice
-        let mut address_bytes = [0u8; 56]; // Stellar addresses are 56 characters
-        address_str.copy_into_slice(&mut address_bytes);
-        let bytes = soroban_sdk::Bytes::from_slice(env, &address_bytes);
+        let mut address_bytes = [0u8; 128]; // Buffer for address string
+        let len = address_str.len() as usize;
+        let final_len = if len > 128 { 128 } else { len };
+        address_str.copy_into_slice(&mut address_bytes[..final_len]);
+        let bytes = soroban_sdk::Bytes::from_slice(env, &address_bytes[..final_len]);
         let hash = env.crypto().sha256(&bytes);
-        // Convert Hash<32> to BytesN<32>
         hash.into()
     }
     
@@ -189,7 +187,7 @@ mod tests {
         assert!(result.is_ok());
 
         let state = env.as_contract(&contract_id, &|| {
-            RateLimiter::get_state(&env, &attestor)
+            RateLimiter::get_state(env.clone(), attestor.clone())
         });
         assert_eq!(state.submission_count, 1);
     }
@@ -257,7 +255,7 @@ mod tests {
         }).is_err());
 
         let state = env.as_contract(&contract_address, &|| {
-            RateLimiter::get_state(&env, &attestor)
+            RateLimiter::get_state(env.clone(), attestor.clone())
         });
         assert_eq!(state.submission_count, 2);
     }
@@ -275,7 +273,7 @@ mod tests {
         assert!(result.is_ok());
 
         let config = env.as_contract(&contract_address, &|| {
-            RateLimiter::get_config(&env)
+            RateLimiter::get_config(env.clone())
         });
         assert_eq!(config.max_submissions, 20);
         assert_eq!(config.window_length, 200);
@@ -287,7 +285,7 @@ mod tests {
         let contract_address = make_contract(&env);
 
         let config = env.as_contract(&contract_address, &|| {
-            RateLimiter::get_config(&env)
+            RateLimiter::get_config(env.clone())
         });
         assert_eq!(config.max_submissions, 10);
         assert_eq!(config.window_length, 100);

@@ -1,6 +1,6 @@
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, String,
-    Symbol, Vec,
+    contract, contractimpl, contracttype, panic_with_error, symbol_short, Address, Bytes, BytesN,
+    Env, String, Symbol, Vec,
 };
 
 use crate::deterministic_hash::{compute_payload_hash, verify_payload_hash};
@@ -287,6 +287,23 @@ pub struct EndpointUpdated {
     pub endpoint: String,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct HealthStatus {
+    pub anchor: Address,
+    pub latency_ms: u64,
+    pub failure_count: u32,
+    pub availability_percent: u32,
+}
+
+#[contracttype]
+#[derive(Clone)]
+struct AnchorDeactivated {
+    anchor: Address,
+    failure_count: u32,
+    threshold: u32,
+}
+
 // ---------------------------------------------------------------------------
 // TTLs (in ledgers)
 // ---------------------------------------------------------------------------
@@ -317,6 +334,9 @@ impl AnchorKitContract {
 
     pub fn initialize(env: Env, admin: Address) {
         admin.require_auth();
+        if admin == env.current_contract_address() {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
         let inst = env.storage().instance();
         if inst.has(&admin_key(&env)) {
             panic_with_error!(&env, ErrorCode::AlreadyInitialized);
@@ -351,9 +371,10 @@ impl AnchorKitContract {
         }
 
         let hash = env.crypto().sha256(&input);
+        let hash_bytes = Bytes::from_array(&env, &hash.into());
         let mut id = Bytes::new(&env);
         for i in 0..16u32 {
-            id.push_back(hash.get(i).unwrap());
+            id.push_back(hash_bytes.get(i).unwrap());
         }
 
         RequestId { id, created_at: ts }
@@ -452,7 +473,20 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     pub fn set_endpoint(env: Env, attestor: Address, endpoint: String) {
         attestor.require_auth();
         Self::check_attestor(&env, &attestor);
-        crate::validate_anchor_domain(endpoint.as_str()).map_err(|_| panic_with_error!(&env, ErrorCode::InvalidEndpointFormat))?;
+        
+        // Convert soroban String to Rust String for validation
+        let len = endpoint.len() as usize;
+        let mut rust_buf = [0u8; 128];
+        if len > 128 {
+            panic_with_error!(&env, ErrorCode::InvalidEndpointFormat);
+        }
+        endpoint.copy_into_slice(&mut rust_buf[..len]);
+        let endpoint_str = core::str::from_utf8(&rust_buf[..len]).unwrap_or("");
+
+        if crate::validate_anchor_domain(endpoint_str).is_err() {
+            panic_with_error!(&env, ErrorCode::InvalidEndpointFormat);
+        }
+
         let key = (symbol_short!("ENDPOINT"), attestor.clone());
         env.storage().persistent().set(&key, &endpoint);
         env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
@@ -699,6 +733,43 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound))
     }
 
+    /// List attestations for a given subject with pagination support.
+    /// Returns up to `limit` attestations (max 50) starting from `offset`.
+    pub fn list_attestations(
+        env: Env,
+        subject: Address,
+        offset: u64,
+        limit: u32,
+    ) -> Vec<Attestation> {
+        let actual_limit = if limit > 50 { 50 } else { limit };
+        let mut results = Vec::new(&env);
+
+        let count_key = (symbol_short!("SUBCNT"), subject.clone());
+        let total_count: u64 = env.storage().persistent().get(&count_key).unwrap_or(0);
+
+        if offset >= total_count || actual_limit == 0 {
+            return results;
+        }
+
+        let end = if offset + (actual_limit as u64) > total_count {
+            total_count
+        } else {
+            offset + (actual_limit as u64)
+        };
+
+        for i in offset..end {
+            let index_key = (symbol_short!("SUBATT"), subject.clone(), i);
+            if let Some(attestation_id) = env.storage().persistent().get::<_, u64>(&index_key) {
+                let main_key = (symbol_short!("ATTEST"), attestation_id);
+                if let Some(attestation) = env.storage().persistent().get::<_, Attestation>(&main_key) {
+                    results.push_back(attestation);
+                }
+            }
+        }
+
+        results
+    }
+
     // -----------------------------------------------------------------------
     // Deterministic hash utilities (#192)
     // -----------------------------------------------------------------------
@@ -724,7 +795,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
 
         // Convert stored Bytes payload_hash to BytesN<32>
         let stored: BytesN<32> = attestation.payload_hash.try_into().unwrap_or_else(|_| {
-            panic_with_error!(&env, ErrorCode::ValidationError)
+            panic_with_error!(&env, ErrorCode::StorageCorrupted)
         });
         verify_payload_hash(&stored, &expected_hash)
     }
@@ -1127,6 +1198,74 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     }
 
     // -----------------------------------------------------------------------
+    // Health monitoring
+    // -----------------------------------------------------------------------
+
+    /// Set the consecutive-failure threshold after which an anchor is auto-deactivated.
+    /// Admin-only. Default is 0 (feature disabled).
+    pub fn set_health_failure_threshold(env: Env, threshold: u32) {
+        Self::require_admin(&env);
+        env.storage().instance().set(&symbol_short!("HTHRESH"), &threshold);
+        env.storage().instance().extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+    }
+
+    /// Record a health check result for `anchor`.
+    /// `failure_count` is the current consecutive failure count (caller-supplied).
+    /// If `failure_count` >= configured threshold (and threshold > 0), sets `is_active = false`
+    /// on the anchor's routing metadata and emits `AnchorDeactivated`.
+    pub fn update_health_status(
+        env: Env,
+        anchor: Address,
+        latency_ms: u64,
+        failure_count: u32,
+        availability_percent: u32,
+    ) {
+        let status = HealthStatus {
+            anchor: anchor.clone(),
+            latency_ms,
+            failure_count,
+            availability_percent,
+        };
+        let key = (symbol_short!("HEALTH"), anchor.clone());
+        env.storage().persistent().set(&key, &status);
+        env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("HTHRESH"))
+            .unwrap_or(0u32);
+
+        if threshold > 0 && failure_count >= threshold {
+            let meta_key = (symbol_short!("ANCHMETA"), anchor.clone());
+            if let Some(mut meta) = env
+                .storage()
+                .persistent()
+                .get::<_, RoutingAnchorMeta>(&meta_key)
+            {
+                if meta.is_active {
+                    meta.is_active = false;
+                    env.storage().persistent().set(&meta_key, &meta);
+                    env.storage()
+                        .persistent()
+                        .extend_ttl(&meta_key, PERSISTENT_TTL, PERSISTENT_TTL);
+                    env.events().publish(
+                        (symbol_short!("anchor"), symbol_short!("deactivate")),
+                        AnchorDeactivated { anchor, failure_count, threshold },
+                    );
+                }
+            }
+        }
+    }
+
+    /// Retrieve the last recorded health status for `anchor`, or `None` if not set.
+    pub fn get_health_status(env: Env, anchor: Address) -> Option<HealthStatus> {
+        env.storage()
+            .persistent()
+            .get::<_, HealthStatus>(&(symbol_short!("HEALTH"), anchor))
+    }
+
+    // -----------------------------------------------------------------------
     // Routing
     // -----------------------------------------------------------------------
 
@@ -1444,7 +1583,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         let attestation = Attestation {
             id,
             issuer,
-            subject,
+            subject: subject.clone(),
             timestamp,
             payload_hash,
             signature,
@@ -1454,6 +1593,22 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         env.storage()
             .persistent()
             .extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+
+        // Subject-specific index for pagination support (#215)
+        // Store only the ID to save storage space (O(1) extra space)
+        let count_key = (symbol_short!("SUBCNT"), subject.clone());
+        let count: u64 = env.storage().persistent().get(&count_key).unwrap_or(0);
+
+        let subj_att_key = (symbol_short!("SUBATT"), subject.clone(), count);
+        env.storage().persistent().set(&subj_att_key, &id);
+        env.storage()
+            .persistent()
+            .extend_ttl(&subj_att_key, PERSISTENT_TTL, PERSISTENT_TTL);
+
+        env.storage().persistent().set(&count_key, &(count + 1));
+        env.storage()
+            .persistent()
+            .extend_ttl(&count_key, PERSISTENT_TTL, PERSISTENT_TTL);
     }
 
     fn store_span(
@@ -1478,4 +1633,12 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
             .temporary()
             .extend_ttl(&key, SPAN_TTL, SPAN_TTL);
     }
+}
+
+pub fn get_endpoint(env: Env, attestor: Address) -> String {
+    AnchorKitContract::get_endpoint(env, attestor)
+}
+
+pub fn set_endpoint(env: Env, attestor: Address, endpoint: String) {
+    AnchorKitContract::set_endpoint(env, attestor, endpoint)
 }
