@@ -352,6 +352,12 @@ impl AnchorKitContract {
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NotInitialized))
     }
 
+    /// Returns `true` if the contract has been initialized, `false` otherwise.
+    /// Safe to call at any time — never panics.
+    pub fn is_initialized(env: Env) -> bool {
+        env.storage().instance().has(&admin_key(&env))
+    }
+
     // -----------------------------------------------------------------------
     // Request ID generation
     // -----------------------------------------------------------------------
@@ -726,11 +732,10 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     // Attestation retrieval
     // -----------------------------------------------------------------------
 
-    pub fn get_attestation(env: Env, id: u64) -> Attestation {
+    pub fn get_attestation(env: Env, id: u64) -> Option<Attestation> {
         env.storage()
             .persistent()
             .get::<_, Attestation>(&(symbol_short!("ATTEST"), id))
-            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound))
     }
 
     /// List attestations for a given subject with pagination support.
@@ -852,6 +857,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         valid_until: u64,
     ) -> u64 {
         anchor.require_auth();
+        Self::check_attestor(&env, &anchor);
         let inst = env.storage().instance();
         let qcnt_key = soroban_sdk::vec![&env, symbol_short!("QCNT")];
         let next: u64 = inst.get(&qcnt_key).unwrap_or(0u64) + 1;
@@ -1220,6 +1226,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         failure_count: u32,
         availability_percent: u32,
     ) {
+        Self::require_admin(&env);
         let status = HealthStatus {
             anchor: anchor.clone(),
             latency_ms,
