@@ -1,6 +1,6 @@
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, String,
-    Symbol, Vec,
+    contract, contractimpl, contracttype, log, panic_with_error, symbol_short, Address, Bytes,
+    BytesN, Env, String, Symbol, Vec,
 };
 
 use crate::deterministic_hash::{compute_payload_hash, verify_payload_hash};
@@ -1441,6 +1441,15 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         payload_hash: Bytes,
         signature: Bytes,
     ) {
+        let hash_len = payload_hash.len();
+        if hash_len < 32 {
+            log!(
+                env,
+                "Payload hash validation failed: actual length {}, expected 32",
+                hash_len
+            );
+            panic_with_error!(env, ErrorCode::ValidationError);
+        }
         let attestation = Attestation {
             id,
             issuer,
