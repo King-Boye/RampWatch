@@ -24,6 +24,8 @@ pub struct RateLimitState {
     pub submission_count: u32,
     /// Ledger number when the current window started
     pub window_start_ledger: u32,
+    /// Cumulative total requests across all windows (never reset)
+    pub total_requests: u64,
 }
 
 /// Rate limiter for attestation submissions
@@ -47,22 +49,25 @@ impl RateLimiter {
             .unwrap_or(RateLimitState {
                 submission_count: 0,
                 window_start_ledger: current_ledger,
+                total_requests: 0,
             });
         
         // Check if window has expired and reset if needed
         if Self::is_window_expired(current_ledger, state.window_start_ledger, config.window_length) {
-            state = RateLimitState {
-                submission_count: 0,
-                window_start_ledger: current_ledger,
-            };
+            state.submission_count = 0;
+            state.window_start_ledger = current_ledger;
         }
         
+        // Increment total_requests on every call regardless of window state
+        state.total_requests += 1;
+
         // Check if limit is exceeded
         if state.submission_count >= config.max_submissions {
+            env.storage().persistent().set(&state_key, &state);
             return Err(AnchorKitError::rate_limit_exceeded());
         }
         
-        // Increment counter and save state
+        // Increment window counter and save state
         state.submission_count += 1;
         env.storage().persistent().set(&state_key, &state);
         
@@ -76,6 +81,7 @@ impl RateLimiter {
             .unwrap_or(RateLimitState {
                 submission_count: 0,
                 window_start_ledger: env.ledger().sequence(),
+                total_requests: 0,
             })
     }
     
@@ -287,5 +293,49 @@ mod tests {
         });
         assert_eq!(config.max_submissions, 10);
         assert_eq!(config.window_length, 100);
+    }
+
+    #[test]
+    fn test_total_requests_accumulates_across_windows() {
+        use soroban_sdk::testutils::{Ledger, LedgerInfo};
+
+        let env = Env::default();
+        let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+        let config = RateLimitConfig {
+            max_submissions: 2,
+            window_length: 10,
+        };
+        let contract_address = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        let set_seq = |env: &Env, seq: u32| {
+            env.ledger().set(LedgerInfo {
+                timestamp: 0,
+                protocol_version: 21,
+                sequence_number: seq,
+                network_id: Default::default(),
+                base_reserve: 0,
+                min_persistent_entry_ttl: 4096,
+                min_temp_entry_ttl: 16,
+                max_entry_ttl: 6312000,
+            });
+        };
+
+        // Window 1: 2 successful + 1 rejected = 3 total_requests
+        set_seq(&env, 0);
+        assert!(env.as_contract(&contract_address, &|| RateLimiter::check_and_increment(&env, &attestor, &config)).is_ok());
+        assert!(env.as_contract(&contract_address, &|| RateLimiter::check_and_increment(&env, &attestor, &config)).is_ok());
+        assert!(env.as_contract(&contract_address, &|| RateLimiter::check_and_increment(&env, &attestor, &config)).is_err());
+
+        let state = env.as_contract(&contract_address, &|| RateLimiter::get_state(&env, &attestor));
+        assert_eq!(state.submission_count, 2);
+        assert_eq!(state.total_requests, 3);
+
+        // Window 2 (advance ledger past window_length): 1 successful = 4 total_requests
+        set_seq(&env, 20);
+        assert!(env.as_contract(&contract_address, &|| RateLimiter::check_and_increment(&env, &attestor, &config)).is_ok());
+
+        let state = env.as_contract(&contract_address, &|| RateLimiter::get_state(&env, &attestor));
+        assert_eq!(state.submission_count, 1, "window counter should reset");
+        assert_eq!(state.total_requests, 4, "total_requests should be cumulative");
     }
 }

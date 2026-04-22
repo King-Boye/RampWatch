@@ -331,4 +331,40 @@ mod routing_tests {
         assert_eq!(best.anchor, anchor2);
         assert_eq!(best.fee_percentage, 25);
     }
+
+    #[test]
+    fn test_get_routing_anchors_empty_on_fresh_state() {
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let anchors = client.get_routing_anchors();
+        assert_eq!(anchors.len(), 0);
+    }
+
+    #[test]
+    fn test_get_routing_anchors_returns_all_registered() {
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let anchor1 = Address::generate(&env);
+        let anchor2 = Address::generate(&env);
+        let anchor3 = Address::generate(&env);
+
+        register_anchor(&env, &client, &anchor1);
+        client.set_anchor_metadata(&anchor1, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+
+        register_anchor(&env, &client, &anchor2);
+        client.set_anchor_metadata(&anchor2, &7000u32, &400u64, &6500u32, &9800u32, &500_000u64);
+
+        register_anchor(&env, &client, &anchor3);
+        client.set_anchor_metadata(&anchor3, &6000u32, &500u64, &5500u32, &9700u32, &250_000u64);
+
+        let anchors = client.get_routing_anchors();
+        assert_eq!(anchors.len(), 3);
+        assert!(anchors.contains(&anchor1));
+        assert!(anchors.contains(&anchor2));
+        assert!(anchors.contains(&anchor3));
+    }
 }
