@@ -187,7 +187,7 @@ pub struct MetadataCache {
 #[derive(Clone)]
 pub struct CapabilitiesCache {
     pub toml_url: String,
-    pub capabilities: String,
+    pub capabilities: Vec<u32>,
     pub cached_at: u64,
     pub ttl_seconds: u64,
 }
@@ -1279,9 +1279,23 @@ impl AnchorKitContract {
 
     pub fn cache_metadata(env: Env, anchor: Address, metadata: AnchorMetadata, ttl_seconds: u64) {
         Self::require_admin(&env);
+        // Issue #259: skip write if metadata is unchanged
+        let key = StorageKey::MetadataCache(anchor.clone());
+        if let Some(existing) = env.storage().temporary().get::<_, MetadataCache>(&key) {
+            let m = &existing.metadata;
+            if m.anchor == metadata.anchor
+                && m.reputation_score == metadata.reputation_score
+                && m.liquidity_score == metadata.liquidity_score
+                && m.uptime_percentage == metadata.uptime_percentage
+                && m.total_volume == metadata.total_volume
+                && m.average_settlement_time == metadata.average_settlement_time
+                && m.is_active == metadata.is_active
+            {
+                return;
+            }
+        }
         let now = env.ledger().timestamp();
         let entry = MetadataCache { metadata, cached_at: now, ttl_seconds };
-        let key = (symbol_short!("METACACHE"), anchor.clone());
         let ledger_ttl = if ttl_seconds as u32 > MIN_TEMP_TTL { ttl_seconds as u32 } else { MIN_TEMP_TTL };
         env.storage().temporary().set(&key, &entry);
         env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
@@ -1309,9 +1323,18 @@ impl AnchorKitContract {
         entry.metadata
     }
 
+    /// Issue #260: returns seconds elapsed since the metadata cache entry was written,
+    /// or `None` if no cache entry exists for the anchor.
+    pub fn get_cache_age_seconds(env: Env, anchor: Address) -> Option<u64> {
+        let key = StorageKey::MetadataCache(anchor);
+        let entry: MetadataCache = env.storage().temporary().get(&key)?;
+        let now = env.ledger().timestamp();
+        Some(now.saturating_sub(entry.cached_at))
+    }
+
     pub fn refresh_metadata_cache(env: Env, anchor: Address) {
         Self::require_admin(&env);
-        let key = (symbol_short!("METACACHE"), anchor.clone());
+        let key = StorageKey::MetadataCache(anchor.clone());
         env.storage().temporary().remove(&key);
 
         // Issue #276: remove from CACHED_ANCHORS set
@@ -1340,7 +1363,7 @@ impl AnchorKitContract {
     // Capabilities cache
     // -----------------------------------------------------------------------
 
-    pub fn cache_capabilities(env: Env, anchor: Address, toml_url: String, capabilities: String, ttl_seconds: u64) {
+    pub fn cache_capabilities(env: Env, anchor: Address, toml_url: String, capabilities: Vec<u32>, ttl_seconds: u64) {
         Self::require_admin(&env);
 
         // Issue #280: Validate toml_url before caching
@@ -1378,6 +1401,40 @@ impl AnchorKitContract {
         Self::require_admin(&env);
         let key = StorageKey::CapabilitiesCache(anchor);
         env.storage().temporary().remove(&key);
+    }
+
+    /// Issue #258: admin-only emergency flush of all MetadataCache and CapabilitiesCache entries.
+    /// Emits a `CacheInvalidated` event with the count of cleared entries.
+    pub fn invalidate_all_caches(env: Env) {
+        Self::require_admin(&env);
+        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
+        let anchors: Vec<Address> = env.storage().persistent()
+            .get::<_, Vec<Address>>(&list_key)
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let mut count: u32 = 0;
+        for anchor in anchors.iter() {
+            let meta_key = StorageKey::MetadataCache(anchor.clone());
+            if env.storage().temporary().has(&meta_key) {
+                env.storage().temporary().remove(&meta_key);
+                count += 1;
+            }
+            let caps_key = StorageKey::CapabilitiesCache(anchor.clone());
+            if env.storage().temporary().has(&caps_key) {
+                env.storage().temporary().remove(&caps_key);
+                count += 1;
+            }
+        }
+
+        // Clear the anchor list
+        let empty: Vec<Address> = Vec::new(&env);
+        env.storage().persistent().set(&list_key, &empty);
+        env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
+
+        env.events().publish(
+            (symbol_short!("cache"), symbol_short!("invalidall")),
+            count,
+        );
     }
 
     // -----------------------------------------------------------------------
