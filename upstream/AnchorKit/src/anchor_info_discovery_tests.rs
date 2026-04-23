@@ -78,7 +78,7 @@ mod anchor_info_discovery_tests {
             version: String::from_str(env, "2.0.0"),
             network_passphrase: String::from_str(env, "Test SDF Network ; September 2015"),
             accounts,
-            signing_key: String::from_str(env, "GSIGN123"),
+            signing_key: Some(String::from_str(env, "GSIGN123")),
             currencies,
             fiat_currencies: Vec::new(env),
             transfer_server: String::from_str(env, "https://api.example.com"),
@@ -105,7 +105,36 @@ mod anchor_info_discovery_tests {
 
         let toml = client.get_anchor_toml(&anchor);
         assert_eq!(toml.version, String::from_str(&env, "2.0.0"));
-        assert_eq!(toml.signing_key, String::from_str(&env, "GSIGN123"));
+        assert_eq!(toml.signing_key, Some(String::from_str(&env, "GSIGN123")));
+    }
+
+    #[test]
+    fn test_signing_key_is_none_when_not_provided() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        let mut currencies = Vec::new(&env);
+        currencies.push_back(usdc_asset(&env));
+        let mut accounts = Vec::new(&env);
+        accounts.push_back(String::from_str(&env, "GANCHOR1"));
+
+        let toml_no_key = StellarToml {
+            version: String::from_str(&env, "2.0.0"),
+            network_passphrase: String::from_str(&env, "Test SDF Network ; September 2015"),
+            accounts,
+            signing_key: None,
+            currencies,
+            transfer_server: String::from_str(&env, "https://api.example.com"),
+            transfer_server_sep0024: String::from_str(&env, "https://api.example.com/sep24"),
+            kyc_server: String::from_str(&env, "https://kyc.example.com"),
+            web_auth_endpoint: String::from_str(&env, "https://auth.example.com"),
+        };
+
+        client.fetch_anchor_info(&anchor, &toml_no_key, &3600u64);
+
+        let toml = client.get_anchor_toml(&anchor);
+        assert_eq!(toml.signing_key, None);
     }
 
     #[test]
@@ -167,7 +196,7 @@ mod anchor_info_discovery_tests {
 
         client.fetch_anchor_info(&anchor, &sample_toml(&env), &3600u64);
 
-        let assets = client.get_anchor_assets(&anchor);
+        let assets = client.get_anchor_assets(&anchor).unwrap();
         assert_eq!(assets.len(), 2);
         assert!(assets.contains(&String::from_str(&env, "USDC")));
         assert!(assets.contains(&String::from_str(&env, "XLM")));
@@ -192,10 +221,26 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
+        // Cached TOML but asset code doesn't exist — should error
         client.fetch_anchor_info(&anchor, &sample_toml(&env), &3600u64);
 
         let result = client.try_get_anchor_asset_info(&anchor, &String::from_str(&env, "BTC"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_anchor_assets_uncached_returns_error() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        // No fetch_anchor_info call — cache is empty
+        let result = client.try_get_anchor_assets(&anchor);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            crate::errors::ErrorCode::CacheNotFound
+        );
     }
 
     #[test]
@@ -303,8 +348,34 @@ mod anchor_info_discovery_tests {
         client.fetch_anchor_info(&anchor, &sample_toml(&env), &3600u64);
         let _ = client.get_anchor_toml(&anchor);
 
-        client.refresh_anchor_info(&anchor);
+        client.refresh_anchor_info(&anchor, &true);
 
+        let result = client.try_get_anchor_toml(&anchor);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_refresh_cache_force_false() {
+        let env = make_env();
+        set_ledger(&env, 1000);
+        let (client, anchor) = setup(&env);
+
+        // Cache with 3600s TTL
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &3600u64);
+        
+        // At 2000, still valid
+        set_ledger(&env, 2000);
+        client.refresh_anchor_info(&anchor, &false);
+
+        // Should still be in cache because force=false and not expired
+        let result = client.try_get_anchor_toml(&anchor);
+        assert!(result.is_ok());
+
+        // At 5000, expired
+        set_ledger(&env, 5000);
+        client.refresh_anchor_info(&anchor, &false);
+
+        // Should be gone now
         let result = client.try_get_anchor_toml(&anchor);
         assert!(result.is_err());
     }
@@ -366,7 +437,7 @@ mod anchor_info_discovery_tests {
             version: String::from_str(&env, "2.0.0"),
             network_passphrase: String::from_str(&env, "Test SDF Network ; September 2015"),
             accounts: accounts2,
-            signing_key: String::from_str(&env, "GSIGN456"),
+            signing_key: Some(String::from_str(&env, "GSIGN456")),
             currencies: currencies2,
             fiat_currencies: Vec::new(&env),
             transfer_server: String::from_str(&env, "https://api2.example.com"),
