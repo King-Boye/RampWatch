@@ -327,8 +327,34 @@ mod anchor_info_discovery_tests {
         client.fetch_anchor_info(&anchor, &sample_toml(&env), &3600u64);
         let _ = client.get_anchor_toml(&anchor);
 
-        client.refresh_anchor_info(&anchor);
+        client.refresh_anchor_info(&anchor, &true);
 
+        let result = client.try_get_anchor_toml(&anchor);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_refresh_cache_force_false() {
+        let env = make_env();
+        set_ledger(&env, 1000);
+        let (client, anchor) = setup(&env);
+
+        // Cache with 3600s TTL
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &3600u64);
+        
+        // At 2000, still valid
+        set_ledger(&env, 2000);
+        client.refresh_anchor_info(&anchor, &false);
+
+        // Should still be in cache because force=false and not expired
+        let result = client.try_get_anchor_toml(&anchor);
+        assert!(result.is_ok());
+
+        // At 5000, expired
+        set_ledger(&env, 5000);
+        client.refresh_anchor_info(&anchor, &false);
+
+        // Should be gone now
         let result = client.try_get_anchor_toml(&anchor);
         assert!(result.is_err());
     }
