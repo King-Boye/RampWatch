@@ -42,6 +42,8 @@ pub struct TransactionStateRecord {
     pub timestamp: u64,
     pub last_updated: u64,
     pub error_message: Option<String>,
+    /// Reason for failure, populated by fail_transaction
+    pub failure_reason: Option<String>,
 }
 
 /// Transaction state tracker
@@ -78,6 +80,7 @@ impl TransactionStateTracker {
             timestamp: current_time,
             last_updated: current_time,
             error_message: None,
+            failure_reason: None,
         };
 
         if self.is_dev_mode {
@@ -136,6 +139,9 @@ impl TransactionStateTracker {
                 if record.transaction_id == transaction_id {
                     record.state = new_state;
                     record.last_updated = current_time;
+                    if new_state == TransactionState::Failed {
+                        record.failure_reason = error_message.clone();
+                    }
                     record.error_message = error_message;
                     return Ok(record.clone());
                 }
@@ -146,6 +152,7 @@ impl TransactionStateTracker {
             ))
         } else {
             let dummy_address = Address::from_string(&String::from_str(env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"));
+            let failure_reason = if new_state == TransactionState::Failed { error_message.clone() } else { None };
             let record = TransactionStateRecord {
                 transaction_id,
                 state: new_state,
@@ -153,6 +160,7 @@ impl TransactionStateTracker {
                 timestamp: current_time,
                 last_updated: current_time,
                 error_message,
+                failure_reason,
             };
             Ok(record)
         }
