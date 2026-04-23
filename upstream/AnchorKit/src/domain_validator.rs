@@ -194,7 +194,8 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
         // (xn-- prefix) before passing to this function.  We additionally
         // reject any label that starts with "xn--" to prevent homograph
         // attacks via crafted Punycode that encodes visually-similar characters.
-        if label.to_ascii_lowercase().starts_with("xn--") {
+        let label_lower = label.to_ascii_lowercase();
+        if label_lower.starts_with("xn--") {
             return Err(AnchorKitError::invalid_endpoint_format());
         }
 
