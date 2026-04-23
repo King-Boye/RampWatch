@@ -201,6 +201,23 @@ enum DataKey {
 
     /// Rolling withdrawal records for an agent (persistent storage).
     AgentWithdrawals(Address),
+
+    // === Agent Performance Metrics ===
+    /// Settlement statistics for an agent (persistent storage).
+    AgentStats(Address),
+
+    // === Per-Token Fee Override ===
+    /// Token-specific platform fee override in basis points (persistent storage).
+    TokenFeeBps(Address),
+
+    // === Agent Registry Index ===
+    /// Ordered list of all registered agent addresses (persistent storage).
+    /// Required for iteration during migration export.
+    AgentList,
+
+    // === Sender Remittance Index ===
+    /// List of remittance IDs created by a sender (persistent storage).
+    SenderRemittances(Address),
 }
 
 /// Checks if the contract has an admin configured.
@@ -386,6 +403,13 @@ pub fn set_agent_registered(env: &Env, agent: &Address, registered: bool) {
     env.storage()
         .persistent()
         .set(&DataKey::AgentRegistered(agent.clone()), &registered);
+
+    // Keep the AgentList index in sync so agents can be iterated during migration.
+    if registered {
+        add_agent_to_list(env, agent);
+    } else {
+        remove_agent_from_list(env, agent);
+    }
 }
 
 /// Checks if an address is registered as an agent.
@@ -1360,8 +1384,7 @@ pub fn take_remittance_idempotency_key(env: &Env, remittance_id: u64) -> Option<
 }
 
 /// Stores the payout commitment for a remittance.
-pub fn set_payout_commitment(env: &Env, remittance_id: u64, commitment: &soroban_sdk::BytesN<32>) {
-    env.storage()
+pub fn set_payout_commitment(env: &Env, remittance_id: u64, commitment: &soroban_sdk::BytesN<32>) {    env.storage()
         .persistent()
         .set(&DataKey::PayoutCommitment(remittance_id), commitment);
 }
@@ -1520,4 +1543,69 @@ pub fn check_and_record_agent_withdrawal(
         .set(&DataKey::AgentWithdrawals(agent.clone()), &pruned);
 
     Ok(())
+}
+
+// === Agent Registry Index ===
+
+/// Returns the ordered list of all registered agent addresses.
+///
+/// This index is the source of truth for agent iteration during migration export.
+/// It is maintained in sync with `AgentRegistered` by `add_agent_to_list` /
+/// `remove_agent_from_list`.
+pub fn get_agent_list(env: &Env) -> Vec<Address> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::AgentList)
+        .unwrap_or(Vec::new(env))
+}
+
+/// Appends `agent` to the agent registry index if not already present.
+///
+/// Called by `set_agent_registered(env, agent, true)` to keep the index in sync.
+pub fn add_agent_to_list(env: &Env, agent: &Address) {
+    let mut list = get_agent_list(env);
+    // Deduplicate: only append if not already present
+    for i in 0..list.len() {
+        if list.get_unchecked(i) == *agent {
+            return;
+        }
+    }
+    list.push_back(agent.clone());
+    env.storage().persistent().set(&DataKey::AgentList, &list);
+}
+
+/// Removes `agent` from the agent registry index.
+///
+/// Called by `set_agent_registered(env, agent, false)` to keep the index in sync.
+pub fn remove_agent_from_list(env: &Env, agent: &Address) {
+    let list = get_agent_list(env);
+    let mut new_list = Vec::new(env);
+    for i in 0..list.len() {
+        let a = list.get_unchecked(i);
+        if a != *agent {
+            new_list.push_back(a);
+        }
+    }
+    env.storage()
+        .persistent()
+        .set(&DataKey::AgentList, &new_list);
+}
+
+// === Sender Remittance Index ===
+
+/// Returns all remittance IDs created by `sender`.
+pub fn get_sender_remittances(env: &Env, sender: &Address) -> Vec<u64> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::SenderRemittances(sender.clone()))
+        .unwrap_or(Vec::new(env))
+}
+
+/// Appends `remittance_id` to the sender's remittance index.
+pub fn append_sender_remittance(env: &Env, sender: &Address, remittance_id: u64) {
+    let mut ids = get_sender_remittances(env, sender);
+    ids.push_back(remittance_id);
+    env.storage()
+        .persistent()
+        .set(&DataKey::SenderRemittances(sender.clone()), &ids);
 }

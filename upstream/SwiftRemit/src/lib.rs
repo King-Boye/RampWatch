@@ -41,6 +41,8 @@ mod test_limits_and_proof;
 #[cfg(test)]
 mod test_migration;
 #[cfg(test)]
+mod test_agent_migration;
+#[cfg(test)]
 mod test_property;
 #[cfg(test)]
 mod test_protocol_fee;
@@ -2673,5 +2675,44 @@ impl SwiftRemitContract {
         }
 
         Ok(())
+    }
+
+    /// Migrates persistent storage keys after an in-place WASM upgrade.
+    ///
+    /// Must be called immediately after `env.deployer().update_current_contract_wasm()`
+    /// completes.  Safe to call multiple times — subsequent calls are no-ops once the
+    /// schema version is current.
+    ///
+    /// # What is migrated
+    ///
+    /// - `AgentRegistered(Address)` — re-written under current XDR encoding
+    /// - `AgentKycHash(Address)` — re-written under current XDR encoding
+    /// - `AgentList` — rebuilt from the agent snapshot (was missing in schema v1)
+    ///
+    /// # Rollback
+    ///
+    /// If this function returns `MigrationValidationFailed`, call
+    /// `rollback_migration()` to restore the pre-migration agent state.
+    ///
+    /// # Authorization
+    /// Admin only.
+    pub fn migrate(env: Env, caller: Address) -> Result<(), ContractError> {
+        get_admin(&env)?;
+        require_admin(&env, &caller)?;
+        caller.require_auth();
+        migration::migrate(&env)
+    }
+
+    /// Restores agent registration state from the pre-migration rollback snapshot.
+    ///
+    /// Only valid after a failed `migrate()` call.  Clears the snapshot on success.
+    ///
+    /// # Authorization
+    /// Admin only.
+    pub fn rollback_migration(env: Env, caller: Address) -> Result<(), ContractError> {
+        get_admin(&env)?;
+        require_admin(&env, &caller)?;
+        caller.require_auth();
+        migration::rollback_migration(&env)
     }
 }
