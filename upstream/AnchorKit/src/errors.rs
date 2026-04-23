@@ -8,6 +8,7 @@
 //! provided constructor helpers (e.g. [`AnchorKitError::already_initialized`])
 //! to build errors without touching raw codes.
 
+
 extern crate alloc;
 
 use alloc::string::String;
@@ -46,6 +47,7 @@ pub enum ErrorCode {
     StorageCorrupted = 50,
     CacheExpired = 48,
     CacheNotFound = 49,
+    StorageCorrupted = 50,
 }
 
 impl ErrorCode {
@@ -203,6 +205,14 @@ impl AnchorKitError {
     pub fn storage_corrupted() -> Self {
         Self::from_code(ErrorCode::StorageCorrupted)
     }
+
+    pub fn cache_expired() -> Self {
+        Self::from_code(ErrorCode::CacheExpired)
+    }
+
+    pub fn cache_not_found() -> Self {
+        Self::from_code(ErrorCode::CacheNotFound)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -265,6 +275,8 @@ mod tests {
         assert_eq!(AnchorKitError::no_quotes_available().code, ErrorCode::NoQuotesAvailable);
         assert_eq!(AnchorKitError::services_not_configured().code, ErrorCode::ServicesNotConfigured);
         assert_eq!(AnchorKitError::invalid_sep10_token().code, ErrorCode::InvalidSep10Token);
+        assert_eq!(AnchorKitError::cache_expired().code, ErrorCode::CacheExpired);
+        assert_eq!(AnchorKitError::cache_not_found().code, ErrorCode::CacheNotFound);
     }
 
     #[test]
