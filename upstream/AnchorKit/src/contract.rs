@@ -327,6 +327,9 @@ pub struct AnchorKitContract;
 #[contractimpl]
 #[allow(clippy::too_many_arguments)]
 impl AnchorKitContract {
+    pub fn get_attestation_count(env: Env) -> u64 {
+        env.storage().instance().get(&symbol_short!("TOTALCNT")).unwrap_or(0)
+    }
     // -----------------------------------------------------------------------
     // Initialization
     // -----------------------------------------------------------------------
@@ -1489,7 +1492,12 @@ impl AnchorKitContract {
         env.storage().persistent().extend_ttl(&subj_att_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         env.storage().persistent().set(&count_key, &(count + 1));
-        env.storage().persistent().extend_ttl(&count_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        let total_key = symbol_short!("TOTALCNT");
+        let total: u64 = env.storage().instance().get(&total_key).unwrap_or(0);
+        env.storage().instance().set(&total_key, &(total + 1));
+        env.storage()
+            .persistent()
+            .extend_ttl(&count_key, PERSISTENT_TTL, PERSISTENT_TTL);
     }
 
     fn store_span(env: &Env, request_id: &RequestId, operation: String, actor: Address, now: u64, status: String) {
