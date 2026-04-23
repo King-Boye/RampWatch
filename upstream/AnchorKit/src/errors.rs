@@ -8,7 +8,6 @@
 //! provided constructor helpers (e.g. [`AnchorKitError::already_initialized`])
 //! to build errors without touching raw codes.
 
-#![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
 
@@ -45,13 +44,10 @@ pub enum ErrorCode {
     NotInitialized = 101,
     AttestationNotFound = 17,
     InvalidSep10Token = 18,
+    StorageCorrupted = 50,
     CacheExpired = 48,
-StorageCorrupted = 19,
-CacheNotFound = 49,
-    UnauthorizedProposeAdmin = 50,
-    NoPendingAdmin = 51,
-    NotPendingAdmin = 52,
-
+    CacheNotFound = 49,
+    StorageCorrupted = 50,
 }
 
 impl ErrorCode {
@@ -214,16 +210,12 @@ pub fn storage_corrupted() -> Self {
         Self::from_code(ErrorCode::StorageCorrupted)
     }
 
-    pub fn unauthorized_propose_admin() -> Self {
-        Self::from_code(ErrorCode::UnauthorizedProposeAdmin)
+    pub fn cache_expired() -> Self {
+        Self::from_code(ErrorCode::CacheExpired)
     }
 
-    pub fn no_pending_admin() -> Self {
-        Self::from_code(ErrorCode::NoPendingAdmin)
-    }
-
-    pub fn not_pending_admin() -> Self {
-        Self::from_code(ErrorCode::NotPendingAdmin)
+    pub fn cache_not_found() -> Self {
+        Self::from_code(ErrorCode::CacheNotFound)
     }
 }
 
@@ -287,6 +279,8 @@ mod tests {
         assert_eq!(AnchorKitError::no_quotes_available().code, ErrorCode::NoQuotesAvailable);
         assert_eq!(AnchorKitError::services_not_configured().code, ErrorCode::ServicesNotConfigured);
         assert_eq!(AnchorKitError::invalid_sep10_token().code, ErrorCode::InvalidSep10Token);
+        assert_eq!(AnchorKitError::cache_expired().code, ErrorCode::CacheExpired);
+        assert_eq!(AnchorKitError::cache_not_found().code, ErrorCode::CacheNotFound);
     }
 
     #[test]
