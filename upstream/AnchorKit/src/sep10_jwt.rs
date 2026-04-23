@@ -7,7 +7,8 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use soroban_sdk::{Bytes, BytesN, Env, String};
+use soroban_sdk::{Bytes, Env, String};
+use ed25519_dalek::{Signature, VerifyingKey, Verifier};
 
 /// Maximum JWT character length accepted by the contract (defensive bound).
 pub const MAX_JWT_LEN: u32 = 2048;
@@ -124,18 +125,17 @@ fn parse_json_sub(env: &Env, payload: &[u8]) -> Result<String, ()> {
 ///
 /// When `expected_sub` is [`None`], the token must still contain a parseable `sub` claim, but it
 /// is not compared to a caller-supplied address (see contract `verify_sep10_token`).
-///
-/// `clock_skew_seconds` is added to `exp` before comparing against the ledger timestamp,
-/// accommodating the lag between wall-clock JWT issuance and Soroban ledger time.
-/// Pass `0` for strict enforcement. A value of `60` is a reasonable default.
+/// Maximum number of verifying keys stored per issuer (supports key rotation).
+pub const MAX_VERIFYING_KEYS: u32 = 3;
+
 pub fn verify_sep10_jwt(
     env: &Env,
     token: &String,
-    anchor_public_key: &Bytes,
+    keys: &soroban_sdk::Vec<Bytes>,
     expected_sub: Option<&String>,
     clock_skew_seconds: u64,
 ) -> Result<(), ()> {
-    if anchor_public_key.len() != 32 {
+    if keys.is_empty() {
         return Err(());
     }
 
@@ -183,13 +183,27 @@ pub fn verify_sep10_jwt(
         return Err(());
     }
 
-    let signing_input = Bytes::from_slice(env, &buf[..d1]);
-    let sig_bytes = Bytes::from_slice(env, sig_dec.as_slice());
+    let sig_arr: [u8; 64] = sig_dec.as_slice().try_into().map_err(|_| ())?;
+    let dalek_sig = Signature::from_bytes(&sig_arr);
 
-    let pk_bytesn: BytesN<32> = anchor_public_key.clone().try_into().map_err(|_| ())?;
-    let sig_bytesn: BytesN<64> = sig_bytes.try_into().map_err(|_| ())?;
-
-    env.crypto().ed25519_verify(&pk_bytesn, &signing_input, &sig_bytesn);
+    let mut sig_ok = false;
+    for i in 0..keys.len() {
+        let key = keys.get(i).unwrap();
+        if key.len() != 32 {
+            continue;
+        }
+        let mut pk_arr = [0u8; 32];
+        key.copy_into_slice(&mut pk_arr);
+        if let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) {
+            if vk.verify(&buf[..d1], &dalek_sig).is_ok() {
+                sig_ok = true;
+                break;
+            }
+        }
+    }
+    if !sig_ok {
+        return Err(());
+    }
 
     let payload_dec = base64url_decode(payload_b64).map_err(|_| ())?;
     let exp = parse_json_exp(&payload_dec)?;
@@ -275,8 +289,10 @@ mod tests {
         let jwt = build_jwt(&signing_key, sub_str.as_str(), 2_000);
         let token = String::from_str(&env, jwt.as_str());
 
-        assert!(verify_sep10_jwt(&env, &token, &pk, Some(&sub), 0).is_ok());
-        assert!(verify_sep10_jwt(&env, &token, &pk, None, 0).is_ok());
+        let mut keys = soroban_sdk::Vec::new(&env);
+        keys.push_back(pk);
+        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub)).is_ok());
+        assert!(verify_sep10_jwt(&env, &token, &keys, None).is_ok());
     }
 
     #[test]
@@ -292,7 +308,9 @@ mod tests {
         let jwt = build_jwt(&signing_key, sub_str.as_str(), 1_000);
         let token = String::from_str(&env, jwt.as_str());
 
-        assert!(verify_sep10_jwt(&env, &token, &pk, Some(&sub), 0).is_err());
+        let mut keys = soroban_sdk::Vec::new(&env);
+        keys.push_back(pk);
+        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub)).is_err());
     }
 
     #[test]
@@ -314,7 +332,9 @@ mod tests {
         let jwt = build_jwt(&signing_key, sub_str, 2_000);
         let token = String::from_str(&env, jwt.as_str());
 
-        assert!(verify_sep10_jwt(&env, &token, &pk, Some(&sub), 0).is_err());
+        let mut keys = soroban_sdk::Vec::new(&env);
+        keys.push_back(pk);
+        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub)).is_err());
 
         // Malformed payloads should also return Err, not panic
         let malformed_cases: &[&[u8]] = &[

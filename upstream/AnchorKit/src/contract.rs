@@ -395,20 +395,64 @@ impl AnchorKitContract {
         if public_key.len() != 32 {
             panic_with_error!(&env, ErrorCode::ValidationError);
         }
-        let storage_key = StorageKey::Sep10Key(issuer.clone());
-        env.storage().persistent().set(&storage_key, &public_key);
+        let mut keys: Vec<Bytes> = Vec::new(&env);
+        keys.push_back(public_key);
+        let storage_key = (symbol_short!("SEP10KEY"), issuer.clone());
+        env.storage().persistent().set(&storage_key, &keys);
+        env.storage()
+            .persistent()
+            .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
+    }
+
+    pub fn add_sep10_verifying_key(env: Env, issuer: Address, public_key: Bytes) {
+        Self::require_admin(&env);
+        if public_key.len() != 32 {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        let storage_key = (symbol_short!("SEP10KEY"), issuer.clone());
+        let mut keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&storage_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        if keys.len() >= sep10_jwt::MAX_VERIFYING_KEYS {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        keys.push_back(public_key);
+        env.storage().persistent().set(&storage_key, &keys);
+        env.storage()
+            .persistent()
+            .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
+    }
+
+    pub fn remove_sep10_verifying_key(env: Env, issuer: Address, public_key: Bytes) {
+        Self::require_admin(&env);
+        let storage_key = (symbol_short!("SEP10KEY"), issuer.clone());
+        let keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&storage_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let mut new_keys: Vec<Bytes> = Vec::new(&env);
+        for i in 0..keys.len() {
+            let k = keys.get(i).unwrap();
+            if k != public_key {
+                new_keys.push_back(k);
+            }
+        }
+        env.storage().persistent().set(&storage_key, &new_keys);
         env.storage()
             .persistent()
             .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
     }
 
     pub fn verify_sep10_token(env: Env, token: String, issuer: Address) {
-        let pk: Bytes = env
+        let keys: Vec<Bytes> = env
             .storage()
             .persistent()
             .get(&StorageKey::Sep10Key(issuer.clone()))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::InvalidSep10Token));
-        if sep10_jwt::verify_sep10_jwt(&env, &token, &pk, None, 0).is_err() {
+        if sep10_jwt::verify_sep10_jwt(&env, &token, &keys, None).is_err() {
             panic_with_error!(&env, ErrorCode::InvalidSep10Token);
         }
     }
@@ -419,13 +463,13 @@ impl AnchorKitContract {
         issuer: &Address,
         attestor: &Address,
     ) {
-        let pk: Bytes = env
+        let keys: Vec<Bytes> = env
             .storage()
             .persistent()
             .get(&StorageKey::Sep10Key(issuer.clone()))
             .unwrap_or_else(|| panic_with_error!(env, ErrorCode::InvalidSep10Token));
         let expected = attestor.to_string();
-        if sep10_jwt::verify_sep10_jwt(env, token, &pk, Some(&expected), 0).is_err() {
+        if sep10_jwt::verify_sep10_jwt(env, token, &keys, Some(&expected)).is_err() {
             panic_with_error!(env, ErrorCode::InvalidSep10Token);
         }
     }
@@ -1235,6 +1279,19 @@ impl AnchorKitContract {
             .unwrap_or_else(|| Vec::new(&env))
     }
 
+    /// Select the best anchor for a transaction and return its `Quote`.
+    ///
+    /// Candidates are filtered to those that are active, meet `min_reputation`,
+    /// have a non-expired quote, and whose quote range covers `request.amount`.
+    ///
+    /// The winner is then chosen by `options.strategy[0]`:
+    ///
+    /// - `"LowestFee"` — lowest `fee_percentage`
+    /// - `"FastestSettlement"` — lowest `average_settlement_time`
+    /// - `"HighestReputation"` — highest `reputation_score`
+    ///
+    /// An empty `strategy` vec panics with `NoQuotesAvailable`.
+    /// An unrecognised symbol returns the first candidate in iteration order.
     pub fn route_transaction(env: Env, options: RoutingOptions) -> Quote {
         let now = env.ledger().timestamp();
         let list_key = key_anchor_list(&env);
@@ -1283,6 +1340,7 @@ impl AnchorKitContract {
         let lowest_fee_sym = Symbol::new(&env, "LowestFee");
         let fastest_sym = Symbol::new(&env, "FastestSettlement");
         let reputation_sym = Symbol::new(&env, "HighestReputation");
+        let balanced_sym = Symbol::new(&env, "Balanced");
 
         let mut best: Quote = candidates.get(0).unwrap();
 
@@ -1324,6 +1382,36 @@ impl AnchorKitContract {
                     .unwrap_or(0);
                 if rep > best_rep {
                     best_rep = rep;
+                    best = q;
+                }
+            }
+        } else if strategy_sym == balanced_sym {
+            // score = (40_000 / fee_percentage) + (30_000 / settlement_time) + (reputation * 30 / 10_000)
+            // All terms are dimensionless integers; higher score is better.
+            // fee_percentage = 0 or settlement_time = 0 contribute 0 to avoid division by zero.
+            let balanced_score = |env: &Env, q: &Quote| -> u64 {
+                let mk = (symbol_short!("ANCHMETA"), q.anchor.clone());
+                let meta: RoutingAnchorMeta = env.storage().persistent()
+                    .get(&mk)
+                    .unwrap_or(RoutingAnchorMeta {
+                        anchor: q.anchor.clone(),
+                        reputation_score: 0,
+                        average_settlement_time: 0,
+                        liquidity_score: 0,
+                        uptime_percentage: 0,
+                        total_volume: 0,
+                        is_active: false,
+                    });
+                let fee_term = if q.fee_percentage > 0 { 40_000 / q.fee_percentage as u64 } else { 0 };
+                let time_term = if meta.average_settlement_time > 0 { 30_000 / meta.average_settlement_time } else { 0 };
+                let rep_term = meta.reputation_score as u64 * 30 / 10_000;
+                fee_term + time_term + rep_term
+            };
+            let mut best_score = balanced_score(&env, &best);
+            for q in candidates.iter() {
+                let score = balanced_score(&env, &q);
+                if score > best_score {
+                    best_score = score;
                     best = q;
                 }
             }
