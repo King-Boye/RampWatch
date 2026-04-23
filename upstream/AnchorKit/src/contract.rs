@@ -894,11 +894,12 @@ impl AnchorKitContract {
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
 
         let now = env.ledger().timestamp();
+        let nonce: u64 = env.prng().u64();
         let session = Session {
             session_id,
             initiator: initiator.clone(),
             created_at: now,
-            nonce: 0,
+            nonce,
             operation_count: 0,
         };
         let sess_key = StorageKey::Session(session_id);
@@ -906,7 +907,7 @@ impl AnchorKitContract {
         env.storage().persistent().extend_ttl(&sess_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         let snonce_key = StorageKey::SessionNonce(session_id);
-        env.storage().persistent().set(&snonce_key, &0u64);
+        env.storage().persistent().set(&snonce_key, &nonce);
         env.storage().persistent().extend_ttl(&snonce_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         env.events().publish(

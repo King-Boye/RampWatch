@@ -72,6 +72,41 @@ mod session_tests {
     }
 
     #[test]
+    fn test_create_session_nonce_is_random_and_unique() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let user = Address::generate(&env);
+        client.initialize(&admin);
+
+        let id0 = client.create_session(&user);
+        let id1 = client.create_session(&user);
+        let id2 = client.create_session(&user);
+
+        // IDs are still sequential
+        assert_eq!(id0, 0);
+        assert_eq!(id1, 1);
+        assert_eq!(id2, 2);
+
+        let s0 = client.get_session(&id0);
+        let s1 = client.get_session(&id1);
+        let s2 = client.get_session(&id2);
+
+        // Nonces must not equal the session ID (no longer sequential 0,1,2)
+        assert_ne!(s0.nonce, id0, "nonce should not equal session_id");
+        assert_ne!(s1.nonce, id1, "nonce should not equal session_id");
+        assert_ne!(s2.nonce, id2, "nonce should not equal session_id");
+
+        // Nonces must be unique across sessions
+        assert_ne!(s0.nonce, s1.nonce, "nonces should be unique");
+        assert_ne!(s1.nonce, s2.nonce, "nonces should be unique");
+        assert_ne!(s0.nonce, s2.nonce, "nonces should be unique");
+    }
+
+    #[test]
     fn test_create_session_stores_initiator() {
         let env = make_env();
         setup_ledger(&env);
