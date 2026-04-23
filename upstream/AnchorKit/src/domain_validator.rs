@@ -130,6 +130,11 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
         return Err(AnchorKitError::invalid_endpoint_format());
     }
 
+    // DNS limits: full domain must be <= 253 characters
+    if domain_without_port.len() > 253 {
+        return Err(AnchorKitError::invalid_endpoint_format());
+    }
+
     // Must contain at least one dot for valid domain (rejects single-label hostnames
     // like "anchor", "localhost", "intranet" which have no TLD — issue #275)
     if !domain_without_port.contains('.') {
@@ -165,7 +170,7 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
     }
 
     for label in &labels {
-        if label.is_empty() {
+        if label.is_empty() || label.len() > 63 {
             return Err(AnchorKitError::invalid_endpoint_format());
         }
 
@@ -385,6 +390,28 @@ mod tests {
         // Very short valid domains
         assert!(validate_anchor_domain("https://a.b").is_ok());
         assert!(validate_anchor_domain("https://ab.cd").is_ok());
+
+        // DNS limits: 63 per label, 253 for full domain
+        
+        // 63-char label (valid)
+        let label_63 = "a".repeat(63);
+        let domain_63 = format!("https://{}.com", label_63);
+        assert!(validate_anchor_domain(&domain_63).is_ok());
+
+        // 64-char label (invalid)
+        let label_64 = "a".repeat(64);
+        let domain_64 = format!("https://{}.com", label_64);
+        assert!(validate_anchor_domain(&domain_64).is_err());
+
+        // 253-char domain (valid)
+        let domain_part_253 = format!("{}.com", "a".repeat(249)); // 249 + 1 (.) + 3 (com) = 253
+        let full_url_253 = format!("https://{}", domain_part_253);
+        assert!(validate_anchor_domain(&full_url_253).is_ok());
+
+        // 254-char domain (invalid)
+        let domain_part_254 = format!("{}.com", "a".repeat(250));
+        let full_url_254 = format!("https://{}", domain_part_254);
+        assert!(validate_anchor_domain(&full_url_254).is_err());
     }
 
     #[test]
