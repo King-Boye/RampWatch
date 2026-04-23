@@ -262,6 +262,24 @@ pub enum ContractError {
 
     /// This operation requires the remittance to be in a Disputed state.
     NotDisputed = 55,
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Migration Validation Errors (56-58)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// One or more agent records could not be verified after migration.
+    /// Cause: `migrate()` validation pass found agents that became unreadable.
+    MigrationValidationFailed = 56,
+
+    /// Requested resource was not found.
+    /// Cause: Rollback snapshot not found, or proposal not found.
+    NotFound = 57,
+
+    /// Caller is not authorized for this operation.
+    NotAuthorized = 58,
+
+    /// Invalid input parameter.
+    InvalidInput = 59,
 }
 
 #[cfg(test)]
