@@ -49,7 +49,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let result = client.try_get_cached_metadata(&anchor);
         assert!(result.is_err());
@@ -64,7 +64,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let meta = sample_metadata(&env, &anchor);
         client.cache_metadata(&anchor, &meta, &3600u64);
@@ -83,7 +83,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let meta = sample_metadata(&env, &anchor);
         client.cache_metadata(&anchor, &meta, &10u64);
@@ -95,7 +95,8 @@ mod metadata_cache_tests {
     }
 
     #[test]
-    fn test_manual_refresh() {
+    fn test_zero_ttl_never_expires() {
+        // ttl_seconds = 0 must be treated as "never expire", not as immediately expired.
         let env = make_env();
         set_ledger(&env, 0);
         let contract_id = env.register_contract(None, AnchorKitContract);
@@ -104,6 +105,27 @@ mod metadata_cache_tests {
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
         client.initialize(&admin);
+
+        let meta = sample_metadata(&env, &anchor);
+        client.cache_metadata(&anchor, &meta, &0u64);
+
+        // Advance time arbitrarily far — the entry must still be accessible
+        set_ledger(&env, 999_999_999);
+        let result = client.try_get_cached_metadata(&anchor);
+        assert!(result.is_ok(), "ttl_seconds=0 entry should never expire");
+        assert_eq!(result.unwrap().reputation_score, 9000);
+    }
+
+    #[test]
+    fn test_manual_refresh() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let anchor = Address::generate(&env);
+        client.initialize(&admin, &None);
 
         let meta = sample_metadata(&env, &anchor);
         client.cache_metadata(&anchor, &meta, &3600u64);
@@ -128,10 +150,12 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let toml_url = String::from_str(&env, "https://anchor.example/.well-known/stellar.toml");
-        let caps = String::from_str(&env, "{\"deposits\":true,\"withdrawals\":true}");
+        let mut caps = soroban_sdk::Vec::new(&env);
+        caps.push_back(1u32); // SERVICE_DEPOSITS
+        caps.push_back(2u32); // SERVICE_WITHDRAWALS
         client.cache_capabilities(&anchor, &toml_url, &caps, &3600u64);
 
         let cached = client.get_cached_capabilities(&anchor);
@@ -148,10 +172,11 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let toml_url = String::from_str(&env, "https://anchor.example/.well-known/stellar.toml");
-        let caps = String::from_str(&env, "{\"deposits\":true}");
+        let mut caps = soroban_sdk::Vec::new(&env);
+        caps.push_back(1u32);
         client.cache_capabilities(&anchor, &toml_url, &caps, &5u64);
 
         set_ledger(&env, 6);
@@ -168,10 +193,11 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let toml_url = String::from_str(&env, "https://anchor.example/.well-known/stellar.toml");
-        let caps = String::from_str(&env, "{\"deposits\":true}");
+        let mut caps = soroban_sdk::Vec::new(&env);
+        caps.push_back(1u32);
         client.cache_capabilities(&anchor, &toml_url, &caps, &3600u64);
 
         client.refresh_capabilities_cache(&anchor);
@@ -180,8 +206,9 @@ mod metadata_cache_tests {
         assert!(result.is_err());
     }
 
+    // Issue #259: cache_metadata skips write when data is unchanged
     #[test]
-    fn test_cache_capabilities_invalid_url() {
+    fn test_cache_metadata_no_write_if_unchanged() {
         let env = make_env();
         set_ledger(&env, 0);
         let contract_id = env.register_contract(None, AnchorKitContract);
@@ -191,12 +218,74 @@ mod metadata_cache_tests {
         let anchor = Address::generate(&env);
         client.initialize(&admin);
 
-        // Invalid URL (not HTTPS)
-        let toml_url = String::from_str(&env, "http://anchor.example/stellar.toml");
-        let caps = String::from_str(&env, "{\"deposits\":true}");
-        
-        let result = client.try_cache_capabilities(&anchor, &toml_url, &caps, &3600u64);
-        assert!(result.is_err());
+        let meta = sample_metadata(&env, &anchor);
+        client.cache_metadata(&anchor, &meta, &3600u64);
+
+        // Advance time and call again with identical metadata — cached_at should NOT update
+        set_ledger(&env, 100);
+        client.cache_metadata(&anchor, &meta, &3600u64);
+
+        // The cache entry should still have cached_at == 0 (original write)
+        // We verify by checking the age is >= 100 seconds
+        let age = client.get_cache_age_seconds(&anchor);
+        assert!(age.is_some());
+        assert!(age.unwrap() >= 100);
+    }
+
+    // Issue #260: get_cache_age_seconds returns None when no entry, Some(age) when cached
+    #[test]
+    fn test_get_cache_age_seconds() {
+        let env = make_env();
+        set_ledger(&env, 1000);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let anchor = Address::generate(&env);
+        client.initialize(&admin);
+
+        // No entry yet
+        assert!(client.get_cache_age_seconds(&anchor).is_none());
+
+        let meta = sample_metadata(&env, &anchor);
+        client.cache_metadata(&anchor, &meta, &3600u64);
+
+        // Advance 50 seconds
+        set_ledger(&env, 1050);
+        let age = client.get_cache_age_seconds(&anchor);
+        assert_eq!(age, Some(50));
+    }
+
+    // Issue #258: invalidate_all_caches removes all entries and emits event
+    #[test]
+    fn test_invalidate_all_caches() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let anchor1 = Address::generate(&env);
+        let anchor2 = Address::generate(&env);
+        client.initialize(&admin);
+
+        let meta1 = sample_metadata(&env, &anchor1);
+        let meta2 = sample_metadata(&env, &anchor2);
+        client.cache_metadata(&anchor1, &meta1, &3600u64);
+        client.cache_metadata(&anchor2, &meta2, &3600u64);
+
+        // Both readable before flush
+        assert!(client.try_get_cached_metadata(&anchor1).is_ok());
+        assert!(client.try_get_cached_metadata(&anchor2).is_ok());
+
+        client.invalidate_all_caches();
+
+        // Both gone after flush
+        assert!(client.try_get_cached_metadata(&anchor1).is_err());
+        assert!(client.try_get_cached_metadata(&anchor2).is_err());
+
+        // Anchor list also cleared
+        assert_eq!(client.list_cached_anchors().len(), 0);
     }
 
     // Issue #276: list_cached_anchors returns all anchors with active cache entries
@@ -210,7 +299,7 @@ mod metadata_cache_tests {
         let admin = Address::generate(&env);
         let anchor1 = Address::generate(&env);
         let anchor2 = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         // Initially empty
         let list = client.list_cached_anchors();

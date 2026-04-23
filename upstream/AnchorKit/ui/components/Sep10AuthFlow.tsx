@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
+import './themes.css';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Step =
   | "idle"
@@ -93,7 +95,7 @@ function GlowRing({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          border: `1.5px solid ${done ? color : active ? color : "#1e2d45"}`,
+          border: `1.5px solid ${done ? color : active ? color : "var(--ak-border)"}`,
           background: done
             ? `${color}20`
             : active
@@ -122,7 +124,7 @@ function GlowRing({
           <span
             style={{
               fontSize: 16,
-              color: active ? color : "#2a3d5a",
+              color: active ? color : "var(--ak-text-muted)",
               transition: "color 0.3s",
               filter: active ? `drop-shadow(0 0 6px ${color})` : "none",
             }}
@@ -146,7 +148,7 @@ function Connector({ done, color }: { done: boolean; color: string }) {
         overflow: "hidden",
       }}
     >
-      <div style={{ position: "absolute", inset: 0, background: "#1e2d45" }} />
+      <div style={{ position: "absolute", inset: 0, background: "var(--ak-border)" }} />
       <div
         style={{
           position: "absolute",
@@ -193,8 +195,8 @@ function TokenDisplay({ jwt }: { jwt: string }) {
           lineHeight: 1.7,
           padding: "14px 16px",
           borderRadius: 8,
-          background: "rgba(0,0,0,0.5)",
-          border: "1px solid #1e2d45",
+          background: "var(--ak-surface-2)",
+          border: "1px solid var(--ak-border)",
           wordBreak: "break-all",
         }}
       >
@@ -208,7 +210,7 @@ function TokenDisplay({ jwt }: { jwt: string }) {
             >
               {part}
             </span>
-            {i < 2 && <span style={{ color: "#2a3d5a" }}>.</span>}
+            {i < 2 && <span style={{ color: "var(--ak-text-muted)" }}>.</span>}
           </span>
         ))}
       </div>
@@ -224,8 +226,8 @@ function TokenDisplay({ jwt }: { jwt: string }) {
                 fontFamily: "monospace",
                 padding: "12px 14px",
                 borderRadius: 8,
-                background: "rgba(0,0,0,0.3)",
-                border: "1px solid #1e2d45",
+                background: "var(--ak-surface-3)",
+                border: "1px solid var(--ak-border)",
                 display: "flex",
                 flexDirection: "column",
                 gap: 5,
@@ -233,9 +235,7 @@ function TokenDisplay({ jwt }: { jwt: string }) {
             >
               <div
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
+                  color: "var(--ak-text-muted)",
                   marginBottom: 4,
                 }}
               >
@@ -271,7 +271,7 @@ function TokenDisplay({ jwt }: { jwt: string }) {
               {Object.entries(payload).map(([k, v]) => (
                 <div key={k} style={{ display: "flex", gap: 10 }}>
                   <span style={{ color: "#ff7eb3", minWidth: 52 }}>{k}</span>
-                  <span style={{ color: "#3a5070" }}>:</span>
+                  <span style={{ color: "var(--ak-text-muted)" }}>:</span>
                   <span
                     style={{
                       color: "#79d4fd",
@@ -305,8 +305,8 @@ function TokenDisplay({ jwt }: { jwt: string }) {
           borderRadius: 5,
           cursor: "pointer",
           transition: "all 0.2s",
-          border: `1px solid ${copied ? "#00e5ff" : "#1e2d45"}`,
-          color: copied ? "#00e5ff" : "#3a5070",
+          border: `1px solid ${copied ? "#00e5ff" : "var(--ak-border)"}`,
+          color: copied ? "#00e5ff" : "var(--ak-text-muted)",
           background: copied ? "rgba(0,229,255,0.08)" : "transparent",
           boxShadow: copied ? "0 0 12px rgba(0,229,255,0.2)" : "none",
         }}
@@ -415,13 +415,13 @@ function AuthStatusBadge({ wallet, jwt }: { wallet: WalletInfo; jwt: string }) {
           >
             {statusLabel}
           </div>
-          <div style={{ fontSize: 10, color: "#3a5070", marginTop: 2 }}>
-            {isExpired ? "Token has expired · Re-authenticate required" : "Session active · SEP-10 verified"}
+          <div style={{ fontSize: 10, color: "var(--ak-text-muted)", marginTop: 2 }}>
+            Session active · SEP-10 verified
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
           <div
-            style={{ fontSize: 9, color: "#3a5070", letterSpacing: "0.1em" }}
+            style={{ fontSize: 9, color: "var(--ak-text-muted)", letterSpacing: "0.1em" }}
           >
             {isExpired ? "EXPIRED" : "EXPIRES IN"}
           </div>
@@ -445,7 +445,7 @@ function AuthStatusBadge({ wallet, jwt }: { wallet: WalletInfo; jwt: string }) {
             display: "flex",
             justifyContent: "space-between",
             fontSize: 9,
-            color: "#3a5070",
+            color: "var(--ak-text-muted)",
             marginBottom: 5,
           }}
         >
@@ -456,7 +456,7 @@ function AuthStatusBadge({ wallet, jwt }: { wallet: WalletInfo; jwt: string }) {
           style={{
             height: 4,
             borderRadius: 2,
-            background: "#0d1628",
+            background: "var(--ak-surface-2)",
             overflow: "hidden",
           }}
         >
@@ -494,13 +494,13 @@ function AuthStatusBadge({ wallet, jwt }: { wallet: WalletInfo; jwt: string }) {
               padding: "10px 12px",
               borderRadius: 7,
               border: "1px solid #131f32",
-              background: "rgba(0,0,0,0.25)",
+              background: "var(--ak-surface-3)",
             }}
           >
             <div
               style={{
                 fontSize: 8,
-                color: "#2a3d5a",
+                color: "var(--ak-text-muted)",
                 letterSpacing: "0.15em",
                 marginBottom: 4,
               }}
@@ -510,7 +510,7 @@ function AuthStatusBadge({ wallet, jwt }: { wallet: WalletInfo; jwt: string }) {
             <div
               style={{
                 fontSize: 11,
-                color: "#8aaad4",
+                color: "var(--ak-text)",
                 fontFamily: "monospace",
               }}
             >
@@ -682,7 +682,7 @@ export default function SEP10AuthFlow() {
               <div
                 style={{
                   fontSize: 10,
-                  color: "#3a5070",
+                  color: "var(--ak-text-muted)",
                   letterSpacing: "0.12em",
                   marginBottom: 3,
                 }}
@@ -693,7 +693,7 @@ export default function SEP10AuthFlow() {
                 style={{
                   fontSize: 11,
                   fontFamily: "monospace",
-                  color: "#8aaad4",
+                  color: "var(--ak-text)",
                 }}
               >
                 {wallet.address.slice(0, 12)}...{wallet.address.slice(-8)}
@@ -719,7 +719,7 @@ export default function SEP10AuthFlow() {
           <p
             style={{
               fontSize: 11,
-              color: "#3a5070",
+              color: "var(--ak-text-muted)",
               lineHeight: 1.6,
               marginBottom: 14,
             }}
@@ -749,7 +749,7 @@ export default function SEP10AuthFlow() {
           <div
             style={{
               fontSize: 9,
-              color: "#3a5070",
+              color: "var(--ak-text-muted)",
               letterSpacing: "0.12em",
               marginBottom: 4,
             }}
@@ -763,7 +763,7 @@ export default function SEP10AuthFlow() {
               lineHeight: 1.6,
               padding: "12px 14px",
               borderRadius: 8,
-              background: "rgba(0,0,0,0.4)",
+              background: "var(--ak-surface-2)",
               border: "1px solid #131f32",
               wordBreak: "break-all",
               color: "#79d4fd",
@@ -773,9 +773,9 @@ export default function SEP10AuthFlow() {
           >
             {challenge.slice(0, 160)}…
           </div>
-          <div style={{ fontSize: 9, color: "#2a3d5a" }}>
+          <div style={{ fontSize: 9, color: "var(--ak-text-muted)" }}>
             Received from{" "}
-            <span style={{ color: "#3a5070" }}>{domain}/auth</span>
+            <span style={{ color: "var(--ak-text-muted)" }}>{domain}/auth</span>
           </div>
         </div>
       ) : (
@@ -783,7 +783,7 @@ export default function SEP10AuthFlow() {
           <p
             style={{
               fontSize: 11,
-              color: "#3a5070",
+              color: "var(--ak-text-muted)",
               lineHeight: 1.6,
               marginBottom: 14,
             }}
@@ -813,7 +813,7 @@ export default function SEP10AuthFlow() {
           <div
             style={{
               fontSize: 9,
-              color: "#3a5070",
+              color: "var(--ak-text-muted)",
               letterSpacing: "0.12em",
               marginBottom: 4,
             }}
@@ -827,7 +827,7 @@ export default function SEP10AuthFlow() {
               lineHeight: 1.6,
               padding: "12px 14px",
               borderRadius: 8,
-              background: "rgba(0,0,0,0.4)",
+              background: "var(--ak-surface-2)",
               border: "1px solid #131f32",
               wordBreak: "break-all",
               color: "#7effc7",
@@ -854,7 +854,7 @@ export default function SEP10AuthFlow() {
           <p
             style={{
               fontSize: 11,
-              color: "#3a5070",
+              color: "var(--ak-text-muted)",
               lineHeight: 1.6,
               marginBottom: 14,
             }}
@@ -887,7 +887,7 @@ export default function SEP10AuthFlow() {
           <p
             style={{
               fontSize: 11,
-              color: "#3a5070",
+              color: "var(--ak-text-muted)",
               lineHeight: 1.6,
               marginBottom: 14,
             }}
@@ -914,8 +914,8 @@ export default function SEP10AuthFlow() {
       style={{
         fontFamily: "'JetBrains Mono','Fira Code',monospace",
         minHeight: "100vh",
-        background: "#050810",
-        color: "#c8d8ee",
+        background: "var(--ak-bg)",
+        color: "var(--ak-text)",
         position: "relative",
         overflow: "hidden",
       }}
@@ -929,7 +929,7 @@ export default function SEP10AuthFlow() {
         @keyframes sep10-float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
         ::-webkit-scrollbar{width:4px;height:4px}
         ::-webkit-scrollbar-track{background:transparent}
-        ::-webkit-scrollbar-thumb{background:#1e2d4580;border-radius:2px}
+        ::-webkit-scrollbar-thumb{background:rgba(30,45,69,0.5);border-radius:2px}
       `}</style>
 
       {/* Grid */}
@@ -1019,7 +1019,7 @@ export default function SEP10AuthFlow() {
               style={{
                 fontSize: 10,
                 letterSpacing: "0.25em",
-                color: "#3a5070",
+                color: "var(--ak-text-muted)",
                 textTransform: "uppercase",
                 marginBottom: 8,
               }}
@@ -1031,7 +1031,7 @@ export default function SEP10AuthFlow() {
                 fontSize: 26,
                 fontWeight: 700,
                 letterSpacing: "-0.02em",
-                color: "#dde6f5",
+                color: "var(--ak-text)",
                 margin: 0,
                 lineHeight: 1.2,
               }}
@@ -1046,7 +1046,7 @@ export default function SEP10AuthFlow() {
               style={{
                 marginTop: 10,
                 fontSize: 11,
-                color: "#3a5070",
+                color: "var(--ak-text-muted)",
                 lineHeight: 1.6,
                 maxWidth: 340,
               }}
@@ -1073,10 +1073,10 @@ export default function SEP10AuthFlow() {
                 padding: "7px 12px",
                 borderRadius: 7,
                 border: "1px solid #131f32",
-                background: "rgba(0,0,0,0.35)",
+                background: "var(--ak-surface-2)",
               }}
             >
-              <span style={{ fontSize: 10, color: "#2a3d5a" }}>https://</span>
+              <span style={{ fontSize: 10, color: "var(--ak-text-muted)" }}>https://</span>
               <input
                 value={domain}
                 onChange={(e) => setDomain(e.target.value)}
@@ -1104,9 +1104,9 @@ export default function SEP10AuthFlow() {
                   fontFamily: "inherit",
                   padding: "5px 12px",
                   borderRadius: 5,
-                  border: "1px solid #1e2d45",
+                  border: "1px solid var(--ak-border)",
                   background: "transparent",
-                  color: "#2a3d5a",
+                  color: "var(--ak-text-muted)",
                   transition: "all 0.2s",
                 }}
               >
@@ -1182,7 +1182,7 @@ export default function SEP10AuthFlow() {
                   style={{
                     fontSize: 11,
                     fontWeight: 700,
-                    color: isDone ? stepColor : "#2a3d5a",
+                    color: isDone ? stepColor : "var(--ak-text-muted)",
                     letterSpacing: "0.05em",
                     transition: "color 0.3s",
                   }}
@@ -1192,7 +1192,7 @@ export default function SEP10AuthFlow() {
                 <div
                   style={{
                     fontSize: 9,
-                    color: "#1e2d45",
+                    color: "var(--ak-border)",
                     marginTop: 2,
                     letterSpacing: "0.1em",
                   }}
@@ -1227,7 +1227,7 @@ export default function SEP10AuthFlow() {
                 style={{
                   borderRadius: 12,
                   padding: "20px 20px",
-                  border: `1px solid ${card.done ? `${stepColor}35` : isActive ? `${stepColor}25` : "#0f1a28"}`,
+                  border: `1px solid ${card.done ? `${stepColor}35` : isActive ? `${stepColor}25` : "var(--ak-border)"}`,
                   background: card.done
                     ? `${stepColor}06`
                     : isActive
@@ -1279,7 +1279,7 @@ export default function SEP10AuthFlow() {
                       alignItems: "center",
                       justifyContent: "center",
                       fontSize: 15,
-                      border: `1px solid ${card.done ? `${stepColor}50` : isActive ? `${stepColor}35` : "#131f32"}`,
+                      border: `1px solid ${card.done ? `${stepColor}50` : isActive ? `${stepColor}35` : "var(--ak-border)"}`,
                       background: card.done
                         ? `${stepColor}15`
                         : isActive
@@ -1289,7 +1289,7 @@ export default function SEP10AuthFlow() {
                         ? stepColor
                         : isActive
                           ? stepColor
-                          : "#1e2d45",
+                          : "var(--ak-border)",
                       boxShadow:
                         card.done || isActive
                           ? `0 0 14px ${stepColor}30`
@@ -1308,7 +1308,7 @@ export default function SEP10AuthFlow() {
                           ? stepColor
                           : isActive
                             ? "#c8d8ee"
-                            : "#2a3d5a",
+                            : "var(--ak-text-muted)",
                         letterSpacing: "0.04em",
                         transition: "color 0.3s",
                       }}
@@ -1318,7 +1318,7 @@ export default function SEP10AuthFlow() {
                     <div
                       style={{
                         fontSize: 9,
-                        color: "#2a3d5a",
+                        color: "var(--ak-text-muted)",
                         marginTop: 1,
                         letterSpacing: "0.1em",
                       }}
@@ -1401,7 +1401,7 @@ export default function SEP10AuthFlow() {
                 <div
                   style={{
                     fontSize: 9,
-                    color: "#2a3d5a",
+                    color: "var(--ak-text-muted)",
                     marginTop: 1,
                     letterSpacing: "0.1em",
                   }}
@@ -1421,14 +1421,14 @@ export default function SEP10AuthFlow() {
               marginTop: 20,
               borderRadius: 10,
               overflow: "hidden",
-              border: "1px solid #0f1a28",
+              border: "1px solid var(--ak-border)",
             }}
           >
             <div
               style={{
                 padding: "8px 14px",
-                background: "rgba(0,0,0,0.6)",
-                borderBottom: "1px solid #0f1a28",
+                background: "var(--ak-surface-2)",
+                borderBottom: "1px solid var(--ak-border)",
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
@@ -1449,7 +1449,7 @@ export default function SEP10AuthFlow() {
                   fontSize: 9,
                   fontWeight: 700,
                   letterSpacing: "0.2em",
-                  color: "#2a3d5a",
+                  color: "var(--ak-text-muted)",
                   textTransform: "uppercase",
                 }}
               >
@@ -1460,7 +1460,7 @@ export default function SEP10AuthFlow() {
               ref={logRef}
               style={{
                 padding: "12px 14px",
-                background: "rgba(0,0,0,0.45)",
+                background: "var(--ak-surface-2)",
                 maxHeight: 130,
                 overflowY: "auto",
                 display: "flex",
@@ -1474,7 +1474,7 @@ export default function SEP10AuthFlow() {
                   style={{
                     fontSize: 10,
                     fontFamily: "monospace",
-                    color: i === log.length - 1 ? "#8aaad4" : "#2a3d5a",
+                    color: i === log.length - 1 ? "var(--ak-text)" : "var(--ak-text-muted)",
                     transition: "color 0.3s",
                   }}
                 >
@@ -1501,7 +1501,7 @@ export default function SEP10AuthFlow() {
                 width: completedSteps[s.id] ? 20 : 6,
                 height: 3,
                 borderRadius: 2,
-                background: completedSteps[s.id] ? NEON : "#131f32",
+                background: completedSteps[s.id] ? NEON : "var(--ak-border)",
                 boxShadow: completedSteps[s.id] ? `0 0 8px ${NEON}` : "none",
                 transition: "all 0.4s",
               }}
@@ -1528,9 +1528,9 @@ function btnStyle(color: string, disabled: boolean): React.CSSProperties {
     fontFamily: "inherit",
     cursor: disabled ? "not-allowed" : "pointer",
     transition: "all 0.2s",
-    border: `1px solid ${disabled ? "#131f32" : color}`,
+    border: `1px solid ${disabled ? "var(--ak-border)" : color}`,
     background: disabled ? "transparent" : `${color}14`,
-    color: disabled ? "#1e2d45" : color,
+    color: disabled ? "var(--ak-border)" : color,
     boxShadow: disabled ? "none" : `0 0 18px ${color}28`,
   };
 }

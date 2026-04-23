@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
+import './themes.css';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type TxStatus = "initiated" | "pending" | "processing" | "completed" | "failed";
@@ -32,11 +34,11 @@ export interface TransactionTimelineProps {
 const STATUS_ORDER: TxStatus[] = ["initiated", "pending", "processing", "completed"];
 
 const STATUS_META: Record<TxStatus, { label: string; color: string; bg: string; border: string; icon: string }> = {
-  initiated:  { label: "Initiated",  color: "#6366f1", bg: "#eef2ff", border: "#c7d2fe", icon: "◎"  },
-  pending:    { label: "Pending",    color: "#d97706", bg: "#fffbeb", border: "#fde68a", icon: "◌"  },
-  processing: { label: "Processing", color: "#0284c7", bg: "#e0f2fe", border: "#bae6fd", icon: "◈"  },
-  completed:  { label: "Completed",  color: "#059669", bg: "#ecfdf5", border: "#a7f3d0", icon: "✓"  },
-  failed:     { label: "Failed",     color: "#dc2626", bg: "#fef2f2", border: "#fecaca", icon: "✕"  },
+  initiated:  { label: "Initiated",  color: "var(--ak-status-initiated-color)",  bg: "var(--ak-status-initiated-bg)",  border: "var(--ak-status-initiated-border)",  icon: "◎"  },
+  pending:    { label: "Pending",    color: "var(--ak-status-pending-color)",    bg: "var(--ak-status-pending-bg)",    border: "var(--ak-status-pending-border)",    icon: "◌"  },
+  processing: { label: "Processing", color: "var(--ak-status-processing-color)", bg: "var(--ak-status-processing-bg)", border: "var(--ak-status-processing-border)", icon: "◈"  },
+  completed:  { label: "Completed",  color: "var(--ak-status-completed-color)",  bg: "var(--ak-status-completed-bg)",  border: "var(--ak-status-completed-border)",  icon: "✓"  },
+  failed:     { label: "Failed",     color: "var(--ak-status-failed-color)",     bg: "var(--ak-status-failed-bg)",     border: "var(--ak-status-failed-border)",     icon: "✕"  },
 };
 
 const DEFAULT_DESCRIPTIONS: Record<TxStatus, Record<TxType, string>> = {
@@ -103,13 +105,13 @@ function NodeIcon({
       <div style={{
         width: 40, height: 40, borderRadius: "50%",
         display: "flex", alignItems: "center", justifyContent: "center",
-        border: `2px solid ${done || active ? m.color : "#e2e8f0"}`,
-        background: done || active ? m.bg : "#f8fafc",
+        border: `2px solid ${done || active ? m.color : "var(--ak-connector-bg)"}`,
+        background: done || active ? m.bg : "var(--ak-surface-2)",
         boxShadow: active || done ? `0 0 0 4px ${m.bg}, 0 2px 12px ${m.color}28` : "none",
         transition: "all 0.5s cubic-bezier(0.4,0,0.2,1)",
         position: "relative", zIndex: 1,
         fontSize: done && !active ? 16 : 14,
-        color: done || active ? m.color : "#cbd5e1",
+        color: done || active ? m.color : "var(--ak-text-subtle)",
         fontWeight: 700,
       }}>
         {/* Spin indicator dots for pending */}
@@ -140,7 +142,7 @@ function ProgressBar({
   return (
     <div style={{
       position: "absolute", left: 19, top: 40, width: 2, height: "calc(100% - 40px)",
-      background: "#e2e8f0", borderRadius: 2, overflow: "hidden",
+      background: "var(--ak-connector-bg)", borderRadius: 2, overflow: "hidden",
     }}>
       <div style={{
         position: "absolute", top: 0, left: 0, width: "100%",
@@ -214,10 +216,10 @@ export function TransactionTimeline({
   return (
     <div style={{
       ...sans,
-      background: "#fafaf9",
+      background: "var(--ak-surface-3)",
       borderRadius: 20,
-      border: "1px solid #e7e5e0",
-      boxShadow: "0 4px 24px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.04)",
+      border: "1px solid var(--ak-border)",
+      boxShadow: "var(--ak-shadow-md)",
       overflow: "hidden",
       maxWidth: 420,
       width: "100%",
@@ -226,8 +228,8 @@ export function TransactionTimeline({
       {/* ── Header ── */}
       <div style={{
         padding: "22px 24px 20px",
-        background: failed ? "#fef2f2" : completed ? "#ecfdf5" : "#f0f4ff",
-        borderBottom: `1px solid ${failed ? "#fecaca" : completed ? "#a7f3d0" : "#dde5ff"}`,
+        background: failed ? "var(--ak-status-failed-bg)" : completed ? "var(--ak-status-completed-bg)" : "var(--ak-status-initiated-bg)",
+        borderBottom: `1px solid ${failed ? "var(--ak-status-failed-border)" : completed ? "var(--ak-status-completed-border)" : "var(--ak-status-initiated-border)"}`,
         display: "flex", flexDirection: "column", gap: 14,
       }}>
         {/* Type pill + ID */}
@@ -236,14 +238,14 @@ export function TransactionTimeline({
             ...mono, fontSize: 10, fontWeight: 600,
             letterSpacing: "0.12em", textTransform: "uppercase",
             padding: "3px 10px", borderRadius: 20,
-            background: type === "deposit" ? "#dbeafe" : "#fce7f3",
-            color: type === "deposit" ? "#1d4ed8" : "#9d174d",
-            border: `1px solid ${type === "deposit" ? "#bfdbfe" : "#fbcfe8"}`,
+            background: type === "deposit" ? "var(--ak-method-get-bg)" : "var(--ak-status-failed-bg)",
+            color: type === "deposit" ? "var(--ak-method-get-color)" : "var(--ak-status-failed-color)",
+            border: `1px solid ${type === "deposit" ? "var(--ak-status-processing-border)" : "var(--ak-status-failed-border)"}`,
           }}>
             {type === "deposit" ? "↓ Deposit" : "↑ Withdrawal"}
           </span>
           {id && (
-            <span style={{ ...mono, fontSize: 10, color: "#94a3b8", letterSpacing: "0.06em" }}>
+            <span style={{ ...mono, fontSize: 10, color: "var(--ak-text-muted)", letterSpacing: "0.06em" }}>
               #{id.slice(-8)}
             </span>
           )}
@@ -251,10 +253,10 @@ export function TransactionTimeline({
 
         {/* Amount */}
         <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span style={{ ...serif, fontSize: 36, fontWeight: 400, color: failed ? "#b91c1c" : completed ? "#065f46" : "#1e293b", lineHeight: 1 }}>
+          <span style={{ ...serif, fontSize: 36, fontWeight: 400, color: failed ? "var(--ak-status-failed-color)" : completed ? "var(--ak-status-completed-color)" : "var(--ak-text)", lineHeight: 1 }}>
             {amount}
           </span>
-          <span style={{ ...mono, fontSize: 14, color: "#64748b", fontWeight: 500 }}>{asset}</span>
+          <span style={{ ...mono, fontSize: 14, color: "var(--ak-text-muted)", fontWeight: 500 }}>{asset}</span>
         </div>
 
         {/* Status badge */}
@@ -322,7 +324,7 @@ export function TransactionTimeline({
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                     <span style={{
                       ...sans, fontSize: 13, fontWeight: 600,
-                      color: step.isDone || step.isActive ? "#0f172a" : "#94a3b8",
+                      color: step.isDone || step.isActive ? "var(--ak-text)" : "var(--ak-text-subtle)",
                       transition: "color 0.4s",
                     }}>
                       {step.event?.label ?? step.m.label}
@@ -347,7 +349,7 @@ export function TransactionTimeline({
                   </div>
 
                   <p style={{
-                    ...sans, fontSize: 12, color: step.isDone || step.isActive ? "#64748b" : "#cbd5e1",
+                    ...sans, fontSize: 12, color: step.isDone || step.isActive ? "var(--ak-text-muted)" : "var(--ak-text-subtle)",
                     lineHeight: 1.55, margin: 0,
                     transition: "color 0.4s",
                   }}>
@@ -357,19 +359,19 @@ export function TransactionTimeline({
                   {/* Extra metadata row */}
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", marginTop: 6 }}>
                     {ts && (
-                      <span style={{ ...mono, fontSize: 10, color: "#94a3b8" }}>{ts}</span>
+                      <span style={{ ...mono, fontSize: 10, color: "var(--ak-text-muted)" }}>{ts}</span>
                     )}
                     {step.event?.txHash && (
                       <a
                         href={`https://stellar.expert/explorer/testnet/tx/${step.event.txHash}`}
                         target="_blank" rel="noreferrer"
-                        style={{ ...mono, fontSize: 10, color: "#6366f1", textDecoration: "none", display: "flex", alignItems: "center", gap: 3 }}
+                        style={{ ...mono, fontSize: 10, color: "var(--ak-status-initiated-color)", textDecoration: "none", display: "flex", alignItems: "center", gap: 3 }}
                       >
                         ↗ {truncateHash(step.event.txHash)}
                       </a>
                     )}
                     {step.event?.detail && (
-                      <span style={{ ...mono, fontSize: 10, color: "#94a3b8" }}>{step.event.detail}</span>
+                      <span style={{ ...mono, fontSize: 10, color: "var(--ak-text-muted)" }}>{step.event.detail}</span>
                     )}
                   </div>
                 </div>
@@ -384,22 +386,22 @@ export function TransactionTimeline({
                 <div style={{
                   width: 40, height: 40, borderRadius: "50%",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  border: `2px solid #dc2626`,
-                  background: "#fef2f2",
-                  boxShadow: "0 0 0 4px #fef2f2, 0 2px 12px rgba(220,38,38,0.2)",
-                  fontSize: 16, color: "#dc2626", fontWeight: 700, zIndex: 1, position: "relative",
+                  border: `2px solid var(--ak-status-failed-color)`,
+                  background: "var(--ak-status-failed-bg)",
+                  boxShadow: "0 0 0 4px var(--ak-status-failed-bg), 0 2px 12px rgba(220,38,38,0.2)",
+                  fontSize: 16, color: "var(--ak-status-failed-color)", fontWeight: 700, zIndex: 1, position: "relative",
                   animation: "txs-shake 0.5s ease both",
                 }}>✕</div>
               </div>
               <div style={{ flex: 1, paddingTop: 8 }}>
-                <div style={{ ...sans, fontSize: 13, fontWeight: 600, color: "#b91c1c", marginBottom: 4 }}>
+                <div style={{ ...sans, fontSize: 13, fontWeight: 600, color: "var(--ak-status-failed-color)", marginBottom: 4 }}>
                   {events.find(e => e.status === "failed")?.label ?? "Transaction Failed"}
                 </div>
-                <p style={{ ...sans, fontSize: 12, color: "#ef4444", lineHeight: 1.55, margin: 0 }}>
+                <p style={{ ...sans, fontSize: 12, color: "var(--ak-status-failed-color)", lineHeight: 1.55, margin: 0 }}>
                   {events.find(e => e.status === "failed")?.description ?? DEFAULT_DESCRIPTIONS.failed[type]}
                 </p>
                 {events.find(e => e.status === "failed")?.timestamp && (
-                  <span style={{ ...mono, fontSize: 10, color: "#f87171", marginTop: 4, display: "block" }}>
+                  <span style={{ ...mono, fontSize: 10, color: "var(--ak-status-failed-color)", marginTop: 4, display: "block" }}>
                     {formatTs(events.find(e => e.status === "failed")!.timestamp)}
                   </span>
                 )}
@@ -413,14 +415,14 @@ export function TransactionTimeline({
       {(onRetry || onClose) && (
         <div style={{
           padding: "14px 24px 20px",
-          borderTop: "1px solid #f1f5f9",
+          borderTop: "1px solid var(--ak-border)",
           display: "flex", gap: 10,
         }}>
           {onRetry && failed && (
             <button onClick={onRetry} style={{
               ...sans, flex: 1, padding: "10px 0",
-              borderRadius: 10, border: "1.5px solid #dc2626",
-              background: "#fef2f2", color: "#dc2626",
+              borderRadius: 10, border: "1.5px solid var(--ak-status-failed-color)",
+              background: "var(--ak-status-failed-bg)", color: "var(--ak-status-failed-color)",
               fontSize: 13, fontWeight: 600, cursor: "pointer",
               transition: "all 0.2s",
             }}>
@@ -430,8 +432,8 @@ export function TransactionTimeline({
           {onClose && (
             <button onClick={onClose} style={{
               ...sans, flex: 1, padding: "10px 0",
-              borderRadius: 10, border: "1.5px solid #e2e8f0",
-              background: "#f8fafc", color: "#475569",
+              borderRadius: 10, border: "1.5px solid var(--ak-border)",
+              background: "var(--ak-surface-2)", color: "var(--ak-text-muted)",
               fontSize: 13, fontWeight: 600, cursor: "pointer",
               transition: "all 0.2s",
             }}>
@@ -574,7 +576,7 @@ export default function TransactionTimelineDemo() {
     <div style={{
       ...sans,
       minHeight: "100vh",
-      background: "linear-gradient(160deg, #f8f6f2 0%, #eef2f8 100%)",
+      background: "var(--ak-bg)",
       padding: "40px 24px",
     }}>
       <style>{`
@@ -587,13 +589,13 @@ export default function TransactionTimelineDemo() {
 
         {/* Page header */}
         <div style={{ marginBottom: 40, textAlign: "center" }}>
-          <div style={{ ...mono, fontSize: 11, letterSpacing: "0.2em", color: "#94a3b8", textTransform: "uppercase", marginBottom: 10 }}>
+          <div style={{ ...mono, fontSize: 11, letterSpacing: "0.2em", color: "var(--ak-text-muted)", textTransform: "uppercase", marginBottom: 10 }}>
             Component / Timeline
           </div>
-          <h1 style={{ ...serif, fontSize: 38, color: "#0f172a", fontWeight: 400, lineHeight: 1.15, marginBottom: 10 }}>
+          <h1 style={{ ...serif, fontSize: 38, color: "var(--ak-text)", fontWeight: 400, lineHeight: 1.15, marginBottom: 10 }}>
             Transaction Status Timeline
           </h1>
-          <p style={{ ...sans, fontSize: 14, color: "#64748b", maxWidth: 440, margin: "0 auto", lineHeight: 1.6 }}>
+          <p style={{ ...sans, fontSize: 14, color: "var(--ak-text-muted)", maxWidth: 440, margin: "0 auto", lineHeight: 1.6 }}>
             Reusable component for deposit & withdrawal flows. Handles all states with smooth animated transitions.
           </p>
         </div>
@@ -605,7 +607,7 @@ export default function TransactionTimelineDemo() {
 
             {/* Scenario switcher */}
             <div>
-              <div style={{ ...mono, fontSize: 10, letterSpacing: "0.16em", color: "#94a3b8", textTransform: "uppercase", marginBottom: 12 }}>
+              <div style={{ ...mono, fontSize: 10, letterSpacing: "0.16em", color: "var(--ak-text-muted)", textTransform: "uppercase", marginBottom: 12 }}>
                 Scenarios
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -614,14 +616,14 @@ export default function TransactionTimelineDemo() {
                   return (
                     <button key={i} onClick={() => setActiveScenario(i)} style={{
                       ...sans, display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
-                      borderRadius: 12, border: `1.5px solid ${activeScenario === i ? m.border : "#e7e5e0"}`,
-                      background: activeScenario === i ? m.bg : "#fff",
+                      borderRadius: 12, border: `1.5px solid ${activeScenario === i ? m.border : "var(--ak-border)"}`,
+                      background: activeScenario === i ? m.bg : "var(--ak-surface)",
                       cursor: "pointer", textAlign: "left",
-                      boxShadow: activeScenario === i ? `0 2px 12px ${m.color}18` : "0 1px 4px rgba(0,0,0,0.04)",
+                      boxShadow: activeScenario === i ? `0 2px 12px ${m.color}18` : "var(--ak-shadow-sm)",
                       transition: "all 0.2s",
                     }}>
                       <div style={{ width: 8, height: 8, borderRadius: "50%", background: m.color, flexShrink: 0, boxShadow: `0 0 0 2px ${m.bg}` }} />
-                      <span style={{ fontSize: 13, fontWeight: 500, color: activeScenario === i ? "#0f172a" : "#64748b" }}>{s.label}</span>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: activeScenario === i ? "var(--ak-text)" : "var(--ak-text-muted)" }}>{s.label}</span>
                       <span style={{ ...mono, fontSize: 10, color: m.color, marginLeft: "auto", fontWeight: 600 }}>{m.label}</span>
                     </button>
                   );
@@ -632,21 +634,21 @@ export default function TransactionTimelineDemo() {
             {/* Live simulation */}
             <div style={{
               padding: 20, borderRadius: 16,
-              border: "1.5px solid #e7e5e0",
-              background: "#fff",
-              boxShadow: "0 2px 12px rgba(0,0,0,0.04)",
+              border: "1.5px solid var(--ak-border)",
+              background: "var(--ak-surface)",
+              boxShadow: "var(--ak-shadow-sm)",
             }}>
-              <div style={{ ...mono, fontSize: 10, letterSpacing: "0.16em", color: "#94a3b8", textTransform: "uppercase", marginBottom: 12 }}>
+              <div style={{ ...mono, fontSize: 10, letterSpacing: "0.16em", color: "var(--ak-text-muted)", textTransform: "uppercase", marginBottom: 12 }}>
                 Live Simulation
               </div>
-              <p style={{ ...sans, fontSize: 12, color: "#64748b", lineHeight: 1.6, marginBottom: 16 }}>
+              <p style={{ ...sans, fontSize: 12, color: "var(--ak-text-muted)", lineHeight: 1.6, marginBottom: 16 }}>
                 Watch a deposit flow through all four states in real-time — progress bar fills, nodes activate, and the timeline builds itself.
               </p>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={runSimulation} disabled={simRunning} style={{
                   ...sans, flex: 1, padding: "10px 0", borderRadius: 10,
-                  border: "none", background: simRunning ? "#e2e8f0" : "linear-gradient(135deg,#6366f1,#4f46e5)",
-                  color: simRunning ? "#94a3b8" : "#fff",
+                  border: "none", background: simRunning ? "var(--ak-connector-bg)" : "linear-gradient(135deg,#6366f1,#4f46e5)",
+                  color: simRunning ? "var(--ak-text-muted)" : "#fff",
                   fontSize: 13, fontWeight: 600, cursor: simRunning ? "not-allowed" : "pointer",
                   boxShadow: simRunning ? "none" : "0 2px 12px rgba(99,102,241,0.35)",
                   transition: "all 0.2s",
@@ -655,27 +657,27 @@ export default function TransactionTimelineDemo() {
                 </button>
                 <button onClick={resetSim} style={{
                   ...sans, padding: "10px 16px", borderRadius: 10,
-                  border: "1.5px solid #e2e8f0", background: "#f8fafc",
-                  color: "#64748b", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                  border: "1.5px solid var(--ak-border)", background: "var(--ak-surface-2)",
+                  color: "var(--ak-text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer",
                   transition: "all 0.2s",
                 }}>
                   ↺
                 </button>
               </div>
               {isLive && (
-                <div style={{ marginTop: 12, ...mono, fontSize: 10, color: "#6366f1",
-                  padding: "6px 10px", borderRadius: 7, background: "#eef2ff", border: "1px solid #c7d2fe" }}>
+                <div style={{ marginTop: 12, ...mono, fontSize: 10, color: "var(--ak-status-initiated-color)",
+                  padding: "6px 10px", borderRadius: 7, background: "var(--ak-status-initiated-bg)", border: "1px solid var(--ak-status-initiated-border)" }}>
                   ● Simulating live deposit… {STATUS_META[displayStatus].label}
                 </div>
               )}
             </div>
 
             {/* Props reference */}
-            <div style={{ padding: 20, borderRadius: 16, border: "1.5px solid #e7e5e0", background: "#fff", boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
-              <div style={{ ...mono, fontSize: 10, letterSpacing: "0.16em", color: "#94a3b8", textTransform: "uppercase", marginBottom: 12 }}>
+            <div style={{ padding: 20, borderRadius: 16, border: "1.5px solid var(--ak-border)", background: "var(--ak-surface)", boxShadow: "var(--ak-shadow-sm)" }}>
+              <div style={{ ...mono, fontSize: 10, letterSpacing: "0.16em", color: "var(--ak-text-muted)", textTransform: "uppercase", marginBottom: 12 }}>
                 Usage
               </div>
-              <pre style={{ ...mono, fontSize: 10.5, color: "#334155", lineHeight: 1.75, background: "#f8fafc", padding: "14px", borderRadius: 10, border: "1px solid #e2e8f0", overflowX: "auto", whiteSpace: "pre-wrap" }}>{`<TransactionTimeline
+              <pre style={{ ...mono, fontSize: 10.5, color: "var(--ak-text)", lineHeight: 1.75, background: "var(--ak-surface-2)", padding: "14px", borderRadius: 10, border: "1px solid var(--ak-border)", overflowX: "auto", whiteSpace: "pre-wrap" }}>{`<TransactionTimeline
   type="deposit"
   amount="250.00"
   asset="USDC"
@@ -698,7 +700,7 @@ export default function TransactionTimelineDemo() {
 
           {/* Right — live preview */}
           <div style={{ position: "sticky", top: 24 }}>
-            <div style={{ ...mono, fontSize: 10, letterSpacing: "0.16em", color: "#94a3b8", textTransform: "uppercase", marginBottom: 12 }}>
+            <div style={{ ...mono, fontSize: 10, letterSpacing: "0.16em", color: "var(--ak-text-muted)", textTransform: "uppercase", marginBottom: 12 }}>
               Preview
             </div>
             <TransactionTimeline

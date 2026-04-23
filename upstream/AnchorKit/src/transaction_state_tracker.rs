@@ -9,6 +9,8 @@ pub enum TransactionState {
     InProgress = 2,
     Completed = 3,
     Failed = 4,
+    /// Unrecognized state string from a future or unknown protocol version
+    Unknown = 5,
 }
 
 impl TransactionState {
@@ -18,6 +20,7 @@ impl TransactionState {
             TransactionState::InProgress => "in_progress",
             TransactionState::Completed => "completed",
             TransactionState::Failed => "failed",
+            TransactionState::Unknown => "unknown",
         }
     }
 
@@ -27,7 +30,7 @@ impl TransactionState {
             "in_progress" => Some(TransactionState::InProgress),
             "completed" => Some(TransactionState::Completed),
             "failed" => Some(TransactionState::Failed),
-            _ => None,
+            _ => Some(TransactionState::Unknown),
         }
     }
 }
@@ -42,6 +45,8 @@ pub struct TransactionStateRecord {
     pub timestamp: u64,
     pub last_updated: u64,
     pub error_message: Option<String>,
+    /// Reason for failure, populated by fail_transaction
+    pub failure_reason: Option<String>,
 }
 
 /// Transaction state tracker
@@ -82,6 +87,7 @@ impl TransactionStateTracker {
             timestamp: current_time,
             last_updated: current_time,
             error_message: None,
+            failure_reason: None,
         };
 
         if self.is_dev_mode {
@@ -142,6 +148,9 @@ impl TransactionStateTracker {
                     let old_state = record.state;
                     record.state = new_state;
                     record.last_updated = current_time;
+                    if new_state == TransactionState::Failed {
+                        record.failure_reason = error_message.clone();
+                    }
                     record.error_message = error_message;
                     // Update per-state counters
                     if self.state_counts[old_state as usize] > 0 {
@@ -157,6 +166,7 @@ impl TransactionStateTracker {
             ))
         } else {
             let dummy_address = Address::from_string(&String::from_str(env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"));
+            let failure_reason = if new_state == TransactionState::Failed { error_message.clone() } else { None };
             let record = TransactionStateRecord {
                 transaction_id,
                 state: new_state,
@@ -164,6 +174,7 @@ impl TransactionStateTracker {
                 timestamp: current_time,
                 last_updated: current_time,
                 error_message,
+                failure_reason,
             };
             Ok(record)
         }
@@ -217,14 +228,18 @@ impl TransactionStateTracker {
         }
     }
 
-    /// Clear all cached transactions (dev mode only)
-    pub fn clear_cache(&mut self) -> Result<(), String> {
+    /// Clear all cached transactions.
+    /// In dev mode: always allowed.
+    /// In production mode: requires admin authorization.
+    pub fn clear_cache(&mut self, admin: &Address, env: &Env) -> Result<(), String> {
         if self.is_dev_mode {
             self.cache = alloc::vec::Vec::new();
             self.state_counts = [0u64; 5];
             Ok(())
         } else {
-            Err(String::from_str(&Env::default(), "Cannot clear cache in production mode"))
+            admin.require_auth();
+            self.cache = alloc::vec::Vec::new();
+            Ok(())
         }
     }
 
@@ -371,7 +386,7 @@ mod tests {
         let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         tracker.create_transaction(1, initiator.clone(), &env).ok();
-        let clear_result = tracker.clear_cache();
+        let clear_result = tracker.clear_cache(&initiator, &env);
 
         assert!(clear_result.is_ok());
         assert_eq!(tracker.cache_size(), 0);

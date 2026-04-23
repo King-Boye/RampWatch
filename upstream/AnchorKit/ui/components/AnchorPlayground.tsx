@@ -1,5 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 
+import './themes.css';
+import { useTheme } from '../hooks/useTheme';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 type HttpMethod = "GET" | "POST" | "PUT";
 
@@ -464,20 +467,18 @@ function highlight(json: string, dark: boolean): string {
         bool: "#8a5000",
         nil: "#888",
       };
-  return json
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(
-      /("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
-      (m) => {
-        let c = colors.num;
-        if (/^"/.test(m)) c = /:$/.test(m) ? colors.key : colors.str;
-        else if (/true|false/.test(m)) c = colors.bool;
-        else if (/null/.test(m)) c = colors.nil;
-        return `<span style="color:${c}">${m}</span>`;
-      },
-    );
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return esc(json).replace(
+    /("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
+    (m) => {
+      let c = colors.num;
+      if (/^"/.test(m)) c = /:$/.test(m) ? colors.key : colors.str;
+      else if (/true|false/.test(m)) c = colors.bool;
+      else if (/null/.test(m)) c = colors.nil;
+      return `<span style="color:${c}">${m}</span>`;
+    },
+  );
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -544,7 +545,8 @@ const SendIcon = () => (
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function AnchorPlayground() {
-  const [dark, setDark] = useState(true);
+  const sysDark = useTheme();
+  const [dark, setDark] = useState(sysDark);
   const [domain, setDomain] = useState("testanchor.stellar.org");
   const [activeSEP, setActiveSEP] = useState<SEPProtocol>(SEP_PROTOCOLS[0]);
   const [activeEp, setActiveEp] = useState<Endpoint>(
@@ -671,18 +673,19 @@ export default function AnchorPlayground() {
 
   // ── Derived theme tokens ──
   const D = dark;
-  const bg = D ? "#050810" : "#eef2fa";
-  const surfaceBg = D ? "#080c18" : "#ffffff";
+  const bg = "var(--ak-bg)";
+  const surfaceBg = "var(--ak-surface)";
   const panelBg = D ? "rgba(9,13,26,0.85)" : "rgba(248,250,255,0.9)";
-  const borderCol = D ? "#18243d" : "#ccd4e8";
-  const textCol = D ? "#dde6f5" : "#1e2a45";
-  const mutedCol = D ? "#3a5070" : "#8899bb";
-  const inputBg = D ? "#0a1020" : "#ffffff";
-  const inputBord = D ? "#1c2d4a" : "#c0ccdf";
+  const borderCol = "var(--ak-border-2)";
+  const textCol = "var(--ak-text)";
+  const mutedCol = "var(--ak-text-muted)";
+  const inputBg = "var(--ak-surface)";
+  const inputBord = "var(--ak-border)";
   const codeBg = D ? "#020408" : "#f4f7ff";
 
   return (
     <div
+      data-theme={D ? "dark" : "light"}
       style={{
         fontFamily: "'JetBrains Mono','Fira Code',monospace",
         background: bg,

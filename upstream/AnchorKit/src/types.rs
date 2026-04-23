@@ -68,7 +68,7 @@ pub struct OperationContext {
     pub operation_type: String,
     pub timestamp: u64,
     pub status: String,
-    pub result_data: u64,
+    pub result_summary: String,
 }
 
 #[contracttype]
@@ -204,7 +204,7 @@ pub struct MetadataCache {
 #[derive(Clone)]
 pub struct CapabilitiesCache {
     pub toml_url: String,
-    pub capabilities: String,
+    pub capabilities: Vec<u32>,
     pub cached_at: u64,
     pub ttl_seconds: u64,
 }

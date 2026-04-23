@@ -32,6 +32,13 @@ pub struct RateLimitState {
     pub total_requests: u64,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct RateLimitWindowReset {
+    pub attestor: Address,
+    pub window_start: u64,
+}
+
 /// Rate limiter for attestation submissions
 #[contract]
 pub struct RateLimiter;
@@ -80,6 +87,13 @@ impl RateLimiter {
         if Self::is_window_expired(current_ledger, state.window_start_ledger, config.window_length) {
             state.submission_count = 0;
             state.window_start_ledger = current_ledger;
+            env.events().publish(
+                (symbol_short!("rate_limit"), symbol_short!("window_reset")),
+                RateLimitWindowReset {
+                    attestor: attestor.clone(),
+                    window_start: current_ledger as u64,
+                },
+            );
         }
 
         state.total_requests += 1;
@@ -212,6 +226,7 @@ impl RateLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soroban_sdk::Symbol;
     use soroban_sdk::testutils::Address as _;
 
     fn make_contract(env: &Env) -> Address {
@@ -296,20 +311,42 @@ mod tests {
             RateLimiter::update_config(&env, &contract_address, &RateLimitConfig { max_submissions: 1, window_length: 10 }, None).unwrap();
         });
 
-        // First call succeeds, count = 1
+        // First call succeeds.
         assert!(env.as_contract(&contract_address, &|| {
             RateLimiter::check_and_increment(&env, &attestor)
         }).is_ok());
-        // Second call hits limit, count stays at 1
+
+        // Second call hits the limit.
         assert!(env.as_contract(&contract_address, &|| {
             RateLimiter::check_and_increment(&env, &attestor)
         }).is_err());
+
+        // Advance the ledger past the current window so the rate limit resets.
+        let current_ledger = env.ledger().sequence();
+        env.ledger().set_sequence_number(current_ledger + 10);
+
+        assert!(env.as_contract(&contract_address, &|| {
+            RateLimiter::check_and_increment(&env, &attestor)
+        }).is_ok());
+
+        let events = env.events().all();
+        assert_eq!(events.len(), 1);
+
+        let (publisher, topics, event_data) = events.get(0).unwrap();
+        assert_eq!(publisher, &contract_address);
+        assert_eq!(topics.len(), 2);
+        assert_eq!(topics.get(0).unwrap().try_into::<Symbol>().unwrap(), symbol_short!("rate_limit"));
+        assert_eq!(topics.get(1).unwrap().try_into::<Symbol>().unwrap(), symbol_short!("window_reset"));
+
+        let reset_event: RateLimitWindowReset = event_data.try_into().unwrap();
+        assert_eq!(reset_event.attestor, attestor);
+        assert_eq!(reset_event.window_start, (current_ledger + 10) as u64);
 
         let state = env.as_contract(&contract_address, &|| {
             RateLimiter::get_state(env.clone(), attestor.clone())
         });
         assert_eq!(state.submission_count, 1);
-        assert_eq!(state.total_requests, 2);
+        assert_eq!(state.total_requests, 3);
     }
 
     #[test]
