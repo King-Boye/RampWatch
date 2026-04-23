@@ -89,6 +89,32 @@ echo "   → Failure count: 0"
 echo "   ✅ Anchor healthy"
 echo ""
 
+# ─── health --watch (with SIGINT handler) ─────────────────────────────────────
+# Restores terminal state on Ctrl+C so the cursor and newline are not broken.
+anchorkit_health_watch() {
+  local attestor="${1:-}" interval="${2:-30}"
+
+  _health_watch_cleanup() {
+    echo ""
+    echo "🛑 Health watch stopped."
+    # Restore terminal: re-enable echo and canonical mode in case they were
+    # altered by the watch loop, then reset the cursor.
+    stty echo 2>/dev/null || true
+    tput cnorm 2>/dev/null || true
+    trap - INT
+    exit 0
+  }
+  trap '_health_watch_cleanup' INT
+
+  echo "   → Watching health (interval: ${interval}s) — press Ctrl+C to stop"
+  while true; do
+    echo "   → [$(date '+%H:%M:%S')] Latency: 45ms | Availability: 99.9% | Failures: 0"
+    sleep "$interval" &
+    wait $! 2>/dev/null || true
+  done
+}
+# ──────────────────────────────────────────────────────────────────────────────
+
 # Step 9: Audit Trail
 echo "9️⃣  Retrieving audit trail..."
 echo "   → Session operations: 2"
