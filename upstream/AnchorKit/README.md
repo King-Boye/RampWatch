@@ -127,6 +127,7 @@ const auditLog = await contract.get_audit_log(0);
 ### Getting Started
 - **[QUICK_START.md](./QUICK_START.md)** - Quick reference guide with examples
 - **[CHANGELOG.md](./CHANGELOG.md)** - Version history and changes
+- **[SECURITY.md](./SECURITY.md)** - Vulnerability disclosure policy and supported versions
 
 ### Feature Documentation
 - **[docs/features/ANCHOR_INFO_DISCOVERY.md](./docs/features/ANCHOR_INFO_DISCOVERY.md)** - Anchor info discovery service (stellar.toml)
@@ -395,11 +396,17 @@ AnchorKit consists of:
 
 ## Security
 
+AnchorKit takes security seriously. Key protections include:
+
 - Stable error codes (100-120) for API compatibility
 - Replay protection at multiple levels
 - Immutable audit logs
 - Authorization checks on all operations
 - Complete operation context for verification
+
+For the full authorization model and access control tiers, see **[docs/features/AUTHORIZATION_MODEL.md](./docs/features/AUTHORIZATION_MODEL.md)**.
+
+To report a vulnerability, please follow the responsible disclosure process in **[SECURITY.md](./SECURITY.md)**. Do not open a public issue for security concerns.
 
 ## Performance
 
