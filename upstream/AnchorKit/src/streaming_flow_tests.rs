@@ -42,7 +42,7 @@ mod streaming_flow_tests {
         let anchor = Address::generate(&env);
         let user = Address::generate(&env);
 
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &anchor, &anchor, &sk);
 
@@ -85,7 +85,7 @@ mod streaming_flow_tests {
         let subject = Address::generate(&env);
         let user = Address::generate(&env);
 
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
@@ -134,7 +134,7 @@ mod streaming_flow_tests {
         let user1 = Address::generate(&env);
         let user2 = Address::generate(&env);
 
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &anchor, &anchor, &sk);
 
