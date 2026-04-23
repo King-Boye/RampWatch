@@ -271,25 +271,55 @@ app.listen(3000, () => console.log('Server running on port 3000'));
 // SECURITY MIDDLEWARE EXAMPLE
 // ============================================================================
 
+// Allowlist of known, expected fields in a webhook payload.
+// Only these fields will pass through to downstream logic.
+const WEBHOOK_PAYLOAD_ALLOWLIST = new Set([
+    'id',
+    'type',
+    'timestamp',
+    'status',
+    'amount',
+    'asset',
+    'user',
+    'email',
+    'memo',
+    'transaction_id',
+    'account',
+    'network',
+    'fee',
+    'message',
+]);
+
 function sanitizeWebhookPayload(payload) {
-    const sanitized = { ...payload };
-    
-    // Redact email addresses
-    if (sanitized.email) {
-        const [local, domain] = sanitized.email.split('@');
-        sanitized.email = `${local.substring(0, 2)}***@${domain}`;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return {};
     }
-    
-    // Truncate addresses
-    if (sanitized.user) {
-        sanitized.user = `${sanitized.user.substring(0, 8)}...${sanitized.user.substring(sanitized.user.length - 3)}`;
+
+    const sanitized = {};
+
+    for (const key of Object.keys(payload)) {
+        if (!WEBHOOK_PAYLOAD_ALLOWLIST.has(key)) {
+            // Log field name only — never log the value to avoid leaking sensitive data
+            console.warn(`WARN: Unknown field detected in webhook payload: "${key}"`);
+            continue;
+        }
+
+        let value = payload[key];
+
+        // Redact email addresses
+        if (key === 'email' && typeof value === 'string' && value.includes('@')) {
+            const [local, domain] = value.split('@');
+            value = `${local.substring(0, 2)}***@${domain}`;
+        }
+
+        // Truncate Stellar account addresses
+        if (key === 'user' && typeof value === 'string' && value.length > 11) {
+            value = `${value.substring(0, 8)}...${value.substring(value.length - 3)}`;
+        }
+
+        sanitized[key] = value;
     }
-    
-    // Remove sensitive fields
-    delete sanitized.password;
-    delete sanitized.apiKey;
-    delete sanitized.secret;
-    
+
     return sanitized;
 }
 
