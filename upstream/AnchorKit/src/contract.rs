@@ -213,6 +213,19 @@ pub struct AssetInfo {
     pub withdrawal_max_amount: u64,
 }
 
+/// Represents a fiat currency supported by an anchor (e.g. USD, EUR).
+/// These are not Stellar assets and have no on-chain issuer.
+#[contracttype]
+#[derive(Clone)]
+pub struct FiatCurrency {
+    /// ISO 4217 currency code, e.g. "USD", "EUR".
+    pub code: String,
+    /// Human-readable name, e.g. "US Dollar".
+    pub name: String,
+    pub deposit_enabled: bool,
+    pub withdrawal_enabled: bool,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub struct StellarToml {
@@ -223,6 +236,8 @@ pub struct StellarToml {
     /// `None` when the anchor does not publish a signing key.
     pub signing_key: Option<String>,
     pub currencies: Vec<AssetInfo>,
+    /// Fiat currencies supported by this anchor (USD, EUR, etc.).
+    pub fiat_currencies: Vec<FiatCurrency>,
     pub transfer_server: String,
     pub transfer_server_sep0024: String,
     pub kyc_server: String,
@@ -1547,7 +1562,29 @@ impl AnchorKitContract {
         Ok(assets)
     }
 
+ feat/get-anchor-currencies
+    /// Return the fiat currencies supported by `anchor` from its cached stellar.toml.
+    /// Returns `Err(ErrorCode::CacheNotFound)` when no TOML has been cached for this anchor.
+    pub fn get_anchor_currencies(
+        env: Env,
+        anchor: Address,
+    ) -> Result<Vec<FiatCurrency>, ErrorCode> {
+        let key = (symbol_short!("TOMLCACHE"), anchor.clone());
+        if !env.storage().temporary().has(&key) {
+            return Err(ErrorCode::CacheNotFound);
+        }
+        let toml = Self::get_anchor_toml(env.clone(), anchor);
+        Ok(toml.fiat_currencies)
+    }
+
+    pub fn get_anchor_asset_info(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> AssetInfo {
+
     pub fn get_anchor_asset_info(env: Env, anchor: Address, asset_code: String) -> AssetInfo {
+ main
         let toml = Self::get_anchor_toml(env.clone(), anchor);
         for asset in toml.currencies.iter() {
             if asset.code == asset_code {
