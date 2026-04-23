@@ -1174,6 +1174,19 @@ impl AnchorKitContract {
 
     pub fn cache_capabilities(env: Env, anchor: Address, toml_url: String, capabilities: String, ttl_seconds: u64) {
         Self::require_admin(&env);
+
+        // Issue #280: Validate toml_url before caching
+        let len = toml_url.len() as usize;
+        let mut buf = [0u8; 256];
+        if len > 256 {
+            panic_with_error!(&env, ErrorCode::InvalidEndpointFormat);
+        }
+        toml_url.copy_into_slice(&mut buf[..len]);
+        let url_str = core::str::from_utf8(&buf[..len]).unwrap_or("");
+        if crate::domain_validator::validate_anchor_domain(url_str).is_err() {
+            panic_with_error!(&env, ErrorCode::InvalidEndpointFormat);
+        }
+
         let now = env.ledger().timestamp();
         let entry = CapabilitiesCache { toml_url, capabilities, cached_at: now, ttl_seconds };
         let key = StorageKey::CapabilitiesCache(anchor);
