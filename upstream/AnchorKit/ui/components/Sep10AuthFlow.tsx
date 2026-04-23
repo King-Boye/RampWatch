@@ -164,14 +164,23 @@ function Connector({ done, color }: { done: boolean; color: string }) {
 
 function TokenDisplay({ jwt }: { jwt: string }) {
   const [copied, setCopied] = useState(false);
+  const [revealed, setRevealed] = useState(false);
   const parts = jwt.split(".");
   const colors = ["#ff7eb3", "#79d4fd", "#7effc7"];
   const labels = ["HEADER", "PAYLOAD", "SIGNATURE"];
+  const SENSITIVE_FIELDS = ["sub", "iss", "jti"];
 
   const copy = () => {
     navigator.clipboard.writeText(jwt);
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
+  };
+
+  const maskValue = (key: string, value: unknown): string => {
+    if (!revealed && SENSITIVE_FIELDS.includes(key)) return "••••••";
+    if (key === "iat" || key === "exp")
+      return new Date((value as number) * 1000).toLocaleString();
+    return String(value);
   };
 
   return (
@@ -224,13 +233,40 @@ function TokenDisplay({ jwt }: { jwt: string }) {
             >
               <div
                 style={{
-                  color: "#3a5070",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
                   marginBottom: 4,
-                  letterSpacing: "0.15em",
-                  fontSize: 9,
                 }}
               >
-                DECODED PAYLOAD
+                <div
+                  style={{
+                    color: "#3a5070",
+                    letterSpacing: "0.15em",
+                    fontSize: 9,
+                  }}
+                >
+                  DECODED PAYLOAD
+                </div>
+                <button
+                  onClick={() => setRevealed((r) => !r)}
+                  aria-label={revealed ? "Hide sensitive JWT fields" : "Reveal sensitive JWT fields"}
+                  style={{
+                    padding: "3px 10px",
+                    fontSize: 9,
+                    fontWeight: 700,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    fontFamily: "monospace",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    border: `1px solid ${revealed ? "#ff7eb3" : "#1e2d45"}`,
+                    color: revealed ? "#ff7eb3" : "#3a5070",
+                    background: revealed ? "rgba(255,126,179,0.08)" : "transparent",
+                  }}
+                >
+                  {revealed ? "HIDE" : "REVEAL"}
+                </button>
               </div>
               {Object.entries(payload).map(([k, v]) => (
                 <div key={k} style={{ display: "flex", gap: 10 }}>
@@ -245,9 +281,7 @@ function TokenDisplay({ jwt }: { jwt: string }) {
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {k === "iat" || k === "exp"
-                      ? new Date((v as number) * 1000).toLocaleString()
-                      : String(v)}
+                    {maskValue(k, v)}
                   </span>
                 </div>
               ))}
