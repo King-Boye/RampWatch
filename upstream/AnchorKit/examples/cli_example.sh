@@ -4,8 +4,38 @@
 
 set -e
 
+# ─── Deploy helper ────────────────────────────────────────────────────────────
+# Usage: anchorkit_deploy --network <network> [--yes]
+anchorkit_deploy() {
+  local network="" yes=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --network) network="$2"; shift 2 ;;
+      --yes)     yes=1;         shift   ;;
+      *)         shift ;;
+    esac
+  done
+
+  if [[ "$network" == "mainnet" && "$yes" -eq 0 ]]; then
+    read -r -p "⚠️  Deploy to mainnet? This action cannot be undone. [y/N] " answer
+    case "$answer" in
+      [yY][eE][sS]|[yY]) ;;
+      *) echo "Deployment cancelled."; return 1 ;;
+    esac
+  fi
+
+  echo "   → Deploying to $network..."
+  echo "   ✅ Contract deployed to $network"
+}
+# ──────────────────────────────────────────────────────────────────────────────
+
 echo "🚀 AnchorKit CLI Example - Deposit/Withdraw Workflow"
 echo "=================================================="
+echo ""
+
+# Step 0: Deploy (testnet — no prompt; mainnet would require confirmation or --yes)
+echo "0️⃣  Deploying contract..."
+anchorkit_deploy --network testnet
 echo ""
 
 # Mock addresses
