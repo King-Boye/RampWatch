@@ -165,28 +165,44 @@ class WebhookMonitorSSE {
 // ============================================================================
 
 class WebhookMonitorPolling {
-    constructor(apiUrl, intervalMs = 2000) {
+    /**
+     * @param {string} apiUrl
+     * @param {object} [options]
+     * @param {number} [options.baseIntervalMs=2000] - Base polling interval
+     * @param {number} [options.maxIntervalMs=30000] - Maximum backoff interval
+     */
+    constructor(apiUrl, options = {}) {
+        // Support legacy positional signature: new WebhookMonitorPolling(url, 3000)
+        if (typeof options === 'number') {
+            options = { baseIntervalMs: options };
+        }
         this.apiUrl = apiUrl;
-        this.intervalMs = intervalMs;
-        this.intervalId = null;
+        this.baseIntervalMs = options.baseIntervalMs ?? 2000;
+        this.maxIntervalMs = options.maxIntervalMs ?? 30000;
+        this._timeoutId = null;
+        this._running = false;
+        this._failures = 0;
         this.lastEventId = 0;
     }
 
     start() {
-        this.intervalId = setInterval(() => this.poll(), this.intervalMs);
-        this.poll(); // Initial poll
+        this._running = true;
+        this.poll();
     }
 
     async poll() {
+        if (!this._running) return;
+
         try {
             const response = await fetch(`${this.apiUrl}?since=${this.lastEventId}`);
-            
+
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
             const events = await response.json();
-            
+            this._failures = 0; // reset backoff on success
+
             events.forEach(webhookData => {
                 this.handleWebhookEvent(webhookData);
                 if (webhookData.id > this.lastEventId) {
@@ -194,7 +210,16 @@ class WebhookMonitorPolling {
                 }
             });
         } catch (error) {
+            this._failures++;
             console.error('Polling error:', error);
+        }
+
+        if (this._running) {
+            const delay = Math.min(
+                this.baseIntervalMs * Math.pow(2, this._failures),
+                this.maxIntervalMs
+            );
+            this._timeoutId = setTimeout(() => this.poll(), delay);
         }
     }
 
@@ -210,9 +235,10 @@ class WebhookMonitorPolling {
     }
 
     stop() {
-        if (this.intervalId) {
-            clearInterval(this.intervalId);
-            this.intervalId = null;
+        this._running = false;
+        if (this._timeoutId) {
+            clearTimeout(this._timeoutId);
+            this._timeoutId = null;
         }
     }
 }
