@@ -1432,8 +1432,21 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         anchor: Address,
         toml_data: StellarToml,
         ttl_seconds: u64,
-    ) {
+    ) -> Result<(), ErrorCode> {
         anchor.require_auth();
+
+        // Reject non-HTTPS endpoints to prevent MITM exposure of anchor metadata.
+        let ts_len = toml_data.transfer_server.len() as usize;
+        if ts_len > 2048 {
+            return Err(ErrorCode::InvalidEndpointFormat);
+        }
+        let mut ts_buf = [0u8; 2048];
+        toml_data.transfer_server.copy_into_slice(&mut ts_buf[..ts_len]);
+        let transfer_server_str = core::str::from_utf8(&ts_buf[..ts_len]).unwrap_or("");
+        if crate::validate_anchor_domain(transfer_server_str).is_err() {
+            return Err(ErrorCode::InvalidEndpointFormat);
+        }
+
         let now = env.ledger().timestamp();
         let cached = CachedToml {
             toml: toml_data,
@@ -1444,6 +1457,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         let ledger_ttl = if ttl_seconds as u32 > MIN_TEMP_TTL { ttl_seconds as u32 } else { MIN_TEMP_TTL };
         env.storage().temporary().set(&key, &cached);
         env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
+        Ok(())
     }
 
     pub fn get_anchor_toml(env: Env, anchor: Address) -> StellarToml {

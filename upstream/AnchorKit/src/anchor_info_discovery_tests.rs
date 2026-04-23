@@ -393,4 +393,51 @@ mod anchor_info_discovery_tests {
         assert_eq!(wit_fixed, 50);
         assert_eq!(wit_pct, 5);
     }
+
+    #[test]
+    fn test_fetch_anchor_info_rejects_http_url() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        let mut currencies = Vec::new(&env);
+        currencies.push_back(usdc_asset(&env));
+        let mut accounts = Vec::new(&env);
+        accounts.push_back(String::from_str(&env, "GANCHOR1"));
+
+        let http_toml = StellarToml {
+            version: String::from_str(&env, "2.0.0"),
+            network_passphrase: String::from_str(&env, "Test SDF Network ; September 2015"),
+            accounts,
+            signing_key: String::from_str(&env, "GSIGN123"),
+            currencies,
+            transfer_server: String::from_str(&env, "http://api.example.com"),
+            transfer_server_sep0024: String::from_str(&env, "http://api.example.com/sep24"),
+            kyc_server: String::from_str(&env, "http://kyc.example.com"),
+            web_auth_endpoint: String::from_str(&env, "http://auth.example.com"),
+        };
+
+        let result = client.try_fetch_anchor_info(&anchor, &http_toml, &3600u64);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            crate::errors::ErrorCode::InvalidEndpointFormat
+        );
+    }
+
+    #[test]
+    fn test_fetch_anchor_info_accepts_https_url() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        // sample_toml already uses https:// — should succeed without error
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &3600u64);
+
+        let toml = client.get_anchor_toml(&anchor);
+        assert_eq!(
+            toml.transfer_server,
+            String::from_str(&env, "https://api.example.com")
+        );
+    }
 }
