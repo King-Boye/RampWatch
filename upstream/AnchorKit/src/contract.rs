@@ -511,7 +511,7 @@ impl AnchorKitContract {
             .persistent()
             .extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
         env.events().publish(
-            (symbol_short!("attestor"), symbol_short!("registered")),
+(symbol_short!("attestor"), symbol_short!("reg")),
             AttestorRegistered(attestor),
         );
     }

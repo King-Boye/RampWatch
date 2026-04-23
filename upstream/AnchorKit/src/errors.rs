@@ -46,6 +46,7 @@ pub enum ErrorCode {
     InvalidSep10Token = 18,
     StorageCorrupted = 50,
     CacheExpired = 48,
+StorageCorrupted = 19,
     CacheNotFound = 49,
     StorageCorrupted = 50,
 }
