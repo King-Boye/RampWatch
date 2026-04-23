@@ -5,6 +5,7 @@ import * as StellarSdk from '@stellar/stellar-sdk'
 export default function CreateRemittance({ walletAddress, contractId }) {
   const [agentAddress, setAgentAddress] = useState('')
   const [amount, setAmount] = useState('')
+  const [memo, setMemo] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
@@ -30,12 +31,14 @@ export default function CreateRemittance({ walletAddress, contractId }) {
         message: 'Remittance created successfully!',
         id: Math.floor(Math.random() * 1000), // Mock ID
         amount: amount,
-        agent: agentAddress
+        agent: agentAddress,
+        memo: memo || null,
       })
 
       // Reset form
       setAgentAddress('')
       setAmount('')
+      setMemo('')
     } catch (err) {
       setError(err.message || 'Failed to create remittance')
     } finally {
@@ -71,6 +74,20 @@ export default function CreateRemittance({ walletAddress, contractId }) {
           />
         </div>
 
+        <div className="form-group">
+          <label>
+            Memo <span style={{ fontWeight: 'normal', color: '#888' }}>(optional)</span>:
+          </label>
+          <input
+            type="text"
+            value={memo}
+            onChange={(e) => setMemo(e.target.value.slice(0, 100))}
+            placeholder="e.g. Invoice #1234"
+            maxLength={100}
+          />
+          <small style={{ color: '#888' }}>{memo.length}/100</small>
+        </div>
+
         <button type="submit" disabled={loading} className="btn-primary">
           {loading ? 'Creating...' : 'Create Remittance'}
         </button>
@@ -80,6 +97,7 @@ export default function CreateRemittance({ walletAddress, contractId }) {
         <div className="success">
           <p>{result.message}</p>
           <p>Remittance ID: {result.id}</p>
+          {result.memo && <p>Memo: {result.memo}</p>}
         </div>
       )}
 

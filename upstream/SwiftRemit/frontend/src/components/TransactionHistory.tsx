@@ -11,6 +11,7 @@ export interface TransactionHistoryItem {
   recipient: string;
   status: TransactionProgressStatus;
   timestamp: string;
+  memo?: string;
   details?: Record<string, string | number>;
 }
 
@@ -188,6 +189,12 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                           <tr className="history-details-row">
                             <td colSpan={6}>
                               <dl className="history-details">
+                                {transaction.memo && (
+                                  <div key={`${transaction.id}-memo`}>
+                                    <dt>Memo</dt>
+                                    <dd>{transaction.memo}</dd>
+                                  </div>
+                                )}
                                 {Object.entries(transaction.details || {}).map(([key, value]) => (
                                   <div key={`${transaction.id}-${key}`}>
                                     <dt>{key}</dt>
@@ -242,6 +249,12 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
                     </button>
                     {isExpanded && (
                       <dl className="history-details">
+                        {transaction.memo && (
+                          <div key={`${transaction.id}-memo`}>
+                            <dt>Memo</dt>
+                            <dd>{transaction.memo}</dd>
+                          </div>
+                        )}
                         {Object.entries(transaction.details || {}).map(([key, value]) => (
                           <div key={`${transaction.id}-${key}`}>
                             <dt>{key}</dt>
