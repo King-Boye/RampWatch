@@ -398,6 +398,13 @@ pub fn set_agent_registered(env: &Env, agent: &Address, registered: bool) {
     env.storage()
         .persistent()
         .set(&DataKey::AgentRegistered(agent.clone()), &registered);
+
+    // Keep the AgentList index in sync so agents can be iterated during migration.
+    if registered {
+        add_agent_to_list(env, agent);
+    } else {
+        remove_agent_from_list(env, agent);
+    }
 }
 
 /// Checks if an address is registered as an agent.
@@ -1372,8 +1379,7 @@ pub fn take_remittance_idempotency_key(env: &Env, remittance_id: u64) -> Option<
 }
 
 /// Stores the payout commitment for a remittance.
-pub fn set_payout_commitment(env: &Env, remittance_id: u64, commitment: &soroban_sdk::BytesN<32>) {
-    env.storage()
+pub fn set_payout_commitment(env: &Env, remittance_id: u64, commitment: &soroban_sdk::BytesN<32>) {    env.storage()
         .persistent()
         .set(&DataKey::PayoutCommitment(remittance_id), commitment);
 }

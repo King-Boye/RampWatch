@@ -41,6 +41,8 @@ mod test_limits_and_proof;
 #[cfg(test)]
 mod test_migration;
 #[cfg(test)]
+mod test_agent_migration;
+#[cfg(test)]
 mod test_property;
 #[cfg(test)]
 mod test_protocol_fee;

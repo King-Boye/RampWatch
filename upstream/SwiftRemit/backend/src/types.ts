@@ -111,6 +111,30 @@ export interface RemittanceCreatedWebhookPayload {
   amount: string;
   fee: string;
   expiry: string;
+  memo?: string;
+}
+
+/** Remittance creation request body */
+export interface CreateRemittanceRequest {
+  sender: string;
+  agent: string;
+  amount: string;
+  fee?: string;
+  expiry?: string;
+  memo?: string;
+}
+
+/** Remittance record as returned by the API */
+export interface RemittanceRecord {
+  remittance_id: string;
+  sender: string;
+  agent: string;
+  amount: string;
+  fee?: string;
+  expiry?: string;
+  memo?: string;
+  status: string;
+  created_at: string;
 }
 
 export interface WebhookSubscriber {

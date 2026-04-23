@@ -7,6 +7,7 @@ interface ConfirmPayload {
   amount: number;
   asset: string;
   recipient: string;
+  memo?: string;
 }
 
 interface SendMoneyFlowProps {
@@ -37,6 +38,7 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
   const [amount, setAmount] = useState('');
   const [asset, setAsset] = useState('');
   const [recipient, setRecipient] = useState('');
+  const [memo, setMemo] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
@@ -88,7 +90,12 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
     setIsSubmitting(true);
 
     try {
-      const payload = { amount: parsedAmount, asset, recipient: recipient.trim() };
+      const payload: ConfirmPayload = {
+        amount: parsedAmount,
+        asset,
+        recipient: recipient.trim(),
+        ...(memo.trim() ? { memo: memo.trim() } : {}),
+      };
 
       if (onConfirm) {
         await onConfirm(payload);
@@ -145,16 +152,33 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
 
     if (step === 3) {
       return (
-        <label className="flow-field" htmlFor="recipient">
-          <span>Recipient</span>
-          <input
-            id="recipient"
-            type="text"
-            value={recipient}
-            onChange={(event) => setRecipient(event.target.value)}
-            placeholder="G..."
-          />
-        </label>
+        <>
+          <label className="flow-field" htmlFor="recipient">
+            <span>Recipient</span>
+            <input
+              id="recipient"
+              type="text"
+              value={recipient}
+              onChange={(event) => setRecipient(event.target.value)}
+              placeholder="G..."
+            />
+          </label>
+          <label className="flow-field" htmlFor="memo">
+            <span>Memo <span className="flow-field-optional">(optional)</span></span>
+            <input
+              id="memo"
+              type="text"
+              value={memo}
+              onChange={(event) => setMemo(event.target.value.slice(0, 100))}
+              placeholder="e.g. Invoice #1234"
+              maxLength={100}
+              aria-describedby="memo-count"
+            />
+            <span id="memo-count" className="flow-char-count" aria-live="polite">
+              {memo.length}/100
+            </span>
+          </label>
+        </>
       );
     }
 
@@ -173,6 +197,12 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
             <dt>Recipient</dt>
             <dd>{recipient || '-'}</dd>
           </div>
+          {memo.trim() && (
+            <div>
+              <dt>Memo</dt>
+              <dd>{memo.trim()}</dd>
+            </div>
+          )}
         </dl>
       );
     }

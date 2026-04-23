@@ -24,6 +24,8 @@ import { createTransferGuard, AuthenticatedRequest } from './transfer-guard';
 import { getFxRateCache } from './fx-rate-cache';
 import { correlationIdMiddleware, createLogger } from './correlation-id';
 import { getMetricsService } from './metrics';
+import { sanitizeInput } from './sanitizer';
+import docsRouter from './routes/docs';
 
 const app = express();
 const fxRateCache = getFxRateCache();
@@ -40,7 +42,6 @@ app.use(express.json());
 // Correlation ID middleware
 app.use(correlationIdMiddleware);
 
-const pool = getPool();
 const kycUpsertService = new KycUpsertService(pool);
 const transferGuard = createTransferGuard(kycUpsertService);
 
@@ -572,6 +573,92 @@ app.get('/api/kyc/approved/:userId', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error checking KYC approval:', error);
     res.status(500).json({ error: 'Failed to check KYC approval' });
+  }
+});
+
+// Create remittance
+app.post('/api/remittance', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { sender, agent, amount, fee, expiry, memo } = req.body;
+
+    if (!sender || typeof sender !== 'string') {
+      return res.status(400).json({ error: 'Invalid or missing sender' });
+    }
+    if (!agent || typeof agent !== 'string') {
+      return res.status(400).json({ error: 'Invalid or missing agent' });
+    }
+    if (!amount || typeof amount !== 'string' || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+      return res.status(400).json({ error: 'Invalid or missing amount' });
+    }
+
+    // Validate memo — optional, max 100 chars, plain text only
+    let sanitizedMemo: string | undefined;
+    if (memo !== undefined && memo !== null && memo !== '') {
+      if (typeof memo !== 'string') {
+        return res.status(400).json({ error: 'memo must be a string' });
+      }
+      if (memo.length > 100) {
+        return res.status(400).json({ error: 'memo must not exceed 100 characters' });
+      }
+      sanitizedMemo = sanitizeInput(memo);
+    }
+
+    const remittanceId = `rem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    await pool.query(
+      `INSERT INTO transactions
+         (transaction_id, anchor_id, kind, status, amount_in, memo, created_at, updated_at)
+       VALUES ($1, $2, 'withdrawal', 'pending_user_transfer_start', $3, $4, NOW(), NOW())`,
+      [remittanceId, agent, amount, sanitizedMemo ?? null]
+    );
+
+    return res.status(201).json({
+      success: true,
+      remittance: {
+        remittance_id: remittanceId,
+        sender,
+        agent,
+        amount,
+        fee: fee ?? null,
+        expiry: expiry ?? null,
+        memo: sanitizedMemo ?? null,
+        status: 'pending_user_transfer_start',
+      },
+    });
+  } catch (error) {
+    logger.error('Error creating remittance', error);
+    return res.status(500).json({ error: 'Failed to create remittance' });
+  }
+});
+
+// Get remittance by ID
+app.get('/api/remittance/:remittanceId', async (req: Request, res: Response) => {
+  try {
+    const { remittanceId } = req.params;
+
+    const result = await pool.query(
+      `SELECT transaction_id, anchor_id, status, amount_in, memo, created_at, updated_at
+         FROM transactions WHERE transaction_id = $1`,
+      [remittanceId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Remittance not found' });
+    }
+
+    const row = result.rows[0];
+    return res.json({
+      remittance_id: row.transaction_id,
+      agent: row.anchor_id,
+      status: row.status,
+      amount: row.amount_in,
+      memo: row.memo ?? null,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    });
+  } catch (error) {
+    logger.error('Error fetching remittance', error);
+    return res.status(500).json({ error: 'Failed to fetch remittance' });
   }
 });
 

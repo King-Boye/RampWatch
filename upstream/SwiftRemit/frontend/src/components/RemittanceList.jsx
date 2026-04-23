@@ -15,7 +15,8 @@ export default function RemittanceList({ walletAddress, contractId }) {
           agent: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
           amount: 100.00,
           fee: 2.50,
-          status: 'Pending'
+          status: 'Pending',
+          memo: null,
         }
       ])
     }
@@ -54,6 +55,7 @@ export default function RemittanceList({ walletAddress, contractId }) {
                 <th>Amount</th>
                 <th>Fee</th>
                 <th>Status</th>
+                <th>Memo</th>
               </tr>
             </thead>
             <tbody>
@@ -71,6 +73,7 @@ export default function RemittanceList({ walletAddress, contractId }) {
                       {r.status}
                     </span>
                   </td>
+                  <td>{r.memo || <span style={{ color: '#aaa' }}>—</span>}</td>
                 </tr>
               ))}
             </tbody>
