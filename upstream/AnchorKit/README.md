@@ -50,6 +50,16 @@ let supported = contract.get_supported_services(&anchor);
 if contract.supports_service(&anchor, &ServiceType::Deposits) {
     // Process deposit
 }
+
+// NEW: Compute payload hash for off-chain matching (matches on-chain deterministic_hash exactly)
+let subject = Address::generate(&env);
+let timestamp: u64 = env.ledger().timestamp();
+let payload_data = Bytes::from_slice(&env, b"kyc_approved");
+let payload_hash = contract.compute_payload_hash_public(&env, subject, timestamp, payload_data);
+
+// Use same inputs on-chain to verify attestation matches expected hash
+let expected_hash = deterministic_hash::compute_payload_hash(&env, &subject, timestamp, &payload_data);
+assert_eq!(payload_hash, expected_hash);
 ```
 
 ## CLI Example
@@ -62,6 +72,14 @@ See complete deposit/withdraw workflow:
 
 # Or run Rust example
 cargo run --example cli_example
+```
+
+Use the new CLI binary for machine-friendly command output:
+
+```bash
+cargo run --bin anchorkit -- query --output json --transaction-id TX123
+cargo run --bin anchorkit -- attest --subject GUSER123 --payload-file payload.bin
+cat payload.bin | cargo run --bin anchorkit -- attest --subject GUSER123 --payload-hash -
 ```
 
 See **[docs/guides/DOCTOR_COMMAND.md](./docs/guides/DOCTOR_COMMAND.md)** for CLI documentation.
@@ -117,6 +135,7 @@ const auditLog = await contract.get_audit_log(0);
 ### Getting Started
 - **[QUICK_START.md](./QUICK_START.md)** - Quick reference guide with examples
 - **[CHANGELOG.md](./CHANGELOG.md)** - Version history and changes
+- **[SECURITY.md](./SECURITY.md)** - Vulnerability disclosure policy and supported versions
 
 ### Feature Documentation
 - **[docs/features/ANCHOR_INFO_DISCOVERY.md](./docs/features/ANCHOR_INFO_DISCOVERY.md)** - Anchor info discovery service (stellar.toml)
@@ -127,6 +146,7 @@ const auditLog = await contract.get_audit_log(0);
 - **[docs/features/DOMAIN_VALIDATION.md](./docs/features/DOMAIN_VALIDATION.md)** - Domain validation
 - **[docs/features/ERROR_CODES_REFERENCE.md](./docs/features/ERROR_CODES_REFERENCE.md)** - API error codes reference
 - **[docs/features/RETRY_BACKOFF.md](./docs/features/RETRY_BACKOFF.md)** - Retry and backoff strategies
+- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** - Architecture and component interaction diagram
 - **[docs/features/WEBHOOK_MIDDLEWARE.md](./docs/features/WEBHOOK_MIDDLEWARE.md)** - Webhook middleware
 - **[docs/features/WEBHOOK_MONITOR.md](./docs/features/WEBHOOK_MONITOR.md)** - Webhook monitoring
 - **[docs/features/TRANSACTION_STATE_TRACKER.md](./docs/features/TRANSACTION_STATE_TRACKER.md)** - Transaction state tracking
@@ -385,11 +405,17 @@ AnchorKit consists of:
 
 ## Security
 
+AnchorKit takes security seriously. Key protections include:
+
 - Stable error codes (100-120) for API compatibility
 - Replay protection at multiple levels
 - Immutable audit logs
 - Authorization checks on all operations
 - Complete operation context for verification
+
+For the full authorization model and access control tiers, see **[docs/features/AUTHORIZATION_MODEL.md](./docs/features/AUTHORIZATION_MODEL.md)**.
+
+To report a vulnerability, please follow the responsible disclosure process in **[SECURITY.md](./SECURITY.md)**. Do not open a public issue for security concerns.
 
 ## Performance
 
