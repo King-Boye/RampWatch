@@ -130,9 +130,17 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
         return Err(AnchorKitError::invalid_endpoint_format());
     }
 
-    // DNS limits: full domain must be <= 253 characters
-    if domain_without_port.len() > 253 {
-        return Err(AnchorKitError::invalid_endpoint_format());
+    // #267: Reject loopback hostnames explicitly before any other checks.
+    // "localhost" is caught by the single-label check below, but
+    // "localhost.localdomain" and similar variants must also be rejected.
+    {
+        let d = domain_without_port;
+        let is_localhost = d.eq_ignore_ascii_case("localhost")
+            || d.len() > 9 && d[..9].eq_ignore_ascii_case("localhost") && d.as_bytes()[9] == b'.'
+            || d.len() > 9 && d[d.len()-9..].eq_ignore_ascii_case("localhost") && d.as_bytes()[d.len()-10] == b'.';
+        if is_localhost {
+            return Err(AnchorKitError::invalid_endpoint_format());
+        }
     }
 
     // Must contain at least one dot for valid domain (rejects single-label hostnames
@@ -181,7 +189,15 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
             return Err(AnchorKitError::invalid_endpoint_format());
         }
 
-        // ASCII alphanumeric + hyphen only; rejects unicode
+        // #268: ASCII alphanumeric + hyphen only.
+        // Unicode labels are rejected here; callers must normalize to Punycode
+        // (xn-- prefix) before passing to this function.  We additionally
+        // reject any label that starts with "xn--" to prevent homograph
+        // attacks via crafted Punycode that encodes visually-similar characters.
+        if label.len() >= 4 && label[..4].eq_ignore_ascii_case("xn--") {
+            return Err(AnchorKitError::invalid_endpoint_format());
+        }
+
         for c in label.chars() {
             if !c.is_ascii_alphanumeric() && c != '-' {
                 return Err(AnchorKitError::invalid_endpoint_format());
@@ -194,6 +210,11 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
 
 /// Validates URL characters
 fn validate_url_characters(url: &str) -> Result<(), AnchorKitError> {
+    // #269: Reject percent-encoded null byte before iterating chars so that
+    // the encoded form (%00) is caught even though '%', '0' are individually valid.
+    if url.contains("%00") {
+        return Err(AnchorKitError::invalid_endpoint_format());
+    }
     for c in url.chars() {
         if c.is_control() || matches!(c, '<' | '>' | '{' | '}' | '|' | '\\') {
             return Err(AnchorKitError::invalid_endpoint_format());
@@ -317,6 +338,10 @@ mod tests {
         assert!(validate_anchor_domain("https://example.com\r").is_err());
         assert!(validate_anchor_domain("https://example.com\t").is_err());
         assert!(validate_anchor_domain("https://\0example.com").is_err());
+        // #269: percent-encoded null byte must also be rejected
+        assert!(validate_anchor_domain("https://example.com/%00").is_err());
+        assert!(validate_anchor_domain("https://example.com/path%00/resource").is_err());
+        assert!(validate_anchor_domain("https://example.com?q=%00").is_err());
     }
 
     #[test]
@@ -354,6 +379,17 @@ mod tests {
         assert!(validate_anchor_domain("https://example.测试").is_err());
     }
 
+    // #268: Punycode-encoded labels (xn--) must be rejected to prevent homograph attacks.
+    #[test]
+    fn test_punycode_homograph_rejected() {
+        // xn--e1afmapc.com is the Punycode for россия.com (Cyrillic lookalike)
+        assert!(validate_anchor_domain("https://xn--e1afmapc.com").is_err());
+        // xn--bcher-kva.example is Punycode for bücher.example
+        assert!(validate_anchor_domain("https://xn--bcher-kva.example.com").is_err());
+        // Mixed: one normal label, one xn-- label
+        assert!(validate_anchor_domain("https://api.xn--e1afmapc.com").is_err());
+    }
+
     #[test]
     fn test_ip_address_inputs() {
         // IPv4 addresses should be rejected (not valid domain format)
@@ -364,6 +400,25 @@ mod tests {
         // IPv6 addresses should be rejected
         assert!(validate_anchor_domain("https://[::1]").is_err());
         assert!(validate_anchor_domain("https://[2001:db8::1]").is_err());
+    }
+
+    // #267: Loopback hostnames must be rejected.
+    #[test]
+    fn test_loopback_addresses_rejected() {
+        // Plain localhost (single-label, already caught, but explicit)
+        assert!(validate_anchor_domain("https://localhost").is_err());
+        // localhost with path
+        assert!(validate_anchor_domain("https://localhost/sep6").is_err());
+        // localhost with port
+        assert!(validate_anchor_domain("https://localhost:8080").is_err());
+        // localhost.localdomain — two labels, would pass single-label check without #267 fix
+        assert!(validate_anchor_domain("https://localhost.localdomain").is_err());
+        // subdomain of localhost
+        assert!(validate_anchor_domain("https://api.localhost").is_err());
+        // 127.0.0.1 — already rejected as pure IPv4
+        assert!(validate_anchor_domain("https://127.0.0.1").is_err());
+        // ::1 — already rejected via IPv6 bracket syntax
+        assert!(validate_anchor_domain("https://[::1]").is_err());
     }
 
     #[test]
