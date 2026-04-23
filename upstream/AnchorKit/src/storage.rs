@@ -35,6 +35,8 @@ pub enum StorageKey {
     SessionOpCount(u64),
     /// Audit log entry by log ID (persistent).
     AuditLog(u64),
+    /// Maximum number of audit log entries to retain (instance storage).
+    AuditLogMaxSize,
     /// Quote record keyed by anchor + quote ID (persistent).
     Quote(Address, u64),
     /// Latest quote ID for an anchor (persistent).
@@ -72,6 +74,9 @@ pub fn key_quote_counter(env: &Env) -> Vec<Symbol> {
 }
 pub fn key_audit_counter(env: &Env) -> Vec<Symbol> {
     soroban_sdk::vec![env, symbol_short!("ACNT")]
+}
+pub fn key_audit_log_offset(env: &Env) -> Vec<Symbol> {
+    soroban_sdk::vec![env, symbol_short!("AOFF")]
 }
 pub fn key_anchor_list(env: &Env) -> Vec<Symbol> {
     soroban_sdk::vec![env, symbol_short!("ANCHLIST")]

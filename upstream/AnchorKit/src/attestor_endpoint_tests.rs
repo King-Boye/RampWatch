@@ -18,7 +18,7 @@ fn setup(env: &Env) -> (AnchorKitContractClient, Address, Address, SigningKey) {
     let client = AnchorKitContractClient::new(env, &contract_id);
     let admin = Address::generate(env);
     let attestor = Address::generate(env);
-    client.initialize(&admin);
+    client.initialize(&admin, &10000_u64);
     let sk = SigningKey::generate(&mut OsRng);
     register_attestor_with_sep10(env, &client, &attestor, &admin, &sk);
     (client, admin, attestor, sk)

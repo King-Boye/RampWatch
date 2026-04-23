@@ -48,7 +48,7 @@ pub enum ErrorCode {
     CacheExpired = 48,
 StorageCorrupted = 19,
     CacheNotFound = 49,
-    StorageCorrupted = 50,
+    AuditLogMaxSizeInvalid = 51,
 }
 
 impl ErrorCode {
@@ -76,10 +76,8 @@ impl ErrorCode {
             ErrorCode::InvalidSep10Token => "SEP-10 JWT is missing, expired, or invalid",
             ErrorCode::StorageCorrupted => "On-chain storage entry is corrupted or unreadable",
             ErrorCode::CacheExpired => "Cache entry has expired",
-ErrorCode::CacheNotFound => "Cache entry not found",
-            ErrorCode::UnauthorizedProposeAdmin => "Only current admin can propose transfer",
-            ErrorCode::NoPendingAdmin => "No pending admin transfer",
-            ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
+            ErrorCode::CacheNotFound => "Cache entry not found",
+            ErrorCode::AuditLogMaxSizeInvalid => "max_audit_log_size must be at least 1",
         }
     }
 
