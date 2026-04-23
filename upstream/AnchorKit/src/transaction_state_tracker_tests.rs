@@ -36,7 +36,15 @@ mod transaction_state_tracker_tests {
             TransactionState::from_str("failed"),
             Some(TransactionState::Failed)
         );
-        assert_eq!(TransactionState::from_str("unknown"), None);
+        // Unrecognized strings map to Unknown, not Error or None
+        assert_eq!(
+            TransactionState::from_str("some_future_state"),
+            Some(TransactionState::Unknown)
+        );
+        assert_eq!(
+            TransactionState::from_str("unknown"),
+            Some(TransactionState::Unknown)
+        );
     }
 
     #[test]

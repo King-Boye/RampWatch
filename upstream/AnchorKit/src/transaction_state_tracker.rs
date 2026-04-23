@@ -9,6 +9,8 @@ pub enum TransactionState {
     InProgress = 2,
     Completed = 3,
     Failed = 4,
+    /// Unrecognized state string from a future or unknown protocol version
+    Unknown = 5,
 }
 
 impl TransactionState {
@@ -18,6 +20,7 @@ impl TransactionState {
             TransactionState::InProgress => "in_progress",
             TransactionState::Completed => "completed",
             TransactionState::Failed => "failed",
+            TransactionState::Unknown => "unknown",
         }
     }
 
@@ -27,7 +30,7 @@ impl TransactionState {
             "in_progress" => Some(TransactionState::InProgress),
             "completed" => Some(TransactionState::Completed),
             "failed" => Some(TransactionState::Failed),
-            _ => None,
+            _ => Some(TransactionState::Unknown),
         }
     }
 }
