@@ -60,15 +60,30 @@ mod session_tests {
 
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let id0 = client.create_session(&user);
         let id1 = client.create_session(&user);
         let id2 = client.create_session(&user);
 
+        // IDs are still sequential
         assert_eq!(id0, 0);
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
+
+        let s0 = client.get_session(&id0);
+        let s1 = client.get_session(&id1);
+        let s2 = client.get_session(&id2);
+
+        // Nonces must not equal the session ID (no longer sequential 0,1,2)
+        assert_ne!(s0.nonce, id0, "nonce should not equal session_id");
+        assert_ne!(s1.nonce, id1, "nonce should not equal session_id");
+        assert_ne!(s2.nonce, id2, "nonce should not equal session_id");
+
+        // Nonces must be unique across sessions
+        assert_ne!(s0.nonce, s1.nonce, "nonces should be unique");
+        assert_ne!(s1.nonce, s2.nonce, "nonces should be unique");
+        assert_ne!(s0.nonce, s2.nonce, "nonces should be unique");
     }
 
     #[test]
@@ -80,7 +95,7 @@ mod session_tests {
 
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         let session = client.get_session(&session_id);
@@ -102,7 +117,7 @@ mod session_tests {
 
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         assert_eq!(client.get_session_operation_count(&session_id), 0);
@@ -118,7 +133,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         client.register_attestor_with_session(&session_id, &attestor);
@@ -137,7 +152,7 @@ mod session_tests {
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         let sk = SigningKey::generate(&mut OsRng);
@@ -169,7 +184,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         client.register_attestor_with_session(&session_id, &attestor);
@@ -187,7 +202,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         client.register_attestor_with_session(&session_id, &attestor);
@@ -214,7 +229,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         client.register_attestor_with_session(&session_id, &attestor);
@@ -233,7 +248,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         client.register_attestor_with_session(&session_id, &attestor);
@@ -262,7 +277,7 @@ mod session_tests {
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         client.register_attestor_with_session(&session_id, &attestor);
@@ -298,7 +313,7 @@ mod session_tests {
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         // Step 1: create session
         let session_id = client.create_session(&user);
@@ -339,11 +354,93 @@ mod session_tests {
         let log1 = client.get_audit_log(&1u64);
         assert_eq!(log1.operation.operation_type, String::from_str(&env, "attest"));
         assert_eq!(log1.operation.operation_index, 1);
-        assert_eq!(log1.operation.result_data, 0); // attestation id 0
+        assert_eq!(log1.operation.result_summary, String::from_str(&env, "attestation_id=0")); // attestation id 0
 
         let log2 = client.get_audit_log(&2u64);
         assert_eq!(log2.operation.operation_type, String::from_str(&env, "attest"));
         assert_eq!(log2.operation.operation_index, 2);
-        assert_eq!(log2.operation.result_data, 1); // attestation id 1
+        assert_eq!(log2.operation.result_summary, String::from_str(&env, "attestation_id=1")); // attestation id 1
+    }
+
+    // -----------------------------------------------------------------------
+    // Audit log pruning
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_audit_log_pruning_keeps_new_entry() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        // max_audit_log_size = 2: only 2 live entries at a time
+        client.initialize(&admin, &2_u64);
+
+        let mut csprng = OsRng;
+        let signing_key = SigningKey::generate(&mut csprng);
+        let attestor = register_attestor_with_sep10(&env, &client, &admin, &signing_key);
+        let session_id = client.create_session(&attestor);
+
+        // log_id=0 written by register_attestor_with_sep10.
+        // Write log_id=1 by registering a second attestor.
+        let signing_key2 = SigningKey::generate(&mut csprng);
+        register_attestor_with_sep10(&env, &client, &admin, &signing_key2);
+
+        // log_id=0 still accessible (live=[0,1], count=2 == max_size, no prune yet).
+        let log0 = client.get_audit_log(&0u64);
+        assert_eq!(log0.log_id, 0);
+
+        // Write log_id=2 → live=[0,1,2], count=3 > max_size=2 → prune log_id=0.
+        let ph = payload(&env, 0xAB);
+        let s = sig(&env, &[1u8; 64]);
+        client.submit_attestation_with_session(
+            &session_id, &attestor, &attestor, &1000u64, &ph, &s,
+        );
+
+        // log_id=2 must be accessible.
+        let log2 = client.get_audit_log(&2u64);
+        assert_eq!(log2.log_id, 2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_audit_log_pruned_entry_is_gone() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin, &2_u64);
+
+        let mut csprng = OsRng;
+        let signing_key = SigningKey::generate(&mut csprng);
+        let attestor = register_attestor_with_sep10(&env, &client, &admin, &signing_key);
+        let session_id = client.create_session(&attestor);
+
+        let signing_key2 = SigningKey::generate(&mut csprng);
+        register_attestor_with_sep10(&env, &client, &admin, &signing_key2);
+
+        // Write log_id=2 → prunes log_id=0.
+        let ph = payload(&env, 0xCD);
+        let s = sig(&env, &[2u8; 64]);
+        client.submit_attestation_with_session(
+            &session_id, &attestor, &attestor, &1000u64, &ph, &s,
+        );
+
+        // Accessing pruned entry must panic.
+        client.get_audit_log(&0u64);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_initialize_rejects_zero_max_audit_log_size() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin, &0_u64); // must panic with AuditLogMaxSizeInvalid
     }
 }

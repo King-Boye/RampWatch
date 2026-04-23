@@ -68,7 +68,7 @@ pub struct OperationContext {
     pub operation_type: String,
     pub timestamp: u64,
     pub status: String,
-    pub result_data: u64,
+    pub result_summary: String,
 }
 
 #[contracttype]

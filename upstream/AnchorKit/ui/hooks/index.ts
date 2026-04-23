@@ -12,3 +12,4 @@ export {
   type CopyToClipboardOptions,
   type CopyToClipboardResult,
 } from './useCopyToClipboard';
+export { useTheme } from './useTheme';

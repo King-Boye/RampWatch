@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 export interface CopyToClipboardOptions {
   /**
@@ -63,6 +63,21 @@ export function useCopyToClipboard(
 
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reset isCopied after successDuration whenever it becomes true
+  useEffect(() => {
+    if (!isCopied) return;
+    timerRef.current = setTimeout(() => {
+      setIsCopied(false);
+    }, successDuration);
+    return () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [isCopied, successDuration]);
 
   const copy = useCallback(
     async (text: string): Promise<boolean> => {
@@ -79,12 +94,6 @@ export function useCopyToClipboard(
         setCopiedText(text);
         setIsCopied(true);
         onSuccess?.();
-
-        // Reset copied state after duration
-        setTimeout(() => {
-          setIsCopied(false);
-        }, successDuration);
-
         return true;
       } catch (err) {
         const error = err instanceof Error ? err : new Error('Failed to copy');
@@ -93,7 +102,7 @@ export function useCopyToClipboard(
         return false;
       }
     },
-    [successDuration, onSuccess, onError]
+    [onSuccess, onError]
   );
 
   const reset = useCallback(() => {

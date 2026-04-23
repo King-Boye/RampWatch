@@ -19,6 +19,48 @@ let result = retry_with_backoff(
 );
 ```
 
+## How `is_retryable` works
+
+The helper `is_retryable(code)` classifies only transient, availability, and cache-related failure codes as retryable. It returns `true` when the numeric error code matches one of the following `ErrorCode` variants:
+
+- `ServicesNotConfigured`
+- `AttestationNotFound`
+- `StaleQuote`
+- `NoQuotesAvailable`
+- `CacheExpired`
+- `CacheNotFound`
+- `RateLimitExceeded`
+
+All other `ErrorCode` values are considered non-retryable and should stop immediately.
+
+> Note: `is_retryable(code)` only classifies the numeric error codes above. The lists below describe the broader retry categories used by AnchorKit, while the helper itself is implemented on a concise set of transient codes.
+
+### Retryability summary
+
+| Error code | Retryable? | Reason |
+| --- | --- | --- |
+| `AlreadyInitialized` | No | Permanent contract state error |
+| `AttestorAlreadyRegistered` | No | Duplicate registration |
+| `AttestorNotRegistered` | No | Invalid anchor state |
+| `UnauthorizedAttestor` | No | Auth failure |
+| `InvalidTimestamp` | No | Bad request data |
+| `ReplayAttack` | No | Security violation |
+| `InvalidQuote` | No | Bad quote data |
+| `InvalidServiceType` | No | Invalid request parameter |
+| `InvalidTransactionIntent` | No | Invalid transaction shape |
+| `StaleQuote` | Yes | Quote expired; retry after refresh |
+| `ComplianceNotMet` | No | Permanent policy failure |
+| `InvalidEndpointFormat` | No | Bad endpoint configuration |
+| `NoQuotesAvailable` | Yes | Transient quote availability |
+| `ServicesNotConfigured` | Yes | Anchor not ready yet |
+| `ValidationError` | No | Invalid response payload |
+| `RateLimitExceeded` | Yes | Back off and retry later |
+| `NotInitialized` | No | Contract not ready |
+| `AttestationNotFound` | Yes | Data may become available soon |
+| `InvalidSep10Token` | No | Auth failure |
+| `StorageCorrupted` | No | Persistent on-chain corruption |
+| `CacheExpired` | Yes | Refreshable cache state |
+| `CacheNotFound` | Yes | Cache miss; can refresh |
 
 ## Features
 
@@ -112,6 +154,29 @@ let rate_limit = RetryConfig::new(
 ```
 
 ## Usage Examples
+
+### Non-retryable errors stop immediately
+
+```rust
+use anchorkit::retry::{retry_with_backoff, RetryConfig, is_retryable};
+use anchorkit::{AnchorKitError, ErrorCode};
+
+let config = RetryConfig::default();
+let mut attempts = 0;
+
+let result = retry_with_backoff(
+    &config,
+    |_| {
+        attempts += 1;
+        Err::<(), _>(AnchorKitError::invalid_quote())
+    },
+    |e: &AnchorKitError| is_retryable(e.code as u32),
+    |_| {},
+);
+
+assert_eq!(attempts, 1);
+assert!(matches!(result, Err(err) if err.code == ErrorCode::InvalidQuote));
+```
 
 ### Basic Retry
 

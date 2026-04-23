@@ -27,7 +27,7 @@ mod is_initialized_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         assert!(client.is_initialized());
     }
