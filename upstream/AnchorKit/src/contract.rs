@@ -1053,7 +1053,7 @@ impl AnchorKitContract {
                 }
             }
         } else if strategy_sym == balanced_sym {
-            // score = (40_000 / fee_percentage) + (30_000 / settlement_time) + (reputation * 30 / 10_000)
+            // score = (40_000 / fee_percentage) + (30_000 / settlement_time) + (reputation * 3_000 / 10_000)
             // All terms are dimensionless integers; higher score is better.
             // fee_percentage = 0 or settlement_time = 0 contribute 0 to avoid division by zero.
             let balanced_score = |env: &Env, q: &Quote| -> u64 {
@@ -1071,7 +1071,8 @@ impl AnchorKitContract {
                     });
                 let fee_term = if q.fee_percentage > 0 { 40_000 / q.fee_percentage as u64 } else { 0 };
                 let time_term = if meta.average_settlement_time > 0 { 30_000 / meta.average_settlement_time } else { 0 };
-                let rep_term = meta.reputation_score as u64 * 30 / 10_000;
+                // Scale reputation (0–10_000) to a 0–3_000 range to match the weight of other terms.
+                let rep_term = meta.reputation_score as u64 * 3_000 / 10_000;
                 fee_term + time_term + rep_term
             };
             let mut best_score = balanced_score(&env, &best);
