@@ -115,7 +115,8 @@ const fmt = (n: number, currency: string) =>
 function fmtFee(fee?: AssetFee): string {
   if (!fee) return "—";
   if (fee.type === "flat") return fmt(fee.flatAmount!, fee.currency);
-  if (fee.type === "percent") return `${fee.percent}%`;
+  if (fee.type === "percent")
+    return `${Number(fee.percent).toFixed(2)}% ${fee.currency}`;
   if (fee.type === "tiered" && fee.tiers) return "Tiered";
   return "—";
 }
@@ -435,7 +436,7 @@ function FeesPanel({
             {df.type === "percent" && (
               <DataRow
                 label="Rate"
-                value={`${df.percent}%`}
+                value={`${Number(df.percent).toFixed(2)}% ${df.currency}`}
                 mono
                 accent={accent}
               />
@@ -505,7 +506,7 @@ function FeesPanel({
             {wf.type === "percent" && (
               <DataRow
                 label="Rate"
-                value={`${wf.percent}%`}
+                value={`${Number(wf.percent).toFixed(2)}% ${wf.currency}`}
                 mono
                 accent={accent}
               />
