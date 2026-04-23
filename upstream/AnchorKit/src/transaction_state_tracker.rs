@@ -50,6 +50,7 @@ pub struct TransactionStateRecord {
 pub struct TransactionStateTracker {
     cache: alloc::vec::Vec<TransactionStateRecord>,
     is_dev_mode: bool,
+    cache_count: usize,
 }
 
 #[allow(dead_code)]
@@ -59,6 +60,7 @@ impl TransactionStateTracker {
         TransactionStateTracker {
             cache: alloc::vec::Vec::new(),
             is_dev_mode,
+            cache_count: 0,
         }
     }
 
@@ -82,6 +84,7 @@ impl TransactionStateTracker {
 
         if self.is_dev_mode {
             self.cache.push(record.clone());
+            self.cache_count += 1;
         }
 
         Ok(record)
@@ -210,15 +213,16 @@ impl TransactionStateTracker {
     pub fn clear_cache(&mut self) -> Result<(), String> {
         if self.is_dev_mode {
             self.cache = alloc::vec::Vec::new();
+            self.cache_count = 0;
             Ok(())
         } else {
             Err(String::from_str(&Env::default(), "Cannot clear cache in production mode"))
         }
     }
 
-    /// Get cache size
+    /// Get cache size — O(1)
     pub fn cache_size(&self) -> usize {
-        self.cache.len()
+        self.cache_count
     }
 }
 
