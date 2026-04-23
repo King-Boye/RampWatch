@@ -1,69 +1,77 @@
-# AnchorKit Authorization Model
+# Security Policy
 
-Every public contract function falls into one of three categories.
+## Supported Versions
 
-## Admin-only
+The following versions of AnchorKit currently receive security updates:
 
-Caller must be the address stored as admin (set during `initialize`).
-`require_admin` fetches the admin from instance storage and calls `admin.require_auth()`.
+| Version | Supported          |
+|---------|--------------------|
+| 0.1.x   | ✅ Yes             |
+| < 0.1   | ❌ No              |
 
-| Function | Notes |
-|---|---|
-| `initialize` | Sets the admin; admin must sign |
-| `set_sep10_jwt_verifying_key` | Registers anchor signing keys |
-| `register_attestor` | Adds an attestor; also verifies SEP-10 JWT |
-| `revoke_attestor` | Removes an attestor |
-| `register_attestor_with_session` | Session-aware variant |
-| `revoke_attestor_with_session` | Session-aware variant |
-| `cache_metadata` | Writes anchor metadata cache |
-| `refresh_metadata_cache` | Clears anchor metadata cache |
-| `cache_capabilities` | Writes capabilities cache |
-| `refresh_capabilities_cache` | Clears capabilities cache |
-| `set_health_failure_threshold` | Sets auto-deactivation threshold |
-| `update_health_status` | Writes health metrics; may auto-deactivate anchors |
-| `set_anchor_metadata` | Registers anchor in routing table |
+Only the latest patch release within a supported minor version receives security fixes. We recommend always running the latest published version.
 
-## Self-only (registered attestor/anchor must sign)
+## Reporting a Vulnerability
 
-Caller must be the relevant attestor/anchor address **and** must already be registered.
+**Please do not report security vulnerabilities through public GitHub issues.**
 
-| Function | Auth check | Registration check |
-|---|---|---|
-| `set_endpoint` | `attestor.require_auth()` | `check_attestor` |
-| `configure_services` | `anchor.require_auth()` | `is_attestor` storage check |
-| `submit_attestation` | `issuer.require_auth()` | `check_attestor` |
-| `submit_with_request_id` | `issuer.require_auth()` | `check_attestor` |
-| `submit_attestation_with_session` | `issuer.require_auth()` | `check_attestor` |
-| `submit_quote` | `anchor.require_auth()` | `check_attestor` |
-| `fetch_anchor_info` | `anchor.require_auth()` | — (TOML cache, not state-critical) |
-| `refresh_anchor_info` | `anchor.require_auth()` | — (clears own cache entry) |
-| `create_session` | `initiator.require_auth()` | — |
-| `receive_quote` | `receiver.require_auth()` | — |
+If you discover a security vulnerability in AnchorKit, please report it responsibly using one of the following channels:
 
-## Public (read-only, no auth required)
+### GitHub Private Vulnerability Reporting (Preferred)
 
-These functions only read state and never panic on missing auth.
+Use GitHub's built-in private reporting feature:
 
-`is_initialized`, `get_admin`, `get_attestation`, `list_attestations`,
-`is_attestor`, `get_endpoint`, `get_supported_services`, `supports_service`,
-`get_tracing_span`, `compute_payload_hash`, `verify_payload_hash`,
-`get_session`, `get_audit_log`, `get_session_operation_count`,
-`get_cached_metadata`, `get_cached_capabilities`, `get_health_status`,
-`get_quote`, `get_routing_anchors`, `route_transaction`,
-`get_anchor_toml`, `get_anchor_assets`, `get_anchor_asset_info`,
-`get_anchor_deposit_limits`, `get_anchor_withdrawal_limits`,
-`get_anchor_deposit_fees`, `get_anchor_withdrawal_fees`,
-`anchor_supports_deposits`, `anchor_supports_withdrawals`,
-`generate_request_id`, `verify_sep10_token`
+1. Go to the [Security tab](../../security) of this repository.
+2. Click **"Report a vulnerability"**.
+3. Fill in the details and submit.
 
-## Replay Protection
+This keeps the report confidential until a fix is ready and allows coordinated disclosure.
 
-- Attestation `payload_hash` values are stored in persistent storage after first use; re-submission panics with `ReplayAttack`.
-- Sessions use a nonce (`session.nonce`) to prevent operation replay within a session.
+### Email
 
-## Error Codes
+If you prefer email, send your report to the repository maintainer via the contact listed on the [GitHub profile](https://github.com/Haroldwonder).
 
-Authorization failures surface as stable error codes (see `src/errors.rs`):
-- `NotInitialized` (101) — contract not yet initialized
-- `Unauthorized` (102) — caller is not the admin
-- `AttestorNotRegistered` (104) — attestor address not in registry
+Please include the following in your report:
+
+- A clear description of the vulnerability
+- Steps to reproduce or a proof-of-concept
+- The potential impact (e.g., unauthorized access, replay attack bypass, data exposure)
+- Any suggested mitigations, if you have them
+
+## Response Process
+
+1. **Acknowledgement** — We will acknowledge receipt of your report within **72 hours**.
+2. **Assessment** — We will assess severity and scope within **7 days**.
+3. **Fix & Disclosure** — We aim to release a fix within **30 days** of confirmation. For critical issues we will expedite this timeline.
+4. **Credit** — With your permission, we will credit you in the release notes and/or `CHANGELOG.md`.
+
+## Disclosure Policy
+
+We follow a **coordinated disclosure** model:
+
+- Please give us reasonable time to investigate and patch before any public disclosure.
+- We will notify you when a fix is released and coordinate a disclosure date with you.
+- We will not take legal action against researchers who report vulnerabilities in good faith and follow this policy.
+
+## Scope
+
+The following are in scope for vulnerability reports:
+
+- Smart contract logic in `src/` (authorization bypasses, replay attack vectors, storage manipulation)
+- SEP-10 JWT verification (`src/sep10_jwt.rs`)
+- Cryptographic operations (payload hashing, signature verification)
+- Dependency vulnerabilities that directly affect AnchorKit
+
+The following are **out of scope**:
+
+- Vulnerabilities in the Stellar/Soroban platform itself (report those to [Stellar's security team](https://www.stellar.org/bug-bounty-program))
+- Issues in example scripts or documentation only
+- Theoretical vulnerabilities without a realistic attack path
+
+## Security Design Notes
+
+For an overview of AnchorKit's authorization model, access control tiers, and replay protection mechanisms, see:
+
+- **[docs/features/AUTHORIZATION_MODEL.md](./docs/features/AUTHORIZATION_MODEL.md)** — Admin-only, self-only, and public function access tiers
+- **[docs/features/SEP10_AUTH.md](./docs/features/SEP10_AUTH.md)** — SEP-10 authentication flow
+- **[docs/features/ERROR_CODES_REFERENCE.md](./docs/features/ERROR_CODES_REFERENCE.md)** — Stable error codes including auth failures
