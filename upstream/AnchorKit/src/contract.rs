@@ -1456,9 +1456,10 @@ impl AnchorKitContract {
     // Anchor Info Discovery
     // -----------------------------------------------------------------------
 
-    pub fn fetch_anchor_info(env: Env, anchor: Address, toml_data: StellarToml, ttl_seconds: u64) {
+    pub fn fetch_anchor_info(env: Env, anchor: Address, toml_data: StellarToml, ttl_override: Option<u64>) {
         anchor.require_auth();
         let now = env.ledger().timestamp();
+        let ttl_seconds = ttl_override.unwrap_or(3600);
         let cached = CachedToml {
             toml: toml_data,
             cached_at: now,
