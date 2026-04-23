@@ -95,6 +95,28 @@ mod metadata_cache_tests {
     }
 
     #[test]
+    fn test_zero_ttl_never_expires() {
+        // ttl_seconds = 0 must be treated as "never expire", not as immediately expired.
+        let env = make_env();
+        set_ledger(&env, 0);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let anchor = Address::generate(&env);
+        client.initialize(&admin);
+
+        let meta = sample_metadata(&env, &anchor);
+        client.cache_metadata(&anchor, &meta, &0u64);
+
+        // Advance time arbitrarily far — the entry must still be accessible
+        set_ledger(&env, 999_999_999);
+        let result = client.try_get_cached_metadata(&anchor);
+        assert!(result.is_ok(), "ttl_seconds=0 entry should never expire");
+        assert_eq!(result.unwrap().reputation_score, 9000);
+    }
+
+    #[test]
     fn test_manual_refresh() {
         let env = make_env();
         set_ledger(&env, 0);

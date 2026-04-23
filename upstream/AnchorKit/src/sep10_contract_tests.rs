@@ -7,7 +7,7 @@ mod sep10_contract_tests {
     use soroban_sdk::{Address, Bytes, Env, String};
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::{build_sep10_jwt, register_attestor_with_sep10};
+    use crate::sep10_test_util::{build_sep10_jwt, build_sep10_jwt_with_scope, register_attestor_with_sep10};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -134,6 +134,76 @@ mod sep10_contract_tests {
         let jwt_new = build_sep10_jwt(&new_sk, "any", 2000);
         let token_new = String::from_str(&env, jwt_new.as_str());
         client.verify_sep10_token(&token_new, &issuer);
+    }
+
+    #[test]
+    fn verify_sep10_token_for_service_matching_scope() {
+        let env = make_env();
+        ledger(&env, 1000);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let issuer = Address::generate(&env);
+        client.initialize(&admin);
+
+        let sk = SigningKey::generate(&mut OsRng);
+        let pk = Bytes::from_slice(&env, sk.verifying_key().as_bytes());
+        client.set_sep10_jwt_verifying_key(&issuer, &pk);
+
+        // Token scoped for "deposit" (service code 1 = SERVICE_DEPOSITS)
+        let jwt = build_sep10_jwt_with_scope(&sk, "any", 2000, "deposit");
+        let token = String::from_str(&env, jwt.as_str());
+
+        // Matching scope — must succeed
+        client.verify_sep10_token_for_service(&token, &issuer, &1u32);
+    }
+
+    #[test]
+    fn verify_sep10_token_for_service_mismatching_scope() {
+        let env = make_env();
+        ledger(&env, 1000);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let issuer = Address::generate(&env);
+        client.initialize(&admin);
+
+        let sk = SigningKey::generate(&mut OsRng);
+        let pk = Bytes::from_slice(&env, sk.verifying_key().as_bytes());
+        client.set_sep10_jwt_verifying_key(&issuer, &pk);
+
+        // Token scoped for "deposit" only (service code 1), but we request "withdrawal" (2)
+        let jwt = build_sep10_jwt_with_scope(&sk, "any", 2000, "deposit");
+        let token = String::from_str(&env, jwt.as_str());
+
+        let result = std::panic::catch_unwind(|| {
+            client.verify_sep10_token_for_service(&token, &issuer, &2u32);
+        });
+        assert!(result.is_err(), "mismatching scope must return InvalidSep10Token");
+    }
+
+    #[test]
+    fn verify_sep10_token_for_service_no_scope_claim_rejected() {
+        let env = make_env();
+        ledger(&env, 1000);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let issuer = Address::generate(&env);
+        client.initialize(&admin);
+
+        let sk = SigningKey::generate(&mut OsRng);
+        let pk = Bytes::from_slice(&env, sk.verifying_key().as_bytes());
+        client.set_sep10_jwt_verifying_key(&issuer, &pk);
+
+        // Token without any scp claim
+        let jwt = build_sep10_jwt(&sk, "any", 2000);
+        let token = String::from_str(&env, jwt.as_str());
+
+        let result = std::panic::catch_unwind(|| {
+            client.verify_sep10_token_for_service(&token, &issuer, &1u32);
+        });
+        assert!(result.is_err(), "absent scp claim must return InvalidSep10Token");
     }
 
     #[test]
