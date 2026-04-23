@@ -9,7 +9,7 @@ use crate::sep10_jwt;
 use crate::storage::{
     StorageKey,
     key_admin, key_counter, key_session_counter, key_quote_counter,
-    key_audit_counter, key_audit_log_offset, key_anchor_list, key_health_threshold,
+    key_audit_counter, key_anchor_list, key_health_threshold, key_replay_window,
 };
 
 // ---------------------------------------------------------------------------
@@ -387,7 +387,14 @@ impl AnchorKitContract {
     // Initialization
     // -----------------------------------------------------------------------
 
-    pub fn initialize(env: Env, admin: Address, max_audit_log_size: u64) {
+    /// Initialise the contract.
+    ///
+    /// `replay_window_seconds` sets the tolerance window for timestamp-based
+    /// replay attack detection.  Attestations whose timestamp falls outside
+    /// `[now - window, now + window]` are rejected.
+    ///
+    /// Defaults to **300 seconds** (5 minutes) when `None` is supplied.
+    pub fn initialize(env: Env, admin: Address, replay_window_seconds: Option<u64>) {
         admin.require_auth();
         if admin == env.current_contract_address() {
             panic_with_error!(&env, ErrorCode::ValidationError);
@@ -400,7 +407,9 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::AlreadyInitialized);
         }
         inst.set(&key_admin(&env), &admin);
-        inst.set(&StorageKey::AuditLogMaxSize, &max_audit_log_size);
+        // Default replay window: 300 seconds (5 minutes).
+        let window = replay_window_seconds.unwrap_or(300u64);
+        inst.set(&key_replay_window(&env), &window);
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
     }
 
@@ -1789,6 +1798,18 @@ impl AnchorKitContract {
 
     fn check_timestamp(env: &Env, timestamp: u64) {
         if timestamp == 0 {
+            panic_with_error!(env, ErrorCode::InvalidTimestamp);
+        }
+        let now = env.ledger().timestamp();
+        // Read the configured replay window (default 300 s if not set).
+        let window: u64 = env
+            .storage()
+            .instance()
+            .get(&key_replay_window(env))
+            .unwrap_or(300u64);
+        let lower = now.saturating_sub(window);
+        let upper = now.saturating_add(window);
+        if timestamp < lower || timestamp > upper {
             panic_with_error!(env, ErrorCode::InvalidTimestamp);
         }
     }

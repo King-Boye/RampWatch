@@ -45,7 +45,7 @@ mod tracing_span_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
 
-        client.initialize(&admin, &10000_u64);
+        client.initialize(&admin, &None);
         let req_id = client.generate_request_id();
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
@@ -74,7 +74,7 @@ mod tracing_span_tests {
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &10000_u64);
+        client.initialize(&admin, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
@@ -113,7 +113,7 @@ mod tracing_span_tests {
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &10000_u64);
+        client.initialize(&admin, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
@@ -155,7 +155,7 @@ mod tracing_span_tests {
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &10000_u64);
+        client.initialize(&admin, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 

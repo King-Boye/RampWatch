@@ -100,7 +100,7 @@ mod request_id_tests {
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &10000_u64);
+        client.initialize(&admin, &None);
         let signing_key = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &signing_key);
 
@@ -142,7 +142,7 @@ mod request_id_tests {
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &10000_u64);
+        client.initialize(&admin, &None);
         let signing_key = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &signing_key);
 
@@ -181,7 +181,7 @@ mod request_id_tests {
         let unregistered = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &10000_u64);
+        client.initialize(&admin, &None);
 
         let req_id = client.generate_request_id();
 
@@ -218,7 +218,7 @@ mod request_id_tests {
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
 
-        client.initialize(&admin, &10000_u64);
+        client.initialize(&admin, &None);
         let signing_key = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &anchor, &anchor, &signing_key);
 

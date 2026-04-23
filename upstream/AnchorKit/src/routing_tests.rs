@@ -36,7 +36,7 @@ mod routing_tests {
         let contract_id = env.register_contract(None, AnchorKitContract);
         let client = AnchorKitContractClient::new(env, &contract_id);
         let admin = Address::generate(env);
-        client.initialize(&admin, &10000_u64);
+        client.initialize(&admin, &None);
         (client, admin)
     }
 

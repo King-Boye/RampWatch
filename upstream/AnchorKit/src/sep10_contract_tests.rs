@@ -36,7 +36,7 @@ mod sep10_contract_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let issuer = Address::generate(&env);
-        client.initialize(&admin, &10000_u64);
+        client.initialize(&admin, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         let pk = Bytes::from_slice(&env, sk.verifying_key().as_bytes());
@@ -63,7 +63,7 @@ mod sep10_contract_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let issuer = Address::generate(&env);
-        client.initialize(&admin, &10000_u64);
+        client.initialize(&admin, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &issuer, &sk);
@@ -78,7 +78,7 @@ mod sep10_contract_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let issuer = Address::generate(&env);
-        client.initialize(&admin, &10000_u64);
+        client.initialize(&admin, &None);
 
         // Set initial key
         let old_sk = SigningKey::generate(&mut OsRng);
@@ -109,7 +109,7 @@ mod sep10_contract_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let issuer = Address::generate(&env);
-        client.initialize(&admin, &10000_u64);
+        client.initialize(&admin, &None);
 
         let old_sk = SigningKey::generate(&mut OsRng);
         let old_pk = Bytes::from_slice(&env, old_sk.verifying_key().as_bytes());
@@ -144,7 +144,7 @@ mod sep10_contract_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let issuer = Address::generate(&env);
-        client.initialize(&admin, &10000_u64);
+        client.initialize(&admin, &None);
 
         // Fill up to max (3)
         for _ in 0..3 {
