@@ -134,11 +134,11 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
     // "localhost" is caught by the single-label check below, but
     // "localhost.localdomain" and similar variants must also be rejected.
     {
-        let lower = domain_without_port.to_ascii_lowercase();
-        if lower == "localhost"
-            || lower.starts_with("localhost.")
-            || lower.ends_with(".localhost")
-        {
+        let d = domain_without_port;
+        let is_localhost = d.eq_ignore_ascii_case("localhost")
+            || d.len() > 9 && d[..9].eq_ignore_ascii_case("localhost") && d.as_bytes()[9] == b'.'
+            || d.len() > 9 && d[d.len()-9..].eq_ignore_ascii_case("localhost") && d.as_bytes()[d.len()-10] == b'.';
+        if is_localhost {
             return Err(AnchorKitError::invalid_endpoint_format());
         }
     }
@@ -194,8 +194,7 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
         // (xn-- prefix) before passing to this function.  We additionally
         // reject any label that starts with "xn--" to prevent homograph
         // attacks via crafted Punycode that encodes visually-similar characters.
-        let label_lower = label.to_ascii_lowercase();
-        if label_lower.starts_with("xn--") {
+        if label.len() >= 4 && label[..4].eq_ignore_ascii_case("xn--") {
             return Err(AnchorKitError::invalid_endpoint_format());
         }
 
