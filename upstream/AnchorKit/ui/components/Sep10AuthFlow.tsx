@@ -283,15 +283,66 @@ function TokenDisplay({ jwt }: { jwt: string }) {
   );
 }
 
-function AuthStatusBadge({ wallet }: { wallet: WalletInfo }) {
+function AuthStatusBadge({ wallet, jwt }: { wallet: WalletInfo; jwt: string }) {
   const [age, setAge] = useState(0);
-  useEffect(() => {
-    const iv = setInterval(() => setAge((a) => a + 1), 1000);
-    return () => clearInterval(iv);
-  }, []);
+  const [isExpired, setIsExpired] = useState(false);
+  
+  // Parse JWT to get expiry time
+  const expiryTime = useMemo(() => {
+    try {
+      const parts = jwt.split(".");
+      if (parts.length !== 3) return null;
+      const payload = JSON.parse(atob(parts[1]));
+      return payload.exp ? payload.exp * 1000 : null; // Convert to milliseconds
+    } catch {
+      return null;
+    }
+  }, [jwt]);
 
-  const expiresIn = 86400 - age;
+  // Poll token expiry every 30 seconds
+  useEffect(() => {
+    const checkExpiry = () => {
+      if (!expiryTime) return;
+      const now = Date.now();
+      const expired = now >= expiryTime;
+      setIsExpired(expired);
+      if (!expired) {
+        setAge(Math.floor((now - (expiryTime - 86400000)) / 1000));
+      }
+    };
+
+    // Initial check
+    checkExpiry();
+
+    // Poll every 30 seconds
+    const intervalId = setInterval(checkExpiry, 30000);
+
+    // Also update age counter every second for display
+    const ageIntervalId = setInterval(() => {
+      if (!isExpired && expiryTime) {
+        const now = Date.now();
+        if (now >= expiryTime) {
+          setIsExpired(true);
+        } else {
+          setAge(Math.floor((now - (expiryTime - 86400000)) / 1000));
+        }
+      }
+    }, 1000);
+
+    return () => {
+      clearInterval(intervalId);
+      clearInterval(ageIntervalId);
+    };
+  }, [expiryTime, isExpired]);
+
+  const expiresIn = isExpired ? 0 : Math.max(0, 86400 - age);
   const pct = Math.max(0, (expiresIn / 86400) * 100);
+
+  // Determine status color based on expiry state
+  const statusColor = isExpired ? "#ff3670" : expiresIn < 3600 ? "#ff8c00" : "#00ff9d";
+  const statusBg = isExpired ? "rgba(255,54,112,0.06)" : expiresIn < 3600 ? "rgba(255,140,0,0.06)" : "rgba(0,255,157,0.06)";
+  const statusBorder = isExpired ? "rgba(255,54,112,0.3)" : expiresIn < 3600 ? "rgba(255,140,0,0.3)" : "rgba(0,255,157,0.3)";
+  const statusLabel = isExpired ? "EXPIRED" : "AUTHENTICATED";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -303,9 +354,9 @@ function AuthStatusBadge({ wallet }: { wallet: WalletInfo }) {
           gap: 12,
           padding: "14px 16px",
           borderRadius: 10,
-          border: "1px solid rgba(0,255,157,0.3)",
-          background: "rgba(0,255,157,0.06)",
-          boxShadow: "0 0 30px rgba(0,255,157,0.08)",
+          border: `1px solid ${statusBorder}`,
+          background: statusBg,
+          boxShadow: `0 0 30px ${statusColor}08`,
         }}
       >
         <div
@@ -313,10 +364,10 @@ function AuthStatusBadge({ wallet }: { wallet: WalletInfo }) {
             width: 10,
             height: 10,
             borderRadius: "50%",
-            background: "#00ff9d",
-            boxShadow: "0 0 14px #00ff9d",
+            background: statusColor,
+            boxShadow: `0 0 14px ${statusColor}`,
             flexShrink: 0,
-            animation: "sep10-pulse 2s infinite",
+            animation: isExpired ? "none" : "sep10-pulse 2s infinite",
           }}
         />
         <div style={{ flex: 1 }}>
@@ -324,32 +375,31 @@ function AuthStatusBadge({ wallet }: { wallet: WalletInfo }) {
             style={{
               fontSize: 12,
               fontWeight: 700,
-              color: "#00ff9d",
+              color: statusColor,
               letterSpacing: "0.1em",
             }}
           >
-            AUTHENTICATED
+            {statusLabel}
           </div>
           <div style={{ fontSize: 10, color: "#3a5070", marginTop: 2 }}>
-            Session active · SEP-10 verified
+            {isExpired ? "Token has expired · Re-authenticate required" : "Session active · SEP-10 verified"}
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
           <div
             style={{ fontSize: 9, color: "#3a5070", letterSpacing: "0.1em" }}
           >
-            EXPIRES IN
+            {isExpired ? "EXPIRED" : "EXPIRES IN"}
           </div>
           <div
             style={{
               fontSize: 13,
               fontWeight: 700,
-              color: "#00ff9d",
+              color: statusColor,
               fontFamily: "monospace",
             }}
           >
-            {Math.floor(expiresIn / 3600)}h{" "}
-            {Math.floor((expiresIn % 3600) / 60)}m {expiresIn % 60}s
+            {isExpired ? "0h 0m 0s" : `${Math.floor(expiresIn / 3600)}h ${Math.floor((expiresIn % 3600) / 60)}m ${expiresIn % 60}s`}
           </div>
         </div>
       </div>
@@ -381,9 +431,13 @@ function AuthStatusBadge({ wallet }: { wallet: WalletInfo }) {
               height: "100%",
               borderRadius: 2,
               width: `${pct}%`,
-              background: "linear-gradient(90deg,#00e5ff,#00ff9d)",
-              boxShadow: "0 0 8px #00e5ff60",
-              transition: "width 1s linear",
+              background: isExpired 
+                ? "linear-gradient(90deg,#ff3670,#ff3670)" 
+                : expiresIn < 3600 
+                  ? "linear-gradient(90deg,#ff8c00,#ff8c00)"
+                  : "linear-gradient(90deg,#00e5ff,#00ff9d)",
+              boxShadow: `0 0 8px ${statusColor}60`,
+              transition: "width 1s linear, background 0.3s",
             }}
           />
         </div>
@@ -1322,7 +1376,7 @@ export default function SEP10AuthFlow() {
                 </div>
               </div>
             </div>
-            <AuthStatusBadge wallet={wallet} />
+            <AuthStatusBadge wallet={wallet} jwt={jwt} />
           </div>
         )}
 

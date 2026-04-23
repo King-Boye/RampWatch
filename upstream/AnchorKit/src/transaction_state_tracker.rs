@@ -228,9 +228,9 @@ impl TransactionStateTracker {
         }
     }
 
-    /// Get cache size
+    /// Get cache size — O(1)
     pub fn cache_size(&self) -> usize {
-        self.cache.len()
+        self.cache_count
     }
 
     /// Get the count of transactions in a given state — O(1).
