@@ -568,6 +568,25 @@ impl AnchorKitContract {
         }
     }
 
+    /// Verify a SEP-10 token and additionally confirm it is scoped for `service`.
+    ///
+    /// `service` must be one of the `SERVICE_*` constants (1 = Deposits, 2 = Withdrawals,
+    /// 3 = Quotes, 4 = KYC). Panics with `InvalidSep10Token` if the signature is invalid,
+    /// the token is expired, or the `scp` claim does not include the required service scope.
+    pub fn verify_sep10_token_for_service(env: Env, token: String, issuer: Address, service: u32) {
+        let keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::Sep10Key(issuer.clone()))
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::InvalidSep10Token));
+        if sep10_jwt::verify_sep10_jwt(&env, &token, &keys, None, 0).is_err() {
+            panic_with_error!(&env, ErrorCode::InvalidSep10Token);
+        }
+        if sep10_jwt::check_token_scope(&env, &token, service).is_err() {
+            panic_with_error!(&env, ErrorCode::InvalidSep10Token);
+        }
+    }
+
     fn verify_sep10_token_matches_attestor(
         env: &Env,
         token: &String,
@@ -1317,7 +1336,8 @@ impl AnchorKitContract {
         let entry: MetadataCache = env.storage().temporary().get(&key)
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::CacheNotFound));
         let now = env.ledger().timestamp();
-        if entry.cached_at + entry.ttl_seconds <= now {
+        // ttl_seconds = 0 means "never expire" — skip the expiry check to prevent refresh loops
+        if entry.ttl_seconds != 0 && entry.cached_at + entry.ttl_seconds <= now {
             panic_with_error!(&env, ErrorCode::CacheExpired);
         }
         entry.metadata
@@ -1391,7 +1411,8 @@ impl AnchorKitContract {
         let entry: CapabilitiesCache = env.storage().temporary().get(&key)
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::CacheNotFound));
         let now = env.ledger().timestamp();
-        if entry.cached_at + entry.ttl_seconds <= now {
+        // ttl_seconds = 0 means "never expire" — skip the expiry check to prevent refresh loops
+        if entry.ttl_seconds != 0 && entry.cached_at + entry.ttl_seconds <= now {
             panic_with_error!(&env, ErrorCode::CacheExpired);
         }
         entry

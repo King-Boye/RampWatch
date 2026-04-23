@@ -121,6 +121,103 @@ fn parse_json_sub(env: &Env, payload: &[u8]) -> Result<String, ()> {
     Err(())
 }
 
+/// Parse first `"scp":"..."` string value from the JWT payload.
+fn parse_json_scp(payload: &[u8]) -> Result<Vec<u8>, ()> {
+    let key = b"\"scp\":";
+    let pos = find_bytes(payload, key).ok_or(())?;
+    let mut i = pos + key.len();
+    while i < payload.len() && payload[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    if i >= payload.len() || payload[i] != b'"' {
+        return Err(());
+    }
+    i += 1;
+    let start = i;
+    while i < payload.len() {
+        if payload[i] == b'\\' {
+            if i + 1 >= payload.len() {
+                return Err(());
+            }
+            i += 2;
+            continue;
+        }
+        if payload[i] == b'"' {
+            return Ok(payload[start..i].to_vec());
+        }
+        i += 1;
+    }
+    Err(())
+}
+
+/// Returns the canonical scope name for a service code (matches SERVICE_* constants in contract.rs).
+pub fn service_scope_name(service_code: u32) -> Option<&'static [u8]> {
+    match service_code {
+        1 => Some(b"deposit"),
+        2 => Some(b"withdrawal"),
+        3 => Some(b"quote"),
+        4 => Some(b"kyc"),
+        _ => None,
+    }
+}
+
+/// Check that a JWT's `scp` claim contains the scope for `service_code`.
+///
+/// The `scp` value is treated as a space-separated list of scope tokens.
+/// Returns `Err(())` if the claim is absent, the service code is unknown, or the scope is missing.
+pub fn check_token_scope(env: &Env, token: &String, service_code: u32) -> Result<(), ()> {
+    let scope_name = service_scope_name(service_code).ok_or(())?;
+
+    let n = token.len();
+    if n == 0 || n > MAX_JWT_LEN {
+        return Err(());
+    }
+    let n_usize = n as usize;
+    let mut buf = [0u8; MAX_JWT_LEN as usize];
+    token.copy_into_slice(&mut buf[..n_usize]);
+
+    let mut dots: [usize; 2] = [0; 2];
+    let mut dot_count = 0usize;
+    for (i, &byte) in buf[..n_usize].iter().enumerate() {
+        if byte == b'.' {
+            if dot_count < 2 {
+                dots[dot_count] = i;
+                dot_count += 1;
+            } else {
+                return Err(());
+            }
+        }
+    }
+    if dot_count != 2 {
+        return Err(());
+    }
+
+    let payload_b64 = &buf[dots[0] + 1..dots[1]];
+    let payload_dec = base64url_decode(payload_b64).map_err(|_| ())?;
+    let scp = parse_json_scp(&payload_dec)?;
+
+    // Walk the space-separated token list
+    let mut start = 0usize;
+    loop {
+        while start < scp.len() && scp[start] == b' ' {
+            start += 1;
+        }
+        if start >= scp.len() {
+            break;
+        }
+        let end = scp[start..]
+            .iter()
+            .position(|&b| b == b' ')
+            .map(|p| start + p)
+            .unwrap_or(scp.len());
+        if &scp[start..end] == scope_name {
+            return Ok(());
+        }
+        start = end;
+    }
+    Err(())
+}
+
 /// Verify a SEP-10-style JWT: JWS compact, EdDSA signature, `exp`, and optional `sub` match.
 ///
 /// When `expected_sub` is [`None`], the token must still contain a parseable `sub` claim, but it
@@ -372,6 +469,46 @@ mod tests {
                 payload
             );
         }
+    }
+
+    fn build_jwt_with_scope(signing_key: &SigningKey, sub: &str, exp: u64, scope: &str) -> std::string::String {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        let header = r#"{"alg":"EdDSA","typ":"JWT"}"#;
+        let payload = format!(r#"{{"sub":"{}","exp":{},"scp":"{}"}}"#, sub, exp, scope);
+        let header_b64 = URL_SAFE_NO_PAD.encode(header);
+        let payload_b64 = URL_SAFE_NO_PAD.encode(payload);
+        let signing_input = format!("{}.{}", header_b64, payload_b64);
+        let sig = signing_key.sign(signing_input.as_bytes());
+        let sig_b64 = URL_SAFE_NO_PAD.encode(sig.to_bytes());
+        format!("{}.{}", signing_input, sig_b64)
+    }
+
+    #[test]
+    fn check_token_scope_matches() {
+        let env = Env::default();
+        ledger(&env, 1_000);
+        let signing_key = SigningKey::generate(&mut OsRng);
+
+        let jwt = build_jwt_with_scope(&signing_key, "any", 2_000, "deposit withdrawal");
+        let token = String::from_str(&env, jwt.as_str());
+
+        assert!(check_token_scope(&env, &token, 1).is_ok()); // deposit
+        assert!(check_token_scope(&env, &token, 2).is_ok()); // withdrawal
+        assert!(check_token_scope(&env, &token, 3).is_err()); // quote — not in scp
+        assert!(check_token_scope(&env, &token, 4).is_err()); // kyc — not in scp
+    }
+
+    #[test]
+    fn check_token_scope_no_scp_claim_returns_err() {
+        let env = Env::default();
+        ledger(&env, 1_000);
+        let signing_key = SigningKey::generate(&mut OsRng);
+
+        // JWT with no scp claim
+        let jwt = build_jwt(&signing_key, "any", 2_000);
+        let token = String::from_str(&env, jwt.as_str());
+
+        assert!(check_token_scope(&env, &token, 1).is_err());
     }
 
     #[test]

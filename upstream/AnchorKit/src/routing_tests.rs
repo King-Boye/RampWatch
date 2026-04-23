@@ -285,6 +285,55 @@ mod routing_tests {
     }
 
     #[test]
+    fn test_expired_quotes_partial_expiry() {
+        // Mixed scenario: one anchor's quote is expired, one is still valid.
+        // Routing must return only the valid anchor's quote.
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let anchor_expired = Address::generate(&env);
+        let anchor_valid = Address::generate(&env);
+        register_anchor(&env, &client, &anchor_expired);
+        register_anchor(&env, &client, &anchor_valid);
+
+        client.set_anchor_metadata(&anchor_expired, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor_valid, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+
+        // anchor_expired: quote valid_until = 1_000_050 (expires before routing)
+        client.submit_quote(
+            &anchor_expired,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &10u32, &100u64, &100000u64, &1_000_050u64,
+        );
+        // anchor_valid: quote valid_until = 1_003_600 (still valid)
+        client.submit_quote(
+            &anchor_valid,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &30u32, &100u64, &100000u64, &1_003_600u64,
+        );
+
+        // Advance time past anchor_expired's expiry — now exactly one valid quote remains
+        set_ledger(&env, 1_000_100);
+
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy,
+            min_reputation: 0,
+            max_anchors: 2,
+            require_kyc: false,
+        };
+
+        // Only anchor_valid's quote is live; routing must select it
+        let best = client.route_transaction(&options);
+        assert_eq!(best.anchor, anchor_valid);
+    }
+
+    #[test]
     fn test_no_anchors_available() {
         let env = make_env();
         set_ledger(&env, 0);
@@ -374,6 +423,12 @@ mod routing_tests {
         register_anchor(&env, &client, &anchor2);
         register_anchor(&env, &client, &anchor3);
 
+        // Explicit metadata so all three anchors participate in routing
+        client.set_anchor_metadata(&anchor1, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor2, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor3, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+
+        // Fees: anchor1=50, anchor2=25, anchor3=30 — all distinct, so winner is deterministic
         client.submit_quote(
             &anchor1,
             &String::from_str(&env, "USD"),
@@ -393,17 +448,18 @@ mod routing_tests {
             &10050u64, &30u32, &100u64, &100000u64, &1_003_600u64,
         );
 
-        let q1 = client.get_quote(&anchor1, &1u64);
-        let q2 = client.get_quote(&anchor2, &2u64);
-        let q3 = client.get_quote(&anchor3, &3u64);
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy,
+            min_reputation: 0,
+            max_anchors: 3,
+            require_kyc: false,
+        };
 
-        // anchor2 has lowest fee
-        let mut best = &q1;
-        for q in [&q2, &q3] {
-            if q.fee_percentage < best.fee_percentage {
-                best = q;
-            }
-        }
+        // anchor2 has the unique lowest fee (25); result is independent of storage iteration order
+        let best = client.route_transaction(&options);
         assert_eq!(best.anchor, anchor2);
         assert_eq!(best.fee_percentage, 25);
     }
