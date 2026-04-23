@@ -73,7 +73,7 @@ mod anchor_info_discovery_tests {
             version: String::from_str(env, "2.0.0"),
             network_passphrase: String::from_str(env, "Test SDF Network ; September 2015"),
             accounts,
-            signing_key: String::from_str(env, "GSIGN123"),
+            signing_key: Some(String::from_str(env, "GSIGN123")),
             currencies,
             transfer_server: String::from_str(env, "https://api.example.com"),
             transfer_server_sep0024: String::from_str(env, "https://api.example.com/sep24"),
@@ -99,7 +99,36 @@ mod anchor_info_discovery_tests {
 
         let toml = client.get_anchor_toml(&anchor);
         assert_eq!(toml.version, String::from_str(&env, "2.0.0"));
-        assert_eq!(toml.signing_key, String::from_str(&env, "GSIGN123"));
+        assert_eq!(toml.signing_key, Some(String::from_str(&env, "GSIGN123")));
+    }
+
+    #[test]
+    fn test_signing_key_is_none_when_not_provided() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        let mut currencies = Vec::new(&env);
+        currencies.push_back(usdc_asset(&env));
+        let mut accounts = Vec::new(&env);
+        accounts.push_back(String::from_str(&env, "GANCHOR1"));
+
+        let toml_no_key = StellarToml {
+            version: String::from_str(&env, "2.0.0"),
+            network_passphrase: String::from_str(&env, "Test SDF Network ; September 2015"),
+            accounts,
+            signing_key: None,
+            currencies,
+            transfer_server: String::from_str(&env, "https://api.example.com"),
+            transfer_server_sep0024: String::from_str(&env, "https://api.example.com/sep24"),
+            kyc_server: String::from_str(&env, "https://kyc.example.com"),
+            web_auth_endpoint: String::from_str(&env, "https://auth.example.com"),
+        };
+
+        client.fetch_anchor_info(&anchor, &toml_no_key, &3600u64);
+
+        let toml = client.get_anchor_toml(&anchor);
+        assert_eq!(toml.signing_key, None);
     }
 
     #[test]
@@ -338,7 +367,7 @@ mod anchor_info_discovery_tests {
             version: String::from_str(&env, "2.0.0"),
             network_passphrase: String::from_str(&env, "Test SDF Network ; September 2015"),
             accounts: accounts2,
-            signing_key: String::from_str(&env, "GSIGN456"),
+            signing_key: Some(String::from_str(&env, "GSIGN456")),
             currencies: currencies2,
             transfer_server: String::from_str(&env, "https://api2.example.com"),
             transfer_server_sep0024: String::from_str(&env, "https://api2.example.com/sep24"),
