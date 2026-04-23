@@ -326,6 +326,14 @@ struct AnchorDeactivated {
     threshold: u32,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct AttestorRegistered(pub Address);
+
+#[contracttype]
+#[derive(Clone)]
+pub struct AttestorRevoked(pub Address);
+
 // ---------------------------------------------------------------------------
 // TTLs (in ledgers)
 // ---------------------------------------------------------------------------
@@ -503,8 +511,8 @@ impl AnchorKitContract {
             .persistent()
             .extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
         env.events().publish(
-            (symbol_short!("attestor"), symbol_short!("added"), attestor),
-            (),
+            (symbol_short!("attestor"), symbol_short!("registered")),
+            AttestorRegistered(attestor),
         );
     }
 
@@ -516,8 +524,8 @@ impl AnchorKitContract {
         }
         env.storage().persistent().remove(&key);
         env.events().publish(
-            (symbol_short!("attestor"), symbol_short!("removed"), attestor),
-            (),
+            (symbol_short!("attestor"), symbol_short!("revoked")),
+            AttestorRevoked(attestor),
         );
     }
 
