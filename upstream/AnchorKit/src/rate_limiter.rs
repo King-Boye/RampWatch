@@ -41,9 +41,9 @@ impl RateLimiter {
     ///
     /// Returns `Ok(())` if the attestor is within the rate limit.
     /// Returns `Err(AnchorKitError::rate_limit_exceeded())` if the limit is exceeded.
-    pub fn check_and_increment(
-        env: &Env,
-        attestor: &Address,
+pub fn check_and_increment(
+        env: Env,
+        attestor: Address,
     ) -> Result<(), AnchorKitError> {
         let config = Self::get_effective_config(env, attestor);
         let current_ledger = env.ledger().sequence();
@@ -92,11 +92,11 @@ impl RateLimiter {
     
     /// Update the global rate limit configuration, or set a per-attestor override when
     /// `attestor` is `Some`.
-    pub fn update_config(
-        env: &Env,
-        _admin: &Address,
-        config: &RateLimitConfig,
-        attestor: Option<&Address>,
+pub fn update_config(
+        env: Env,
+        _admin: Address,
+        config: RateLimitConfig,
+        attestor: Option<Address>,
     ) -> Result<(), AnchorKitError> {
         match attestor {
             Some(addr) => {
@@ -122,7 +122,7 @@ impl RateLimiter {
     }
 
     /// Get the effective config for an attestor: per-attestor override if set, else global.
-    pub fn get_effective_config(env: &Env, attestor: &Address) -> RateLimitConfig {
+pub fn get_effective_config(env: Env, attestor: Address) -> RateLimitConfig {
         let key = Self::get_attestor_config_key(env, attestor);
         env.storage().persistent().get::<_, RateLimitConfig>(&key)
             .unwrap_or_else(|| Self::get_config(env))
@@ -134,7 +134,7 @@ impl RateLimiter {
     }
     
     /// Generate storage key for rate limit state
-    fn get_state_key(env: &Env, attestor: &Address) -> soroban_sdk::BytesN<32> {
+fn get_state_key(env: Env, attestor: Address) -> soroban_sdk::BytesN<32> {
         let address_str = attestor.to_string();
         let mut address_bytes = [0u8; 128]; // Buffer for address string
         let len = address_str.len() as usize;
@@ -153,7 +153,7 @@ impl RateLimiter {
     }
 
     /// Generate storage key for a per-attestor config override
-    fn get_attestor_config_key(env: &Env, attestor: &Address) -> soroban_sdk::BytesN<32> {
+fn get_attestor_config_key(env: Env, attestor: Address) -> soroban_sdk::BytesN<32> {
         let address_str = attestor.to_string();
         let mut buf = [0u8; 56];
         address_str.copy_into_slice(&mut buf);

@@ -447,7 +447,7 @@ impl AnchorKitContract {
             .persistent()
             .extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
         env.events().publish(
-            (symbol_short!("attestor"), symbol_short!("registered")),
+(symbol_short!("attestor"), symbol_short!("reg")),
             AttestorRegistered(attestor),
         );
     }
@@ -1270,7 +1270,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
                         .persistent()
                         .extend_ttl(&meta_key, PERSISTENT_TTL, PERSISTENT_TTL);
                     env.events().publish(
-                        (symbol_short!("anchor"), symbol_short!("deactivate")),
+(symbol_short!("anchor"), symbol_short!("deact")),
                         AnchorDeactivated { anchor, failure_count, threshold },
                     );
                 }

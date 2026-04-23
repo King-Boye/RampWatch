@@ -46,6 +46,7 @@ pub enum ErrorCode {
     AttestationNotFound = 17,
     InvalidSep10Token = 18,
     CacheExpired = 48,
+StorageCorrupted = 19,
     CacheNotFound = 49,
 }
 

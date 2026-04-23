@@ -44,7 +44,7 @@ mod sep10_contract_tests {
 
         let attestor = Address::generate(&env);
         let sub = attestor.to_string();
-        let sub_std: std::string::String = sub.to_string();
+let sub_std: alloc::string::String = sub.to_string();
         let jwt = build_sep10_jwt(&sk, sub_std.as_str(), 2000);
         let token = String::from_str(&env, jwt.as_str());
         client.verify_sep10_token(&token, &issuer);
