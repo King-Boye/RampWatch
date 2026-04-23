@@ -467,20 +467,18 @@ function highlight(json: string, dark: boolean): string {
         bool: "#8a5000",
         nil: "#888",
       };
-  return json
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(
-      /("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
-      (m) => {
-        let c = colors.num;
-        if (/^"/.test(m)) c = /:$/.test(m) ? colors.key : colors.str;
-        else if (/true|false/.test(m)) c = colors.bool;
-        else if (/null/.test(m)) c = colors.nil;
-        return `<span style="color:${c}">${m}</span>`;
-      },
-    );
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return esc(json).replace(
+    /("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
+    (m) => {
+      let c = colors.num;
+      if (/^"/.test(m)) c = /:$/.test(m) ? colors.key : colors.str;
+      else if (/true|false/.test(m)) c = colors.bool;
+      else if (/null/.test(m)) c = colors.nil;
+      return `<span style="color:${c}">${m}</span>`;
+    },
+  );
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
