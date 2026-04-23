@@ -60,7 +60,7 @@ mod session_tests {
 
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let id0 = client.create_session(&user);
         let id1 = client.create_session(&user);
@@ -80,7 +80,7 @@ mod session_tests {
 
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         let session = client.get_session(&session_id);
@@ -102,7 +102,7 @@ mod session_tests {
 
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         assert_eq!(client.get_session_operation_count(&session_id), 0);
@@ -118,7 +118,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         client.register_attestor_with_session(&session_id, &attestor);
@@ -137,7 +137,7 @@ mod session_tests {
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         let sk = SigningKey::generate(&mut OsRng);
@@ -169,7 +169,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         client.register_attestor_with_session(&session_id, &attestor);
@@ -187,7 +187,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         client.register_attestor_with_session(&session_id, &attestor);
@@ -214,7 +214,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         client.register_attestor_with_session(&session_id, &attestor);
@@ -233,7 +233,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         client.register_attestor_with_session(&session_id, &attestor);
@@ -262,7 +262,7 @@ mod session_tests {
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let session_id = client.create_session(&user);
         client.register_attestor_with_session(&session_id, &attestor);
@@ -298,7 +298,7 @@ mod session_tests {
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         // Step 1: create session
         let session_id = client.create_session(&user);
