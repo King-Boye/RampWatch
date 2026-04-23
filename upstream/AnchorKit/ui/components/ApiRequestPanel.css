@@ -1,22 +1,23 @@
 /* API Request Panel Styles - Following AnchorKit 8pt Grid System */
+@import './themes.css';
 
 .api-request-panel {
   display: flex;
   flex-direction: column;
   gap: 16px;
   padding: 24px;
-  background: #ffffff;
+  background: var(--ak-surface);
   border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--ak-shadow-sm);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
 }
 
 /* Panel Section */
 .panel-section {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--ak-border);
   border-radius: 8px;
   overflow: hidden;
-  background: #fafafa;
+  background: var(--ak-surface-3);
 }
 
 .section-header {
@@ -24,15 +25,15 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  background: #f3f4f6;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--ak-surface-2);
+  border-bottom: 1px solid var(--ak-border);
 }
 
 .section-header h3 {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--ak-text);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -40,7 +41,7 @@
 
 .section-content {
   padding: 16px;
-  background: #ffffff;
+  background: var(--ak-surface);
   position: relative;
 }
 
@@ -56,28 +57,28 @@
 }
 
 .method-badge[data-method="GET"] {
-  background: #dbeafe;
-  color: #1e40af;
+  background: var(--ak-method-get-bg);
+  color: var(--ak-method-get-color);
 }
 
 .method-badge[data-method="POST"] {
-  background: #d1fae5;
-  color: #065f46;
+  background: var(--ak-method-post-bg);
+  color: var(--ak-method-post-color);
 }
 
 .method-badge[data-method="PUT"] {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--ak-method-put-bg);
+  color: var(--ak-method-put-color);
 }
 
 .method-badge[data-method="DELETE"] {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--ak-method-delete-bg);
+  color: var(--ak-method-delete-color);
 }
 
 .method-badge[data-method="PATCH"] {
-  background: #e0e7ff;
-  color: #3730a3;
+  background: var(--ak-method-patch-bg);
+  color: var(--ak-method-patch-color);
 }
 
 /* Endpoint Section */
@@ -90,12 +91,12 @@
 .endpoint-url {
   flex: 1;
   padding: 8px 12px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
+  background: var(--ak-surface-2);
+  border: 1px solid var(--ak-border);
   border-radius: 4px;
   font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
   font-size: 13px;
-  color: #374151;
+  color: var(--ak-text);
   overflow-x: auto;
   white-space: nowrap;
 }
@@ -104,7 +105,7 @@
 .code-block {
   margin: 0;
   padding: 16px;
-  background: #1f2937;
+  background: var(--ak-code-bg);
   border-radius: 6px;
   overflow-x: auto;
   max-height: 400px;
@@ -115,17 +116,17 @@
   font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
   font-size: 13px;
   line-height: 1.6;
-  color: #e5e7eb;
+  color: var(--ak-code-text);
 }
 
 .curl-block code {
-  color: #10b981;
+  color: var(--ak-code-curl);
 }
 
 /* Copy Button */
 .copy-button {
   padding: 6px 12px;
-  background: #3b82f6;
+  background: var(--ak-accent);
   color: white;
   border: none;
   border-radius: 4px;
@@ -139,7 +140,7 @@
 }
 
 .copy-button:hover {
-  background: #2563eb;
+  background: var(--ak-accent-hover);
   transform: translateY(-1px);
 }
 
@@ -162,9 +163,9 @@
   height: 16px;
   background: linear-gradient(
     90deg,
-    #e5e7eb 0%,
-    #f3f4f6 50%,
-    #e5e7eb 100%
+    var(--ak-skeleton-base) 0%,
+    var(--ak-skeleton-shimmer) 50%,
+    var(--ak-skeleton-base) 100%
   );
   background-size: 200% 100%;
   animation: skeleton-loading 1.5s ease-in-out infinite;
@@ -190,10 +191,10 @@
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: var(--ak-error-bg);
+  border: 1px solid var(--ak-error-border);
   border-radius: 6px;
-  color: #991b1b;
+  color: var(--ak-error-text);
   font-size: 14px;
 }
 
@@ -205,7 +206,7 @@
 .empty-state {
   padding: 32px;
   text-align: center;
-  color: #9ca3af;
+  color: var(--ak-text-subtle);
   font-size: 14px;
   font-style: italic;
 }
@@ -236,51 +237,5 @@
   .code-block {
     font-size: 12px;
     padding: 12px;
-  }
-}
-
-/* Dark Mode Support */
-@media (prefers-color-scheme: dark) {
-  .api-request-panel {
-    background: #1f2937;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  }
-
-  .panel-section {
-    border-color: #374151;
-    background: #111827;
-  }
-
-  .section-header {
-    background: #1f2937;
-    border-bottom-color: #374151;
-  }
-
-  .section-header h3 {
-    color: #f9fafb;
-  }
-
-  .section-content {
-    background: #111827;
-  }
-
-  .endpoint-url {
-    background: #1f2937;
-    border-color: #374151;
-    color: #e5e7eb;
-  }
-
-  .code-block {
-    background: #0f172a;
-  }
-
-  .error-message {
-    background: #450a0a;
-    border-color: #7f1d1d;
-    color: #fca5a5;
-  }
-
-  .empty-state {
-    color: #6b7280;
   }
 }
