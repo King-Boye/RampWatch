@@ -3,80 +3,78 @@
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "🔍 AnchorKit Pre-Deployment Validation" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
+Write-Output "🔍 AnchorKit Pre-Deployment Validation"
+Write-Output "========================================"
+Write-Output ""
 
 # Check if Python is available
 try {
     $pythonVersion = python --version 2>&1
-    Write-Host "✅ Python found: $pythonVersion" -ForegroundColor Green
+    Write-Output "✅ Python found: $pythonVersion"
 } catch {
-    Write-Host "❌ Python3 is required but not installed" -ForegroundColor Red
-    Write-Host "   Download from: https://www.python.org/downloads/" -ForegroundColor Yellow
+    Write-Error "❌ Python3 is required but not installed. Download from: https://www.python.org/downloads/"
     exit 1
 }
 
 # Check if required Python packages are installed
-Write-Host "📦 Checking Python dependencies..." -ForegroundColor Cyan
+Write-Output "📦 Checking Python dependencies..."
 try {
     python -c "import jsonschema, toml" 2>$null
-    Write-Host "✅ Python dependencies OK" -ForegroundColor Green
+    Write-Output "✅ Python dependencies OK"
 } catch {
-    Write-Host "❌ Missing Python dependencies. Installing..." -ForegroundColor Yellow
+    Write-Output "⚠️  Missing Python dependencies. Installing..."
     pip install jsonschema toml --quiet
-    Write-Host "✅ Dependencies installed" -ForegroundColor Green
+    Write-Output "✅ Dependencies installed"
 }
-Write-Host ""
+Write-Output ""
 
 # Validate all configuration files
-Write-Host "📋 Validating configuration files..." -ForegroundColor Cyan
+Write-Output "📋 Validating configuration files..."
 $ConfigDir = "configs"
 $SchemaFile = "config_schema.json"
 $Failed = 0
 
 if (-not (Test-Path $SchemaFile)) {
-    Write-Host "❌ Schema file not found: $SchemaFile" -ForegroundColor Red
+    Write-Error "❌ Schema file not found: $SchemaFile"
     exit 1
 }
 
 $configFiles = Get-ChildItem -Path $ConfigDir -Include *.json,*.toml -File
 
 foreach ($configFile in $configFiles) {
-    Write-Host "  Validating $($configFile.Name)... " -NoNewline
-    
+    Write-Output "  Validating $($configFile.Name)..."
+
     $result = python validate_config_strict.py $configFile.FullName $SchemaFile 2>&1
-    
+
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "✅" -ForegroundColor Green
+        Write-Output "  ✅ $($configFile.Name)"
     } else {
-        Write-Host "❌" -ForegroundColor Red
-        Write-Host $result -ForegroundColor Red
+        Write-Error "  ❌ $($configFile.Name): $result"
         $Failed = 1
     }
 }
 
 if ($Failed -eq 1) {
-    Write-Host ""
-    Write-Host "❌ Configuration validation failed" -ForegroundColor Red
+    Write-Output ""
+    Write-Error "❌ Configuration validation failed"
     exit 1
 }
 
-Write-Host ""
-Write-Host "✅ All configurations valid" -ForegroundColor Green
-Write-Host ""
+Write-Output ""
+Write-Output "✅ All configurations valid"
+Write-Output ""
 
 # Run Rust tests
-Write-Host "🧪 Running Rust validation tests..." -ForegroundColor Cyan
+Write-Output "🧪 Running Rust validation tests..."
 $testOutput = cargo test --quiet config 2>&1 | Out-String
 
 if ($testOutput -match "test result: ok") {
-    Write-Host "✅ Rust tests passed" -ForegroundColor Green
+    Write-Output "✅ Rust tests passed"
 } else {
-    Write-Host "❌ Rust tests failed" -ForegroundColor Red
+    Write-Error "❌ Rust tests failed"
     cargo test config
     exit 1
 }
 
-Write-Host ""
-Write-Host "🎉 All validations passed! Ready for deployment." -ForegroundColor Green
+Write-Output ""
+Write-Output "🎉 All validations passed! Ready for deployment."
