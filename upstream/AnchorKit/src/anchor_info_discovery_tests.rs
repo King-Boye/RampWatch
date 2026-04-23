@@ -6,7 +6,7 @@ mod anchor_info_discovery_tests {
         Address, Env, String, Vec,
     };
 
-    use crate::contract::{AnchorKitContract, AnchorKitContractClient, AssetInfo, StellarToml};
+    use crate::contract::{AnchorKitContract, AnchorKitContractClient, AssetInfo, FiatCurrency, StellarToml};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -75,6 +75,7 @@ mod anchor_info_discovery_tests {
             accounts,
             signing_key: String::from_str(env, "GSIGN123"),
             currencies,
+            fiat_currencies: Vec::new(env),
             transfer_server: String::from_str(env, "https://api.example.com"),
             transfer_server_sep0024: String::from_str(env, "https://api.example.com/sep24"),
             kyc_server: String::from_str(env, "https://kyc.example.com"),
@@ -340,6 +341,7 @@ mod anchor_info_discovery_tests {
             accounts: accounts2,
             signing_key: String::from_str(&env, "GSIGN456"),
             currencies: currencies2,
+            fiat_currencies: Vec::new(&env),
             transfer_server: String::from_str(&env, "https://api2.example.com"),
             transfer_server_sep0024: String::from_str(&env, "https://api2.example.com/sep24"),
             kyc_server: String::from_str(&env, "https://kyc2.example.com"),
@@ -392,5 +394,87 @@ mod anchor_info_discovery_tests {
         assert_eq!(dep_pct, 10);
         assert_eq!(wit_fixed, 50);
         assert_eq!(wit_pct, 5);
+    }
+
+    #[test]
+    fn test_get_anchor_currencies_with_fiat_entries() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        let mut fiat = Vec::new(&env);
+        fiat.push_back(FiatCurrency {
+            code: String::from_str(&env, "USD"),
+            name: String::from_str(&env, "US Dollar"),
+            deposit_enabled: true,
+            withdrawal_enabled: true,
+        });
+        fiat.push_back(FiatCurrency {
+            code: String::from_str(&env, "EUR"),
+            name: String::from_str(&env, "Euro"),
+            deposit_enabled: true,
+            withdrawal_enabled: false,
+        });
+
+        let mut currencies = Vec::new(&env);
+        currencies.push_back(usdc_asset(&env));
+        let mut accounts = Vec::new(&env);
+        accounts.push_back(String::from_str(&env, "GANCHOR1"));
+
+        let toml = StellarToml {
+            version: String::from_str(&env, "2.0.0"),
+            network_passphrase: String::from_str(&env, "Test SDF Network ; September 2015"),
+            accounts,
+            signing_key: String::from_str(&env, "GSIGN123"),
+            currencies,
+            fiat_currencies: fiat,
+            transfer_server: String::from_str(&env, "https://api.example.com"),
+            transfer_server_sep0024: String::from_str(&env, "https://api.example.com/sep24"),
+            kyc_server: String::from_str(&env, "https://kyc.example.com"),
+            web_auth_endpoint: String::from_str(&env, "https://auth.example.com"),
+        };
+
+        client.fetch_anchor_info(&anchor, &toml, &3600u64);
+
+        let result = client.get_anchor_currencies(&anchor).unwrap();
+        assert_eq!(result.len(), 2);
+
+        let usd = result.get(0).unwrap();
+        assert_eq!(usd.code, String::from_str(&env, "USD"));
+        assert_eq!(usd.name, String::from_str(&env, "US Dollar"));
+        assert!(usd.deposit_enabled);
+        assert!(usd.withdrawal_enabled);
+
+        let eur = result.get(1).unwrap();
+        assert_eq!(eur.code, String::from_str(&env, "EUR"));
+        assert!(eur.deposit_enabled);
+        assert!(!eur.withdrawal_enabled);
+    }
+
+    #[test]
+    fn test_get_anchor_currencies_empty_when_none_defined() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        // sample_toml has no fiat currencies
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &3600u64);
+
+        let result = client.get_anchor_currencies(&anchor).unwrap();
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_get_anchor_currencies_uncached_returns_error() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        let result = client.try_get_anchor_currencies(&anchor);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            crate::errors::ErrorCode::CacheNotFound
+        );
     }
 }
