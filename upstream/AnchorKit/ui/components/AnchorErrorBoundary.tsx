@@ -158,6 +158,7 @@ function DefaultFallback({
       <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
         <button
           onClick={reset}
+          aria-label="Try Again"
           style={{
             flex: 1,
             padding: "9px 0",
