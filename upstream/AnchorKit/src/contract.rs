@@ -782,7 +782,19 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     // Deterministic hash utilities (#192)
     // -----------------------------------------------------------------------
 
-    /// Compute a canonical SHA-256 hash for an attestation payload.
+    /// Public read-only function to compute canonical SHA-256 hash for attestation payload (off-chain matching).
+    /// Field order: subject (XDR bytes) || timestamp (8-byte BE) || data.
+    /// Reuses deterministic_hash logic exactly.
+    pub fn compute_payload_hash_public(
+        env: Env,
+        subject: Address,
+        timestamp: u64,
+        data: Bytes,
+    ) -> BytesN<32> {
+        compute_payload_hash(&env, &subject, timestamp, &data)
+    }
+
+    /// Compute a canonical SHA-256 hash for an attestation payload (internal/backward compat).
     /// Field order: subject || timestamp (8-byte BE) || data.
     pub fn compute_payload_hash(
         env: Env,
@@ -790,7 +802,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         timestamp: u64,
         data: Bytes,
     ) -> BytesN<32> {
-        compute_payload_hash(&env, &subject, timestamp, &data)
+        compute_payload_hash_public(env, subject, timestamp, data)
     }
 
     /// Verify that the hash stored in an attestation matches the expected hash.

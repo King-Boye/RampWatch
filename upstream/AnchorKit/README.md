@@ -50,6 +50,16 @@ let supported = contract.get_supported_services(&anchor);
 if contract.supports_service(&anchor, &ServiceType::Deposits) {
     // Process deposit
 }
+
+// NEW: Compute payload hash for off-chain matching (matches on-chain deterministic_hash exactly)
+let subject = Address::generate(&env);
+let timestamp: u64 = env.ledger().timestamp();
+let payload_data = Bytes::from_slice(&env, b"kyc_approved");
+let payload_hash = contract.compute_payload_hash_public(&env, subject, timestamp, payload_data);
+
+// Use same inputs on-chain to verify attestation matches expected hash
+let expected_hash = deterministic_hash::compute_payload_hash(&env, &subject, timestamp, &payload_data);
+assert_eq!(payload_hash, expected_hash);
 ```
 
 ## CLI Example
