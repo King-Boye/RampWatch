@@ -145,8 +145,6 @@ impl TransactionStateTracker {
                 "Transaction not found in cache",
             ))
         } else {
-            // In production, data would be persisted to DB
-            // For dev mode, use a dummy address
             let dummy_address = Address::from_string(&String::from_str(env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"));
             let record = TransactionStateRecord {
                 transaction_id,

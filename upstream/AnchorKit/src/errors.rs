@@ -8,6 +8,7 @@
 //! provided constructor helpers (e.g. [`AnchorKitError::already_initialized`])
 //! to build errors without touching raw codes.
 
+
 extern crate alloc;
 
 use alloc::string::String;
@@ -46,6 +47,7 @@ pub enum ErrorCode {
     StorageCorrupted = 50,
     CacheExpired = 48,
     CacheNotFound = 49,
+    StorageCorrupted = 50,
 }
 
 impl ErrorCode {

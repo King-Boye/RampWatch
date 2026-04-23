@@ -351,6 +351,12 @@ impl AnchorKitContract {
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NotInitialized))
     }
 
+    /// Returns `true` if the contract has been initialized, `false` otherwise.
+    /// Safe to call at any time — never panics.
+    pub fn is_initialized(env: Env) -> bool {
+        env.storage().instance().has(&admin_key(&env))
+    }
+
     // -----------------------------------------------------------------------
     // Request ID generation
     // -----------------------------------------------------------------------
@@ -669,11 +675,10 @@ impl AnchorKitContract {
     // Attestation retrieval
     // -----------------------------------------------------------------------
 
-    pub fn get_attestation(env: Env, id: u64) -> Attestation {
+    pub fn get_attestation(env: Env, id: u64) -> Option<Attestation> {
         env.storage()
             .persistent()
-            .get::<_, Attestation>(&StorageKey::Attest(id))
-            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound))
+            .get::<_, Attestation>(&(symbol_short!("ATTEST"), id))
     }
 
     pub fn list_attestations(env: Env, subject: Address, offset: u64, limit: u32) -> Vec<Attestation> {
@@ -801,6 +806,7 @@ impl AnchorKitContract {
         valid_until: u64,
     ) -> u64 {
         anchor.require_auth();
+        Self::check_attestor(&env, &anchor);
         let inst = env.storage().instance();
         let qcnt_key = key_quote_counter(&env);
         let next: u64 = inst.get(&qcnt_key).unwrap_or(0u64) + 1;
@@ -1131,6 +1137,7 @@ impl AnchorKitContract {
         failure_count: u32,
         availability_percent: u32,
     ) {
+        Self::require_admin(&env);
         let status = HealthStatus {
             anchor: anchor.clone(),
             latency_ms,
@@ -1396,16 +1403,20 @@ impl AnchorKitContract {
         (asset.withdrawal_fee_fixed, asset.withdrawal_fee_percent)
     }
 
-    pub fn anchor_supports_deposits(env: Env, anchor: Address, asset_code: String) -> bool {
-        match Self::get_anchor_asset_info(env, anchor, asset_code) {
-            asset => asset.deposit_enabled,
-        }
+    pub fn anchor_supports_deposits(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> bool {
+        Self::get_anchor_asset_info(env, anchor, asset_code).deposit_enabled
     }
 
-    pub fn anchor_supports_withdrawals(env: Env, anchor: Address, asset_code: String) -> bool {
-        match Self::get_anchor_asset_info(env, anchor, asset_code) {
-            asset => asset.withdrawal_enabled,
-        }
+    pub fn anchor_supports_withdrawals(
+        env: Env,
+        anchor: Address,
+        asset_code: String,
+    ) -> bool {
+        Self::get_anchor_asset_info(env, anchor, asset_code).withdrawal_enabled
     }
 
     // -----------------------------------------------------------------------

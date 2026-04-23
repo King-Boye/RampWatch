@@ -3,8 +3,11 @@
 //! Provides normalized service functions for initiating deposits, withdrawals,
 //! and fetching transaction status across different anchors.
 
+
 extern crate alloc;
 use alloc::string::String;
+#[cfg(test)]
+use alloc::string::ToString;
 
 use crate::errors::Error;
 
