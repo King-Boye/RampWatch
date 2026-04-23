@@ -58,3 +58,11 @@ pub(crate) struct AnchorDeactivated {
     pub failure_count: u32,
     pub threshold: u32,
 }
+
+#[contracttype]
+#[derive(Clone)]
+pub struct RateLimitReset {
+    pub attestor: Address,
+    pub admin: Address,
+    pub timestamp: u64,
+}
