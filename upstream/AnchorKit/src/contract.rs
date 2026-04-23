@@ -1098,6 +1098,25 @@ impl AnchorKitContract {
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound))
     }
 
+    /// Return audit log entries in [from_id, to_id], capped at 100 entries.
+    /// IDs that have no stored entry are silently skipped.
+    pub fn get_audit_log_range(env: Env, from_id: u64, to_id: u64) -> Vec<AuditLog> {
+        let mut result = Vec::new(&env);
+        if from_id > to_id {
+            return result;
+        }
+        let cap: u64 = 100;
+        let end = if to_id - from_id + 1 > cap { from_id + cap - 1 } else { to_id };
+        let mut id = from_id;
+        while id <= end {
+            if let Some(log) = env.storage().persistent().get::<_, AuditLog>(&StorageKey::AuditLog(id)) {
+                result.push_back(log);
+            }
+            id += 1;
+        }
+        result
+    }
+
     pub fn get_session_operation_count(env: Env, session_id: u64) -> u64 {
         env.storage()
             .persistent()
