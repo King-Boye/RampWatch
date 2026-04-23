@@ -7,6 +7,7 @@ license = "MIT"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+
 [[example]]
 name = "cli_example"
 path = "examples/cli_example.rs"

@@ -9,8 +9,7 @@ mod rate_limiter;
 mod response_validator;
 mod retry;
 mod transaction_state_tracker;
-pub mod types;
-pub mod events;
+pub mod storage;
 pub mod sep6;
 pub mod contract;
 
@@ -35,8 +34,7 @@ pub use sep6::{
     RawDepositResponse, RawTransactionResponse, RawWithdrawalResponse, TransactionKind,
     TransactionStatus, TransactionStatusResponse, WithdrawalResponse,
 };
-pub use contract::{AnchorKitContract, get_endpoint, set_endpoint};
-pub use events::EndpointUpdated;
+pub use contract::{AnchorKitContract, EndpointUpdated, get_admin, get_endpoint, set_endpoint, get_attestation_count};
 
 #[cfg(test)]
 mod request_id_tests;
@@ -74,6 +72,7 @@ mod deterministic_hash_snapshot_tests {
     // This module exists to satisfy the test_snapshots/deterministic_hash_tests path.
 }
 
+#[cfg(test)]
 mod capability_detection_tests;
 
 #[cfg(test)]
@@ -83,4 +82,7 @@ mod attestor_endpoint_tests;
 mod attestation_pagination_tests;
 
 #[cfg(test)]
-mod payload_hash_vectors_tests;
+mod is_initialized_tests;
+
+#[cfg(test)]
+mod get_attestation_tests;

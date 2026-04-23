@@ -3,6 +3,7 @@
 //! Validates that anchor API responses contain all required fields before
 //! returning them to the SDK consumer. Throws [`Error::ValidationError`] on mismatch.
 
+
 extern crate alloc;
 
 use crate::errors::Error;
