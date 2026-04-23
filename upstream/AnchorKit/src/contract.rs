@@ -48,7 +48,7 @@ pub struct OperationContext {
     pub operation_type: String,
     pub timestamp: u64,
     pub status: String,
-    pub result_data: u64,
+    pub result_summary: String,
 }
 
 #[contracttype]
@@ -954,7 +954,7 @@ impl AnchorKitContract {
                 operation_type: String::from_str(&env, "attest"),
                 timestamp: now,
                 status: String::from_str(&env, "success"),
-                result_data: id,
+                result_summary: String::from_str(&env, &soroban_sdk::format!(&env, "attestation_id={}", id)),
             },
         };
         let audit_key = StorageKey::AuditLog(log_id);
@@ -1013,7 +1013,7 @@ impl AnchorKitContract {
                 operation_type: String::from_str(&env, "register"),
                 timestamp: now,
                 status: String::from_str(&env, "success"),
-                result_data: 0,
+                result_summary: String::from_str(&env, "attestor_registered"),
             },
         };
         let audit_key = StorageKey::AuditLog(log_id);
@@ -1066,7 +1066,7 @@ impl AnchorKitContract {
                 operation_type: String::from_str(&env, "revoke"),
                 timestamp: now,
                 status: String::from_str(&env, "success"),
-                result_data: 0,
+                result_summary: String::from_str(&env, "attestor_revoked"),
             },
         };
         let audit_key = StorageKey::AuditLog(log_id);

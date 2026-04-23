@@ -339,11 +339,11 @@ mod session_tests {
         let log1 = client.get_audit_log(&1u64);
         assert_eq!(log1.operation.operation_type, String::from_str(&env, "attest"));
         assert_eq!(log1.operation.operation_index, 1);
-        assert_eq!(log1.operation.result_data, 0); // attestation id 0
+        assert_eq!(log1.operation.result_summary, String::from_str(&env, "attestation_id=0")); // attestation id 0
 
         let log2 = client.get_audit_log(&2u64);
         assert_eq!(log2.operation.operation_type, String::from_str(&env, "attest"));
         assert_eq!(log2.operation.operation_index, 2);
-        assert_eq!(log2.operation.result_data, 1); // attestation id 1
+        assert_eq!(log2.operation.result_summary, String::from_str(&env, "attestation_id=1")); // attestation id 1
     }
 }
