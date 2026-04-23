@@ -6,7 +6,8 @@ mod metadata_cache_tests {
         Address, Env, String,
     };
 
-    use crate::contract::{AnchorKitContract, AnchorKitContractClient, AnchorMetadata};
+    use crate::contract::{AnchorKitContract, AnchorKitContractClient};
+    use crate::types::AnchorMetadata;
 
     fn make_env() -> Env {
         let env = Env::default();
