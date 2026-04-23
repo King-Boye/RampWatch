@@ -76,9 +76,13 @@ impl ErrorCode {
             ErrorCode::InvalidSep10Token => "SEP-10 JWT is missing, expired, or invalid",
             ErrorCode::StorageCorrupted => "On-chain storage entry is corrupted or unreadable",
             ErrorCode::CacheExpired => "Cache entry has expired",
-            ErrorCode::CacheNotFound => "Cache entry not found",
+ErrorCode::CacheNotFound => "Cache entry not found",
+            ErrorCode::UnauthorizedProposeAdmin => "Only current admin can propose transfer",
+            ErrorCode::NoPendingAdmin => "No pending admin transfer",
+            ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
         }
     }
+
 }
 
 // ---------------------------------------------------------------------------
@@ -203,7 +207,7 @@ impl AnchorKitError {
         Self::from_code(ErrorCode::RateLimitExceeded)
     }
 
-    pub fn storage_corrupted() -> Self {
+pub fn storage_corrupted() -> Self {
         Self::from_code(ErrorCode::StorageCorrupted)
     }
 
@@ -298,8 +302,11 @@ mod tests {
 
     #[test]
     fn test_error_code_default_messages_are_non_empty() {
-        let codes = [
+let codes = [
             ErrorCode::AlreadyInitialized,
+            ErrorCode::UnauthorizedProposeAdmin,
+            ErrorCode::NoPendingAdmin,
+            ErrorCode::NotPendingAdmin,
             ErrorCode::AttestorAlreadyRegistered,
             ErrorCode::AttestorNotRegistered,
             ErrorCode::UnauthorizedAttestor,

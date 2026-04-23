@@ -334,6 +334,21 @@ pub struct AttestorRegistered(pub Address);
 #[derive(Clone)]
 pub struct AttestorRevoked(pub Address);
 
+#[contracttype]
+#[derive(Clone)]
+pub struct AdminTransferProposed {
+    pub current_admin: Address,
+    pub new_admin: Address,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct AdminTransferred {
+    pub old_admin: Address,
+    pub new_admin: Address,
+}
+
+
 // ---------------------------------------------------------------------------
 // TTLs (in ledgers)
 // ---------------------------------------------------------------------------
@@ -341,6 +356,12 @@ const PERSISTENT_TTL: u32 = 1_555_200;
 const SPAN_TTL: u32 = 17_280;
 const INSTANCE_TTL: u32 = 518_400;
 const MIN_TEMP_TTL: u32 = 15;
+
+fn pending_admin_key(env: &Env) -> soroban_sdk::Vec<soroban_sdk::Symbol> {
+    soroban_sdk::vec![env, symbol_short!("PADMIN")]
+}
+
+
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -370,6 +391,51 @@ impl AnchorKitContract {
         }
         inst.set(&key_admin(&env), &admin);
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+    }
+
+    /// Propose new admin (current admin only). Sets pending_admin in instance storage.
+    pub fn propose_admin(env: Env, new_admin: Address) {
+        Self::require_admin(&env);
+        let inst = env.storage().instance();
+        if inst.has(&pending_admin_key(&env)) {
+            panic_with_error!(&env, ErrorCode::UnauthorizedProposeAdmin);
+        }
+        if new_admin == env.current_contract_address() {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        inst.set(&pending_admin_key(&env), &new_admin);
+        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+        let current = Self::get_admin(env.clone());
+        env.events().publish(
+            (symbol_short!("admin"), symbol_short!("proposed")),
+            AdminTransferProposed {
+                current_admin: current,
+                new_admin,
+            },
+        );
+    }
+
+    /// Accept admin transfer (pending admin only). Updates admin, clears pending.
+    pub fn accept_admin(env: Env) {
+        let inst = env.storage().instance();
+        let pending: Address = inst.get(&pending_admin_key(&env)).ok_or_else(|| {
+            panic_with_error!(&env, ErrorCode::NoPendingAdmin)
+        })?;
+        if pending != env.invoker() {
+            panic_with_error!(&env, ErrorCode::NotPendingAdmin);
+        }
+        let old_admin = Self::get_admin(env.clone());
+        inst.set(&admin_key(&env), &pending);
+        inst.remove(&pending_admin_key(&env));
+        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+        env.events().publish(
+(symbol_short!("admin"), symbol_short!("transf")),
+
+            AdminTransferred {
+                old_admin,
+                new_admin: pending,
+            },
+        );
     }
 
     pub fn get_admin(env: Env) -> Address {
