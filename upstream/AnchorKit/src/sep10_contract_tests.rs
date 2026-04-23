@@ -69,4 +69,28 @@ mod sep10_contract_tests {
         register_attestor_with_sep10(&env, &client, &attestor, &issuer, &sk);
         assert!(client.is_attestor(&attestor));
     }
+
+    #[test]
+    #[should_panic]
+    fn set_sep10_jwt_verifying_key_rejects_non_admin() {
+        // Do NOT mock_all_auths — auth is enforced by the host.
+        let env = Env::default();
+        ledger(&env, 1000);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let non_admin = Address::generate(&env);
+        let issuer = Address::generate(&env);
+
+        // Initialize with admin, then mock only non_admin's auth.
+        env.mock_all_auths();
+        client.initialize(&admin);
+        env.set_auths(&[]);
+
+        // Only mock non_admin — admin.require_auth() inside the function will panic.
+        non_admin.mock_auths(&[]);
+        let sk = SigningKey::generate(&mut OsRng);
+        let pk = Bytes::from_slice(&env, sk.verifying_key().as_bytes());
+        client.set_sep10_jwt_verifying_key(&issuer, &pk);
+    }
 }
