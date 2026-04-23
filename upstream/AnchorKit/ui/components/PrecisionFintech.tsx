@@ -1,4 +1,5 @@
 import { useState } from "react";
+import './themes.css';
 
 const metrics = [
   { label: "Portfolio Value", value: "$2,847,391", change: "+4.21%", up: true },
@@ -65,8 +66,9 @@ export default function PrecisionFintech() {
     <div
       className="min-h-screen w-full text-white"
       style={{
-        background: "#000000",
+        background: "var(--ak-bg)",
         fontFamily: "'DM Mono', 'Courier New', monospace",
+        color: "var(--ak-text)",
       }}
     >
       <style>{`
@@ -76,19 +78,14 @@ export default function PrecisionFintech() {
           --mint: #00FFB2;
           --mint-dim: rgba(0,255,178,0.12);
           --mint-border: rgba(0,255,178,0.25);
-          --bg: #000000;
-          --surface: #0a0a0a;
-          --surface2: #111111;
-          --muted: #3a3a3a;
-          --text-muted: #555555;
         }
 
         .mint { color: var(--mint); }
         .mint-bg { background: var(--mint); }
 
         .glass {
-          background: var(--surface);
-          border: 1px solid #1a1a1a;
+          background: var(--ak-surface);
+          border: 1px solid var(--ak-border);
         }
 
         .glass-mint {
@@ -136,7 +133,7 @@ export default function PrecisionFintech() {
         .tab {
           background: transparent;
           border: none;
-          color: #555;
+          color: var(--ak-text-muted);
           font-family: 'DM Mono', monospace;
           font-size: 11px;
           letter-spacing: 0.1em;
@@ -151,12 +148,12 @@ export default function PrecisionFintech() {
           border-bottom-color: var(--mint);
         }
         .tab:hover:not(.active) {
-          color: #888;
+          color: var(--ak-text);
         }
 
         .metric-card {
-          background: var(--surface);
-          border: 1px solid #1a1a1a;
+          background: var(--ak-surface);
+          border: 1px solid var(--ak-border);
           padding: 24px;
           transition: border-color 0.2s;
         }
@@ -206,7 +203,7 @@ export default function PrecisionFintech() {
       <div className="relative" style={{ zIndex: 1 }}>
         {/* Header */}
         <header
-          style={{ borderBottom: "1px solid #111" }}
+          style={{ borderBottom: "1px solid var(--ak-border)" }}
           className="flex items-center justify-between px-8 py-5"
         >
           <div className="flex items-center gap-8">
@@ -222,16 +219,16 @@ export default function PrecisionFintech() {
                 PREC<span className="mint">.</span>IO
               </div>
               <div
-                style={{ fontSize: 9, color: "#333", letterSpacing: "0.2em" }}
+                style={{ fontSize: 9, color: "var(--ak-text-muted)", letterSpacing: "0.2em" }}
               >
                 PRECISION FINTECH
               </div>
             </div>
-            <div style={{ width: 1, height: 32, background: "#1a1a1a" }} />
+            <div style={{ width: 1, height: 32, background: "var(--ak-border)" }} />
             <div className="flex items-center gap-2">
               <span className="pulse" />
               <span
-                style={{ fontSize: 10, color: "#555", letterSpacing: "0.15em" }}
+                style={{ fontSize: 10, color: "var(--ak-text-muted)", letterSpacing: "0.15em" }}
               >
                 MARKETS OPEN
               </span>
@@ -240,7 +237,7 @@ export default function PrecisionFintech() {
 
           <div className="flex items-center gap-3">
             <div
-              style={{ fontSize: 11, color: "#444", letterSpacing: "0.05em" }}
+              style={{ fontSize: 11, color: "var(--ak-text-muted)", letterSpacing: "0.05em" }}
             >
               USD / ACCT_9841
             </div>
@@ -255,7 +252,7 @@ export default function PrecisionFintech() {
             <div
               style={{
                 fontSize: 10,
-                color: "#444",
+                color: "var(--ak-text-muted)",
                 letterSpacing: "0.25em",
                 marginBottom: 8,
               }}
@@ -274,12 +271,12 @@ export default function PrecisionFintech() {
               $2,847,<span className="mint">391</span>
             </div>
             <div className="flex items-center gap-3 mt-3">
-              <span style={{ fontSize: 13, color: "#555" }}>Total AUM</span>
+              <span style={{ fontSize: 13, color: "var(--ak-text-muted)" }}>Total AUM</span>
               <span
                 style={{
                   width: 1,
                   height: 12,
-                  background: "#222",
+                  background: "var(--ak-border)",
                   display: "inline-block",
                 }}
               />
@@ -302,7 +299,7 @@ export default function PrecisionFintech() {
                 <div
                   style={{
                     fontSize: 9,
-                    color: "#444",
+                    color: "var(--ak-text-muted)",
                     letterSpacing: "0.2em",
                     marginBottom: 16,
                   }}
@@ -341,7 +338,7 @@ export default function PrecisionFintech() {
                       style={{
                         fontSize: 9,
                         letterSpacing: "0.2em",
-                        color: "#444",
+                        color: "var(--ak-text-muted)",
                         marginBottom: 4,
                       }}
                     >
@@ -366,8 +363,8 @@ export default function PrecisionFintech() {
                           letterSpacing: "0.1em",
                           padding: "4px 10px",
                           border: "1px solid",
-                          borderColor: i === 2 ? "var(--mint)" : "#1a1a1a",
-                          color: i === 2 ? "var(--mint)" : "#444",
+                          borderColor: i === 2 ? "var(--mint)" : "var(--ak-border)",
+                          color: i === 2 ? "var(--mint)" : "var(--ak-text-muted)",
                           background:
                             i === 2 ? "var(--mint-dim)" : "transparent",
                           cursor: "pointer",
@@ -462,7 +459,7 @@ export default function PrecisionFintech() {
                       justifyContent: "space-between",
                       height: "100%",
                       fontSize: 9,
-                      color: "#333",
+                      color: "var(--ak-text-muted)",
                       letterSpacing: "0.1em",
                       pointerEvents: "none",
                     }}
@@ -477,7 +474,7 @@ export default function PrecisionFintech() {
                   className="flex justify-between mt-4"
                   style={{
                     fontSize: 9,
-                    color: "#333",
+                    color: "var(--ak-text-muted)",
                     letterSpacing: "0.05em",
                   }}
                 >
@@ -508,7 +505,7 @@ export default function PrecisionFintech() {
               <div className="glass">
                 <div
                   className="flex items-center justify-between px-6 py-5"
-                  style={{ borderBottom: "1px solid #111" }}
+                  style={{ borderBottom: "1px solid var(--ak-border)" }}
                 >
                   <div
                     style={{
@@ -534,7 +531,7 @@ export default function PrecisionFintech() {
 
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
-                    <tr style={{ borderBottom: "1px solid #111" }}>
+                    <tr style={{ borderBottom: "1px solid var(--ak-border)" }}>
                       {[
                         "Asset",
                         "Quantity",
@@ -549,7 +546,7 @@ export default function PrecisionFintech() {
                             padding: "10px 24px",
                             textAlign: "left",
                             fontSize: 9,
-                            color: "#444",
+                            color: "var(--ak-text-muted)",
                             letterSpacing: "0.18em",
                             fontWeight: 400,
                           }}
@@ -585,7 +582,7 @@ export default function PrecisionFintech() {
                           <div
                             style={{
                               fontSize: 10,
-                              color: "#444",
+                              color: "var(--ak-text-muted)",
                               marginTop: 2,
                             }}
                           >
@@ -596,7 +593,7 @@ export default function PrecisionFintech() {
                           style={{
                             padding: "16px 24px",
                             fontSize: 13,
-                            color: "#888",
+                            color: "var(--ak-text-muted)",
                           }}
                         >
                           {p.qty.toLocaleString()}
@@ -684,7 +681,7 @@ export default function PrecisionFintech() {
                   <div
                     style={{
                       fontSize: 9,
-                      color: "#555",
+                      color: "var(--ak-text-muted)",
                       letterSpacing: "0.15em",
                       marginBottom: 6,
                     }}
@@ -694,7 +691,7 @@ export default function PrecisionFintech() {
                   <div
                     style={{
                       background: "#000",
-                      border: "1px solid #1a1a1a",
+                      border: "1px solid var(--ak-border)",
                       padding: "10px 14px",
                       fontSize: 13,
                       display: "flex",
@@ -706,7 +703,7 @@ export default function PrecisionFintech() {
                     <span
                       style={{
                         fontSize: 9,
-                        color: "#444",
+                        color: "var(--ak-text-muted)",
                         letterSpacing: "0.1em",
                       }}
                     >
@@ -718,7 +715,7 @@ export default function PrecisionFintech() {
                   <div
                     style={{
                       fontSize: 9,
-                      color: "#555",
+                      color: "var(--ak-text-muted)",
                       letterSpacing: "0.15em",
                       marginBottom: 6,
                     }}
@@ -737,7 +734,7 @@ export default function PrecisionFintech() {
                     }}
                   >
                     <span>10,000.00</span>
-                    <span style={{ fontSize: 9, color: "#555" }}>
+                    <span style={{ fontSize: 9, color: "var(--ak-text-muted)" }}>
                       ≈ 11.43 shares
                     </span>
                   </div>
@@ -745,7 +742,7 @@ export default function PrecisionFintech() {
                 <div
                   style={{
                     fontSize: 9,
-                    color: "#444",
+                    color: "var(--ak-text-muted)",
                     letterSpacing: "0.1em",
                     marginBottom: 16,
                     display: "flex",
@@ -769,7 +766,7 @@ export default function PrecisionFintech() {
                   style={{
                     fontSize: 9,
                     letterSpacing: "0.25em",
-                    color: "#444",
+                    color: "var(--ak-text-muted)",
                     marginBottom: 20,
                   }}
                 >
@@ -783,7 +780,7 @@ export default function PrecisionFintech() {
                   <div key={a.label} style={{ marginBottom: 14 }}>
                     <div
                       className="flex justify-between mb-2"
-                      style={{ fontSize: 11, color: "#888" }}
+                      style={{ fontSize: 11, color: "var(--ak-text-muted)" }}
                     >
                       <span>{a.label}</span>
                       <span style={{ color: "#666" }}>
@@ -819,7 +816,7 @@ export default function PrecisionFintech() {
                   style={{
                     fontSize: 9,
                     letterSpacing: "0.25em",
-                    color: "#444",
+                    color: "var(--ak-text-muted)",
                     marginBottom: 16,
                   }}
                 >
@@ -867,7 +864,7 @@ export default function PrecisionFintech() {
                     <div
                       style={{
                         fontSize: 9,
-                        color: "#444",
+                        color: "var(--ak-text-muted)",
                         letterSpacing: "0.1em",
                       }}
                     >
