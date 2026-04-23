@@ -1481,10 +1481,18 @@ impl AnchorKitContract {
         cached.toml
     }
 
-    pub fn refresh_anchor_info(env: Env, anchor: Address) {
+    pub fn refresh_anchor_info(env: Env, anchor: Address, force: bool) {
         anchor.require_auth();
         let key = StorageKey::TomlCache(anchor);
-        env.storage().temporary().remove(&key);
+        
+        if force {
+            env.storage().temporary().remove(&key);
+        } else if let Some(cached) = env.storage().temporary().get::<_, CachedToml>(&key) {
+            let now = env.ledger().timestamp();
+            if cached.cached_at + cached.ttl_seconds <= now {
+                env.storage().temporary().remove(&key);
+            }
+        }
     }
 
     pub fn get_anchor_assets(env: Env, anchor: Address) -> Vec<String> {
