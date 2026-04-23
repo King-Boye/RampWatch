@@ -1534,13 +1534,17 @@ impl AnchorKitContract {
         }
     }
 
-    pub fn get_anchor_assets(env: Env, anchor: Address) -> Vec<String> {
+    pub fn get_anchor_assets(env: Env, anchor: Address) -> Result<Vec<String>, ErrorCode> {
+        let key = (symbol_short!("TOMLCACHE"), anchor.clone());
+        if !env.storage().temporary().has(&key) {
+            return Err(ErrorCode::CacheNotFound);
+        }
         let toml = Self::get_anchor_toml(env.clone(), anchor);
         let mut assets = Vec::new(&env);
         for asset in toml.currencies.iter() {
             assets.push_back(asset.code.clone());
         }
-        assets
+        Ok(assets)
     }
 
     pub fn get_anchor_asset_info(env: Env, anchor: Address, asset_code: String) -> AssetInfo {
