@@ -2,6 +2,9 @@ use clap::{Parser, Subcommand};
 use std::process::Command;
 use std::time::Instant;
 
+const MIN_RUST_MAJOR: u32 = 1;
+const MIN_RUST_MINOR: u32 = 56;
+
 #[derive(Parser)]
 #[command(name = "anchorkit", about = "AnchorKit CLI for Soroban anchor management")]
 struct Cli {
@@ -24,7 +27,7 @@ enum Commands {
         /// Stellar address of the attestor
         #[arg(long)]
         address: String,
-        /// Comma-separated services (deposits,withdrawals,quotes,kyc)
+        /// Comma-separated services: deposits, withdrawals, quotes, kyc
         #[arg(long)]
         services: Option<String>,
         /// Attestor endpoint URL
@@ -62,7 +65,7 @@ fn run_doctor() {
     let start = Instant::now();
     let mut all_ok = true;
 
-    all_ok &= check_rust_toolchain();
+    all_ok &= check_rust_version();
     all_ok &= check_wasm_target();
     all_ok &= check_wallet();
     all_ok &= check_rpc();
@@ -80,18 +83,41 @@ fn run_doctor() {
     }
 }
 
-fn check_rust_toolchain() -> bool {
+fn check_rust_version() -> bool {
     match Command::new("rustc").arg("--version").output() {
-        Ok(out) if out.status.success() => {
-            let v = String::from_utf8_lossy(&out.stdout);
-            println!("✔ Rust toolchain detected ({})", v.trim());
-            true
-        }
-        _ => {
+        Err(_) => {
             println!("✖ Rust toolchain not found → install from https://rustup.rs");
             false
         }
+        Ok(out) => {
+            let version_str = String::from_utf8_lossy(&out.stdout);
+            if let Some((major, minor)) = parse_rustc_version(&version_str) {
+                if major > MIN_RUST_MAJOR || (major == MIN_RUST_MAJOR && minor >= MIN_RUST_MINOR) {
+                    println!("✔ Rust toolchain detected ({})", version_str.trim());
+                    true
+                } else {
+                    println!(
+                        "✖ Rust {}.{} detected but {}.{}+ is required (edition 2021)\n  \
+                         → Run: rustup update stable",
+                        major, minor, MIN_RUST_MAJOR, MIN_RUST_MINOR
+                    );
+                    false
+                }
+            } else {
+                println!("✖ Could not parse rustc version: {}", version_str.trim());
+                false
+            }
+        }
     }
+}
+
+/// Parse "rustc X.Y.Z ..." → (X, Y)
+fn parse_rustc_version(s: &str) -> Option<(u32, u32)> {
+    let version_part = s.split_whitespace().nth(1)?;
+    let mut parts = version_part.split('.');
+    let major: u32 = parts.next()?.parse().ok()?;
+    let minor: u32 = parts.next()?.parse().ok()?;
+    Some((major, minor))
 }
 
 fn check_wasm_target() -> bool {
@@ -195,7 +221,6 @@ fn run_validate(path: &str) {
                 )
             })
             .collect();
-        // Sort for deterministic output
         entries.sort_by_key(|e| e.path());
         if entries.is_empty() {
             println!("No .json or .toml files found in {}", path);
@@ -208,10 +233,8 @@ fn run_validate(path: &str) {
         if !all_ok {
             std::process::exit(1);
         }
-    } else {
-        if !validate_file(p) {
-            std::process::exit(1);
-        }
+    } else if !validate_file(p) {
+        std::process::exit(1);
     }
 }
 
@@ -236,39 +259,20 @@ fn validate_file(path: &std::path::Path) -> bool {
 
 fn validate_json(path: &std::path::Path, content: &str) -> bool {
     match serde_json::from_str::<serde_json::Value>(content) {
-        Ok(_) => {
-            println!("✔ {}: valid JSON", path.display());
-            true
-        }
+        Ok(_) => { println!("✔ {}: valid JSON", path.display()); true }
         Err(e) => {
-            println!(
-                "✖ {}: invalid JSON at line {}, column {}: {}",
-                path.display(),
-                e.line(),
-                e.column(),
-                e
-            );
+            println!("✖ {}: invalid JSON at line {}, column {}: {}", path.display(), e.line(), e.column(), e);
             false
         }
     }
 }
 
-/// Validate TOML content and report errors with line information.
 fn validate_toml(path: &std::path::Path, content: &str) -> bool {
     match toml::from_str::<toml::Value>(content) {
-        Ok(_) => {
-            println!("✔ {}: valid TOML", path.display());
-            true
-        }
+        Ok(_) => { println!("✔ {}: valid TOML", path.display()); true }
         Err(e) => {
-            // toml::de::Error includes span information when available
             if let Some(span) = e.span() {
-                // Convert byte offset to line number
-                let line = content[..span.start]
-                    .chars()
-                    .filter(|&c| c == '\n')
-                    .count()
-                    + 1;
+                let line = content[..span.start].chars().filter(|&c| c == '\n').count() + 1;
                 println!("✖ {}: invalid TOML at line {}: {}", path.display(), line, e.message());
             } else {
                 println!("✖ {}: invalid TOML: {}", path.display(), e);
@@ -280,15 +284,18 @@ fn validate_toml(path: &std::path::Path, content: &str) -> bool {
 
 // ── register ─────────────────────────────────────────────────────────────────
 
+/// The complete set of valid service names for anchorkit register --services.
 const VALID_SERVICES: &[&str] = &["deposits", "withdrawals", "quotes", "kyc"];
 
 fn run_register(address: &str, services: Option<&str>, endpoint: Option<&str>) {
+    // Validate service names before doing anything else
     if let Some(svc_str) = services {
         let invalid: Vec<&str> = svc_str
             .split(',')
             .map(|s| s.trim())
-            .filter(|s| !VALID_SERVICES.contains(s))
+            .filter(|s| !s.is_empty() && !VALID_SERVICES.contains(s))
             .collect();
+
         if !invalid.is_empty() {
             eprintln!(
                 "error: unknown service(s): {}\n  valid services: {}",
@@ -298,6 +305,7 @@ fn run_register(address: &str, services: Option<&str>, endpoint: Option<&str>) {
             std::process::exit(1);
         }
     }
+
     println!("Registering attestor: {}", address);
     if let Some(s) = services { println!("  Services: {}", s); }
     if let Some(e) = endpoint { println!("  Endpoint: {}", e); }
