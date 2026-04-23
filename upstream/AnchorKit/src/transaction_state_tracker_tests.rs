@@ -79,7 +79,12 @@ mod transaction_state_tracker_tests {
         assert!(result.is_ok());
         let record = result.unwrap();
         assert_eq!(record.state, TransactionState::Failed);
-        assert_eq!(record.error_message, Some(error_msg));
+        assert_eq!(record.error_message, Some(error_msg.clone()));
+        // failure_reason must be persisted and retrievable via get_transaction_state
+        assert_eq!(record.failure_reason, Some(error_msg.clone()));
+
+        let fetched = tracker.get_transaction_state(1, &env).unwrap().unwrap();
+        assert_eq!(fetched.failure_reason, Some(error_msg));
     }
 
     #[test]
