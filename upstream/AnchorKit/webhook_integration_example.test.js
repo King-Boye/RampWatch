@@ -158,3 +158,179 @@ describe('sanitizeWebhookPayload', () => {
         });
     });
 });
+
+// ---------------------------------------------------------------------------
+// WebhookMonitorWebSocket — reconnect limit tests
+// ---------------------------------------------------------------------------
+
+// Minimal WebSocket stub — records calls, exposes onclose/onopen triggers
+class FakeWebSocket {
+    constructor() {
+        FakeWebSocket.instances.push(this);
+        this.onopen = null;
+        this.onclose = null;
+        this.onerror = null;
+        this.onmessage = null;
+    }
+    close() {}
+    static reset() { FakeWebSocket.instances = []; }
+}
+FakeWebSocket.instances = [];
+
+// Inline the updated class under test (mirrors webhook_integration_example.js)
+class WebhookMonitorWebSocket {
+    constructor(wsUrl, options = {}) {
+        this.wsUrl = wsUrl;
+        this.ws = null;
+        this.reconnectCount = 0;
+        this.maxReconnectAttempts = options.maxReconnectAttempts ?? 10;
+        this._listeners = {};
+    }
+    on(event, listener) {
+        if (!this._listeners[event]) this._listeners[event] = [];
+        this._listeners[event].push(listener);
+        return this;
+    }
+    emit(event, ...args) {
+        (this._listeners[event] || []).forEach(fn => fn(...args));
+    }
+    connect() {
+        this.ws = new FakeWebSocket();
+        this.ws.onopen = () => { this.reconnectCount = 0; };
+        this.ws.onclose = () => { this.attemptReconnect(); };
+        this.ws.onerror = () => {};
+    }
+    attemptReconnect() {
+        if (this.reconnectCount >= this.maxReconnectAttempts) {
+            if (this.reconnectCount === this.maxReconnectAttempts) {
+                this.emit('max_reconnects_exceeded', { attempts: this.reconnectCount });
+                this.reconnectCount++; // sentinel: silence further onclose calls
+            }
+            return;
+        }
+        this.reconnectCount++;
+        this._reconnectTimer = setTimeout(() => this.connect(), 0);
+    }
+}
+
+// Fake clock helpers — replace setTimeout with synchronous flush
+let pendingTimers = [];
+const realSetTimeout = global.setTimeout;
+
+function installFakeClock() {
+    pendingTimers = [];
+    global.setTimeout = (fn) => { pendingTimers.push(fn); };
+}
+function flushTimers() {
+    while (pendingTimers.length) {
+        const fn = pendingTimers.shift();
+        fn();
+    }
+}
+function uninstallFakeClock() {
+    global.setTimeout = realSetTimeout;
+    pendingTimers = [];
+}
+
+describe('WebhookMonitorWebSocket — reconnect limit', () => {
+
+    beforeEach(() => {
+        FakeWebSocket.reset();
+        installFakeClock();
+    });
+    afterEach(() => {
+        uninstallFakeClock();
+    });
+
+    it('stops reconnecting after hitting maxReconnectAttempts (default 10)', () => {
+        const monitor = new WebhookMonitorWebSocket('ws://example.com');
+        monitor.connect();
+
+        // Simulate server permanently down: trigger onclose repeatedly
+        for (let i = 0; i < 15; i++) {
+            const latest = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+            if (latest && latest.onclose) latest.onclose();
+            flushTimers();
+        }
+
+        // reconnectCount is maxReconnectAttempts+1 due to sentinel increment after event fires
+        assert.ok(
+            monitor.reconnectCount >= monitor.maxReconnectAttempts,
+            'reconnectCount must reach the limit'
+        );
+        // Total WebSocket instances = 1 initial + 10 retries = 11
+        assert.equal(FakeWebSocket.instances.length, 11);
+    });
+
+    it('emits max_reconnects_exceeded with correct attempt count', () => {
+        const monitor = new WebhookMonitorWebSocket('ws://example.com', { maxReconnectAttempts: 3 });
+        let eventPayload = null;
+        monitor.on('max_reconnects_exceeded', (data) => { eventPayload = data; });
+
+        monitor.connect();
+        for (let i = 0; i < 5; i++) {
+            const latest = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+            if (latest && latest.onclose) latest.onclose();
+            flushTimers();
+        }
+
+        assert.ok(eventPayload !== null, 'max_reconnects_exceeded must have fired');
+        assert.equal(eventPayload.attempts, 3);
+    });
+
+    it('emits max_reconnects_exceeded exactly once', () => {
+        const monitor = new WebhookMonitorWebSocket('ws://example.com', { maxReconnectAttempts: 2 });
+        let fireCount = 0;
+        monitor.on('max_reconnects_exceeded', () => { fireCount++; });
+
+        monitor.connect();
+        for (let i = 0; i < 6; i++) {
+            const latest = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+            if (latest && latest.onclose) latest.onclose();
+            flushTimers();
+        }
+
+        assert.equal(fireCount, 1);
+    });
+
+    it('resets reconnectCount to 0 on successful reconnect', () => {
+        const monitor = new WebhookMonitorWebSocket('ws://example.com', { maxReconnectAttempts: 5 });
+        monitor.connect();
+
+        // Simulate 3 failed attempts
+        for (let i = 0; i < 3; i++) {
+            const latest = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+            if (latest && latest.onclose) latest.onclose();
+            flushTimers();
+        }
+        assert.equal(monitor.reconnectCount, 3);
+
+        // Simulate successful reconnect (onopen fires)
+        const latest = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+        if (latest && latest.onopen) latest.onopen();
+
+        assert.equal(monitor.reconnectCount, 0, 'reconnectCount must reset to 0 after successful connection');
+    });
+
+    it('respects a custom maxReconnectAttempts value', () => {
+        const monitor = new WebhookMonitorWebSocket('ws://example.com', { maxReconnectAttempts: 2 });
+        assert.equal(monitor.maxReconnectAttempts, 2);
+
+        monitor.connect();
+        for (let i = 0; i < 10; i++) {
+            const latest = FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
+            if (latest && latest.onclose) latest.onclose();
+            flushTimers();
+        }
+
+        // 1 initial + 2 retries = 3 total WebSocket instances
+        assert.equal(FakeWebSocket.instances.length, 3);
+        // reconnectCount is maxReconnectAttempts+1 (sentinel) after limit is hit
+        assert.ok(monitor.reconnectCount >= 2);
+    });
+
+    it('uses default maxReconnectAttempts of 10 when no options passed', () => {
+        const monitor = new WebhookMonitorWebSocket('ws://example.com');
+        assert.equal(monitor.maxReconnectAttempts, 10);
+    });
+});

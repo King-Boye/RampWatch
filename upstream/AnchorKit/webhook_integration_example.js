@@ -10,11 +10,28 @@
 // ============================================================================
 
 class WebhookMonitorWebSocket {
-    constructor(wsUrl) {
+    /**
+     * @param {string} wsUrl - WebSocket server URL
+     * @param {object} [options]
+     * @param {number} [options.maxReconnectAttempts=10] - Max reconnect attempts before giving up
+     */
+    constructor(wsUrl, options = {}) {
         this.wsUrl = wsUrl;
         this.ws = null;
-        this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 5;
+        this.reconnectCount = 0;
+        this.maxReconnectAttempts = options.maxReconnectAttempts ?? 10;
+        this._listeners = {};
+    }
+
+    // Minimal EventEmitter interface (avoids a Node.js-only dependency in browser contexts)
+    on(event, listener) {
+        if (!this._listeners[event]) this._listeners[event] = [];
+        this._listeners[event].push(listener);
+        return this;
+    }
+
+    emit(event, ...args) {
+        (this._listeners[event] || []).forEach(fn => fn(...args));
     }
 
     connect() {
@@ -22,7 +39,7 @@ class WebhookMonitorWebSocket {
 
         this.ws.onopen = () => {
             console.log('✅ WebSocket connected');
-            this.reconnectAttempts = 0;
+            this.reconnectCount = 0; // reset budget on every successful connection
         };
 
         this.ws.onmessage = (event) => {
@@ -45,12 +62,23 @@ class WebhookMonitorWebSocket {
     }
 
     attemptReconnect() {
-        if (this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.reconnectAttempts++;
-            const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-            console.log(`Reconnecting in ${delay}ms... (attempt ${this.reconnectAttempts})`);
-            setTimeout(() => this.connect(), delay);
+        if (this.reconnectCount >= this.maxReconnectAttempts) {
+            // Only emit the event on the first time we hit the limit
+            if (this.reconnectCount === this.maxReconnectAttempts) {
+                console.error(
+                    `WebSocket reconnect limit reached (${this.maxReconnectAttempts} attempts). Giving up.`
+                );
+                this.emit('max_reconnects_exceeded', { attempts: this.reconnectCount });
+                // Sentinel: increment past the limit so subsequent onclose calls are silent no-ops
+                this.reconnectCount++;
+            }
+            return;
         }
+
+        this.reconnectCount++;
+        const delay = Math.min(1000 * Math.pow(2, this.reconnectCount), 30000);
+        console.log(`Reconnecting in ${delay}ms... (attempt ${this.reconnectCount}/${this.maxReconnectAttempts})`);
+        setTimeout(() => this.connect(), delay);
     }
 
     handleWebhookEvent(webhookData) {
