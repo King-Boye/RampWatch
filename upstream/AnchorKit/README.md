@@ -64,6 +64,14 @@ See complete deposit/withdraw workflow:
 cargo run --example cli_example
 ```
 
+Use the new CLI binary for machine-friendly command output:
+
+```bash
+cargo run --bin anchorkit -- query --output json --transaction-id TX123
+cargo run --bin anchorkit -- attest --subject GUSER123 --payload-file payload.bin
+cat payload.bin | cargo run --bin anchorkit -- attest --subject GUSER123 --payload-hash -
+```
+
 See **[docs/guides/DOCTOR_COMMAND.md](./docs/guides/DOCTOR_COMMAND.md)** for CLI documentation.
 
 ## Key Features
@@ -127,6 +135,7 @@ const auditLog = await contract.get_audit_log(0);
 - **[docs/features/DOMAIN_VALIDATION.md](./docs/features/DOMAIN_VALIDATION.md)** - Domain validation
 - **[docs/features/ERROR_CODES_REFERENCE.md](./docs/features/ERROR_CODES_REFERENCE.md)** - API error codes reference
 - **[docs/features/RETRY_BACKOFF.md](./docs/features/RETRY_BACKOFF.md)** - Retry and backoff strategies
+- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** - Architecture and component interaction diagram
 - **[docs/features/WEBHOOK_MIDDLEWARE.md](./docs/features/WEBHOOK_MIDDLEWARE.md)** - Webhook middleware
 - **[docs/features/WEBHOOK_MONITOR.md](./docs/features/WEBHOOK_MONITOR.md)** - Webhook monitoring
 - **[docs/features/TRANSACTION_STATE_TRACKER.md](./docs/features/TRANSACTION_STATE_TRACKER.md)** - Transaction state tracking
