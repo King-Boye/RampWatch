@@ -2,6 +2,12 @@
 
 Complete index of all AnchorKit documentation.
 
+## Migration
+
+| Document | Description |
+|---|---|
+| [MIGRATION.md](./MIGRATION.md) | Upgrade guide: 0.0.1 → 0.1.0 breaking changes and before/after examples |
+
 ## Feature Documentation
 
 Reference docs for each feature exposed by the contract and SDK.
