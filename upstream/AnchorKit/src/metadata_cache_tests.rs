@@ -49,7 +49,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let result = client.try_get_cached_metadata(&anchor);
         assert!(result.is_err());
@@ -64,7 +64,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let meta = sample_metadata(&env, &anchor);
         client.cache_metadata(&anchor, &meta, &3600u64);
@@ -83,7 +83,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let meta = sample_metadata(&env, &anchor);
         client.cache_metadata(&anchor, &meta, &10u64);
@@ -103,7 +103,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let meta = sample_metadata(&env, &anchor);
         client.cache_metadata(&anchor, &meta, &3600u64);
@@ -128,7 +128,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let toml_url = String::from_str(&env, "https://anchor.example/.well-known/stellar.toml");
         let caps = String::from_str(&env, "{\"deposits\":true,\"withdrawals\":true}");
@@ -148,7 +148,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let toml_url = String::from_str(&env, "https://anchor.example/.well-known/stellar.toml");
         let caps = String::from_str(&env, "{\"deposits\":true}");
@@ -168,7 +168,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         let toml_url = String::from_str(&env, "https://anchor.example/.well-known/stellar.toml");
         let caps = String::from_str(&env, "{\"deposits\":true}");
@@ -177,6 +177,25 @@ mod metadata_cache_tests {
         client.refresh_capabilities_cache(&anchor);
 
         let result = client.try_get_cached_capabilities(&anchor);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cache_capabilities_invalid_url() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let anchor = Address::generate(&env);
+        client.initialize(&admin);
+
+        // Invalid URL (not HTTPS)
+        let toml_url = String::from_str(&env, "http://anchor.example/stellar.toml");
+        let caps = String::from_str(&env, "{\"deposits\":true}");
+        
+        let result = client.try_cache_capabilities(&anchor, &toml_url, &caps, &3600u64);
         assert!(result.is_err());
     }
 
@@ -191,7 +210,7 @@ mod metadata_cache_tests {
         let admin = Address::generate(&env);
         let anchor1 = Address::generate(&env);
         let anchor2 = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         // Initially empty
         let list = client.list_cached_anchors();

@@ -54,6 +54,29 @@ describe('useCopyToClipboard', () => {
     });
   });
 
+  it('should clear the reset timer on unmount (useEffect cleanup)', async () => {
+    mockWriteText.mockResolvedValue(undefined);
+    const { result, unmount } = renderHook(() => useCopyToClipboard({ successDuration: 2000 }));
+
+    await act(async () => {
+      await result.current.copy('test');
+    });
+
+    expect(result.current.isCopied).toBe(true);
+
+    // Unmount before timer fires — should not cause state-update-on-unmounted-component warnings
+    act(() => {
+      unmount();
+    });
+
+    // Advancing time after unmount should not throw
+    expect(() => {
+      act(() => {
+        jest.advanceTimersByTime(2000);
+      });
+    }).not.toThrow();
+  });
+
   it('should call onSuccess callback', async () => {
     mockWriteText.mockResolvedValue(undefined);
     const onSuccess = jest.fn();
