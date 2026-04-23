@@ -206,13 +206,17 @@ impl TransactionStateTracker {
         }
     }
 
-    /// Clear all cached transactions (dev mode only)
-    pub fn clear_cache(&mut self) -> Result<(), String> {
+    /// Clear all cached transactions.
+    /// In dev mode: always allowed.
+    /// In production mode: requires admin authorization.
+    pub fn clear_cache(&mut self, admin: &Address, env: &Env) -> Result<(), String> {
         if self.is_dev_mode {
             self.cache = alloc::vec::Vec::new();
             Ok(())
         } else {
-            Err(String::from_str(&Env::default(), "Cannot clear cache in production mode"))
+            admin.require_auth();
+            self.cache = alloc::vec::Vec::new();
+            Ok(())
         }
     }
 
@@ -353,7 +357,7 @@ mod tests {
         let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         tracker.create_transaction(1, initiator.clone(), &env).ok();
-        let clear_result = tracker.clear_cache();
+        let clear_result = tracker.clear_cache(&initiator, &env);
 
         assert!(clear_result.is_ok());
         assert_eq!(tracker.cache_size(), 0);

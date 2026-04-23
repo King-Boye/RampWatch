@@ -177,9 +177,23 @@ mod transaction_state_tracker_tests {
         tracker.create_transaction(2, initiator.clone(), &env).ok();
         assert_eq!(tracker.cache_size(), 2);
 
-        let clear_result = tracker.clear_cache();
+        let clear_result = tracker.clear_cache(&initiator, &env);
         assert!(clear_result.is_ok());
         assert_eq!(tracker.cache_size(), 0);
+    }
+
+    #[test]
+    fn test_clear_cache_production_requires_admin() {
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new(false);
+        let admin = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        // In production mode, clear_cache requires admin auth.
+        // Calling without mock auth should panic (require_auth panics when not authorized).
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tracker.clear_cache(&admin, &env)
+        }));
+        assert!(result.is_err(), "Expected panic due to missing admin auth in production mode");
     }
 
     #[test]
