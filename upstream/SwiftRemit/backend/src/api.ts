@@ -26,6 +26,7 @@ import { correlationIdMiddleware, createLogger } from './correlation-id';
 import { getMetricsService } from './metrics';
 import { sanitizeInput } from './sanitizer';
 import docsRouter from './routes/docs';
+import { Sep24Service, Sep24InitiateRequest, Sep24ConfigError, Sep24AnchorError } from './sep24-service';
 
 const app = express();
 const fxRateCache = getFxRateCache();

@@ -49,8 +49,8 @@ describe('ProofOfPayout', () => {
     });
 
     expect(screen.getByText('42')).toBeInTheDocument();
-    expect(screen.getByText(/SENDER_A/)).toBeInTheDocument();
-    expect(screen.getByText(/AGENT_A/)).toBeInTheDocument();
+    expect(screen.getByText('SENDER...123456')).toBeInTheDocument();
+    expect(screen.getByText('AGENT_...789012')).toBeInTheDocument();
     expect(screen.getByText('1.0000000 USDC')).toBeInTheDocument();
     expect(screen.getByText('0.0050000 USDC')).toBeInTheDocument();
   });
@@ -98,9 +98,7 @@ describe('ProofOfPayout', () => {
     render(<ProofOfPayout remittanceId={42} />);
 
     await waitFor(() => {
-      // Check that addresses are truncated (first 6 + ... + last 6)
-      const senderElement = screen.getByText(/SENDER_A\.\.\./);
-      expect(senderElement).toBeInTheDocument();
+      expect(screen.getByText('SENDER...123456')).toBeInTheDocument();
     });
   });
 
@@ -125,9 +123,9 @@ describe('ProofOfPayout', () => {
     render(<ProofOfPayout remittanceId={42} />);
 
     await waitFor(() => {
-      // Check that timestamp is formatted (exact format depends on locale)
-      const timestampElement = screen.getByText(/2024/);
-      expect(timestampElement).toBeInTheDocument();
+      const label = screen.getByText('Timestamp:');
+      const value = label.nextElementSibling?.textContent ?? '';
+      expect(value).toMatch(/\d{1,2}\/\d{1,2}\/\d{4}/);
     });
   });
 

@@ -2,7 +2,9 @@ import crypto from 'crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type { Pool } from 'pg';
 
-const dispatchRemittanceCreated = vi.fn();
+const { dispatchRemittanceCreated } = vi.hoisted(() => ({
+  dispatchRemittanceCreated: vi.fn(),
+}));
 
 vi.mock('../webhook-dispatcher', () => ({
   WebhookDispatcher: vi.fn().mockImplementation(() => ({
