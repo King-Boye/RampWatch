@@ -68,7 +68,7 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &10000_u64);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
@@ -94,7 +94,7 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &10000_u64);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
@@ -133,7 +133,7 @@ mod attestation_pagination_tests {
         let attestor = Address::generate(&env);
         let subj1 = Address::generate(&env);
         let subj2 = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &10000_u64);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
@@ -165,7 +165,7 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &10000_u64);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
@@ -191,7 +191,7 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &10000_u64);
 
         // Seed the counter to u64::MAX so the next increment overflows
         env.as_contract(&contract_id, &|| {
@@ -216,7 +216,7 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &10000_u64);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);

@@ -9,7 +9,7 @@ use crate::sep10_jwt;
 use crate::storage::{
     StorageKey,
     key_admin, key_counter, key_session_counter, key_quote_counter,
-    key_audit_counter, key_anchor_list, key_health_threshold,
+    key_audit_counter, key_audit_log_offset, key_anchor_list, key_health_threshold,
 };
 
 // ---------------------------------------------------------------------------
@@ -280,6 +280,13 @@ struct AuditLogEvent {
 
 #[contracttype]
 #[derive(Clone)]
+struct AuditLogPruned {
+    pruned_count: u64,
+    new_offset: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
 struct AttestEvent {
     payload_hash: Bytes,
     timestamp: u64,
@@ -334,16 +341,20 @@ impl AnchorKitContract {
     // Initialization
     // -----------------------------------------------------------------------
 
-    pub fn initialize(env: Env, admin: Address) {
+    pub fn initialize(env: Env, admin: Address, max_audit_log_size: u64) {
         admin.require_auth();
         if admin == env.current_contract_address() {
             panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        if max_audit_log_size == 0 {
+            panic_with_error!(&env, ErrorCode::AuditLogMaxSizeInvalid);
         }
         let inst = env.storage().instance();
         if inst.has(&key_admin(&env)) {
             panic_with_error!(&env, ErrorCode::AlreadyInitialized);
         }
         inst.set(&key_admin(&env), &admin);
+        inst.set(&StorageKey::AuditLogMaxSize, &max_audit_log_size);
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
     }
 
@@ -902,6 +913,40 @@ impl AnchorKitContract {
     }
 
     // -----------------------------------------------------------------------
+    // Audit log pruning helper
+    // -----------------------------------------------------------------------
+
+    /// Prune oldest audit log entries if the log has exceeded `max_audit_log_size`.
+    ///
+    /// Uses a monotonically increasing `log_id` counter (total entries ever written)
+    /// and a separate `offset` (first live entry). The live window is
+    /// `[offset, log_id)`. When `log_id - offset > max_size`, we advance `offset`
+    /// and delete the stale entries, then emit `AuditLogPruned`.
+    fn maybe_prune_audit_log(env: &Env, log_id: u64) {
+        let inst = env.storage().instance();
+        let max_size: u64 = inst
+            .get(&StorageKey::AuditLogMaxSize)
+            .unwrap_or(u64::MAX);
+        let offset: u64 = inst.get(&key_audit_log_offset(env)).unwrap_or(0u64);
+        let live_count = log_id.saturating_sub(offset); // entries [offset, log_id)
+        if live_count < max_size {
+            return;
+        }
+        // Number of entries to remove so live_count == max_size - 1 (leaving room for the new one)
+        let to_prune = live_count - max_size + 1;
+        for i in 0..to_prune {
+            let old_key = StorageKey::AuditLog(offset + i);
+            env.storage().persistent().remove(&old_key);
+        }
+        let new_offset = offset + to_prune;
+        inst.set(&key_audit_log_offset(env), &new_offset);
+        env.events().publish(
+            (symbol_short!("audit"), symbol_short!("pruned")),
+            AuditLogPruned { pruned_count: to_prune, new_offset },
+        );
+    }
+
+    // -----------------------------------------------------------------------
     // Session-aware attestation
     // -----------------------------------------------------------------------
 
@@ -940,6 +985,7 @@ impl AnchorKitContract {
         let log_id: u64 = inst.get(&acnt_key).unwrap_or(0u64);
         inst.set(&acnt_key, &(log_id + 1));
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+        Self::maybe_prune_audit_log(&env, log_id);
 
         let now = env.ledger().timestamp();
         let audit = AuditLog {
@@ -996,6 +1042,7 @@ impl AnchorKitContract {
         let log_id: u64 = inst.get(&acnt_key).unwrap_or(0u64);
         inst.set(&acnt_key, &(log_id + 1));
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+        Self::maybe_prune_audit_log(&env, log_id);
 
         let admin: Address = inst
             .get::<_, Address>(&key_admin(&env))
@@ -1049,6 +1096,7 @@ impl AnchorKitContract {
         let log_id: u64 = inst.get(&acnt_key).unwrap_or(0u64);
         inst.set(&acnt_key, &(log_id + 1));
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+        Self::maybe_prune_audit_log(&env, log_id);
 
         let admin: Address = inst
             .get::<_, Address>(&key_admin(&env))

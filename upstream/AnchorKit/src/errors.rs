@@ -47,7 +47,7 @@ pub enum ErrorCode {
     StorageCorrupted = 50,
     CacheExpired = 48,
     CacheNotFound = 49,
-    StorageCorrupted = 50,
+    AuditLogMaxSizeInvalid = 51,
 }
 
 impl ErrorCode {
@@ -76,6 +76,7 @@ impl ErrorCode {
             ErrorCode::StorageCorrupted => "On-chain storage entry is corrupted or unreadable",
             ErrorCode::CacheExpired => "Cache entry has expired",
             ErrorCode::CacheNotFound => "Cache entry not found",
+            ErrorCode::AuditLogMaxSizeInvalid => "max_audit_log_size must be at least 1",
         }
     }
 }
