@@ -201,7 +201,7 @@ mod tests {
 
     use super::*;
     use alloc::format;
-    use alloc::string::ToString;
+    use crate::alloc::string::ToString;
     use ed25519_dalek::{Signer, SigningKey};
     use rand::rngs::OsRng;
     use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};

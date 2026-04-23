@@ -62,10 +62,10 @@ impl RateLimiter {
 impl RateLimiter {
     /// Check if an attestor can submit an attestation and increment their counter.
     pub fn check_and_increment(
-        env: &Env,
-        attestor: &Address,
-    ) -> Result<(), AnchorKitError> {
-        let config = Self::get_effective_config(env, attestor);
+        env: Env,
+        attestor: Address,
+    ) -> Result<(), ErrorCode> {
+        let config = Self::get_effective_config(env.clone(), attestor.clone());
         let current_ledger = env.ledger().sequence();
         let state_key = Self::get_state_key(env, attestor);
 
@@ -85,7 +85,7 @@ impl RateLimiter {
 
         if state.submission_count >= config.max_submissions {
             env.storage().persistent().set(&state_key, &state);
-            return Err(AnchorKitError::rate_limit_exceeded());
+            return Err(ErrorCode::RateLimitExceeded);
         }
 
         state.submission_count += 1;
@@ -97,27 +97,27 @@ impl RateLimiter {
     /// Update the global rate limit configuration, or set a per-attestor override when
     /// `attestor` is `Some`.
     pub fn update_config(
-        env: &Env,
-        _admin: &Address,
-        config: &RateLimitConfig,
-        attestor: Option<&Address>,
-    ) -> Result<(), AnchorKitError> {
+        env: Env,
+        _admin: Address,
+        config: RateLimitConfig,
+        attestor: Option<Address>,
+    ) -> Result<(), ErrorCode> {
         match attestor {
             Some(addr) => {
-                let key = Self::get_attestor_config_key(env, addr);
-                env.storage().persistent().set(&key, config);
+                let key = Self::get_attestor_config_key(&env, &addr);
+                env.storage().persistent().set(&key, &config);
             }
             None => {
-                let key = Self::get_config_key(env);
-                env.storage().persistent().set(&key, config);
+                let key = Self::get_config_key(&env);
+                env.storage().persistent().set(&key, &config);
             }
         }
         Ok(())
     }
 
     /// Get the effective config for an attestor: per-attestor override if set, else global.
-    pub fn get_effective_config(env: &Env, attestor: &Address) -> RateLimitConfig {
-        let key = Self::get_attestor_config_key(env, attestor);
+    pub fn get_effective_config(env: Env, attestor: Address) -> RateLimitConfig {
+        let key = Self::get_attestor_config_key(&env, &attestor);
         env.storage().persistent().get::<_, RateLimitConfig>(&key)
             .unwrap_or_else(|| Self::get_config(env.clone()))
     }

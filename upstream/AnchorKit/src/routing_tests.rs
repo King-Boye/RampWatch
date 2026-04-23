@@ -9,7 +9,8 @@ mod routing_tests {
     use ed25519_dalek::SigningKey;
     use rand::rngs::OsRng;
 
-    use crate::contract::{AnchorKitContract, AnchorKitContractClient, RoutingOptions, RoutingRequest};
+    use crate::contract::{AnchorKitContract, AnchorKitContractClient};
+    use crate::types::{RoutingOptions, RoutingRequest};
     use crate::sep10_test_util::register_attestor_with_sep10;
 
     fn make_env() -> Env {
