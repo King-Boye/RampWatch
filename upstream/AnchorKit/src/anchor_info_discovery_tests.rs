@@ -161,7 +161,7 @@ mod anchor_info_discovery_tests {
 
         client.fetch_anchor_info(&anchor, &sample_toml(&env), &3600u64);
 
-        let assets = client.get_anchor_assets(&anchor);
+        let assets = client.get_anchor_assets(&anchor).unwrap();
         assert_eq!(assets.len(), 2);
         assert!(assets.contains(&String::from_str(&env, "USDC")));
         assert!(assets.contains(&String::from_str(&env, "XLM")));
@@ -186,10 +186,26 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
+        // Cached TOML but asset code doesn't exist — should error
         client.fetch_anchor_info(&anchor, &sample_toml(&env), &3600u64);
 
         let result = client.try_get_anchor_asset_info(&anchor, &String::from_str(&env, "BTC"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_anchor_assets_uncached_returns_error() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        // No fetch_anchor_info call — cache is empty
+        let result = client.try_get_anchor_assets(&anchor);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            crate::errors::ErrorCode::CacheNotFound
+        );
     }
 
     #[test]
