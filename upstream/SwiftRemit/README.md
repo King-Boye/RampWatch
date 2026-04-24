@@ -582,3 +582,19 @@ import { VerificationBadge } from './components/VerificationBadge';
 - [ ] Agent reputation system
 - [ ] Dispute resolution mechanism
 - [ ] Time-locked escrow options
+
+## Error Codes & Troubleshooting
+
+| Code | Error Name | Common Cause | Resolution Steps |
+| :--- | :--- | :--- | :--- |
+| **1** | AlreadyInitialized | Attempting to call initialize() on an active contract. | No action required. If re-configuration is needed, check if an update function exists. |
+| **2** | NotInitialized | Operations attempted before the contract setup is complete. | The administrator must call the initialize() function with valid parameters. |
+| **3** | InvalidAmount | Providing zero or negative values for remittance. | Ensure the transfer amount is a positive integer greater than 0. |
+| **4** | InvalidFeeBps | Fee percentage is set outside the 0-100% (0-10000 bps) range. | Adjust the basis points to fall within the valid range (e.g., 2.5% = 250 bps). |
+| **5** | AgentNotRegistered | Using an address that hasn't been added to the whitelist. | Register the agent address first using the egister_agent function. |
+| **6** | RemittanceNotFound | Querying an ID that does not exist on the ledger. | Verify the Remittance ID from your transaction history or event logs. |
+| **7** | InvalidStatus | Operation not allowed in current state (e.g. canceling a settled payment). | Check the current status of the remittance via get_remittance before retrying. |
+| **11** | SettlementExpired | The time-lock for the remittance has passed. | The sender may need to cancel and recreate the remittance with a new deadline. |
+| **12** | DuplicateSettlement | The payment was already claimed or processed. | Check the transaction ledger; the funds have likely already been disbursed. |
+| **13** | ContractPaused | Circuit breaker active due to maintenance or emergency. | Monitor the project's official status channels; wait for the admin to unpause. |
+
