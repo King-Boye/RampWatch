@@ -74,6 +74,18 @@ See complete deposit/withdraw workflow:
 cargo run --example cli_example
 ```
 
+Credential management examples:
+
+```bash
+# Linux/macOS
+./examples/credential_management.sh
+```
+
+```powershell
+# Windows
+.\examples\credential_management.ps1
+```
+
 Use the new CLI binary for machine-friendly command output:
 
 ```bash
