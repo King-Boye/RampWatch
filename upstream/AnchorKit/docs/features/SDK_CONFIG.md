@@ -4,6 +4,21 @@
 
 The SDK Configuration module provides a type-safe way to configure AnchorKit SDK client connections with network settings, anchor domains, timeouts, and custom HTTP headers.
 
+## Table of Contents
+
+- [Data Structures](#data-structures)
+- [Feature Flags](#feature-flags)
+- [Validation Rules](#validation-rules)
+- [Usage Example](#usage-example)
+- [Configuration Form](#configuration-form)
+- [Security Considerations](#security-considerations)
+- [Best Practices](#best-practices)
+- [Integration with AnchorKit](#integration-with-anchorkit)
+- [Testing](#testing)
+- [Error Handling](#error-handling)
+- [Future Enhancements](#future-enhancements)
+- [Related Documentation](#related-documentation)
+
 ## Data Structures
 
 ### SdkConfig
@@ -40,6 +55,108 @@ pub struct HttpHeader {
     pub value: String,
 }
 ```
+
+## Feature Flags
+
+### mock-only
+
+The `mock-only` feature flag is defined in `Cargo.toml` but is **currently not implemented** in the codebase.
+
+#### Current Status
+
+⚠️ **Important**: This feature flag exists as a placeholder but does not currently affect code behavior. No conditional compilation directives (`#[cfg(feature = "mock-only")]`) are present in the source code.
+
+#### Intended Purpose
+
+When implemented, the `mock-only` feature would be designed for:
+- **Unit testing**: Run tests without external dependencies
+- **Development**: Develop and debug without live anchor services  
+- **CI/CD pipelines**: Ensure tests run reliably in isolated environments
+- **Integration testing**: Test application logic with predictable responses
+
+#### Current Usage
+
+Currently, you can build with the feature flag, but it has no effect:
+
+```bash
+# This builds successfully but mock-only has no effect
+cargo build --no-default-features --features mock-only
+cargo test --no-default-features --features mock-only
+```
+
+#### Implementation Status
+
+To implement this feature, the codebase would need:
+
+1. **Conditional compilation directives** in relevant modules:
+```rust
+#[cfg(feature = "mock-only")]
+fn fetch_anchor_info() -> MockResponse {
+    // Mock implementation
+}
+
+#[cfg(not(feature = "mock-only"))]
+fn fetch_anchor_info() -> RealResponse {
+    // Real implementation  
+}
+```
+
+2. **Mock implementations** for:
+   - Network requests and HTTP calls
+   - SEP-10 authentication flows
+   - Transaction operations (deposits/withdrawals)
+   - Anchor discovery and info fetching
+   - Rate limiting and timing
+
+#### Mock Testing (Current Approach)
+
+Currently, mock testing is achieved through:
+
+1. **Soroban SDK test utilities**:
+```rust
+#[cfg(test)]
+mod tests {
+    use soroban_sdk::Env;
+    
+    #[test]
+    fn test_function() {
+        let env = Env::default();
+        env.mock_all_auths(); // Mock authentication
+        // Test logic here
+    }
+}
+```
+
+2. **Mock server for HTTP testing**:
+```bash
+# Start the mock anchor server
+python3 mock-server.py
+
+# Test against mock server
+export ANCHOR_URL=http://localhost:8080
+cargo test
+```
+
+#### Future Implementation
+
+To implement the `mock-only` feature:
+
+1. Add conditional compilation to network-related functions
+2. Create mock implementations that return predictable responses
+3. Ensure mock responses match real API schemas
+4. Add feature-specific tests to verify mock behavior
+
+#### CI/CD Integration
+
+The feature flag is tested in CI pipelines to ensure it compiles:
+
+```yaml
+# .github/workflows/feature-flag-matrix.yml
+- name: Build (mock-only)
+  run: cargo build --no-default-features --features mock-only
+```
+
+However, since the feature isn't implemented, this only verifies compilation compatibility.
 
 ## Validation Rules
 
@@ -179,14 +296,45 @@ The SDK configuration integrates with:
 - **Credential Management**: Headers can include auth tokens
 - **Health Monitoring**: Timeout affects health check intervals
 - **Rate Comparison**: Network selection determines available anchors
+- **Mock Testing**: Currently achieved through Soroban SDK test utilities and mock server
+
+### Mock Testing Integration
+
+Currently, mock testing is handled through existing mechanisms:
+
+```rust
+// Using Soroban SDK test utilities (current approach)
+let env = Env::default();
+env.mock_all_auths(); // Mock authentication for tests
+
+let config = SdkConfig {
+    network: NetworkType::Testnet,
+    anchor_domain: String::from("test.anchor.com"),
+    timeout_seconds: 30,
+    custom_headers: vec![],
+};
+
+// Tests use real implementations but with mocked Soroban environment
+```
+
+**Note**: The `mock-only` feature flag is defined but not yet implemented. When implemented, it would provide compile-time mock behavior.
 
 ## Testing
 
 Run the SDK configuration tests:
 
 ```bash
+# Run all tests with default features
 cargo test sdk_config_tests --lib
+
+# Build with mock-only feature (currently no behavioral difference)
+cargo build --no-default-features --features mock-only
+
+# Run specific configuration tests
+cargo test sdk_config --lib
 ```
+
+### Test Coverage
 
 Test coverage includes:
 - Valid configuration validation
@@ -195,6 +343,23 @@ Test coverage includes:
 - Header count limits
 - Header size constraints
 - Network type enum values
+- Feature flag compilation compatibility
+
+### Mock Testing (Current Implementation)
+
+Currently, mock testing uses Soroban SDK utilities:
+
+```bash
+# Standard test approach with Soroban mocking
+cargo test
+
+# Tests use env.mock_all_auths() for authentication mocking
+# Use mock-server.py for HTTP endpoint testing
+python3 mock-server.py &
+cargo test -- --test-threads=1
+```
+
+**Note**: The `mock-only` feature flag compiles but doesn't change test behavior yet.
 
 ## Error Handling
 
@@ -231,3 +396,5 @@ Potential improvements:
 - [HEALTH_MONITORING.md](./HEALTH_MONITORING.md) - Health check configuration
 - [API_SPEC.md](./API_SPEC.md) - API specifications
 - [QUICK_START.md](./QUICK_START.md) - Getting started guide
+- [STATUS_MONITOR.md](./STATUS_MONITOR.md) - Mock server and testing setup
+- [Mock Mode Example](../examples/mock_mode_example.sh) - Mock testing script
