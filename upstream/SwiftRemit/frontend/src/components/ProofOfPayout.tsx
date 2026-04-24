@@ -212,3 +212,4 @@ export const ProofOfPayout: React.FC<ProofOfPayoutProps> = ({ remittanceId, onRe
       )}
     </div>
   );
+};

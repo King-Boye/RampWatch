@@ -7,10 +7,10 @@
 
 /// HTML entities that need encoding
 const HTML_ENTITIES: Record<string, string> = {
-  '&': '&',
-  '<': '<',
-  '>': '>',
-  '"': '"',
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
   "'": '&#x27;',
   '/': '&#x2F;',
 };
