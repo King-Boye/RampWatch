@@ -449,7 +449,7 @@ The contract emits events for monitoring:
 
 ## Dependencies
 
-- `soroban-sdk = "21.7.0"` - Latest Soroban SDK
+- `soroban-sdk = "25.3.1"` - Latest Soroban SDK
 
 ## License
 
