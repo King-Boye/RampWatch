@@ -93,7 +93,7 @@ fn check_rust_version() -> bool {
             let version_str = String::from_utf8_lossy(&out.stdout);
             if let Some((major, minor)) = parse_rustc_version(&version_str) {
                 if major > MIN_RUST_MAJOR || (major == MIN_RUST_MAJOR && minor >= MIN_RUST_MINOR) {
-                    println!("✔ Rust toolchain detected ({})", version_str.trim());
+                    println!("✔ Rust {}.{} detected (meets minimum {}.{}+)", major, minor, MIN_RUST_MAJOR, MIN_RUST_MINOR);
                     true
                 } else {
                     println!(
