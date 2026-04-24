@@ -68,6 +68,7 @@ pub struct OperationContext {
     pub operation_type: String,
     pub timestamp: u64,
     pub status: String,
+    /// Human-readable outcome, e.g. `"attestation_id=42"`.
     pub result_summary: String,
 }
 
