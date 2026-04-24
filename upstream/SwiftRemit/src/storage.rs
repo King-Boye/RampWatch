@@ -1235,6 +1235,15 @@ pub fn require_role_admin(env: &Env, address: &Address) -> Result<(), ContractEr
     Ok(())
 }
 
+/// Requires that an agent address is registered and authenticated for agent-led actions.
+pub fn require_agent_authorized(env: &Env, address: &Address) -> Result<(), ContractError> {
+    if !is_agent_registered(env, address) {
+        return Err(ContractError::AgentNotRegistered);
+    }
+    address.require_auth();
+    Ok(())
+}
+
 /// Requires that the caller has Settler role
 pub fn require_role_settler(env: &Env, address: &Address) -> Result<(), ContractError> {
     if !has_role(env, address, &crate::Role::Settler) {
