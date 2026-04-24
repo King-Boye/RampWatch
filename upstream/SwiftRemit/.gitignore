@@ -2,6 +2,8 @@ target/
 Cargo.lock
 *.wasm
 *.optimized.wasm
+# ABI output — generated files are committed, but ignore any local overrides
+abi/*.json.local
 .soroban/
 .env
 
