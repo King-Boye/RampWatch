@@ -12,6 +12,7 @@ mod debug;
 mod error_handler;
 mod errors;
 mod events;
+mod fee_management;
 mod fee_service;
 mod fee_strategy;
 mod hashing;
@@ -36,6 +37,8 @@ mod test_escrow;
 mod test_fee_corridor;
 #[cfg(test)]
 mod test_fee_strategy;
+#[cfg(test)]
+mod test_fee_overflow;
 #[cfg(test)]
 mod test_integrator_fees;
 #[cfg(test)]
@@ -78,6 +81,7 @@ pub use debug::*;
 pub use error_handler::*;
 pub use errors::ContractError;
 pub use events::*;
+pub use fee_management::*;
 pub use fee_service::*;
 pub use fee_strategy::*;
 pub use hashing::*;
@@ -733,7 +737,8 @@ impl SwiftRemitContract {
         // Centralized validation before business logic (returns remittance to avoid re-read)
         let mut remittance = validate_confirm_payout_request(&env, remittance_id)?;
 
-        remittance.agent.require_auth();
+        // Validate that the assigned agent is registered and authenticated before any payout execution.
+        crate::storage::require_agent_authorized(&env, &remittance.agent)?;
 
         // Require Settler role
         require_role_settler(&env, &remittance.agent)?;
@@ -810,11 +815,8 @@ impl SwiftRemitContract {
             token_client.transfer(&env.current_contract_address(), &treasury, &protocol_fee);
         }
 
-        // Update accumulated fees
-        let new_fees = current_fees
-            .checked_add(remittance.fee)
-            .ok_or(ContractError::Overflow)?;
-        set_accumulated_fees(&env, new_fees);
+        // Update accumulated fees with overflow protection and automatic flush
+        safe_add_accumulated_fee(&env, remittance.fee)?;
 
         // Update analytics: add completed volume
         storage::add_completed_volume(&env, remittance.amount)?;
@@ -861,7 +863,7 @@ impl SwiftRemitContract {
 
     pub fn mark_failed(env: Env, remittance_id: u64) -> Result<(), ContractError> {
         let mut remittance = get_remittance(&env, remittance_id)?;
-        remittance.agent.require_auth();
+        crate::storage::require_agent_authorized(&env, &remittance.agent)?;
 
         if remittance.status != RemittanceStatus::Pending
             && remittance.status != RemittanceStatus::Processing
@@ -985,7 +987,7 @@ impl SwiftRemitContract {
         }
 
         let mut remittance = get_remittance(&env, remittance_id)?;
-        remittance.agent.require_auth();
+        crate::storage::require_agent_authorized(&env, &remittance.agent)?;
 
         if remittance.status != RemittanceStatus::Pending
             && remittance.status != RemittanceStatus::Processing
@@ -1023,11 +1025,8 @@ impl SwiftRemitContract {
 
         // If fully disbursed, collect fee and complete
         if new_total >= net_payout {
-            let current_fees = get_accumulated_fees(&env)?;
-            let new_fees = current_fees
-                .checked_add(remittance.fee)
-                .ok_or(ContractError::Overflow)?;
-            set_accumulated_fees(&env, new_fees);
+            // Update accumulated fees with overflow protection and automatic flush
+            safe_add_accumulated_fee(&env, remittance.fee)?;
 
             storage::add_completed_volume(&env, remittance.amount)?;
 
@@ -2096,7 +2095,7 @@ impl SwiftRemitContract {
             // Execute the net transfer from contract to recipient
             token_client.transfer(&env.current_contract_address(), &to, &payout_amount);
 
-            // Accumulate fees in memory
+            // Accumulate fees in memory with overflow check
             current_fees = current_fees
                 .checked_add(transfer.total_fees)
                 .ok_or(ContractError::Overflow)?;
@@ -2119,7 +2118,14 @@ impl SwiftRemitContract {
         }
 
         // Write accumulated fees once at the end
-        set_accumulated_fees(&env, current_fees);
+        // For batch settlement, check if accumulation would exceed MAX_FEES
+        if current_fees > MAX_FEES {
+            // Flush current accumulated fees and write new total
+            trigger_flush(&env, current_fees)?;
+            set_accumulated_fees(&env, 0);
+        } else {
+            set_accumulated_fees(&env, current_fees);
+        }
 
         // Mark all remittances as completed and set settlement hashes
         let mut settled_ids = Vec::new(&env);

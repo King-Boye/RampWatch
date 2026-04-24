@@ -414,6 +414,31 @@ pub fn emit_fees_withdrawn(env: &Env, caller: Address, to: Address, token: Addre
     );
 }
 
+/// Emits an event when accumulated fees are automatically flushed to treasury.
+///
+/// This event is triggered when accumulated fees exceed MAX_FEES threshold,
+/// indicating automatic transfer of fees to the treasury and counter reset.
+///
+/// # Arguments
+///
+/// * `env` - The contract execution environment
+/// * `treasury` - Address of the treasury that received the fees
+/// * `token` - Token address (USDC)
+/// * `amount` - Amount of fees flushed
+pub fn emit_fees_flushed(env: &Env, treasury: Address, token: Address, amount: i128) {
+    env.events().publish(
+        (symbol_short!("fee"), symbol_short!("flushed")),
+        (
+            SCHEMA_VERSION,
+            env.ledger().sequence(),
+            env.ledger().timestamp(),
+            treasury,
+            token,
+            amount,
+        ),
+    );
+}
+
 /// Emits an event when the protocol fee is updated.
 ///
 /// # Arguments
