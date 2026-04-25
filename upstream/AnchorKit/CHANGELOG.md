@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Anchor Health Score**: New `get_anchor_health_score` function that computes a 0-100 health score from cached metadata, combining uptime (40%), reputation (35%), and settlement speed (25%) into a single metric
+- Comprehensive test suite for health score calculation with 12 test cases covering various scenarios
+- Feature documentation for anchor health score (docs/features/ANCHOR_HEALTH_SCORE.md)
+- Quick reference guide for health score usage (docs/guides/HEALTH_SCORE_QUICK_REF.md)
+- Example script demonstrating health score evaluation (examples/health_score_example.sh)
 - Comprehensive CONTRIBUTING.md with contributor guidelines
 - MIT LICENSE file at repository root
 - Unit tests for domain_validator edge cases (Unicode/IDN, IP addresses, trailing slashes, length boundaries)

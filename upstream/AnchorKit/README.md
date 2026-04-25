@@ -13,6 +13,7 @@ AnchorKit is a Soroban-native toolkit for anchoring off-chain attestations to St
 - Service capability discovery (deposits, withdrawals, quotes, KYC)
 - **Anchor Info Discovery** (fetch and parse stellar.toml, cache assets/fees/limits)
 - **Health monitoring** (latency, failures, availability)
+- **Anchor Health Score** (0-100 composite score from uptime, reputation, and settlement speed)
 - **Metadata caching** (TTL-based with manual refresh)
 - **Request ID propagation** (UUID per flow with tracing)
 - Event emission for all state changes
@@ -60,6 +61,16 @@ let payload_hash = contract.compute_payload_hash_public(&env, subject, timestamp
 // Use same inputs on-chain to verify attestation matches expected hash
 let expected_hash = deterministic_hash::compute_payload_hash(&env, &subject, timestamp, &payload_data);
 assert_eq!(payload_hash, expected_hash);
+
+// NEW: Get anchor health score (0-100)
+let health_score = contract.get_anchor_health_score(&env, &anchor);
+if health_score >= 80 {
+    // High-quality anchor - proceed with confidence
+} else if health_score >= 60 {
+    // Acceptable anchor - monitor performance
+} else {
+    // Consider alternative anchors
+}
 ```
 
 ## CLI Example
