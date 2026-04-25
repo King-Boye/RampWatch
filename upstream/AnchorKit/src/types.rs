@@ -229,6 +229,9 @@ pub struct AssetInfo {
     pub deposit_max_amount: u64,
     pub withdrawal_min_amount: u64,
     pub withdrawal_max_amount: u64,
+    /// Number of decimal places for the asset (e.g. 7 for USDC on Stellar).
+    /// Parsed from the `significant_decimals` field of stellar.toml; defaults to 7.
+    pub decimals: u32,
 }
 
 #[contracttype]

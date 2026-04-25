@@ -133,10 +133,12 @@ mod metadata_cache_tests {
         // verify it's there
         let _ = client.get_cached_metadata(&anchor);
 
-        // refresh (invalidate)
-        client.refresh_metadata_cache(&anchor);
+        // #272: refresh now returns the cached data so callers avoid a second read
+        let refreshed = client.refresh_metadata_cache(&anchor);
+        assert_eq!(refreshed.reputation_score, 9000);
+        assert_eq!(refreshed.is_active, true);
 
-        // now it should be gone
+        // entry is gone after refresh
         let result = client.try_get_cached_metadata(&anchor);
         assert!(result.is_err());
     }
@@ -323,7 +325,7 @@ mod metadata_cache_tests {
         assert!(list.contains(&anchor2));
 
         // Invalidate anchor1 — it should be removed from the list
-        client.refresh_metadata_cache(&anchor1);
+        let _ = client.refresh_metadata_cache(&anchor1);
 
         let list = client.list_cached_anchors();
         assert_eq!(list.len(), 1);

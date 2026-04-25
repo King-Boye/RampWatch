@@ -46,6 +46,7 @@ mod anchor_info_discovery_tests {
             deposit_max_amount: 1_000_000,
             withdrawal_min_amount: 500,
             withdrawal_max_amount: 500_000,
+            decimals: 7,
         }
     }
 
@@ -63,6 +64,7 @@ mod anchor_info_discovery_tests {
             deposit_max_amount: 10_000_000,
             withdrawal_min_amount: 100,
             withdrawal_max_amount: 10_000_000,
+            decimals: 7,
         }
     }
 
@@ -438,6 +440,7 @@ mod anchor_info_discovery_tests {
             deposit_max_amount: 500_000,
             withdrawal_min_amount: 0,
             withdrawal_max_amount: 0,
+            decimals: 7,
         });
         let mut accounts2 = Vec::new(&env);
         accounts2.push_back(String::from_str(&env, "GANCHOR2"));
@@ -500,6 +503,59 @@ mod anchor_info_discovery_tests {
         assert_eq!(dep_pct, 10);
         assert_eq!(wit_fixed, 50);
         assert_eq!(wit_pct, 5);
+    }
+
+    // #273: decimals field is stored and returned with the asset info.
+    #[test]
+    fn test_asset_decimals() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+
+        // USDC and XLM both use 7 decimals on Stellar (the default)
+        let usdc = client.get_anchor_asset_info(&anchor, &String::from_str(&env, "USDC"));
+        assert_eq!(usdc.decimals, 7);
+
+        let xlm = client.get_anchor_asset_info(&anchor, &String::from_str(&env, "XLM"));
+        assert_eq!(xlm.decimals, 7);
+
+        // An asset with non-default decimals is stored and returned as-is
+        let mut currencies = Vec::new(&env);
+        currencies.push_back(AssetInfo {
+            code: String::from_str(&env, "BTCLN"),
+            issuer: String::from_str(&env, "GBTC123"),
+            deposit_enabled: true,
+            withdrawal_enabled: true,
+            deposit_fee_fixed: 0,
+            deposit_fee_percent: 0,
+            withdrawal_fee_fixed: 0,
+            withdrawal_fee_percent: 0,
+            deposit_min_amount: 1,
+            deposit_max_amount: 1_000,
+            withdrawal_min_amount: 1,
+            withdrawal_max_amount: 1_000,
+            decimals: 8,
+        });
+        let mut accounts = Vec::new(&env);
+        accounts.push_back(String::from_str(&env, "GANCHOR3"));
+        let toml_btc = StellarToml {
+            version: String::from_str(&env, "2.0.0"),
+            network_passphrase: String::from_str(&env, "Test SDF Network ; September 2015"),
+            accounts,
+            signing_key: None,
+            currencies,
+            fiat_currencies: Vec::new(&env),
+            transfer_server: String::from_str(&env, "https://btc.example.com"),
+            transfer_server_sep0024: String::from_str(&env, "https://btc.example.com/sep24"),
+            kyc_server: String::from_str(&env, "https://kyc.example.com"),
+            web_auth_endpoint: String::from_str(&env, "https://auth.example.com"),
+        };
+        let anchor2 = Address::generate(&env);
+        client.fetch_anchor_info(&anchor2, &toml_btc, &Some(3600u64));
+        let btcln = client.get_anchor_asset_info(&anchor2, &String::from_str(&env, "BTCLN"));
+        assert_eq!(btcln.decimals, 8);
     }
 
  feat/get-anchor-currencies
