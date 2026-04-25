@@ -319,3 +319,59 @@ pub struct IdempotencyRecord {
     /// Timestamp when this record expires (ledger timestamp)
     pub expires_at: u64,
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Governance Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The action a governance proposal will execute if approved.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProposalAction {
+    /// Update the platform fee to the given basis points value.
+    UpdateFee(u32),
+    /// Register the given address as a payout agent.
+    RegisterAgent(Address),
+    /// Remove the given address from the payout agent set.
+    RemoveAgent(Address),
+    /// Grant Admin role to the given address.
+    AddAdmin(Address),
+    /// Revoke Admin role from the given address.
+    RemoveAdmin(Address),
+    /// Update the governance quorum threshold.
+    UpdateQuorum(u32),
+    /// Update the governance execution timelock in seconds.
+    UpdateTimelock(u64),
+}
+
+/// Lifecycle state of a governance proposal.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProposalState {
+    Pending,
+    Approved,
+    Executed,
+    Expired,
+}
+
+/// A governance proposal record stored on-chain.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Proposal {
+    /// Unique monotonically increasing proposal identifier.
+    pub id: u64,
+    /// Address that created this proposal.
+    pub proposer: Address,
+    /// The action to execute when approved.
+    pub action: ProposalAction,
+    /// Current lifecycle state.
+    pub state: ProposalState,
+    /// Ledger timestamp when the proposal was created.
+    pub created_at: u64,
+    /// Ledger timestamp after which the proposal expires if not executed.
+    pub expiry: u64,
+    /// Number of distinct admin approvals received.
+    pub approval_count: u32,
+    /// Ledger timestamp when quorum was reached (set on Approved transition).
+    pub approval_timestamp: Option<u64>,
+}

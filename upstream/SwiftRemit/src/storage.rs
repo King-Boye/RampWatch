@@ -240,17 +240,41 @@ enum DataKey {
 
     /// Minimum number of admin votes required to unpause (instance storage, default 1).
     UnpauseQuorum,
-    // === Token Fee Configuration ===
-    /// Token-specific fee in basis points indexed by token address (persistent storage).
-    TokenFeeBps(Address),
-
-    // === Agent Statistics ===
-    /// Agent performance statistics indexed by agent address (persistent storage).
-    AgentStats(Address),
 
     // === Recipient Address Verification ===
     /// Stored recipient hash record indexed by remittance_id (persistent storage).
     RecipientHash(u64),
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Governance Keys
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Monotonically increasing proposal ID counter (instance storage).
+    GovernanceProposalCounter,
+
+    /// Proposal record indexed by proposal_id (persistent storage).
+    GovernanceProposal(u64),
+
+    /// Vote flag: (proposal_id, voter_address) → bool (persistent storage).
+    GovernanceVote(u64, Address),
+
+    /// Configured quorum for governance proposals (instance storage).
+    GovernanceQuorum,
+
+    /// Timelock in seconds between approval and execution (instance storage).
+    GovernanceTimelockSeconds,
+
+    /// TTL in seconds for proposals before they expire (instance storage).
+    GovernanceProposalTtl,
+
+    /// Proposal ID of the currently active fee proposal, if any (instance storage).
+    ActiveFeeProposal,
+
+    /// Flag: governance has been initialized via migrate_to_governance (instance storage).
+    GovernanceInitialized,
+
+    /// Ordered list of current admin addresses for iteration (instance storage).
+    AdminList,
 }
 
 #[contracttype]
@@ -1724,4 +1748,167 @@ pub fn append_sender_remittance(env: &Env, sender: &Address, remittance_id: u64)
 pub fn get_sender_remittances(env: &Env, sender: &Address) -> soroban_sdk::Vec<u64> {
     let _ = (env, sender);
     soroban_sdk::Vec::new(env)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Governance Storage Accessors
+// ─────────────────────────────────────────────────────────────────────────────
+
+use crate::{Proposal, ProposalAction, ProposalState};
+
+/// Returns the next proposal ID and increments the counter.
+pub fn next_proposal_id(env: &Env) -> u64 {
+    let current: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::GovernanceProposalCounter)
+        .unwrap_or(0u64);
+    let next = current + 1;
+    env.storage()
+        .instance()
+        .set(&DataKey::GovernanceProposalCounter, &next);
+    next
+}
+
+/// Retrieves a proposal by ID.
+pub fn get_proposal(env: &Env, id: u64) -> Result<Proposal, ContractError> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::GovernanceProposal(id))
+        .ok_or(ContractError::ProposalNotFound)
+}
+
+/// Stores a proposal record.
+pub fn set_proposal(env: &Env, proposal: &Proposal) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::GovernanceProposal(proposal.id), proposal);
+}
+
+/// Returns true if the given voter has already voted on the given proposal.
+pub fn has_governance_voted(env: &Env, proposal_id: u64, voter: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .has(&DataKey::GovernanceVote(proposal_id, voter.clone()))
+}
+
+/// Records that the given voter has voted on the given proposal.
+pub fn record_governance_vote(env: &Env, proposal_id: u64, voter: &Address) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::GovernanceVote(proposal_id, voter.clone()), &true);
+}
+
+/// Returns the configured governance quorum (defaults to 1).
+pub fn get_governance_quorum(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::GovernanceQuorum)
+        .unwrap_or(1u32)
+}
+
+/// Stores the governance quorum.
+pub fn set_governance_quorum(env: &Env, quorum: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::GovernanceQuorum, &quorum);
+}
+
+/// Returns the governance execution timelock in seconds (defaults to 0).
+pub fn get_governance_timelock(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::GovernanceTimelockSeconds)
+        .unwrap_or(0u64)
+}
+
+/// Stores the governance execution timelock in seconds.
+pub fn set_governance_timelock(env: &Env, seconds: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::GovernanceTimelockSeconds, &seconds);
+}
+
+/// Returns the proposal TTL in seconds (defaults to 7 days).
+pub fn get_proposal_ttl(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::GovernanceProposalTtl)
+        .unwrap_or(604_800u64)
+}
+
+/// Stores the proposal TTL in seconds.
+pub fn set_proposal_ttl(env: &Env, seconds: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::GovernanceProposalTtl, &seconds);
+}
+
+/// Returns the list of current admin addresses.
+pub fn get_admin_list(env: &Env) -> soroban_sdk::Vec<Address> {
+    env.storage()
+        .instance()
+        .get(&DataKey::AdminList)
+        .unwrap_or_else(|| soroban_sdk::Vec::new(env))
+}
+
+/// Adds an address to the admin list if not already present.
+pub fn add_admin_to_list(env: &Env, admin: &Address) {
+    let mut list = get_admin_list(env);
+    // Avoid duplicates
+    for i in 0..list.len() {
+        if list.get(i).unwrap() == *admin {
+            return;
+        }
+    }
+    list.push_back(admin.clone());
+    env.storage().instance().set(&DataKey::AdminList, &list);
+}
+
+/// Removes an address from the admin list.
+pub fn remove_admin_from_list(env: &Env, admin: &Address) {
+    let list = get_admin_list(env);
+    let mut new_list: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(env);
+    for i in 0..list.len() {
+        let entry = list.get(i).unwrap();
+        if entry != *admin {
+            new_list.push_back(entry);
+        }
+    }
+    env.storage().instance().set(&DataKey::AdminList, &new_list);
+}
+
+/// Returns the proposal ID of the currently active fee proposal, if any.
+pub fn get_active_fee_proposal(env: &Env) -> Option<u64> {
+    env.storage()
+        .instance()
+        .get(&DataKey::ActiveFeeProposal)
+}
+
+/// Sets or clears the active fee proposal guard.
+pub fn set_active_fee_proposal(env: &Env, proposal_id: Option<u64>) {
+    match proposal_id {
+        Some(id) => env
+            .storage()
+            .instance()
+            .set(&DataKey::ActiveFeeProposal, &id),
+        None => env
+            .storage()
+            .instance()
+            .remove(&DataKey::ActiveFeeProposal),
+    }
+}
+
+/// Returns true if governance has been initialized.
+pub fn is_governance_initialized(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .has(&DataKey::GovernanceInitialized)
+}
+
+/// Marks governance as initialized.
+pub fn set_governance_initialized(env: &Env) {
+    env.storage()
+        .instance()
+        .set(&DataKey::GovernanceInitialized, &true);
 }

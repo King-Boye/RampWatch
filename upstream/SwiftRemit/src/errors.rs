@@ -294,24 +294,62 @@ pub enum ContractError {
     /// Pause record not found for the given sequence number.
     /// Cause: `get_pause_record` called with a sequence number that does not exist.
     PauseRecordNotFound = 62,
-    // Recipient Address Verification Errors (56-59)
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Recipient Address Verification Errors (63-66)
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// Supplied recipient hash is not exactly 32 bytes.
     /// Cause: Passing a hash of incorrect length to create_remittance.
-    InvalidRecipientHash = 56,
+    InvalidRecipientHash = 63,
 
     /// Hash-protected remittance called without supplying a recipient hash.
     /// Cause: confirm_payout called on a remittance that has a stored hash, but no hash was supplied.
-    MissingRecipientHash = 57,
+    MissingRecipientHash = 64,
 
     /// Supplied recipient hash does not match the stored hash.
     /// Cause: The agent-supplied hash differs from the hash registered at creation time.
-    RecipientHashMismatch = 58,
+    RecipientHashMismatch = 65,
 
     /// Stored hash schema version differs from the current contract schema version.
     /// Cause: The remittance was created with a different serialization schema.
-    RecipientHashSchemaMismatch = 59,
+    RecipientHashSchemaMismatch = 66,
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Governance Errors (67-74)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// A proposal with this action type is already pending or approved.
+    /// Cause: Submitting a second fee-update proposal while one is active.
+    ProposalAlreadyPending = 67,
+
+    /// The proposal was not found.
+    /// Cause: Querying or operating on a non-existent proposal_id.
+    ProposalNotFound = 68,
+
+    /// The proposal is not in the required state for this operation.
+    /// Cause: Calling execute() on a non-Approved proposal, or expire on a non-expired one.
+    InvalidProposalState = 69,
+
+    /// The governance execution timelock has not yet elapsed.
+    /// Cause: Calling execute() before approval_timestamp + timelock_seconds.
+    TimelockNotElapsed = 70,
+
+    /// The address is already an Admin.
+    /// Cause: Submitting an AddAdmin proposal for an address that already holds Role::Admin.
+    AlreadyAdmin = 71,
+
+    /// Removing this admin would drop the admin count below the quorum or below 1.
+    /// Cause: Submitting a RemoveAdmin proposal that would violate the minimum admin invariant.
+    InsufficientAdmins = 72,
+
+    /// The agent is already registered.
+    /// Cause: Submitting a RegisterAgent proposal for an already-registered agent.
+    AgentAlreadyRegistered = 73,
+
+    /// Governance has already been initialized via migrate_to_governance.
+    /// Cause: Calling migrate_to_governance() a second time.
+    GovernanceAlreadyInitialized = 74,
 }
 
 #[cfg(test)]
@@ -386,6 +424,18 @@ mod tests {
             (ContractError::InvalidTimelockDuration,     60),
             (ContractError::InvalidQuorum,               61),
             (ContractError::PauseRecordNotFound,         62),
+            (ContractError::InvalidRecipientHash,        63),
+            (ContractError::MissingRecipientHash,        64),
+            (ContractError::RecipientHashMismatch,       65),
+            (ContractError::RecipientHashSchemaMismatch, 66),
+            (ContractError::ProposalAlreadyPending,      67),
+            (ContractError::ProposalNotFound,            68),
+            (ContractError::InvalidProposalState,        69),
+            (ContractError::TimelockNotElapsed,          70),
+            (ContractError::AlreadyAdmin,                71),
+            (ContractError::InsufficientAdmins,          72),
+            (ContractError::AgentAlreadyRegistered,      73),
+            (ContractError::GovernanceAlreadyInitialized, 74),
         ];
 
         // Assert each variant maps to its expected discriminant.

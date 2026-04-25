@@ -532,6 +532,9 @@ pub fn emit_circuit_breaker_unpaused(env: &Env, caller: Address, timestamp: u64)
             timestamp,
             caller,
         ),
+    );
+}
+
 // ── Recipient Address Verification Events ─────────────────────────
 
 /// Emits an event when a recipient hash is registered for a remittance.
@@ -669,5 +672,81 @@ pub fn emit_treasury_updated(
     env.events().publish(
         (Symbol::new(env, "treasury_upd"),),
         (caller, old_treasury, new_treasury),
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Governance Events
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Emits when any governance proposal is created.
+pub fn emit_proposal_created(env: &Env, proposal_id: u64, proposer: Address, action_type: Symbol, expiry: u64) {
+    env.events().publish(
+        (Symbol::new(env, "gov"), Symbol::new(env, "proposed")),
+        (SCHEMA_VERSION, proposal_id, proposer, action_type, expiry),
+    );
+}
+
+/// Emits when an admin casts a vote on a proposal.
+pub fn emit_proposal_voted(env: &Env, proposal_id: u64, voter: Address, approval_count: u32) {
+    env.events().publish(
+        (Symbol::new(env, "gov"), Symbol::new(env, "voted")),
+        (SCHEMA_VERSION, proposal_id, voter, approval_count),
+    );
+}
+
+/// Emits when a proposal reaches quorum and transitions to Approved.
+pub fn emit_proposal_approved(env: &Env, proposal_id: u64, approval_timestamp: u64) {
+    env.events().publish(
+        (Symbol::new(env, "gov"), Symbol::new(env, "approved")),
+        (SCHEMA_VERSION, proposal_id, approval_timestamp),
+    );
+}
+
+/// Emits when a proposal is successfully executed.
+pub fn emit_proposal_executed(env: &Env, proposal_id: u64, executor: Address) {
+    env.events().publish(
+        (Symbol::new(env, "gov"), Symbol::new(env, "executed")),
+        (SCHEMA_VERSION, proposal_id, executor),
+    );
+}
+
+/// Emits when a proposal is transitioned to Expired state.
+pub fn emit_proposal_expired(env: &Env, proposal_id: u64) {
+    env.events().publish(
+        (Symbol::new(env, "gov"), Symbol::new(env, "expired")),
+        (SCHEMA_VERSION, proposal_id),
+    );
+}
+
+/// Emits when a new admin is added via governance execution.
+pub fn emit_governance_admin_added(env: &Env, admin: Address, proposal_id: u64) {
+    env.events().publish(
+        (Symbol::new(env, "gov"), Symbol::new(env, "adm_added")),
+        (SCHEMA_VERSION, admin, proposal_id),
+    );
+}
+
+/// Emits when an admin is removed via governance execution.
+pub fn emit_governance_admin_removed(env: &Env, admin: Address, proposal_id: u64) {
+    env.events().publish(
+        (Symbol::new(env, "gov"), Symbol::new(env, "adm_rmvd")),
+        (SCHEMA_VERSION, admin, proposal_id),
+    );
+}
+
+/// Emits when a fee-update proposal is created.
+pub fn emit_fee_update_proposed(env: &Env, proposal_id: u64, fee_bps: u32) {
+    env.events().publish(
+        (Symbol::new(env, "gov"), Symbol::new(env, "fee_prop")),
+        (SCHEMA_VERSION, proposal_id, fee_bps),
+    );
+}
+
+/// Emits when an agent-management proposal is created.
+pub fn emit_agent_management_proposed(env: &Env, proposal_id: u64, agent: Address, action: Symbol) {
+    env.events().publish(
+        (Symbol::new(env, "gov"), Symbol::new(env, "agt_prop")),
+        (SCHEMA_VERSION, proposal_id, agent, action),
     );
 }
