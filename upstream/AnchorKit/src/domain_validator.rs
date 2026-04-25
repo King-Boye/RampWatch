@@ -84,6 +84,15 @@ pub fn validate_anchor_domain(domain: &str) -> Result<(), AnchorKitError> {
     Ok(())
 }
 
+/// Validates multiple anchor domain URLs in one call.
+///
+/// Results are returned in the same order as the input slice.
+/// Each entry is `Ok(())` when the corresponding URL is valid, or
+/// `Err(AnchorKitError)` when it fails validation.
+pub fn validate_anchor_domain_batch(urls: &[&str]) -> Vec<Result<(), AnchorKitError>> {
+    urls.iter().map(|url| validate_anchor_domain(url)).collect()
+}
+
 /// Validates the host portion of a URL
 fn validate_host(host: &str) -> Result<(), AnchorKitError> {
     // Check for empty host
@@ -111,9 +120,13 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
             }
         }
         
-        // Validate port range (1-65535)
+        // Validate port range (1-65535); reject port 80 since this validator
+        // is HTTPS-only and port 80 is the HTTP default — not a valid HTTPS port.
         if let Ok(port) = port_str.parse::<u32>() {
             if port == 0 || port > 65535 {
+                return Err(AnchorKitError::invalid_endpoint_format());
+            }
+            if port == 80 {
                 return Err(AnchorKitError::invalid_endpoint_format());
             }
         } else {
@@ -307,11 +320,12 @@ mod tests {
     fn test_port_validation() {
         // Valid ports
         assert!(validate_anchor_domain("https://example.com:1").is_ok());
-        assert!(validate_anchor_domain("https://example.com:80").is_ok());
+        // port 80 is HTTP-only; rejected for HTTPS
+        assert!(validate_anchor_domain("https://example.com:80").is_err());
         assert!(validate_anchor_domain("https://example.com:443").is_ok());
         assert!(validate_anchor_domain("https://example.com:8080").is_ok());
         assert!(validate_anchor_domain("https://example.com:65535").is_ok());
-        
+
         // Invalid ports
         assert!(validate_anchor_domain("https://example.com:0").is_err());
         assert!(validate_anchor_domain("https://example.com:65536").is_err());
@@ -499,11 +513,28 @@ mod tests {
         assert!(validate_anchor_domain("https://example.com/path\\backslash").is_err());
     }
 
+    // #271: port 443 accepted when explicit; port 80 rejected for HTTPS.
+    #[test]
+    fn test_https_port_semantics() {
+        // Port 443 explicitly specified is valid HTTPS
+        assert!(validate_anchor_domain("https://anchor.example.com:443/sep6").is_ok());
+        assert!(validate_anchor_domain("https://anchor.example.com:443").is_ok());
+
+        // Port 80 is the HTTP default and must be rejected for HTTPS URLs
+        assert!(validate_anchor_domain("https://anchor.example.com:80/sep6").is_err());
+        assert!(validate_anchor_domain("https://anchor.example.com:80").is_err());
+
+        // Other non-standard ports remain valid
+        assert!(validate_anchor_domain("https://anchor.example.com:8443").is_ok());
+        assert!(validate_anchor_domain("https://anchor.example.com:3000").is_ok());
+    }
+
     #[test]
     fn test_port_edge_cases() {
         // Valid port ranges
         assert!(validate_anchor_domain("https://example.com:1").is_ok());
-        assert!(validate_anchor_domain("https://example.com:80").is_ok());
+        // port 80 now rejected for HTTPS
+        assert!(validate_anchor_domain("https://example.com:80").is_err());
         assert!(validate_anchor_domain("https://example.com:443").is_ok());
         assert!(validate_anchor_domain("https://example.com:8080").is_ok());
         assert!(validate_anchor_domain("https://example.com:65535").is_ok());
@@ -542,6 +573,26 @@ mod tests {
         assert!(validate_anchor_domain("wss://example.com").is_err());
         assert!(validate_anchor_domain("file://example.com").is_err());
         assert!(validate_anchor_domain("mailto:example@example.com").is_err());
+    }
+
+    // #270: batch validation returns per-URL results in input order.
+    #[test]
+    fn test_validate_anchor_domain_batch() {
+        let urls = [
+            "https://valid.example.com",
+            "http://invalid-protocol.com",
+            "https://another.valid.org/sep6",
+            "not-a-url",
+            "https://also-valid.io:8443",
+        ];
+        let results = validate_anchor_domain_batch(&urls);
+
+        assert_eq!(results.len(), 5);
+        assert!(results[0].is_ok(),  "valid HTTPS domain should pass");
+        assert!(results[1].is_err(), "HTTP domain should fail");
+        assert!(results[2].is_ok(),  "valid HTTPS with path should pass");
+        assert!(results[3].is_err(), "bare non-URL string should fail");
+        assert!(results[4].is_ok(),  "valid HTTPS with non-80 port should pass");
     }
 
     #[test]

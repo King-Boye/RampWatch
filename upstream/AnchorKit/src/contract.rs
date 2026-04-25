@@ -211,6 +211,9 @@ pub struct AssetInfo {
     pub deposit_max_amount: u64,
     pub withdrawal_min_amount: u64,
     pub withdrawal_max_amount: u64,
+    /// Number of decimal places for the asset (e.g. 7 for USDC on Stellar).
+    /// Parsed from the `significant_decimals` field of stellar.toml; defaults to 7.
+    pub decimals: u32,
 }
 
 /// Represents a fiat currency supported by an anchor (e.g. USD, EUR).
@@ -1352,9 +1355,13 @@ impl AnchorKitContract {
         Some(now.saturating_sub(entry.cached_at))
     }
 
-    pub fn refresh_metadata_cache(env: Env, anchor: Address) {
+    // #272: return the cached data so callers avoid a second storage read.
+    pub fn refresh_metadata_cache(env: Env, anchor: Address) -> AnchorMetadata {
         Self::require_admin(&env);
         let key = StorageKey::MetadataCache(anchor.clone());
+        let entry: MetadataCache = env.storage().temporary().get(&key)
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::CacheNotFound));
+        let metadata = entry.metadata.clone();
         env.storage().temporary().remove(&key);
 
         // Issue #276: remove from CACHED_ANCHORS set
@@ -1369,6 +1376,7 @@ impl AnchorKitContract {
             env.storage().persistent().set(&list_key, &new_list);
             env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
         }
+        metadata
     }
 
     /// Issue #276: list all anchors that currently have active metadata cache entries.
