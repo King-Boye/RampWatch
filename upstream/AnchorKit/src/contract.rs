@@ -1798,14 +1798,7 @@ impl AnchorKitContract {
         Ok(toml.fiat_currencies)
     }
 
-    pub fn get_anchor_asset_info(
-        env: Env,
-        anchor: Address,
-        asset_code: String,
-    ) -> AssetInfo {
-
     pub fn get_anchor_asset_info(env: Env, anchor: Address, asset_code: String) -> AssetInfo {
- main
         let toml = Self::get_anchor_toml(env.clone(), anchor);
         for asset in toml.currencies.iter() {
             if asset.code == asset_code {
