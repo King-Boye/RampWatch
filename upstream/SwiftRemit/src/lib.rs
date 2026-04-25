@@ -63,6 +63,8 @@ mod test_transfer_state;
 mod test_transitions;
 #[cfg(test)]
 mod test_treasury;
+#[cfg(all(test, feature = "testnet-integration"))]
+mod test_testnet_integration;
 mod transaction_controller;
 mod transitions;
 mod types;
