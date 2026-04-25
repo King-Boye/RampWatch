@@ -75,6 +75,11 @@ mod verification;
 mod recipient_verification;
 #[cfg(test)]
 mod test_recipient_verification;
+mod governance;
+#[cfg(test)]
+mod test_governance;
+#[cfg(test)]
+mod test_governance_property;
 
 use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, String, Vec};
 
@@ -2844,5 +2849,83 @@ impl SwiftRemitContract {
     /// Returns the current `RECIPIENT_HASH_SCHEMA_VERSION`.
     pub fn rcpt_hash_schema_version() -> u32 {
         recipient_verification::get_recipient_hash_schema_version()
+    }
+
+    // ── Governance Entry Points ────────────────────────────────────────────
+
+    /// Creates a new governance proposal.
+    ///
+    /// The proposer must hold `Role::Admin`. Returns the new `proposal_id`.
+    pub fn propose(
+        env: Env,
+        proposer: Address,
+        action: ProposalAction,
+    ) -> Result<u64, ContractError> {
+        proposer.require_auth();
+        governance::do_propose(&env, &proposer, action)
+    }
+
+    /// Casts an approval vote on a pending proposal.
+    pub fn vote(
+        env: Env,
+        voter: Address,
+        proposal_id: u64,
+    ) -> Result<(), ContractError> {
+        voter.require_auth();
+        governance::do_vote(&env, &voter, proposal_id)
+    }
+
+    /// Executes an approved proposal after the timelock has elapsed.
+    pub fn execute(
+        env: Env,
+        executor: Address,
+        proposal_id: u64,
+    ) -> Result<(), ContractError> {
+        executor.require_auth();
+        governance::do_execute(&env, &executor, proposal_id)
+    }
+
+    /// Transitions an expired proposal to the Expired state.
+    ///
+    /// Can be called by any address once the proposal TTL has elapsed.
+    pub fn expire_proposal(env: Env, proposal_id: u64) -> Result<(), ContractError> {
+        governance::do_expire(&env, proposal_id)
+    }
+
+    /// One-time migration from single-admin to multi-sig governance.
+    ///
+    /// Must be called by the legacy admin address. Sets the initial quorum,
+    /// timelock, and proposal TTL without requiring a proposal.
+    pub fn migrate_to_governance(
+        env: Env,
+        caller: Address,
+        quorum: u32,
+        timelock_seconds: u64,
+        proposal_ttl_seconds: u64,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        governance::do_migrate(&env, &caller, quorum, timelock_seconds, proposal_ttl_seconds)
+    }
+
+    // ── Governance Read-Only Queries ───────────────────────────────────────
+
+    /// Returns the full proposal record for the given `proposal_id`.
+    pub fn get_proposal(env: Env, proposal_id: u64) -> Result<Proposal, ContractError> {
+        storage::get_proposal(&env, proposal_id)
+    }
+
+    /// Returns the current list of admin addresses.
+    pub fn get_admins(env: Env) -> soroban_sdk::Vec<Address> {
+        storage::get_admin_list(&env)
+    }
+
+    /// Returns the current governance quorum threshold.
+    pub fn get_quorum(env: Env) -> u32 {
+        storage::get_governance_quorum(&env)
+    }
+
+    /// Returns the current governance execution timelock in seconds.
+    pub fn get_timelock_seconds(env: Env) -> u64 {
+        storage::get_governance_timelock(&env)
     }
 }
