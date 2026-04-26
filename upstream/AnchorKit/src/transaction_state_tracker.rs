@@ -32,6 +32,14 @@ impl TransactionState {
     }
 }
 
+/// Transaction state transition record
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StateTransition {
+    pub state: TransactionState,
+    pub timestamp: u64,
+}
+
 /// Transaction state record
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -42,6 +50,7 @@ pub struct TransactionStateRecord {
     pub timestamp: u64,
     pub last_updated: u64,
     pub error_message: Option<String>,
+    pub history: soroban_sdk::Vec<StateTransition>,
 }
 
 /// Transaction state tracker
@@ -78,6 +87,14 @@ impl TransactionStateTracker {
             timestamp: current_time,
             last_updated: current_time,
             error_message: None,
+            history: {
+                let mut h = soroban_sdk::Vec::new(env);
+                h.push_back(StateTransition {
+                    state: TransactionState::Pending,
+                    timestamp: current_time,
+                });
+                h
+            },
         };
 
         if self.is_dev_mode {
@@ -137,6 +154,10 @@ impl TransactionStateTracker {
                     record.state = new_state;
                     record.last_updated = current_time;
                     record.error_message = error_message;
+                    record.history.push_back(StateTransition {
+                        state: new_state,
+                        timestamp: current_time,
+                    });
                     return Ok(record.clone());
                 }
             }
@@ -153,6 +174,14 @@ impl TransactionStateTracker {
                 timestamp: current_time,
                 last_updated: current_time,
                 error_message,
+                history: {
+                    let mut h = soroban_sdk::Vec::new(env);
+                    h.push_back(StateTransition {
+                        state: new_state,
+                        timestamp: current_time,
+                    });
+                    h
+                },
             };
             Ok(record)
         }
@@ -176,6 +205,26 @@ impl TransactionStateTracker {
             Ok(None)
         }
     }
+
+    /// Get transaction history by ID
+    pub fn get_transaction_history(
+        &self,
+        transaction_id: u64,
+        _env: &Env,
+    ) -> Result<soroban_sdk::Vec<StateTransition>, String> {
+        if self.is_dev_mode {
+            for record in self.cache.iter() {
+                if record.transaction_id == transaction_id {
+                    return Ok(record.history.clone());
+                }
+            }
+            Err(String::from_str(_env, "Transaction not found"))
+        } else {
+            // In production, this would query the DB
+            Ok(soroban_sdk::Vec::new(_env))
+        }
+    }
+
 
     /// Get all transactions in a specific state
     pub fn get_transactions_by_state(
@@ -357,5 +406,25 @@ mod tests {
 
         assert!(clear_result.is_ok());
         assert_eq!(tracker.cache_size(), 0);
+    }
+
+    #[test]
+    fn test_transaction_history_lifecycle() {
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new(true);
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        tracker.create_transaction(1, initiator.clone(), &env).ok();
+        tracker.start_transaction(1, &env).ok();
+        tracker.complete_transaction(1, &env).ok();
+
+        let result = tracker.get_transaction_history(1, &env);
+        assert!(result.is_ok());
+        let history = result.unwrap();
+        
+        assert_eq!(history.len(), 3);
+        assert_eq!(history.get(0).unwrap().state, TransactionState::Pending);
+        assert_eq!(history.get(1).unwrap().state, TransactionState::InProgress);
+        assert_eq!(history.get(2).unwrap().state, TransactionState::Completed);
     }
 }
