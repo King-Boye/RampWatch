@@ -56,14 +56,35 @@ async function getSep24ServiceInstance(): Promise<Sep24Service> {
   return sep24Service;
 }
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'),
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'),
-  message: 'Too many requests from this IP, please try again later.',
-});
+// Per-group rate limiters
+function makeRateLimiter(max: number, windowMs = 60_000) {
+  return rateLimit({
+    windowMs,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req: Request, res: Response) => {
+      const retryAfter = Math.ceil(windowMs / 1000);
+      res.set('Retry-After', String(retryAfter));
+      metricsService.incrementRateLimitExceeded(req.path);
+      res.status(429).json({
+        error: 'Too many requests',
+        retryAfter,
+      });
+    },
+  });
+}
 
-app.use('/api/', limiter);
+// Public endpoints: 100 req/min
+const publicLimiter = makeRateLimiter(100);
+// Webhook endpoints: 1000 req/min (higher for anchor callbacks)
+const webhookLimiter = makeRateLimiter(1000);
+// Admin endpoints: 20 req/min
+const adminLimiter = makeRateLimiter(20);
+
+app.use('/api/webhook', webhookLimiter);
+app.use('/api/kyc/config', adminLimiter);
+app.use('/api/', publicLimiter);
 
 // Metrics endpoint (excluded from rate limiting)
 app.get('/metrics', async (req: Request, res: Response) => {
