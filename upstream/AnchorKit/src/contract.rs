@@ -929,6 +929,10 @@ impl AnchorKitContract {
         signature: Bytes,
     ) -> u64 {
         Self::check_session_expiry(&env, session_id);
+        let session = Self::get_session(env.clone(), session_id);
+        if session.initiator != issuer {
+            panic_with_error!(&env, ErrorCode::UnauthorizedAttestor);
+        }
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
         Self::check_timestamp(&env, timestamp);

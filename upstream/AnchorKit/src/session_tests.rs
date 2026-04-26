@@ -168,6 +168,39 @@ mod session_tests {
         assert_eq!(client.get_session_operation_count(&session_id), 1);
     }
 
+    #[test]
+    #[should_panic(expected = "HostError: Error(Contract, #4)")]
+    fn test_submit_attestation_with_session_fails_for_wrong_initiator() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let user_a = Address::generate(&env);
+        let user_b = Address::generate(&env);
+        let subject = Address::generate(&env);
+        client.initialize(&admin);
+
+        // Register user_a as attestor so they can call the function
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &user_a, &user_a, &sk);
+
+        // user_b creates a session
+        let session_id = client.create_session(&user_b);
+
+        // user_a tries to submit to user_b's session
+        client.submit_attestation_with_session(
+            &session_id,
+            &user_a,
+            &subject,
+            &1700000001u64,
+            &payload(&env, 0x01),
+            &sig(&env, &[0x0a]),
+        );
+    }
+
+
     // -----------------------------------------------------------------------
     // register_attestor_with_session
     // -----------------------------------------------------------------------
