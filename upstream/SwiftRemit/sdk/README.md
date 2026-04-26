@@ -117,6 +117,55 @@ toStroops(100);      // 100 USDC → 1_000_000_000n stroops
 fromStroops(1_000_000_000n); // → 100 USDC
 ```
 
+## Governance
+
+The SDK exposes four methods for interacting with the on-chain governance module.
+
+### Types
+
+```typescript
+type ProposalState = "Pending" | "Approved" | "Executed" | "Expired";
+
+type ProposalAction =
+  | { UpdateFee: number }
+  | { RegisterAgent: string }
+  | { RemoveAgent: string }
+  | { AddAdmin: string }
+  | { RemoveAdmin: string }
+  | { UpdateQuorum: number }
+  | { UpdateTimelock: bigint };
+
+interface Proposal {
+  id: bigint;
+  proposer: string;
+  action: ProposalAction;
+  state: ProposalState;
+  createdAt: bigint;
+  expiry: bigint;
+  approvalCount: number;
+  approvalTimestamp: bigint | null;
+}
+```
+
+### Methods
+
+```typescript
+// Fetch a single proposal by ID (read-only)
+const proposal = await client.getProposal(sourceAddress, 0n);
+console.log(proposal.state); // "Pending"
+
+// Fetch all Pending and Approved proposals (iterates IDs until NotFound)
+const active = await client.getActiveProposals(sourceAddress);
+
+// Cast an approval vote (admin only) — returns a prepared Transaction
+const voteTx = await client.voteOnProposal(adminAddress, 0n);
+await client.submitTransaction(voteTx, adminKeypair);
+
+// Execute an approved proposal after the timelock (admin only)
+const execTx = await client.executeProposal(adminAddress, 0n);
+await client.submitTransaction(execTx, adminKeypair);
+```
+
 ## Types
 
 All contract types are exported:

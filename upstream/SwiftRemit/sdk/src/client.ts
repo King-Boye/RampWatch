@@ -18,6 +18,7 @@ import type {
   CreateRemittanceParams,
   BatchCreateEntry,
   GovernanceConfig,
+  Proposal,
 } from "./types.js";
 import {
   parseRemittance,
@@ -30,6 +31,7 @@ import {
   optionToScVal,
   bytesNToScVal,
   stringToScVal,
+  parseProposal,
 } from "./convert.js";
 
 export class SwiftRemitClient {
@@ -550,5 +552,61 @@ export class SwiftRemitClient {
       timelockSeconds: BigInt(native.timelock_seconds),
       proposalTtlSeconds: BigInt(native.proposal_ttl_seconds),
     };
+  }
+
+  // ─── Governance ──────────────────────────────────────────────────────────────
+
+  /** Fetch a single proposal by ID. */
+  async getProposal(sourceAddress: string, proposalId: bigint): Promise<Proposal> {
+    const val = await this.simulateCall(sourceAddress, "get_proposal", [
+      u64ToScVal(proposalId),
+    ]);
+    return parseProposal(val);
+  }
+
+  /**
+   * Fetch all proposals with state Pending or Approved.
+   * Iterates proposal IDs starting from 0 until the contract returns NotFound.
+   */
+  async getActiveProposals(sourceAddress: string): Promise<Proposal[]> {
+    const proposals: Proposal[] = [];
+    let id = 0n;
+    while (true) {
+      try {
+        const val = await this.simulateCall(sourceAddress, "get_proposal", [
+          u64ToScVal(id),
+        ]);
+        const p = parseProposal(val);
+        if (p.state === "Pending" || p.state === "Approved") {
+          proposals.push(p);
+        }
+        id++;
+      } catch {
+        break; // ProposalNotFound — no more proposals
+      }
+    }
+    return proposals;
+  }
+
+  /** Cast an approval vote on a pending proposal (admin only). */
+  async voteOnProposal(
+    sourceAddress: string,
+    proposalId: bigint
+  ): Promise<Transaction> {
+    return this.prepareTransaction(sourceAddress, "vote", [
+      addressToScVal(sourceAddress),
+      u64ToScVal(proposalId),
+    ]);
+  }
+
+  /** Execute an approved proposal after the timelock has elapsed (admin only). */
+  async executeProposal(
+    sourceAddress: string,
+    proposalId: bigint
+  ): Promise<Transaction> {
+    return this.prepareTransaction(sourceAddress, "execute", [
+      addressToScVal(sourceAddress),
+      u64ToScVal(proposalId),
+    ]);
   }
 }
