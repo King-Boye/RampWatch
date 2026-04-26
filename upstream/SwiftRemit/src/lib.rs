@@ -2928,4 +2928,43 @@ impl SwiftRemitContract {
     pub fn get_timelock_seconds(env: Env) -> u64 {
         storage::get_governance_timelock(&env)
     }
+
+    /// Returns quorum, timelock, and proposal TTL in a single call.
+    ///
+    /// Allows integrators and frontends to display current governance parameters
+    /// without reading raw storage or making three separate queries.
+    pub fn query_governance_config(env: Env) -> GovernanceConfig {
+        GovernanceConfig {
+            quorum: storage::get_governance_quorum(&env),
+            timelock_seconds: storage::get_governance_timelock(&env),
+            proposal_ttl_seconds: storage::get_proposal_ttl(&env),
+        }
+    }
+
+    /// Deletes expired or executed proposals from persistent storage.
+    ///
+    /// Admin-only. Proposals in `Pending` or `Approved` state are skipped.
+    /// Emits a `proposal_cleaned_up` event for each deleted proposal.
+    pub fn cleanup_expired_proposals(
+        env: Env,
+        caller: Address,
+        proposal_ids: soroban_sdk::Vec<u64>,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        governance::cleanup_expired_proposals(&env, &caller, proposal_ids)
+    }
+
+    /// Aborts an in-progress cross-contract migration and resets the state machine to Idle.
+    ///
+    /// Clears the `MigrationInProgress` flag and the batch ordering counter, then emits
+    /// a `migration_aborted` event. Admin only.
+    ///
+    /// # Errors
+    /// - `NotFound` — no migration is currently in progress.
+    /// - `Unauthorized` — caller is not an admin.
+    pub fn abort_migration(env: Env, caller: Address) -> Result<(), ContractError> {
+        get_admin(&env)?;
+        require_admin(&env, &caller)?;
+        migration::abort_migration(&env, &caller)
+    }
 }

@@ -1785,6 +1785,13 @@ pub fn set_proposal(env: &Env, proposal: &Proposal) {
         .set(&DataKey::GovernanceProposal(proposal.id), proposal);
 }
 
+/// Deletes a proposal record from persistent storage.
+pub fn delete_proposal(env: &Env, id: u64) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::GovernanceProposal(id));
+}
+
 /// Returns true if the given voter has already voted on the given proposal.
 pub fn has_governance_voted(env: &Env, proposal_id: u64, voter: &Address) -> bool {
     env.storage()

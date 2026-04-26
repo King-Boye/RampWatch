@@ -17,6 +17,7 @@ import type {
   HealthStatus,
   CreateRemittanceParams,
   BatchCreateEntry,
+  GovernanceConfig,
 } from "./types.js";
 import {
   parseRemittance,
@@ -531,5 +532,23 @@ export class SwiftRemitClient {
       u64ToScVal(remittanceId),
       i128ToScVal(amount),
     ]);
+  }
+
+  /**
+   * Returns the current governance configuration (quorum, timelock, proposal TTL).
+   * Read-only — no transaction required.
+   */
+  async getGovernanceConfig(sourceAddress: string): Promise<GovernanceConfig> {
+    const result = await this.simulateCall(
+      sourceAddress,
+      "query_governance_config",
+      []
+    );
+    const native = scValToNative(result);
+    return {
+      quorum: Number(native.quorum),
+      timelockSeconds: BigInt(native.timelock_seconds),
+      proposalTtlSeconds: BigInt(native.proposal_ttl_seconds),
+    };
   }
 }

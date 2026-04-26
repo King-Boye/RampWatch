@@ -354,6 +354,21 @@ pub enum ProposalState {
     Expired,
 }
 
+/// Governance configuration returned by `query_governance_config`.
+///
+/// Bundles quorum, timelock, and proposal TTL into a single queryable struct
+/// so integrators and frontends can inspect all governance parameters in one call.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GovernanceConfig {
+    /// Minimum number of admin approvals required to pass a proposal.
+    pub quorum: u32,
+    /// Seconds that must elapse between approval and execution.
+    pub timelock_seconds: u64,
+    /// Seconds after creation before a proposal expires.
+    pub proposal_ttl_seconds: u64,
+}
+
 /// A governance proposal record stored on-chain.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]

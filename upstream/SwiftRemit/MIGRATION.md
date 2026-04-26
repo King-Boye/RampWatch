@@ -161,7 +161,13 @@ The snapshot now includes **full agent records** (`AgentRecord` with `address`,
 ### Step 3 — Split into batches and import
 
 Split `MigrationSnapshot.persistent_data.remittances` into chunks of at most
-`MAX_MIGRATION_BATCH_SIZE` (100) items.  For each chunk:
+`MAX_MIGRATION_BATCH_SIZE` (100) items.  Batches **must** be submitted in strict
+sequential order starting from `batch_number = 0`.  Submitting a batch whose
+`batch_number` does not equal the next expected index returns
+`InvalidMigrationBatch` (32) and leaves the destination contract in its current
+state — no partial write occurs.
+
+For each chunk:
 
 ```bash
 soroban contract invoke \
@@ -173,6 +179,28 @@ soroban contract invoke \
 
 After the final batch the destination contract automatically clears the
 `MigrationInProgress` flag.
+
+### Step 3a — Abort a failed import (rollback)
+
+If an import fails mid-way (e.g. a batch hash mismatch, out-of-order batch, or
+off-chain tooling error), call `abort_migration` on the **destination** contract
+to reset the state machine back to Idle:
+
+```bash
+soroban contract invoke \
+  --id <DEST_CONTRACT_ID> \
+  -- abort_migration \
+  --caller <ADMIN_ADDRESS>
+```
+
+`abort_migration`:
+- Clears the `MigrationInProgress` flag (re-enables normal operations).
+- Resets the batch ordering counter so a fresh import can start from batch 0.
+- Emits a `migration_aborted` event for off-chain indexers.
+
+> **Note:** Any remittances already written by previous `import_migration_batch`
+> calls are **not** automatically removed.  If a clean slate is required,
+> re-initialize the destination contract before retrying the import.
 
 ### Step 4 — Verify
 
@@ -193,9 +221,9 @@ Update off-chain services to point to `<DEST_CONTRACT_ID>`.
 |-----------------------------|------|------------------------------------------------------------|
 | `MigrationInProgress`       | 31   | Export already called; or normal op blocked during migration |
 | `InvalidMigrationHash`      | 30   | Batch hash mismatch — data was tampered or corrupted       |
-| `InvalidMigrationBatch`     | 32   | `batch_number >= total_batches`                            |
+| `InvalidMigrationBatch`     | 32   | `batch_number != expected_next_batch` or `batch_number >= total_batches` |
 | `MigrationValidationFailed` | 56   | One or more agents unreadable after `migrate()`            |
-| `NotFound`                  | 57   | No rollback snapshot exists                                |
+| `NotFound`                  | 57   | No rollback snapshot exists; or `abort_migration` called when not in progress |
 | `Unauthorized`              | 20   | Caller does not have Admin role                            |
 
 ---
