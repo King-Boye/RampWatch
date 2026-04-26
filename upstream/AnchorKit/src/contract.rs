@@ -840,6 +840,10 @@ impl AnchorKitContract {
     }
 
     pub fn get_session_operation_count(env: Env, session_id: u64) -> u64 {
+        let sess_key = StorageKey::Session(session_id);
+        if !env.storage().persistent().has(&sess_key) {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
         env.storage()
             .persistent()
             .get::<_, u64>(&(symbol_short!("SOPCNT"), session_id))
@@ -1113,6 +1117,10 @@ impl AnchorKitContract {
 
     pub fn get_session_operation_count(env: Env, session_id: u64) -> u64 {
         Self::check_session_expiry(&env, session_id);
+        let sess_key = StorageKey::Session(session_id);
+        if !env.storage().persistent().has(&sess_key) {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
         env.storage()
             .persistent()
             .get::<_, u64>(&StorageKey::SessionOpCount(session_id))
