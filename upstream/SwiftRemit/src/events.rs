@@ -750,3 +750,19 @@ pub fn emit_agent_management_proposed(env: &Env, proposal_id: u64, agent: Addres
         (SCHEMA_VERSION, proposal_id, agent, action),
     );
 }
+
+/// Emits when an expired or executed proposal is cleaned up from storage.
+pub fn emit_proposal_cleaned_up(env: &Env, proposal_id: u64) {
+    env.events().publish(
+        (Symbol::new(env, "gov"), Symbol::new(env, "cleaned_up")),
+        (SCHEMA_VERSION, proposal_id),
+    );
+}
+
+/// Emits when a cross-contract migration is aborted and state is reset to Idle.
+pub fn emit_migration_aborted(env: &Env, caller: Address) {
+    env.events().publish(
+        (Symbol::new(env, "mig"), Symbol::new(env, "aborted")),
+        (SCHEMA_VERSION, env.ledger().sequence(), caller),
+    );
+}

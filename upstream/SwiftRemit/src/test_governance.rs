@@ -520,3 +520,115 @@ fn test_get_admin_backward_compat_after_governance_init() {
     // Legacy get_admin should still return the original admin
     assert_eq!(client.get_admin().unwrap(), admin);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Issue #416 — cleanup_expired_proposals
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_cleanup_expired_proposal_removes_from_storage() {
+    let (env, client) = setup_env();
+    let admin = Address::generate(&env);
+    initialize(&env, &client, &admin);
+    client.migrate_to_governance(&admin, &1u32, &0u64, &100u64);
+
+    let pid = client.propose(&admin, &ProposalAction::UpdateFee(100u32));
+
+    // Expire the proposal
+    advance_time(&env, 101);
+    client.expire_proposal(&pid);
+
+    // Cleanup
+    let ids = soroban_sdk::vec![&env, pid];
+    client.cleanup_expired_proposals(&admin, &ids);
+
+    // get_proposal should now return ProposalNotFound
+    let result = client.try_get_proposal(&pid);
+    assert_eq!(result, Err(Ok(ContractError::ProposalNotFound)));
+}
+
+#[test]
+fn test_cleanup_executed_proposal_removes_from_storage() {
+    let (env, client) = setup_env();
+    let admin = Address::generate(&env);
+    initialize(&env, &client, &admin);
+    client.migrate_to_governance(&admin, &1u32, &0u64, &604_800u64);
+
+    let pid = client.propose(&admin, &ProposalAction::UpdateFee(100u32));
+    client.vote(&admin, &pid);
+    client.execute(&admin, &pid);
+
+    let ids = soroban_sdk::vec![&env, pid];
+    client.cleanup_expired_proposals(&admin, &ids);
+
+    let result = client.try_get_proposal(&pid);
+    assert_eq!(result, Err(Ok(ContractError::ProposalNotFound)));
+}
+
+#[test]
+fn test_cleanup_pending_proposal_is_skipped() {
+    let (env, client) = setup_env();
+    let admin = Address::generate(&env);
+    initialize(&env, &client, &admin);
+    client.migrate_to_governance(&admin, &1u32, &0u64, &604_800u64);
+
+    let pid = client.propose(&admin, &ProposalAction::UpdateFee(100u32));
+
+    // Cleanup while still Pending — should be a no-op
+    let ids = soroban_sdk::vec![&env, pid];
+    client.cleanup_expired_proposals(&admin, &ids);
+
+    // Proposal should still exist
+    let proposal = client.get_proposal(&pid);
+    assert_eq!(proposal.state, ProposalState::Pending);
+}
+
+#[test]
+fn test_cleanup_non_admin_rejected() {
+    let (env, client) = setup_env();
+    let admin = Address::generate(&env);
+    let other = Address::generate(&env);
+    initialize(&env, &client, &admin);
+    client.migrate_to_governance(&admin, &1u32, &0u64, &604_800u64);
+
+    let pid = client.propose(&admin, &ProposalAction::UpdateFee(100u32));
+    client.vote(&admin, &pid);
+    client.execute(&admin, &pid);
+
+    let ids = soroban_sdk::vec![&env, pid];
+    let result = client.try_cleanup_expired_proposals(&other, &ids);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Issue #417 — query_governance_config
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_query_governance_config_returns_correct_values() {
+    let (env, client) = setup_env();
+    let admin = Address::generate(&env);
+    initialize(&env, &client, &admin);
+    client.migrate_to_governance(&admin, &1u32, &3600u64, &86_400u64);
+
+    let config = client.query_governance_config();
+    assert_eq!(config.quorum, 1u32);
+    assert_eq!(config.timelock_seconds, 3600u64);
+    assert_eq!(config.proposal_ttl_seconds, 86_400u64);
+}
+
+#[test]
+fn test_query_governance_config_reflects_updates() {
+    let (env, client) = setup_env();
+    let admin = Address::generate(&env);
+    initialize(&env, &client, &admin);
+    client.migrate_to_governance(&admin, &1u32, &0u64, &604_800u64);
+
+    // Update timelock via proposal
+    let pid = client.propose(&admin, &ProposalAction::UpdateTimelock(7200u64));
+    client.vote(&admin, &pid);
+    client.execute(&admin, &pid);
+
+    let config = client.query_governance_config();
+    assert_eq!(config.timelock_seconds, 7200u64);
+}

@@ -150,6 +150,8 @@ enum MigrationKey {
     SchemaVersion,
     /// Stores a `RollbackSnapshot` taken before the last `migrate()` run.
     RollbackSnapshot,
+    /// Tracks the next expected batch index during a cross-contract import.
+    ExpectedNextBatch,
 }
 
 fn get_schema_version(env: &Env) -> u32 {
@@ -181,6 +183,27 @@ fn clear_rollback_snapshot(env: &Env) {
     env.storage()
         .instance()
         .remove(&MigrationKey::RollbackSnapshot);
+}
+
+// ─── Batch ordering helpers ───────────────────────────────────────────────────
+
+fn get_expected_next_batch(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&MigrationKey::ExpectedNextBatch)
+        .unwrap_or(0u32)
+}
+
+fn set_expected_next_batch(env: &Env, next: u32) {
+    env.storage()
+        .instance()
+        .set(&MigrationKey::ExpectedNextBatch, &next);
+}
+
+fn clear_expected_next_batch(env: &Env) {
+    env.storage()
+        .instance()
+        .remove(&MigrationKey::ExpectedNextBatch);
 }
 
 // ─── Helper: status byte ─────────────────────────────────────────────────────
@@ -358,6 +381,38 @@ pub fn rollback_migration(env: &Env) -> Result<(), ContractError> {
     env.events().publish(
         soroban_sdk::symbol_short!("rolled_back"),
         snapshot.from_version,
+    );
+
+    Ok(())
+}
+
+/// Aborts an in-progress cross-contract migration and resets the state machine to Idle.
+///
+/// Clears the `MigrationInProgress` flag, resets the batch ordering counter, and
+/// emits a `migration_aborted` event so off-chain indexers can detect the rollback.
+/// Any partially imported data written by previous `import_migration_batch` calls
+/// is **not** automatically removed — the destination contract should be considered
+/// dirty and re-initialized if a clean slate is required.
+///
+/// # Authorization
+/// Caller must be an admin. Auth is enforced at the call site in `lib.rs`.
+///
+/// # Errors
+/// - `ContractError::NotFound` — no migration is currently in progress.
+pub fn abort_migration(env: &Env, caller: &Address) -> Result<(), ContractError> {
+    if !crate::storage::is_migration_in_progress(env) {
+        return Err(ContractError::NotFound);
+    }
+
+    // Reset state machine to Idle.
+    crate::storage::set_migration_in_progress(env, false);
+
+    // Reset batch ordering counter.
+    clear_expected_next_batch(env);
+
+    env.events().publish(
+        (soroban_sdk::Symbol::new(env, "mig"), soroban_sdk::Symbol::new(env, "aborted")),
+        (crate::config::SCHEMA_VERSION, env.ledger().sequence(), caller.clone()),
     );
 
     Ok(())
@@ -553,9 +608,23 @@ pub fn import_batch(env: &Env, batch: MigrationBatch) -> Result<(), ContractErro
         return Err(ContractError::InvalidMigrationHash);
     }
 
+    // Enforce strict monotonic ordering: reject any batch whose index != expected_next_batch.
+    let expected = get_expected_next_batch(env);
+    if batch.batch_number != expected {
+        return Err(ContractError::InvalidMigrationBatch);
+    }
+
     for i in 0..batch.remittances.len() {
         let remittance = batch.remittances.get_unchecked(i);
         crate::storage::set_remittance(env, remittance.id, &remittance);
+    }
+
+    // Advance the counter for the next expected batch.
+    set_expected_next_batch(env, expected + 1);
+
+    // Clear the counter after the final batch so it doesn't linger.
+    if batch.batch_number == batch.total_batches.saturating_sub(1) {
+        clear_expected_next_batch(env);
     }
 
     Ok(())

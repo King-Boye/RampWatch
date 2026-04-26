@@ -99,3 +99,12 @@ export interface SwiftRemitClientOptions {
   /** Base fee for transactions in stroops (default: 100) */
   fee?: string;
 }
+
+export interface GovernanceConfig {
+  /** Minimum number of admin approvals required to pass a proposal */
+  quorum: number;
+  /** Seconds that must elapse between approval and execution */
+  timelockSeconds: bigint;
+  /** Seconds after creation before a proposal expires */
+  proposalTtlSeconds: bigint;
+}

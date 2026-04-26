@@ -12,11 +12,11 @@ use crate::{
     events::{
         emit_agent_management_proposed, emit_agent_registered, emit_agent_removed,
         emit_fee_update_proposed, emit_fee_updated, emit_governance_admin_added,
-        emit_governance_admin_removed, emit_proposal_approved, emit_proposal_created,
-        emit_proposal_executed, emit_proposal_expired, emit_proposal_voted,
+        emit_governance_admin_removed, emit_proposal_approved, emit_proposal_cleaned_up,
+        emit_proposal_created, emit_proposal_executed, emit_proposal_expired, emit_proposal_voted,
     },
     storage::{
-        self, add_admin_to_list, assign_role, get_active_fee_proposal,
+        self, add_admin_to_list, assign_role, delete_proposal, get_active_fee_proposal,
         get_governance_quorum, get_governance_timelock, get_proposal, get_proposal_ttl,
         has_governance_voted, is_agent_registered, is_governance_initialized,
         next_proposal_id, record_governance_vote, remove_admin_from_list, remove_role,
@@ -289,6 +289,37 @@ pub fn do_migrate(
     add_admin_to_list(env, &legacy_admin);
 
     set_governance_initialized(env);
+    Ok(())
+}
+
+/// Deletes expired or executed proposals from persistent storage to reclaim on-chain space.
+///
+/// Admin-only. For each supplied `proposal_id`:
+/// - If the proposal is in `Expired` or `Executed` state it is removed from storage
+///   and a `proposal_cleaned_up` event is emitted.
+/// - Proposals in `Pending` or `Approved` state are skipped (not an error).
+/// - Non-existent proposal IDs are silently skipped.
+///
+/// # Authorization
+/// Caller must hold `Role::Admin`.
+pub fn cleanup_expired_proposals(
+    env: &Env,
+    caller: &Address,
+    proposal_ids: soroban_sdk::Vec<u64>,
+) -> Result<(), ContractError> {
+    require_admin_role(env, caller)?;
+
+    for i in 0..proposal_ids.len() {
+        let id = proposal_ids.get_unchecked(i);
+        if let Ok(proposal) = get_proposal(env, id) {
+            if proposal.state == ProposalState::Expired
+                || proposal.state == ProposalState::Executed
+            {
+                delete_proposal(env, id);
+                emit_proposal_cleaned_up(env, id);
+            }
+        }
+    }
     Ok(())
 }
 

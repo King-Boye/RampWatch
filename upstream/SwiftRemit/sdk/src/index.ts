@@ -13,6 +13,7 @@ export type {
   SettlementConfig,
   EscrowStatus,
   Role,
+  GovernanceConfig,
 } from "./types.js";
 export {
   parseRemittance,
