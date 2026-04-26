@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import './SendMoneyFlow.css';
+import { signTransaction } from '@stellar/freighter-api';
+import * as StellarSdk from '@stellar/stellar-sdk';
 
 type FlowStep = 1 | 2 | 3 | 4 | 5;
 
@@ -13,6 +15,8 @@ interface ConfirmPayload {
 interface SendMoneyFlowProps {
   assets?: string[];
   onConfirm?: (payload: ConfirmPayload) => Promise<void>;
+  senderPublicKey?: string;
+  network?: 'TESTNET' | 'PUBLIC';
 }
 
 const STEPS: Record<FlowStep, string> = {
@@ -26,13 +30,79 @@ const STEP_SEQUENCE: FlowStep[] = [1, 2, 3, 4, 5];
 
 const DEFAULT_ASSETS = ['XLM', 'USDC', 'EURC'];
 
+const HORIZON_URLS: Record<string, string> = {
+  TESTNET: 'https://horizon-testnet.stellar.org',
+  PUBLIC: 'https://horizon.stellar.org',
+};
+
+const STELLAR_EXPERT_BASE: Record<string, string> = {
+  TESTNET: 'https://stellar.expert/explorer/testnet/tx',
+  PUBLIC: 'https://stellar.expert/explorer/public/tx',
+};
+
 function isValidRecipient(input: string): boolean {
   return /^G[A-Z2-7]{55}$/.test(input.trim());
+}
+
+async function buildAndSubmitTransaction(
+  payload: ConfirmPayload,
+  senderPublicKey: string,
+  network: 'TESTNET' | 'PUBLIC'
+): Promise<string> {
+  const horizonUrl = HORIZON_URLS[network];
+  const server = new StellarSdk.Horizon.Server(horizonUrl);
+  const networkPassphrase =
+    network === 'PUBLIC'
+      ? StellarSdk.Networks.PUBLIC
+      : StellarSdk.Networks.TESTNET;
+
+  const account = await server.loadAccount(senderPublicKey);
+
+  let asset: StellarSdk.Asset;
+  if (payload.asset === 'XLM') {
+    asset = StellarSdk.Asset.native();
+  } else {
+    // For non-native assets, use a well-known issuer placeholder;
+    // in production this would come from the asset registry.
+    asset = new StellarSdk.Asset(payload.asset, senderPublicKey);
+  }
+
+  const txBuilder = new StellarSdk.TransactionBuilder(account, {
+    fee: StellarSdk.BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(
+      StellarSdk.Operation.payment({
+        destination: payload.recipient,
+        asset,
+        amount: String(payload.amount),
+      })
+    )
+    .setTimeout(30);
+
+  if (payload.memo) {
+    txBuilder.addMemo(StellarSdk.Memo.text(payload.memo));
+  }
+
+  const tx = txBuilder.build();
+  const xdr = tx.toXDR();
+
+  const signResult = await signTransaction(xdr, { networkPassphrase });
+  if ('error' in signResult && signResult.error) {
+    throw new Error(signResult.error.message || 'User rejected the transaction');
+  }
+
+  const signedXdr = 'signedTxXdr' in signResult ? signResult.signedTxXdr : (signResult as any);
+  const signedTx = StellarSdk.TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+  const result = await server.submitTransaction(signedTx);
+  return result.hash;
 }
 
 export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
   assets = DEFAULT_ASSETS,
   onConfirm,
+  senderPublicKey = '',
+  network = 'TESTNET',
 }) => {
   const [step, setStep] = useState<FlowStep>(1);
   const [amount, setAmount] = useState('');
@@ -42,6 +112,7 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  const [txHash, setTxHash] = useState<string | null>(null);
 
   const parsedAmount = useMemo(() => Number(amount), [amount]);
 
@@ -99,13 +170,29 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
 
       if (onConfirm) {
         await onConfirm(payload);
+        setIsComplete(true);
+      } else if (senderPublicKey) {
+        // Freighter signing flow
+        const hash = await buildAndSubmitTransaction(payload, senderPublicKey, network);
+        setTxHash(hash);
+        setIsComplete(true);
       } else {
         await new Promise((resolve) => setTimeout(resolve, 700));
+        setIsComplete(true);
       }
-
-      setIsComplete(true);
     } catch (confirmError) {
-      setError('Transaction failed. Please try again.');
+      const msg = confirmError instanceof Error ? confirmError.message : '';
+      if (
+        msg.toLowerCase().includes('rejected') ||
+        msg.toLowerCase().includes('denied') ||
+        msg.toLowerCase().includes('user rejected')
+      ) {
+        setError('Transaction was rejected by the wallet.');
+      } else if (msg.toLowerCase().includes('not installed')) {
+        setError('Freighter wallet is not installed. Please install it to continue.');
+      } else {
+        setError('Transaction failed. Please try again.');
+      }
       console.error(confirmError);
     } finally {
       setIsSubmitting(false);
@@ -210,6 +297,10 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
     return null;
   };
 
+  const stellarExpertUrl = txHash
+    ? `${STELLAR_EXPERT_BASE[network]}/${txHash}`
+    : null;
+
   return (
     <section className="send-flow-card" aria-label="Send money flow">
       <div className="send-flow-header">
@@ -226,9 +317,26 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
       </ol>
 
       {isComplete ? (
-        <p className="flow-success" role="status">
-          Transaction confirmed successfully.
-        </p>
+        <div className="flow-success" role="status">
+          <p>Transaction confirmed successfully.</p>
+          {txHash && (
+            <>
+              <p className="flow-tx-hash">
+                Transaction hash: <code>{txHash}</code>
+              </p>
+              {stellarExpertUrl && (
+                <a
+                  href={stellarExpertUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flow-expert-link"
+                >
+                  View on Stellar Expert ↗
+                </a>
+              )}
+            </>
+          )}
+        </div>
       ) : (
         <>
           <div className="send-flow-body">{renderStepContent()}</div>
