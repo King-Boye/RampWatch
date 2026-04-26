@@ -11,11 +11,20 @@ export class MetricsService {
     swiftremit_webhook_deliveries_total: {} as Record<string, number>,
     swiftremit_active_remittances: 0,
     swiftremit_accumulated_fees: 0,
-    swiftremit_webhook_dead_letter_count: 0,
+    swiftremit_rate_limit_exceeded_total: {} as Record<string, number>,
   };
 
   constructor(pool: Pool) {
     this.pool = pool;
+  }
+
+  /**
+   * Increment rate limit exceeded counter for a given path
+   */
+  incrementRateLimitExceeded(path: string): void {
+    const key = path.replace(/\/[^/]+$/, '/:id').replace(/[^a-zA-Z0-9_/:]/g, '_');
+    this.metrics.swiftremit_rate_limit_exceeded_total[key] =
+      (this.metrics.swiftremit_rate_limit_exceeded_total[key] ?? 0) + 1;
   }
 
   /**
@@ -158,10 +167,12 @@ export class MetricsService {
     lines.push('# TYPE swiftremit_accumulated_fees gauge');
     lines.push(`swiftremit_accumulated_fees ${this.metrics.swiftremit_accumulated_fees}`);
 
-    // Dead-letter counter
-    lines.push('# HELP swiftremit_webhook_dead_letter_count Total webhook deliveries moved to dead-letter queue');
-    lines.push('# TYPE swiftremit_webhook_dead_letter_count counter');
-    lines.push(`swiftremit_webhook_dead_letter_count ${this.metrics.swiftremit_webhook_dead_letter_count}`);
+    // Rate limit exceeded counter
+    lines.push('# HELP swiftremit_rate_limit_exceeded_total Total number of rate limit rejections by path');
+    lines.push('# TYPE swiftremit_rate_limit_exceeded_total counter');
+    Object.entries(this.metrics.swiftremit_rate_limit_exceeded_total).forEach(([path, count]) => {
+      lines.push(`swiftremit_rate_limit_exceeded_total{path="${path}"} ${count}`);
+    });
 
     return lines.join('\n') + '\n';
   }
