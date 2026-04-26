@@ -27,6 +27,7 @@ import { getMetricsService } from './metrics';
 import { sanitizeInput } from './sanitizer';
 import docsRouter from './routes/docs';
 import { Sep24Service, Sep24InitiateRequest, Sep24ConfigError, Sep24AnchorError } from './sep24-service';
+import { AdminAuditLogService } from './admin-audit-log';
 
 const app = express();
 const fxRateCache = getFxRateCache();
@@ -703,6 +704,28 @@ app.post('/api/simulate-settlement', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error simulating settlement:', error);
     res.status(500).json({ error: 'Failed to simulate settlement' });
+  }
+});
+
+// Admin audit log
+app.get('/api/admin/audit-log', async (req: Request, res: Response) => {
+  try {
+    const auditService = new AdminAuditLogService(pool);
+    const limit  = Math.min(parseInt(req.query.limit  as string) || 50, 200);
+    const offset = parseInt(req.query.offset as string) || 0;
+    const filter = {
+      admin_address: req.query.admin_address as string | undefined,
+      action:        req.query.action        as string | undefined,
+      from:  req.query.from  ? new Date(req.query.from  as string) : undefined,
+      to:    req.query.to    ? new Date(req.query.to    as string) : undefined,
+      limit,
+      offset,
+    };
+    const { entries, total } = await auditService.query(filter);
+    res.json({ total, limit, offset, entries });
+  } catch (error) {
+    logger.error('Error fetching audit log', error);
+    res.status(500).json({ error: 'Failed to fetch audit log' });
   }
 });
 

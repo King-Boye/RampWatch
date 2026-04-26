@@ -1,3 +1,5 @@
+// MUST be imported first so OTel patches are applied before other modules load
+import './tracing';
 import dotenv from 'dotenv';
 import app from './api';
 import { initDatabase, getPool } from './database';
@@ -5,6 +7,8 @@ import { startBackgroundJobs } from './scheduler';
 import { WebhookHandler } from './webhook-handler';
 import { KycService } from './kyc-service';
 import { createWebhookVerificationMiddleware } from './webhook-middleware';
+import { AdminAuditLogService } from './admin-audit-log';
+import { remittanceEventEmitter } from './remittance/events';
 
 dotenv.config();
 
@@ -23,6 +27,10 @@ async function start() {
 
     // Setup webhook handler
     const pool = getPool();
+
+    // Wire audit log service into the global event emitter
+    const auditLogService = new AdminAuditLogService(pool);
+    remittanceEventEmitter.setAuditLogService(auditLogService);
     
     // Apply HMAC verification middleware to all /webhooks routes
     const webhookVerification = createWebhookVerificationMiddleware({

@@ -138,6 +138,9 @@ export class WebhookHandler {
         case 'sep24_withdrawal_update':
           await this.handleSep24Update(req.body);
           break;
+        case 'daily_limit_updated':
+          await this.handleDailyLimitUpdated(req.body);
+          break;
         default:
           res.status(400).json({ error: 'Unknown event type' });
           return;
@@ -246,6 +249,29 @@ export class WebhookHandler {
     }
 
     await this.stateManager.updateTransactionState(update, 'withdrawal');
+  }
+
+  /**
+   * Handle daily_limit_updated contract event.
+   * Logs the change for audit purposes.
+   */
+  private async handleDailyLimitUpdated(payload: any): Promise<void> {
+    const { currency, country, old_limit, new_limit, admin, ledger_sequence, timestamp } = payload;
+    console.info(
+      `[daily_limit_updated] currency=${currency} country=${country} ` +
+      `old=${old_limit ?? 'unset'} new=${new_limit} admin=${admin} ` +
+      `ledger=${ledger_sequence} ts=${timestamp}`
+    );
+    await this.pool.query(
+      `INSERT INTO daily_limit_audit_log
+         (currency, country, old_limit, new_limit, admin_address, ledger_sequence, event_timestamp, recorded_at)
+       VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7), NOW())
+       ON CONFLICT DO NOTHING`,
+      [currency, country, old_limit, new_limit, admin, ledger_sequence, timestamp]
+    ).catch((err: Error) => {
+      // Table may not exist yet; log and continue rather than failing the webhook
+      console.warn('[daily_limit_updated] audit log insert failed (table may not exist):', err.message);
+    });
   }
 
   /**

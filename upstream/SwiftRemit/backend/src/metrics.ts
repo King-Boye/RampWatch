@@ -119,6 +119,13 @@ export class MetricsService {
   }
 
   /**
+   * Increment dead-letter counter (called by dispatcher on each DLQ insertion)
+   */
+  incrementDeadLetterCount(): void {
+    this.metrics.swiftremit_webhook_dead_letter_count++;
+  }
+
+  /**
    * Update all metrics
    */
   async updateAllMetrics(): Promise<void> {
