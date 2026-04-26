@@ -7,6 +7,7 @@ import { KycUpsertService } from './kyc-upsert-service';
 import { Sep24Service } from './sep24-service';
 import { WebhookDispatcher } from './webhook-dispatcher';
 import type { RemittanceCreatedWebhookPayload } from './types';
+import { validateAnchorToml } from './anchor-toml-validator';
 
 interface WebhookRequest extends Request {
   rawBody?: string;
@@ -69,7 +70,17 @@ export class WebhookHandler {
         return;
       }
 
-      const { public_key, webhook_secret } = anchorResult.rows[0];
+      const { public_key, webhook_secret, home_domain } = anchorResult.rows[0];
+
+      // Validate anchor domain against stellar.toml SIGNING_KEY
+      if (home_domain) {
+        const tomlValid = await validateAnchorToml(home_domain, public_key);
+        if (!tomlValid) {
+          await this.logSuspicious(anchorId, 'stellar.toml SIGNING_KEY mismatch', req.body);
+          res.status(403).json({ error: 'Anchor domain validation failed' });
+          return;
+        }
+      }
 
       // Verify timestamp
       if (!this.verifier.validateTimestamp(timestamp)) {
