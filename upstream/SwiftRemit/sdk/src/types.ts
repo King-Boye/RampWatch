@@ -40,6 +40,10 @@ export interface AgentStats {
   failedSettlements: number;
   totalSettlementTime: bigint;
   disputeCount: number;
+  /** Successful payouts / total * 10000 (basis points). 10000 = 100%. */
+  successRateBps: number;
+  /** Ledger timestamp of the most recent confirm_payout or mark_failed call. */
+  lastActiveTimestamp: bigint;
 }
 
 export interface CircuitBreakerStatus {

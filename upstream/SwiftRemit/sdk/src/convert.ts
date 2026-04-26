@@ -45,6 +45,8 @@ export function parseAgentStats(val: xdr.ScVal): AgentStats {
     failedSettlements: Number(map["failed_settlements"]),
     totalSettlementTime: BigInt(map["total_settlement_time"] as number),
     disputeCount: Number(map["dispute_count"]),
+    successRateBps: Number(map["success_rate_bps"]),
+    lastActiveTimestamp: BigInt(map["last_active_timestamp"] as number),
   };
 }
 
