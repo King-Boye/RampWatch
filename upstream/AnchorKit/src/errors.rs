@@ -44,11 +44,13 @@ pub enum ErrorCode {
     NotInitialized = 101,
     AttestationNotFound = 17,
     InvalidSep10Token = 18,
-    StorageCorrupted = 50,
+    StorageCorrupted = 19,
     CacheExpired = 48,
-StorageCorrupted = 19,
     CacheNotFound = 49,
     AuditLogMaxSizeInvalid = 51,
+    UnauthorizedProposeAdmin = 52,
+    NoPendingAdmin = 53,
+    NotPendingAdmin = 54,
 }
 
 impl ErrorCode {
@@ -78,6 +80,9 @@ impl ErrorCode {
             ErrorCode::CacheExpired => "Cache entry has expired",
             ErrorCode::CacheNotFound => "Cache entry not found",
             ErrorCode::AuditLogMaxSizeInvalid => "max_audit_log_size must be at least 1",
+            ErrorCode::UnauthorizedProposeAdmin => "A pending admin proposal already exists",
+            ErrorCode::NoPendingAdmin => "No pending admin transfer found",
+            ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
         }
     }
 

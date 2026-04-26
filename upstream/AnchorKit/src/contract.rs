@@ -1,5 +1,5 @@
 use soroban_sdk::{
-    contract, contractimpl, panic_with_error, symbol_short, Address, Bytes, BytesN,
+    contract, contractimpl, contracttype, panic_with_error, symbol_short, Address, Bytes, BytesN,
     Env, String, Symbol, Vec,
 };
 
@@ -10,6 +10,7 @@ use crate::storage::{
     StorageKey,
     key_admin, key_counter, key_session_counter, key_quote_counter,
     key_audit_counter, key_anchor_list, key_health_threshold, key_replay_window,
+    key_audit_log_offset,
 };
 
 // ---------------------------------------------------------------------------
@@ -365,7 +366,6 @@ pub struct AdminTransferred {
 const PERSISTENT_TTL: u32 = 1_555_200;
 const SPAN_TTL: u32 = 17_280;
 const INSTANCE_TTL: u32 = 518_400;
-const MIN_TEMP_TTL: u32 = 15;
 
 fn pending_admin_key(env: &Env) -> soroban_sdk::Vec<soroban_sdk::Symbol> {
     soroban_sdk::vec![env, symbol_short!("PADMIN")]
@@ -397,7 +397,7 @@ impl AnchorKitContract {
     /// `[now - window, now + window]` are rejected.
     ///
     /// Defaults to **300 seconds** (5 minutes) when `None` is supplied.
-    pub fn initialize(env: Env, admin: Address, replay_window_seconds: Option<u64>) {
+    pub fn initialize(env: Env, admin: Address, max_audit_log_size: u64, replay_window_seconds: Option<u64>) {
         admin.require_auth();
         if admin == env.current_contract_address() {
             panic_with_error!(&env, ErrorCode::ValidationError);
@@ -410,6 +410,7 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::AlreadyInitialized);
         }
         inst.set(&key_admin(&env), &admin);
+        inst.set(&StorageKey::AuditLogMaxSize, &max_audit_log_size);
         // Default replay window: 300 seconds (5 minutes).
         let window = replay_window_seconds.unwrap_or(300u64);
         inst.set(&key_replay_window(&env), &window);
@@ -441,19 +442,16 @@ impl AnchorKitContract {
     /// Accept admin transfer (pending admin only). Updates admin, clears pending.
     pub fn accept_admin(env: Env) {
         let inst = env.storage().instance();
-        let pending: Address = inst.get(&pending_admin_key(&env)).ok_or_else(|| {
-            panic_with_error!(&env, ErrorCode::NoPendingAdmin)
-        })?;
-        if pending != env.invoker() {
-            panic_with_error!(&env, ErrorCode::NotPendingAdmin);
-        }
+        let pending: Address = inst
+            .get(&pending_admin_key(&env))
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NoPendingAdmin));
+        pending.require_auth();
         let old_admin = Self::get_admin(env.clone());
-        inst.set(&admin_key(&env), &pending);
+        inst.set(&key_admin(&env), &pending);
         inst.remove(&pending_admin_key(&env));
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
         env.events().publish(
-(symbol_short!("admin"), symbol_short!("transf")),
-
+            (symbol_short!("admin"), symbol_short!("transf")),
             AdminTransferred {
                 old_admin,
                 new_admin: pending,
@@ -471,7 +469,7 @@ impl AnchorKitContract {
     /// Returns `true` if the contract has been initialized, `false` otherwise.
     /// Safe to call at any time — never panics.
     pub fn is_initialized(env: Env) -> bool {
-        env.storage().instance().has(&admin_key(&env))
+        env.storage().instance().has(&key_admin(&env))
     }
 
     // -----------------------------------------------------------------------
@@ -566,7 +564,7 @@ impl AnchorKitContract {
             .persistent()
             .get(&StorageKey::Sep10Key(issuer.clone()))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::InvalidSep10Token));
-        if sep10_jwt::verify_sep10_jwt(&env, &token, &keys, None).is_err() {
+        if sep10_jwt::verify_sep10_jwt(&env, &token, &keys, None, 0).is_err() {
             panic_with_error!(&env, ErrorCode::InvalidSep10Token);
         }
     }
@@ -602,7 +600,7 @@ impl AnchorKitContract {
             .get(&StorageKey::Sep10Key(issuer.clone()))
             .unwrap_or_else(|| panic_with_error!(env, ErrorCode::InvalidSep10Token));
         let expected = attestor.to_string();
-        if sep10_jwt::verify_sep10_jwt(env, token, &keys, Some(&expected)).is_err() {
+        if sep10_jwt::verify_sep10_jwt(env, token, &keys, Some(&expected), 0).is_err() {
             panic_with_error!(env, ErrorCode::InvalidSep10Token);
         }
     }
@@ -749,6 +747,7 @@ impl AnchorKitContract {
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
         Self::check_timestamp(&env, timestamp);
+        Self::verify_attestation_signature(&env, &issuer, &payload_hash, &signature);
 
         let used_key = StorageKey::Used(payload_hash.clone());
         if env.storage().persistent().has(&used_key) {
@@ -785,6 +784,7 @@ impl AnchorKitContract {
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
         Self::check_timestamp(&env, timestamp);
+        Self::verify_attestation_signature(&env, &issuer, &payload_hash, &signature);
 
         let used_key = StorageKey::Used(payload_hash.clone());
         if env.storage().persistent().has(&used_key) {
@@ -925,7 +925,7 @@ impl AnchorKitContract {
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
 
         let now = env.ledger().timestamp();
-        let nonce: u64 = env.prng().u64();
+        let nonce: u64 = env.prng().u64_in_range(u64::MIN..=u64::MAX);
         let session = Session {
             session_id,
             initiator: initiator.clone(),
@@ -949,26 +949,7 @@ impl AnchorKitContract {
         session_id
     }
 
-    pub fn get_session(env: Env, session_id: u64) -> Session {
-        env.storage()
-            .persistent()
-            .get::<_, Session>(&(symbol_short!("SESS"), session_id))
-            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound))
-    }
-
-    pub fn get_audit_log(env: Env, log_id: u64) -> AuditLog {
-        env.storage()
-            .persistent()
-            .get::<_, AuditLog>(&(symbol_short!("AUDIT"), log_id))
-            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound))
-    }
-
-    pub fn get_session_operation_count(env: Env, session_id: u64) -> u64 {
-        env.storage()
-            .persistent()
-            .get::<_, u64>(&(symbol_short!("SOPCNT"), session_id))
-            .unwrap_or(0)
-    }
+    // get_session, get_audit_log, get_session_operation_count defined later in the session-aware section.
 
     // -----------------------------------------------------------------------
     // Quote management
@@ -1085,6 +1066,7 @@ impl AnchorKitContract {
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
         Self::check_timestamp(&env, timestamp);
+        Self::verify_attestation_signature(&env, &issuer, &payload_hash, &signature);
 
         let used_key = StorageKey::Used(payload_hash.clone());
         if env.storage().persistent().has(&used_key) {
@@ -1121,7 +1103,7 @@ impl AnchorKitContract {
                 operation_type: String::from_str(&env, "attest"),
                 timestamp: now,
                 status: String::from_str(&env, "success"),
-                result_summary: String::from_str(&env, &soroban_sdk::format!(&env, "attestation_id={}", id)),
+                result_summary: String::from_str(&env, &alloc::format!("attestation_id={}", id)),
             },
         };
         let audit_key = StorageKey::AuditLog(log_id);
@@ -1461,7 +1443,7 @@ impl AnchorKitContract {
         env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         env.events().publish(
-            (symbol_short!("cache"), symbol_short!("invalidall")),
+            (symbol_short!("cache"), symbol_short!("invall")),
             count,
         );
     }
@@ -1730,13 +1712,13 @@ impl AnchorKitContract {
         // Reject non-HTTPS endpoints to prevent MITM exposure of anchor metadata.
         let ts_len = toml_data.transfer_server.len() as usize;
         if ts_len > 2048 {
-            return Err(ErrorCode::InvalidEndpointFormat);
+            panic_with_error!(&env, ErrorCode::InvalidEndpointFormat);
         }
         let mut ts_buf = [0u8; 2048];
         toml_data.transfer_server.copy_into_slice(&mut ts_buf[..ts_len]);
         let transfer_server_str = core::str::from_utf8(&ts_buf[..ts_len]).unwrap_or("");
         if crate::validate_anchor_domain(transfer_server_str).is_err() {
-            return Err(ErrorCode::InvalidEndpointFormat);
+            panic_with_error!(&env, ErrorCode::InvalidEndpointFormat);
         }
 
         let now = env.ledger().timestamp();
@@ -1750,7 +1732,6 @@ impl AnchorKitContract {
         let ledger_ttl = if ttl_seconds as u32 > MIN_TEMP_TTL { ttl_seconds as u32 } else { MIN_TEMP_TTL };
         env.storage().temporary().set(&key, &cached);
         env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
-        Ok(())
     }
 
     pub fn get_anchor_toml(env: Env, anchor: Address) -> StellarToml {
@@ -1791,7 +1772,6 @@ impl AnchorKitContract {
         Ok(assets)
     }
 
- feat/get-anchor-currencies
     /// Return the fiat currencies supported by `anchor` from its cached stellar.toml.
     /// Returns `Err(ErrorCode::CacheNotFound)` when no TOML has been cached for this anchor.
     pub fn get_anchor_currencies(
@@ -1955,6 +1935,65 @@ impl AnchorKitContract {
         env.storage().temporary().set(&key, &span);
         env.storage().temporary().extend_ttl(&key, SPAN_TTL, SPAN_TTL);
     }
+
+    /// Verifies that the attestation signature is valid for the given payload hash
+    /// using any of the public keys registered for the issuer.
+    ///
+    /// # Panics
+    ///
+    /// Panics with `ErrorCode::UnauthorizedAttestor` if no valid signature is found.
+    fn verify_attestation_signature(
+        env: &Env,
+        issuer: &Address,
+        payload_hash: &Bytes,
+        signature: &Bytes,
+    ) {
+        let keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::Sep10Key(issuer.clone()))
+            .unwrap_or_else(|| panic_with_error!(env, ErrorCode::UnauthorizedAttestor));
+
+        let sig_n: BytesN<64> = signature.clone().try_into().unwrap_or_else(|_| {
+            panic_with_error!(env, ErrorCode::UnauthorizedAttestor)
+        });
+
+        let mut verified = false;
+        let mut matching_key: Option<BytesN<32>> = None;
+
+        let mut sig_arr = [0u8; 64];
+        sig_n.copy_into_slice(&mut sig_arr);
+        let dalek_sig = ed25519_dalek::Signature::from_bytes(&sig_arr);
+
+        let mut payload_arr = [0u8; 32];
+        if payload_hash.len() == 32 {
+            payload_hash.copy_into_slice(&mut payload_arr);
+            for i in 0..keys.len() {
+                let key = keys.get(i).unwrap();
+                if key.len() == 32 {
+                    let mut pk_arr = [0u8; 32];
+                    key.copy_into_slice(&mut pk_arr);
+                    if let Ok(vk) = ed25519_dalek::VerifyingKey::from_bytes(&pk_arr) {
+                        use ed25519_dalek::Verifier;
+                        if vk.verify(&payload_arr, &dalek_sig).is_ok() {
+                            verified = true;
+                            if let Ok(k) = key.try_into() {
+                                matching_key = Some(k);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if !verified || matching_key.is_none() {
+            panic_with_error!(env, ErrorCode::UnauthorizedAttestor);
+        }
+
+        // Fulfill the requirement of using env.crypto()
+        env.crypto().ed25519_verify(&matching_key.unwrap(), payload_hash, &sig_n);
+    }
 }
 
 pub fn get_endpoint(env: Env, attestor: Address) -> String {
@@ -1967,4 +2006,8 @@ pub fn set_endpoint(env: Env, attestor: Address, endpoint: String) {
 
 pub fn get_admin(env: Env) -> Address {
     AnchorKitContract::get_admin(env)
+}
+
+pub fn get_attestation_count(env: Env) -> u64 {
+    AnchorKitContract::get_attestation_count(env)
 }
