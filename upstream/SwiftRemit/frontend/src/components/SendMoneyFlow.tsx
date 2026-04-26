@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import './SendMoneyFlow.css';
 import { signTransaction } from '@stellar/freighter-api';
@@ -13,11 +13,22 @@ interface ConfirmPayload {
   memo?: string;
 }
 
+interface CorridorLimits {
+  min: number;
+  max: number;
+  dailyLimit: number;
+  dailyRemaining: number;
+}
+
 interface SendMoneyFlowProps {
   assets?: string[];
   onConfirm?: (payload: ConfirmPayload) => Promise<void>;
   senderPublicKey?: string;
   network?: 'TESTNET' | 'PUBLIC';
+  /** ISO 3166-1 alpha-2 country code for the recipient corridor */
+  recipientCountry?: string;
+  /** Base URL for the API (defaults to /api) */
+  apiBaseUrl?: string;
 }
 
 const STEP_SEQUENCE: FlowStep[] = [1, 2, 3, 4, 5];
@@ -33,6 +44,9 @@ const STELLAR_EXPERT_BASE: Record<string, string> = {
   TESTNET: 'https://stellar.expert/explorer/testnet/tx',
   PUBLIC: 'https://stellar.expert/explorer/public/tx',
 };
+
+/** Threshold at which we show the "approaching limit" warning (90%) */
+const APPROACHING_THRESHOLD = 0.9;
 
 function isValidRecipient(input: string): boolean {
   return /^G[A-Z2-7]{55}$/.test(input.trim());
@@ -95,6 +109,8 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
   onConfirm,
   senderPublicKey = '',
   network = 'TESTNET',
+  recipientCountry = '',
+  apiBaseUrl = '/api',
 }) => {
   const { t } = useTranslation();
   const [step, setStep] = useState<FlowStep>(1);
@@ -107,6 +123,11 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
   const [isComplete, setIsComplete] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
 
+  // Corridor limits state
+  const [limits, setLimits] = useState<CorridorLimits | null>(null);
+  const [limitsLoading, setLimitsLoading] = useState(false);
+  const [limitsError, setLimitsError] = useState(false);
+
   const parsedAmount = useMemo(() => Number(amount), [amount]);
 
   const STEPS: Record<FlowStep, string> = {
@@ -116,6 +137,35 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
     4: t('sendMoney.steps.4'),
     5: t('sendMoney.steps.5'),
   };
+
+  // Fetch limits whenever asset or recipientCountry changes
+  useEffect(() => {
+    if (!asset) return;
+
+    setLimitsLoading(true);
+    setLimitsError(false);
+
+    const params = new URLSearchParams({ asset });
+    if (recipientCountry) params.set('country', recipientCountry);
+
+    fetch(`${apiBaseUrl}/limits?${params}`)
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to fetch limits');
+        return res.json();
+      })
+      .then((data) => {
+        if (data.success && data.data) {
+          setLimits(data.data as CorridorLimits);
+        }
+      })
+      .catch(() => setLimitsError(true))
+      .finally(() => setLimitsLoading(false));
+  }, [asset, recipientCountry, apiBaseUrl]);
+
+  const isApproachingLimit =
+    limits !== null &&
+    parsedAmount > 0 &&
+    parsedAmount >= limits.dailyRemaining * APPROACHING_THRESHOLD;
 
   const validateCurrentStep = (): string | null => {
     if (step === 1) {
@@ -199,21 +249,49 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
     }
   };
 
+  const renderLimitsInfo = () => {
+    if (!asset) return null;
+    if (limitsLoading) return <p className="flow-limits-loading">{t('sendMoney.limits.loading')}</p>;
+    if (limitsError) return <p className="flow-limits-error">{t('sendMoney.limits.error')}</p>;
+    if (!limits) return null;
+
+    return (
+      <div className="flow-limits" aria-live="polite">
+        <span className="flow-limits-range">
+          {t('sendMoney.limits.min', { value: limits.min, asset })}
+          {' · '}
+          {t('sendMoney.limits.max', { value: limits.max, asset })}
+        </span>
+        <span className="flow-limits-daily">
+          {t('sendMoney.limits.dailyRemaining', { value: limits.dailyRemaining, asset })}
+        </span>
+        {isApproachingLimit && (
+          <span className="flow-limits-warning" role="alert">
+            {t('sendMoney.limits.approachingLimit')}
+          </span>
+        )}
+      </div>
+    );
+  };
+
   const renderStepContent = () => {
     if (step === 1) {
       return (
-        <label className="flow-field" htmlFor="amount">
-          <span>{t('sendMoney.amount')}</span>
-          <input
-            id="amount"
-            type="number"
-            min="0"
-            step="0.000001"
-            value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-            placeholder="0.00"
-          />
-        </label>
+        <>
+          <label className="flow-field" htmlFor="amount">
+            <span>{t('sendMoney.amount')}</span>
+            <input
+              id="amount"
+              type="number"
+              min="0"
+              step="0.000001"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              placeholder="0.00"
+            />
+          </label>
+          {renderLimitsInfo()}
+        </>
       );
     }
 

@@ -201,3 +201,32 @@
   font-size: 0.78rem;
   color: var(--color-text-tertiary);
 }
+
+.flow-limits {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+}
+
+.flow-limits-range {
+  color: var(--color-text-tertiary, #888);
+}
+
+.flow-limits-daily {
+  color: var(--color-text-secondary, #555);
+  font-weight: 500;
+}
+
+.flow-limits-warning {
+  color: var(--color-warning, #b45309);
+  font-weight: 600;
+}
+
+.flow-limits-loading,
+.flow-limits-error {
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--color-text-tertiary, #888);
+}
