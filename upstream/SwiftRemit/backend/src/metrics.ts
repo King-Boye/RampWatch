@@ -13,6 +13,7 @@ export class MetricsService {
     swiftremit_webhook_deliveries_total: {} as Record<string, number>,
     swiftremit_active_remittances: 0,
     swiftremit_accumulated_fees: 0,
+    swiftremit_rate_limit_exceeded_total: {} as Record<string, number>,
   };
 
   // FX rate staleness metrics
@@ -46,6 +47,15 @@ export class MetricsService {
     const ageSeconds = (Date.now() - rateTimestamp.getTime()) / 1000;
     const key = `${from.toUpperCase()}_${to.toUpperCase()}`;
     this.fxRateAgeSeconds.set(key, ageSeconds);
+  }
+
+  /**
+   * Increment rate limit exceeded counter for a given path
+   */
+  incrementRateLimitExceeded(path: string): void {
+    const key = path.replace(/\/[^/]+$/, '/:id').replace(/[^a-zA-Z0-9_/:]/g, '_');
+    this.metrics.swiftremit_rate_limit_exceeded_total[key] =
+      (this.metrics.swiftremit_rate_limit_exceeded_total[key] ?? 0) + 1;
   }
 
   /**
@@ -137,6 +147,13 @@ export class MetricsService {
     } catch (error) {
       this.logger.error('Failed to update accumulated fees', error);
     }
+  }
+
+  /**
+   * Increment dead-letter counter (called by dispatcher on each DLQ insertion)
+   */
+  incrementDeadLetterCount(): void {
+    this.metrics.swiftremit_webhook_dead_letter_count++;
   }
 
   /**
