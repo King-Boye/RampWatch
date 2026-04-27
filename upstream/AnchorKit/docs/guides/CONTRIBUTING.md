@@ -7,6 +7,7 @@ Thank you for your interest in contributing to AnchorKit! This document provides
 - [Code of Conduct](#code-of-conduct)
 - [Getting Started](#getting-started)
 - [Development Environment Setup](#development-environment-setup)
+- [Makefile Shortcuts](#makefile-shortcuts)
 - [Running Tests](#running-tests)
 - [Code Style Guidelines](#code-style-guidelines)
 - [Branch Naming Conventions](#branch-naming-conventions)
@@ -83,6 +84,22 @@ The UI components are built with React and TypeScript.
    node --version
    npm --version
    ```
+
+## Makefile Shortcuts
+
+A `Makefile` is provided at the project root for common tasks:
+
+```bash
+make build          # cargo build --release
+make test           # cargo test
+make lint           # cargo clippy -- -D warnings
+make fmt            # cargo fmt
+make clean          # cargo clean
+make deploy-testnet # deploy to Stellar testnet
+make help           # list all targets
+```
+
+> **Note**: Requires `make` (available by default on Linux and macOS).
 
 ## Running Tests
 
