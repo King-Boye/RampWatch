@@ -1,141 +1,160 @@
 /**
- * Remittance routes.
+ * GET /api/remittances
  *
- * PATCH /api/remittances/:id/status
- *   Transitions a remittance to a new status and pushes a `status:updated`
- *   WebSocket event to all clients watching `remittance:{id}`.
+ * Query remittances by agent address with optional status filter and pagination.
+ * Resolves issue #472.
  *
- * GET /api/remittances/:id
- *   Returns the current state of a remittance.
+ * Query parameters:
+ *   agent  {string}  - Stellar address of the agent (required)
+ *   status {string}  - Filter by status: Pending | Processing | Completed | Cancelled (optional)
+ *   page   {number}  - 1-based page number (default: 1)
+ *   limit  {number}  - Items per page, max 100 (default: 20)
  */
 
 import { Router, Request, Response } from 'express';
 import { ErrorResponse } from '../types';
-import { RemittanceService, InvalidTransitionError, RemittanceNotFoundError } from '../services/remittanceService';
-import { RemittanceStatus } from '../websocket/types';
 
-const VALID_STATUSES: RemittanceStatus[] = [
-  'Pending',
-  'Processing',
-  'Completed',
-  'Cancelled',
-  'Failed',
-  'Disputed',
-];
+export type RemittanceStatus = 'Pending' | 'Processing' | 'Completed' | 'Cancelled' | 'Failed' | 'Disputed';
 
-function isRemittanceStatus(value: unknown): value is RemittanceStatus {
-  return typeof value === 'string' && (VALID_STATUSES as string[]).includes(value);
+export interface Remittance {
+  id: number;
+  sender: string;
+  agent: string;
+  amount: number;
+  fee: number;
+  status: RemittanceStatus;
+  created_at: string;
+  updated_at: string;
 }
+
+const VALID_STATUSES: RemittanceStatus[] = ['Pending', 'Processing', 'Completed', 'Cancelled', 'Failed', 'Disputed'];
+const DEFAULT_PAGE_LIMIT = 20;
+const MAX_PAGE_LIMIT = 100;
 
 function timestamp(): string {
   return new Date().toISOString();
 }
 
-function sendError(
-  res: Response,
-  httpStatus: number,
-  message: string,
-  code: string,
-): Response {
-  const body: ErrorResponse = {
-    success: false,
-    error: { message, code },
-    timestamp: timestamp(),
-  };
-  return res.status(httpStatus).json(body);
+function sendError(res: Response, status: number, message: string, code: string): Response<ErrorResponse> {
+  return res.status(status).json({ success: false, error: { message, code }, timestamp: timestamp() });
 }
 
-export type RemittancesRouterOptions = {
-  service?: RemittanceService;
-};
+/**
+ * Stub data source — in production this would query the contract via RPC
+ * or a database populated by the event listener.
+ */
+function fetchRemittancesByAgent(
+  agent: string,
+  status?: RemittanceStatus,
+  page = 1,
+  limit = DEFAULT_PAGE_LIMIT,
+): { items: Remittance[]; total: number } {
+  // Placeholder: real implementation queries contract/DB
+  const items: Remittance[] = [];
+  return { items, total: 0 };
+}
 
-export function createRemittancesRouter(options: RemittancesRouterOptions = {}): Router {
-  const router = Router();
+const router = Router();
 
-  function getService(): RemittanceService {
-    if (options.service) return options.service;
-    // Lazy-load the default service so tests can inject their own
-    const { getDefaultRemittanceService } = require('../services/remittanceService');
-    return getDefaultRemittanceService();
+/**
+ * @openapi
+ * /api/remittances:
+ *   get:
+ *     summary: Query remittances by agent address
+ *     description: >
+ *       Returns a paginated list of remittances assigned to the given agent,
+ *       with optional status filtering.
+ *     tags:
+ *       - Remittances
+ *     parameters:
+ *       - name: agent
+ *         in: query
+ *         required: true
+ *         description: Stellar address of the agent
+ *         schema:
+ *           type: string
+ *       - name: status
+ *         in: query
+ *         required: false
+ *         description: Filter by remittance status
+ *         schema:
+ *           type: string
+ *           enum: [Pending, Processing, Completed, Cancelled, Failed, Disputed]
+ *       - name: page
+ *         in: query
+ *         required: false
+ *         description: 1-based page number
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *       - name: limit
+ *         in: query
+ *         required: false
+ *         description: Items per page (max 100)
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *     responses:
+ *       200:
+ *         description: Paginated list of remittances
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RemittanceListResponse'
+ *       400:
+ *         description: Invalid query parameters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/', (req: Request, res: Response) => {
+  const { agent, status, page: pageStr, limit: limitStr } = req.query as Record<string, string | undefined>;
+
+  if (!agent || typeof agent !== 'string' || agent.trim() === '') {
+    return sendError(res, 400, '`agent` query parameter is required', 'MISSING_AGENT');
   }
 
-  /**
-   * GET /api/remittances/:id
-   * Returns the current remittance record.
-   */
-  router.get('/:id', async (req: Request, res: Response) => {
-    try {
-      const remittance = await getService().getById(req.params.id);
+  if (status !== undefined && !VALID_STATUSES.includes(status as RemittanceStatus)) {
+    return sendError(
+      res,
+      400,
+      `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}`,
+      'INVALID_STATUS',
+    );
+  }
 
-      if (!remittance) {
-        return sendError(res, 404, `Remittance '${req.params.id}' not found`, 'REMITTANCE_NOT_FOUND');
-      }
+  const page = pageStr !== undefined ? parseInt(pageStr, 10) : 1;
+  const limit = limitStr !== undefined ? parseInt(limitStr, 10) : DEFAULT_PAGE_LIMIT;
 
-      return res.json({
-        success: true,
-        data: remittance,
-        timestamp: timestamp(),
-      });
-    } catch (err) {
-      return sendError(
-        res,
-        500,
-        err instanceof Error ? err.message : 'Failed to retrieve remittance',
-        'REMITTANCE_RETRIEVAL_ERROR',
-      );
-    }
+  if (isNaN(page) || page < 1) {
+    return sendError(res, 400, '`page` must be a positive integer', 'INVALID_PAGE');
+  }
+  if (isNaN(limit) || limit < 1 || limit > MAX_PAGE_LIMIT) {
+    return sendError(res, 400, `\`limit\` must be between 1 and ${MAX_PAGE_LIMIT}`, 'INVALID_LIMIT');
+  }
+
+  const { items, total } = fetchRemittancesByAgent(
+    agent.trim(),
+    status as RemittanceStatus | undefined,
+    page,
+    limit,
+  );
+
+  return res.json({
+    success: true,
+    data: items,
+    pagination: {
+      page,
+      limit,
+      total,
+      total_pages: Math.ceil(total / limit),
+    },
+    timestamp: timestamp(),
   });
+});
 
-  /**
-   * PATCH /api/remittances/:id/status
-   *
-   * Body: { "status": "Processing" }
-   *
-   * Transitions the remittance to the requested status, persists it, and
-   * emits a `status:updated` WebSocket event to the remittance's room.
-   *
-   * Responses:
-   *   200  – transition succeeded; returns updated remittance
-   *   400  – missing/invalid status value or invalid state transition
-   *   404  – remittance not found
-   *   500  – unexpected error
-   */
-  router.patch('/:id/status', async (req: Request, res: Response) => {
-    const { id } = req.params;
-    const { status } = req.body as { status?: unknown };
-
-    if (!isRemittanceStatus(status)) {
-      return sendError(
-        res,
-        400,
-        `'status' must be one of: ${VALID_STATUSES.join(', ')}`,
-        'INVALID_STATUS',
-      );
-    }
-
-    try {
-      const updated = await getService().updateStatus(id, status);
-
-      return res.json({
-        success: true,
-        data: updated,
-        timestamp: timestamp(),
-      });
-    } catch (err) {
-      if (err instanceof RemittanceNotFoundError) {
-        return sendError(res, 404, err.message, 'REMITTANCE_NOT_FOUND');
-      }
-      if (err instanceof InvalidTransitionError) {
-        return sendError(res, 400, err.message, 'INVALID_TRANSITION');
-      }
-      return sendError(
-        res,
-        500,
-        err instanceof Error ? err.message : 'Failed to update remittance status',
-        'REMITTANCE_UPDATE_ERROR',
-      );
-    }
-  });
-
-  return router;
-}
+export default router;

@@ -5,14 +5,13 @@ use crate::rate_limit::{
     filter_timestamps_in_window, count_timestamps_in_window,
     get_sliding_window_entry, save_sliding_window_entry,
 };
-
-pub const RATE_LIMIT_WINDOW: u64 = 60;
-pub const MAX_TRANSFERS_PER_WINDOW: u32 = 10;
-pub const MAX_CANCELLATIONS_PER_WINDOW: u32 = 5;
-pub const MAX_QUERIES_PER_WINDOW: u32 = 100;
-pub const TRANSFER_COOLDOWN: u64 = 5;
-/// Maximum Vec size to prevent unbounded growth (2× the max requests per window)
-const MAX_VEC_SIZE: u32 = MAX_TRANSFERS_PER_WINDOW * 2;
+use crate::config::{
+    RATE_LIMIT_WINDOW_SECONDS,
+    MAX_TRANSFERS_PER_WINDOW,
+    MAX_CANCELLATIONS_PER_WINDOW,
+    MAX_QUERIES_PER_WINDOW,
+    TRANSFER_COOLDOWN_SECONDS,
+};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -73,9 +72,7 @@ pub fn check_rate_limit(
     let max_requests = get_max_requests_for_action(&action_type);
     let tag = action_tag(&action_type);
     let mut entry = get_sliding_window_entry(env, address, tag);
-    let window_start = current_time.saturating_sub(RATE_LIMIT_WINDOW);
-
-    // Always prune stale timestamps.
+    let window_start = current_time.saturating_sub(RATE_LIMIT_WINDOW_SECONDS);
     entry.timestamps = filter_timestamps_in_window(env, &entry.timestamps, window_start);
 
     // Cap Vec size to prevent unbounded growth regardless of pruning.
@@ -95,7 +92,7 @@ pub fn check_rate_limit(
     }
     entry.timestamps.push_back(current_time);
     entry.request_count += 1;
-    save_sliding_window_entry(env, &entry, RATE_LIMIT_WINDOW);
+    save_sliding_window_entry(env, &entry, RATE_LIMIT_WINDOW_SECONDS);
     Ok(())
 }
 
@@ -162,8 +159,8 @@ fn get_max_requests_for_action(action_type: &ActionType) -> u32 {
 
 fn get_cooldown_period(action_type: &ActionType) -> u64 {
     match action_type {
-        ActionType::Transfer   => TRANSFER_COOLDOWN,
-        ActionType::Settlement => TRANSFER_COOLDOWN,
+        ActionType::Transfer   => TRANSFER_COOLDOWN_SECONDS,
+        ActionType::Settlement => TRANSFER_COOLDOWN_SECONDS,
         _                      => 0,
     }
 }
@@ -328,7 +325,7 @@ mod tests {
             record_action(&env, &address, ActionType::Transfer);
 
             // One second before cooldown expires: still blocked
-            env.ledger().with_mut(|l| l.timestamp = TRANSFER_COOLDOWN - 1);
+            env.ledger().with_mut(|l| l.timestamp = TRANSFER_COOLDOWN_SECONDS - 1);
             assert_eq!(
                 check_cooldown(&env, &address, ActionType::Transfer).unwrap_err(),
                 ContractError::CooldownActive,
@@ -336,8 +333,8 @@ mod tests {
             );
 
             // Exactly at cooldown boundary: still blocked (time_since_last == cooldown_period - 1 < cooldown_period)
-            env.ledger().with_mut(|l| l.timestamp = TRANSFER_COOLDOWN);
-            // time_since_last = TRANSFER_COOLDOWN - 0 = TRANSFER_COOLDOWN, which is NOT < cooldown_period
+            env.ledger().with_mut(|l| l.timestamp = TRANSFER_COOLDOWN_SECONDS);
+            // time_since_last = TRANSFER_COOLDOWN_SECONDS - 0 = TRANSFER_COOLDOWN_SECONDS, which is NOT < cooldown_period
             // so this should be allowed
             assert!(
                 check_cooldown(&env, &address, ActionType::Transfer).is_ok(),
@@ -345,7 +342,7 @@ mod tests {
             );
 
             // After cooldown: allowed
-            env.ledger().with_mut(|l| l.timestamp = TRANSFER_COOLDOWN + 1);
+            env.ledger().with_mut(|l| l.timestamp = TRANSFER_COOLDOWN_SECONDS + 1);
             assert!(
                 check_cooldown(&env, &address, ActionType::Transfer).is_ok(),
                 "cooldown should be expired after the boundary"
