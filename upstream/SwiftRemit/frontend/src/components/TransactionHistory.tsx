@@ -61,21 +61,21 @@ function formatTimestamp(value: string): string {
 }
 
 const SkeletonRow: React.FC = () => (
-  <tr>
-    <td><div className="skeleton skeleton-text" /></td>
-    <td><div className="skeleton skeleton-text" /></td>
-    <td><div className="skeleton skeleton-text" /></td>
+  <tr aria-busy="true">
+    <td><div className="skeleton skeleton-text skeleton-amount" /></td>
+    <td><div className="skeleton skeleton-text skeleton-asset" /></td>
+    <td><div className="skeleton skeleton-text skeleton-recipient" /></td>
     <td><div className="skeleton skeleton-status" /></td>
-    <td><div className="skeleton skeleton-text" /></td>
+    <td><div className="skeleton skeleton-text skeleton-timestamp" /></td>
     <td><div className="skeleton skeleton-button" /></td>
   </tr>
 );
 
 const SkeletonCard: React.FC = () => (
-  <article className="history-card skeleton-card">
+  <article className="history-card skeleton-card" aria-busy="true">
     <div className="history-card-top">
-      <div className="skeleton skeleton-text" />
-      <div className="skeleton skeleton-status" />
+      <div className="skeleton skeleton-text skeleton-card-amount" />
+      <div className="skeleton skeleton-status skeleton-card-status" />
     </div>
     <div className="history-card-grid">
       <div>
@@ -88,10 +88,10 @@ const SkeletonCard: React.FC = () => (
       </div>
       <div>
         <div className="skeleton skeleton-label" />
-        <div className="skeleton skeleton-text" />
+        <div className="skeleton skeleton-text skeleton-timestamp" />
       </div>
     </div>
-    <div className="skeleton skeleton-button" />
+    <div className="skeleton skeleton-button skeleton-card-button" />
   </article>
 );
 
