@@ -34,6 +34,7 @@ interface SendMoneyFlowProps {
 const STEP_SEQUENCE: FlowStep[] = [1, 2, 3, 4, 5];
 
 const DEFAULT_ASSETS = ['XLM', 'USDC', 'EURC'];
+const FX_TTL_MS = 30_000;
 
 const HORIZON_URLS: Record<string, string> = {
   TESTNET: 'https://horizon-testnet.stellar.org',
@@ -127,6 +128,11 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
   const [limits, setLimits] = useState<CorridorLimits | null>(null);
   const [limitsLoading, setLimitsLoading] = useState(false);
   const [limitsError, setLimitsError] = useState(false);
+
+  const [fxRate, setFxRate] = useState<FxRate | null>(null);
+  const [fxLoading, setFxLoading] = useState(false);
+  const [fxCountdown, setFxCountdown] = useState(0);
+  const fxTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const parsedAmount = useMemo(() => Number(amount), [amount]);
 
@@ -371,7 +377,7 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
               <dd>{memo.trim()}</dd>
             </div>
           )}
-        </dl>
+        </>
       );
     }
 
