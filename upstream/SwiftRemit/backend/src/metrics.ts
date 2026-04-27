@@ -13,6 +13,7 @@ export class MetricsService {
     swiftremit_webhook_deliveries_total: {} as Record<string, number>,
     swiftremit_active_remittances: 0,
     swiftremit_accumulated_fees: 0,
+    swiftremit_rate_limit_exceeded_total: {} as Record<string, number>,
   };
 
   // FX rate staleness metrics
@@ -137,6 +138,13 @@ export class MetricsService {
     } catch (error) {
       this.logger.error('Failed to update accumulated fees', error);
     }
+  }
+
+  /**
+   * Increment dead-letter counter (called by dispatcher on each DLQ insertion)
+   */
+  incrementDeadLetterCount(): void {
+    this.metrics.swiftremit_webhook_dead_letter_count++;
   }
 
   /**
