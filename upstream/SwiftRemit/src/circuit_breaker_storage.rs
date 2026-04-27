@@ -147,7 +147,7 @@ pub fn set_unpause_quorum(env: &Env, quorum: u32) {
         .set(&CbKey::UnpauseQuorum, &quorum);
 }
 
-// ─── Vote Count ───────────────────────────────────────────────────────────────
+// ─── Per-Sequence Vote Count ──────────────────────────────────────────────────
 
 /// Returns the number of votes cast for the pause instance identified by `seq`.
 /// Defaults to 0 if never set.

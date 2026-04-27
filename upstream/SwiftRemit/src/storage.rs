@@ -275,6 +275,9 @@ enum DataKey {
 
     /// Ordered list of current admin addresses for iteration (instance storage).
     AdminList,
+
+    /// Runtime-adjustable maximum batch size for process_expired_remittances (instance storage).
+    MaxExpiredBatchSize,
 }
 
 #[contracttype]
@@ -1240,6 +1243,8 @@ pub fn get_agent_stats(env: &Env, agent: &Address) -> AgentStats {
             failed_settlements: 0,
             total_settlement_time: 0,
             dispute_count: 0,
+            success_rate_bps: 10000,
+            last_active_timestamp: 0,
         })
 }
 
@@ -1524,6 +1529,21 @@ pub fn remove_idempotency_record(env: &Env, key: &String) {
     env.storage()
         .persistent()
         .remove(&DataKey::IdempotencyRecord(key.clone()));
+}
+
+/// Gets the runtime max expired batch size (falls back to compile-time constant).
+pub fn get_max_expired_batch_size(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MaxExpiredBatchSize)
+        .unwrap_or(crate::config::MAX_EXPIRED_BATCH_SIZE)
+}
+
+/// Sets the runtime max expired batch size.
+pub fn set_max_expired_batch_size(env: &Env, size: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MaxExpiredBatchSize, &size);
 }
 
 /// Stores the reverse mapping: remittance_id -> idempotency key
@@ -1918,4 +1938,47 @@ pub fn set_governance_initialized(env: &Env) {
     env.storage()
         .instance()
         .set(&DataKey::GovernanceInitialized, &true);
+}
+
+// === TTL Management ===
+
+/// Extend TTLs for critical instance and persistent storage keys.
+///
+/// Called by the `extend_storage_ttl` admin function (and the backend scheduler)
+/// to prevent data loss from TTL expiry.
+///
+/// Storage key TTL strategy:
+/// - **Instance storage** (Admin, UsdcToken, PlatformFeeBps, counters, fees):
+///   Extended via `env.storage().instance().extend_ttl()`.
+/// - **Persistent storage** (Remittances, AgentRegistered, DailyLimit, UserTransfers):
+///   Each key must be extended individually; this function bumps the remittance
+///   counter range and agent-related keys that are known at call time.
+///
+/// # Arguments
+/// * `env` - Contract environment
+/// * `extend_by_ledgers` - Number of ledgers to extend TTL by (capped at 3_110_400)
+pub fn extend_critical_ttls(env: &Env, extend_by_ledgers: u32) {
+    // Cap at ~1 year of ledgers (5-second ledger time)
+    let ledgers = extend_by_ledgers.min(3_110_400);
+
+    // Bump instance storage (covers all instance-stored keys as a group)
+    env.storage()
+        .instance()
+        .extend_ttl(ledgers, ledgers);
+
+    // Bump persistent remittance records up to the current counter
+    let counter = env
+        .storage()
+        .instance()
+        .get::<DataKey, u64>(&DataKey::RemittanceCounter)
+        .unwrap_or(0);
+
+    for id in 0..counter {
+        let key = DataKey::Remittance(id);
+        if env.storage().persistent().has(&key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, ledgers, ledgers);
+        }
+    }
 }

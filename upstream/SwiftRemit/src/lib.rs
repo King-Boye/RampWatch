@@ -36,6 +36,8 @@ mod test_blacklist;
 #[cfg(test)]
 mod test_escrow;
 #[cfg(test)]
+mod test_agent_stats;
+#[cfg(test)]
 mod test_fee_corridor;
 #[cfg(test)]
 mod test_fee_strategy;
@@ -806,6 +808,12 @@ impl SwiftRemitContract {
             .ledger()
             .timestamp()
             .saturating_sub(remittance.created_at);
+        stats.last_active_timestamp = env.ledger().timestamp();
+        let successful = stats.total_settlements.saturating_sub(stats.failed_settlements);
+        stats.success_rate_bps = successful
+            .saturating_mul(10000)
+            .checked_div(stats.total_settlements)
+            .unwrap_or(10000);
         crate::storage::set_agent_stats(&env, &remittance.agent, &stats);
 
         // Check rate limit for sender
@@ -911,6 +919,16 @@ impl SwiftRemitContract {
 
         let mut stats = crate::storage::get_agent_stats(&env, &remittance.agent);
         stats.failed_settlements += 1;
+        stats.last_active_timestamp = env.ledger().timestamp();
+        let successful = stats.total_settlements.saturating_sub(stats.failed_settlements);
+        stats.success_rate_bps = if stats.total_settlements == 0 {
+            10000
+        } else {
+            successful
+                .saturating_mul(10000)
+                .checked_div(stats.total_settlements)
+                .unwrap_or(0)
+        };
         crate::storage::set_agent_stats(&env, &remittance.agent, &stats);
 
         emit_remittance_failed(&env, remittance_id, remittance.agent);
@@ -1189,7 +1207,7 @@ impl SwiftRemitContract {
         env: Env,
         remittance_ids: Vec<u64>,
     ) -> Result<Vec<u64>, ContractError> {
-        if remittance_ids.len() > MAX_EXPIRED_BATCH_SIZE {
+        if remittance_ids.len() > get_max_expired_batch_size(&env) {
             return Err(ContractError::InvalidBatchSize);
         }
 
@@ -1893,7 +1911,7 @@ impl SwiftRemitContract {
         env: Env,
         transfer_ids: Vec<u64>,
     ) -> Result<Vec<u64>, ContractError> {
-        if transfer_ids.len() > MAX_EXPIRED_BATCH_SIZE {
+        if transfer_ids.len() > get_max_expired_batch_size(&env) {
             return Err(ContractError::InvalidBatchSize);
         }
 
@@ -1972,13 +1990,113 @@ impl SwiftRemitContract {
 
         let admin = get_admin(&env)?;
         admin.require_auth();
+
+        let old_limit = crate::storage::get_daily_limit(&env, &currency, &country)
+            .map(|cfg| cfg.limit);
         crate::storage::set_daily_limit(&env, &currency, &country, limit);
+        crate::events::emit_daily_limit_updated(&env, currency, country, old_limit, limit, admin);
+        Ok(())
+    }
+
+    /// Set the maximum batch size for process_expired_remittances (admin only).
+    ///
+    /// # Arguments
+    /// * `size` - New batch size limit. Must be between 1 and 200.
+    ///
+    /// # Tradeoffs
+    /// Larger batches process more remittances per call but consume more ledger
+    /// resources (CPU instructions and memory). Keep below 200 to avoid hitting
+    /// Soroban resource limits. The default (50) is a safe starting point.
+    pub fn set_max_expired_batch_size(
+        env: Env,
+        size: u32,
+    ) -> Result<(), ContractError> {
+        if size < 1 || size > 200 {
+            return Err(ContractError::InvalidBatchSize);
+        }
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+        crate::storage::set_max_expired_batch_size(&env, size);
         Ok(())
     }
 
     /// Get daily send limit for a currency/country pair.
     pub fn get_daily_limit(env: Env, currency: String, country: String) -> Option<i128> {
         crate::storage::get_daily_limit(&env, &currency, &country).map(|cfg| cfg.limit)
+    }
+
+    /// Get a sender's daily limit status for a currency/country corridor.
+    ///
+    /// Returns `(limit, used, remaining, resets_at)` where:
+    /// - `limit` is the configured corridor limit in stroops (0 = no limit set)
+    /// - `used` is the rolling 24-hour volume already sent by this sender
+    /// - `remaining` is `limit - used` (0 when no limit is configured)
+    /// - `resets_at` is the Unix timestamp when the oldest in-window transfer ages out
+    pub fn get_daily_limit_status(
+        env: Env,
+        sender: Address,
+        currency: String,
+        country: String,
+    ) -> (i128, i128, i128, u64) {
+        use crate::config::DAILY_LIMIT_WINDOW_SECONDS;
+        use crate::storage::get_user_transfers;
+
+        let now = env.ledger().timestamp();
+        let window_start = now.saturating_sub(DAILY_LIMIT_WINDOW_SECONDS);
+
+        let transfers = get_user_transfers(&env, &sender);
+        let mut used: i128 = 0;
+        let mut oldest_in_window: u64 = now;
+
+        for i in 0..transfers.len() {
+            let record = transfers.get_unchecked(i);
+            if record.timestamp > window_start
+                && record.currency == currency
+                && record.country == country
+            {
+                used = used.saturating_add(record.amount);
+                if record.timestamp < oldest_in_window {
+                    oldest_in_window = record.timestamp;
+                }
+            }
+        }
+
+        let limit = crate::storage::get_daily_limit(&env, &currency, &country)
+            .map(|cfg| cfg.limit)
+            .unwrap_or(0);
+
+        let remaining = if limit > 0 {
+            limit.saturating_sub(used).max(0)
+        } else {
+            0
+        };
+
+        // resets_at: when the oldest in-window transfer exits the 24h window
+        let resets_at = oldest_in_window.saturating_add(DAILY_LIMIT_WINDOW_SECONDS);
+
+        (limit, used, remaining, resets_at)
+    }
+
+    /// Extend TTLs for critical persistent and instance storage keys (admin only).
+    ///
+    /// Bumps the TTL of the contract instance and all persistent remittance/agent
+    /// records so they do not expire between backend scheduler runs.
+    ///
+    /// # Parameters
+    /// - `caller`: Admin address (must be authorised)
+    /// - `extend_by_ledgers`: Number of ledgers to extend TTL by (max 3_110_400 ≈ 1 year)
+    ///
+    /// # Returns
+    /// `Ok(())` on success, or a `ContractError` if the caller is not an admin.
+    pub fn extend_storage_ttl(
+        env: Env,
+        caller: Address,
+        extend_by_ledgers: u32,
+    ) -> Result<(), ContractError> {
+        require_admin(&env, &caller)?;
+        caller.require_auth();
+        crate::storage::extend_critical_ttls(&env, extend_by_ledgers);
+        Ok(())
     }
 
     pub fn get_version(env: Env) -> soroban_sdk::String {
