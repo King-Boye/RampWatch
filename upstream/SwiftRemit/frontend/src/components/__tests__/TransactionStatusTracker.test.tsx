@@ -121,16 +121,45 @@ describe('TransactionStatusTracker', () => {
         <TransactionStatusTracker currentStatus="initiated" enablePolling={false} />
       );
       const liveRegion = document.querySelector('[aria-live="polite"]');
-      // Initially empty since no change has occurred
-      expect(liveRegion?.textContent).toBe('');
+      // Initially has the initiated status announcement
+      expect(liveRegion?.textContent).toContain('Transaction initiated');
 
       rerender(
         <TransactionStatusTracker currentStatus="processing" enablePolling={false} />
       );
-      expect(liveRegion?.textContent).toBe('Transaction status changed to Processing');
+      expect(liveRegion?.textContent).toContain('Transaction is being processed');
     });
 
-  describe('Manual Refresh', () => {
+    it('has role="status" on aria-live region', () => {
+      render(<TransactionStatusTracker currentStatus="initiated" enablePolling={false} />);
+      const liveRegion = document.querySelector('[aria-live="polite"]');
+      expect(liveRegion).toHaveAttribute('role', 'status');
+    });
+
+    it('announces completed status to screen readers', () => {
+      const { rerender } = render(
+        <TransactionStatusTracker currentStatus="processing" enablePolling={false} />
+      );
+      const liveRegion = document.querySelector('[aria-live="polite"]');
+      
+      rerender(
+        <TransactionStatusTracker currentStatus="completed" enablePolling={false} />
+      );
+      expect(liveRegion?.textContent).toContain('Transaction completed successfully');
+    });
+
+    it('announces failed status to screen readers', () => {
+      const { rerender } = render(
+        <TransactionStatusTracker currentStatus="processing" enablePolling={false} />
+      );
+      const liveRegion = document.querySelector('[aria-live="polite"]');
+      
+      rerender(
+        <TransactionStatusTracker currentStatus="failed" enablePolling={false} />
+      );
+      expect(liveRegion?.textContent).toContain('Transaction failed');
+    });
+  });
     it('calls onRefresh when refresh button is clicked', async () => {
       const user = userEvent.setup({ delay: null });
       const onRefresh = vi.fn().mockResolvedValue(undefined);
