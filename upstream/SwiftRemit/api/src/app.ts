@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import currenciesRouter from './routes/currencies';
+import limitsRouter from './routes/limits';
 import { createAnchorsRouter } from './routes/anchors';
 import docsRouter from './routes/docs';
 import settlementsRouter from './routes/settlements';
@@ -56,6 +57,7 @@ export function createApp(options: AppOptions = {}): Application {
 
   // API routes
   app.use('/api/currencies', currenciesRouter);
+  app.use('/api/limits', limitsRouter);
   app.use(
     '/api/anchors',
     createAnchorsRouter({

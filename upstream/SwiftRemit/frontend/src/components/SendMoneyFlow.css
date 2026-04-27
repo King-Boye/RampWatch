@@ -171,29 +171,62 @@
   }
 }
 
-.flow-fx-preview {
+.flow-tx-hash {
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+  word-break: break-all;
+}
+
+.flow-tx-hash code {
+  font-family: monospace;
+  background: rgba(0,0,0,0.06);
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+}
+
+.flow-expert-link {
+  display: inline-block;
+  margin-top: 0.5rem;
+  color: var(--color-secondary, #0070f3);
+  font-size: 0.88rem;
+  text-decoration: underline;
+}
+
+.flow-field-optional {
+  font-weight: 400;
+  color: var(--color-text-tertiary);
+}
+
+.flow-char-count {
+  font-size: 0.78rem;
+  color: var(--color-text-tertiary);
+}
+
+.flow-limits {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 12px;
-  padding: 10px 12px;
-  background: #f0f7ff;
-  border-left: 3px solid #3b82f6;
-  border-radius: 4px;
-  font-size: 0.9em;
+  gap: 0.25rem;
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
 }
 
-.flow-fx-loading {
-  color: #6b7280;
-  font-style: italic;
+.flow-limits-range {
+  color: var(--color-text-tertiary, #888);
 }
 
-.flow-fx-rate {
+.flow-limits-daily {
+  color: var(--color-text-secondary, #555);
   font-weight: 500;
-  color: #1e40af;
 }
 
-.flow-fx-timestamp {
-  color: #6b7280;
-  font-size: 0.85em;
+.flow-limits-warning {
+  color: var(--color-warning, #b45309);
+  font-weight: 600;
+}
+
+.flow-limits-loading,
+.flow-limits-error {
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--color-text-tertiary, #888);
 }
