@@ -404,6 +404,7 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
               className="flow-button muted"
               onClick={previousStep}
               disabled={step === 1 || isSubmitting}
+              aria-label={`Go back to step ${Math.max(1, step - 1)} of 5`}
             >
               {t('sendMoney.back')}
             </button>
@@ -414,6 +415,7 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
                 className="flow-button primary"
                 onClick={nextStep}
                 disabled={isSubmitting}
+                aria-label={`Continue to step ${step + 1} of 5`}
               >
                 {t('sendMoney.continue')}
               </button>
@@ -423,6 +425,7 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
                 className="flow-button primary"
                 onClick={confirmTransfer}
                 disabled={isSubmitting}
+                aria-label="Confirm and submit transaction"
               >
                 {isSubmitting ? t('sendMoney.confirming') : t('sendMoney.confirm')}
               </button>
