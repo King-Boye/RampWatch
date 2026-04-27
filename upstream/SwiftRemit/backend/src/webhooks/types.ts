@@ -17,6 +17,8 @@ export interface WebhookSubscriber {
   events: EventType[];
   secret: string;
   active: boolean;
+  /** Content-Type to use when delivering payloads. Defaults to 'application/json'. */
+  content_type?: 'application/json' | 'application/x-www-form-urlencoded';
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -71,4 +73,16 @@ export interface WebhookSignatureHeaders {
   'x-webhook-signature': string;
   'x-webhook-timestamp': string;
   'x-webhook-id': string;
+}
+
+export interface DeadLetterRecord {
+  id: string;
+  deliveryId: string;
+  webhookId: string;
+  eventType: EventType;
+  payload: any;
+  lastError?: string;
+  attempts: number;
+  createdAt: Date;
+  replayedAt?: Date;
 }

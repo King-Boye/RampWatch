@@ -1,8 +1,12 @@
-export { SwiftRemitClient } from "./client.js";
+export { SwiftRemitClient, MAX_BATCH_SIZE } from "./client.js";
 export type {
   SwiftRemitClientOptions,
   Remittance,
   RemittanceStatus,
+  RemittanceEvent,
+  RemittanceEventType,
+  SubscribeOptions,
+  Unsubscribe,
   AgentStats,
   CircuitBreakerStatus,
   PauseReason,
@@ -14,6 +18,7 @@ export type {
   EscrowStatus,
   Role,
   GovernanceConfig,
+  DailyLimitStatus,
 } from "./types.js";
 export {
   parseRemittance,
@@ -21,6 +26,7 @@ export {
   parseCircuitBreakerStatus,
   parseHealthStatus,
   parseFeeBreakdown,
+  parseProposal,
   addressToScVal,
   u64ToScVal,
   i128ToScVal,

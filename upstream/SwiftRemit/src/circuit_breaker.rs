@@ -73,8 +73,9 @@ pub fn do_emergency_pause(
     // Set the shared paused flag (read by validate_not_paused in validation.rs).
     set_paused(env, true);
 
-    // Reset vote count for the new pause instance.
-    cb_storage::set_vote_count(env, 0);
+    // Reset vote count for the new pause instance (new seq key starts at 0,
+    // but we write explicitly for clarity).
+    cb_storage::set_vote_count(env, seq, 0);
 
     // Emit the circuit-breaker paused event.
     emit_circuit_breaker_paused(env, caller.clone(), timestamp, reason);
@@ -128,7 +129,8 @@ pub fn do_emergency_unpause(
 
         // Enforce quorum: enough admin votes must have been cast.
         let quorum = cb_storage::get_unpause_quorum(env);
-        let votes = cb_storage::get_vote_count(env);
+        let active_seq = cb_storage::get_active_pause_seq(env).unwrap_or(0);
+        let votes = cb_storage::get_vote_count(env, active_seq);
         if votes < quorum {
             return Err(ContractError::Unauthorized);
         }
@@ -185,10 +187,10 @@ pub fn do_vote_unpause(env: &Env, caller: &Address) -> Result<(), ContractError>
 
     // Record the vote and increment the count.
     cb_storage::record_vote(env, pause_seq, caller);
-    let new_count = cb_storage::get_vote_count(env)
+    let new_count = cb_storage::get_vote_count(env, pause_seq)
         .checked_add(1)
         .ok_or(ContractError::Overflow)?;
-    cb_storage::set_vote_count(env, new_count);
+    cb_storage::set_vote_count(env, pause_seq, new_count);
 
     // Auto-unpause when quorum is reached (timelock still applies).
     let quorum = cb_storage::get_unpause_quorum(env);
@@ -228,6 +230,9 @@ pub fn build_status(env: &Env) -> CircuitBreakerStatus {
         pause_timestamp,
         timelock_seconds: cb_storage::get_timelock_seconds(env),
         unpause_quorum: cb_storage::get_unpause_quorum(env),
-        current_vote_count: cb_storage::get_vote_count(env),
+        current_vote_count: cb_storage::get_vote_count(
+            env,
+            cb_storage::get_active_pause_seq(env).unwrap_or(0),
+        ),
     }
 }
