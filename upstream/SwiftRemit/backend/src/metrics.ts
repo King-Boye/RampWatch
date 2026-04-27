@@ -50,15 +50,6 @@ export class MetricsService {
   }
 
   /**
-   * Increment rate limit exceeded counter for a given path
-   */
-  incrementRateLimitExceeded(path: string): void {
-    const key = path.replace(/\/[^/]+$/, '/:id').replace(/[^a-zA-Z0-9_/:]/g, '_');
-    this.metrics.swiftremit_rate_limit_exceeded_total[key] =
-      (this.metrics.swiftremit_rate_limit_exceeded_total[key] ?? 0) + 1;
-  }
-
-  /**
    * Update settlement metrics
    */
   async updateSettlementMetrics(): Promise<void> {
