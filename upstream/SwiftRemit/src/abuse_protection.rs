@@ -11,6 +11,8 @@ pub const MAX_TRANSFERS_PER_WINDOW: u32 = 10;
 pub const MAX_CANCELLATIONS_PER_WINDOW: u32 = 5;
 pub const MAX_QUERIES_PER_WINDOW: u32 = 100;
 pub const TRANSFER_COOLDOWN: u64 = 5;
+/// Maximum Vec size to prevent unbounded growth (2× the max requests per window)
+const MAX_VEC_SIZE: u32 = MAX_TRANSFERS_PER_WINDOW * 2;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -72,10 +74,21 @@ pub fn check_rate_limit(
     let tag = action_tag(&action_type);
     let mut entry = get_sliding_window_entry(env, address, tag);
     let window_start = current_time.saturating_sub(RATE_LIMIT_WINDOW);
+
+    // Always prune stale timestamps.
     entry.timestamps = filter_timestamps_in_window(env, &entry.timestamps, window_start);
+
+    // Cap Vec size to prevent unbounded growth regardless of pruning.
+    while entry.timestamps.len() > MAX_VEC_SIZE {
+        entry.timestamps.pop_front();
+    }
+
     entry.request_count = entry.timestamps.len();
     entry.window_start = window_start;
+
     if entry.request_count >= max_requests {
+        // Save the pruned entry even on early return so stale timestamps are evicted.
+        save_sliding_window_entry(env, &entry, RATE_LIMIT_WINDOW);
         log_suspicious_activity(env, address, SuspiciousActivityType::RateLimitExceeded, entry.request_count);
         emit_rate_limit_exceeded(env, address, &action_type, entry.request_count);
         return Err(ContractError::RateLimitExceeded);
@@ -362,6 +375,27 @@ mod tests {
                 assert!(check_rate_limit(&env, &address, ActionType::Query).is_ok());
             }
             assert!(check_rate_limit(&env, &address, ActionType::Query).is_err());
+        });
+    }
+
+    #[test]
+    fn test_timestamps_vec_stays_bounded_after_many_calls() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, SwiftRemitContract {});
+        let address = Address::generate(&env);
+        env.as_contract(&contract_id, || {
+            // Drive the rate limiter well past the limit; the Vec must never exceed MAX_VEC_SIZE.
+            for _ in 0..(MAX_TRANSFERS_PER_WINDOW * 5) {
+                let _ = check_rate_limit(&env, &address, ActionType::Transfer);
+            }
+            let tag = action_tag(&ActionType::Transfer);
+            let entry = get_sliding_window_entry(&env, &address, tag);
+            assert!(
+                entry.timestamps.len() <= MAX_VEC_SIZE,
+                "timestamps Vec exceeded MAX_VEC_SIZE: {} > {}",
+                entry.timestamps.len(),
+                MAX_VEC_SIZE,
+            );
         });
     }
 }
