@@ -60,91 +60,40 @@ function formatTimestamp(value: string): string {
   return parsed.toLocaleString();
 }
 
-function downloadJSON(tx: TransactionHistoryItem): void {
-  const receipt = {
-    transactionId: tx.id,
-    amount: tx.amount,
-    asset: tx.asset,
-    recipient: tx.recipient,
-    status: tx.status,
-    timestamp: tx.timestamp,
-    ...(tx.memo ? { memo: tx.memo } : {}),
-    ...(tx.details ? { details: tx.details } : {}),
-    downloadedAt: new Date().toISOString(),
-  };
-  const blob = new Blob([JSON.stringify(receipt, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `receipt-${tx.id}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+const SkeletonRow: React.FC = () => (
+  <tr>
+    <td><div className="skeleton skeleton-text" /></td>
+    <td><div className="skeleton skeleton-text" /></td>
+    <td><div className="skeleton skeleton-text" /></td>
+    <td><div className="skeleton skeleton-status" /></td>
+    <td><div className="skeleton skeleton-text" /></td>
+    <td><div className="skeleton skeleton-button" /></td>
+  </tr>
+);
 
-function downloadPDF(tx: TransactionHistoryItem): void {
-  const rows = [
-    ['Transaction ID', tx.id],
-    ['Amount', formatAmount(tx.amount, tx.asset)],
-    ['Asset', tx.asset],
-    ['Recipient', tx.recipient],
-    ['Status', tx.status],
-    ['Timestamp', formatTimestamp(tx.timestamp)],
-    ...(tx.memo ? [['Memo', tx.memo]] : []),
-    ...Object.entries(tx.details || {}).map(([k, v]) => [k, String(v)]),
-    ['Downloaded At', new Date().toLocaleString()],
-  ];
-
-  const tableRows = rows
-    .map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`)
-    .join('');
-
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Receipt ${tx.id}</title>
-<style>
-  body { font-family: sans-serif; padding: 32px; color: #111; }
-  h1 { font-size: 1.4em; margin-bottom: 16px; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #ddd; }
-  th { width: 40%; color: #555; font-weight: 600; }
-</style>
-</head><body>
-<h1>Transaction Receipt</h1>
-<table>${tableRows}</table>
-</body></html>`;
-
-  const win = window.open('', '_blank');
-  if (!win) return;
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  win.print();
-  win.close();
-}
-
-function ReceiptDownloadButtons({ tx }: { tx: TransactionHistoryItem }) {
-  return (
-    <span className="receipt-buttons">
-      <button
-        type="button"
-        className="receipt-btn"
-        onClick={() => downloadJSON(tx)}
-        aria-label={`Download JSON receipt for transaction ${tx.id}`}
-        title="Download JSON"
-      >
-        JSON
-      </button>
-      <button
-        type="button"
-        className="receipt-btn"
-        onClick={() => downloadPDF(tx)}
-        aria-label={`Download PDF receipt for transaction ${tx.id}`}
-        title="Download PDF"
-      >
-        PDF
-      </button>
-    </span>
-  );
-}
+const SkeletonCard: React.FC = () => (
+  <article className="history-card skeleton-card">
+    <div className="history-card-top">
+      <div className="skeleton skeleton-text" />
+      <div className="skeleton skeleton-status" />
+    </div>
+    <div className="history-card-grid">
+      <div>
+        <div className="skeleton skeleton-label" />
+        <div className="skeleton skeleton-text" />
+      </div>
+      <div>
+        <div className="skeleton skeleton-label" />
+        <div className="skeleton skeleton-text" />
+      </div>
+      <div>
+        <div className="skeleton skeleton-label" />
+        <div className="skeleton skeleton-text" />
+      </div>
+    </div>
+    <div className="skeleton skeleton-button" />
+  </article>
+);
 
 export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   transactions,
@@ -288,86 +237,46 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
         </div>
       </header>
 
-      {/* ── Search & Filter bar ── */}
-      <div className="history-filters" role="search" aria-label="Filter transactions">
-        <label className="history-filter-item">
-          <span className="filter-label">Search</span>
-          <input
-            type="search"
-            className="history-search-input"
-            placeholder="Transaction ID or recipient…"
-            value={searchText}
-            onChange={e => setSearchText(e.target.value)}
-            aria-label="Search by transaction ID or recipient address"
-          />
-        </label>
-
-        <label className="history-filter-item">
-          <span className="filter-label">Status</span>
-          <select
-            value={filterStatus}
-            onChange={e => setFilterStatus(e.target.value)}
-            aria-label="Filter by status"
-          >
-            <option value="">All statuses</option>
-            {statusOptions.map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        </label>
-
-        <label className="history-filter-item">
-          <span className="filter-label">Asset</span>
-          <select
-            value={filterAsset}
-            onChange={e => setFilterAsset(e.target.value)}
-            aria-label="Filter by asset type"
-          >
-            <option value="">All assets</option>
-            {assetOptions.map(a => (
-              <option key={a} value={a}>{a}</option>
-            ))}
-          </select>
-        </label>
-
-        <label className="history-filter-item">
-          <span className="filter-label">From</span>
-          <input
-            type="date"
-            value={filterDateFrom}
-            onChange={e => setFilterDateFrom(e.target.value)}
-            aria-label="Filter from date"
-          />
-        </label>
-
-        <label className="history-filter-item">
-          <span className="filter-label">To</span>
-          <input
-            type="date"
-            value={filterDateTo}
-            onChange={e => setFilterDateTo(e.target.value)}
-            aria-label="Filter to date"
-          />
-        </label>
-
-        {hasActiveFilters && (
-          <button type="button" className="history-clear-filters" onClick={clearFilters}>
-            Clear filters
-          </button>
-        )}
-      </div>
-
-      {isLoading && (
+      {isLoading && hasTransactions && (
         <div className="history-loading" aria-live="polite">
           <div className="history-loading-spinner" />
           <span>Loading more transactions...</span>
         </div>
       )}
 
-      {filtered.length === 0 && !isLoading && (
-        <p className="history-empty">
-          {hasActiveFilters ? 'No transactions match the current filters.' : 'No transactions yet.'}
-        </p>
+      {!hasTransactions && !isLoading && <p className="history-empty">No transactions yet.</p>}
+
+      {(!hasTransactions && isLoading) && (
+        <div className="history-skeletons" aria-busy="true" aria-live="polite">
+          {view === 'table' && (
+            <div className="history-table-wrap">
+              <table className="history-table">
+                <thead>
+                  <tr>
+                    <th>Amount</th>
+                    <th>Asset</th>
+                    <th>Recipient</th>
+                    <th>Status</th>
+                    <th>Timestamp</th>
+                    <th aria-label="Expand details column" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: 5 }, (_, i) => (
+                    <SkeletonRow key={`skeleton-${i}`} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {view === 'card' && (
+            <div className="history-cards">
+              {Array.from({ length: 4 }, (_, i) => (
+                <SkeletonCard key={`skeleton-${i}`} />
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {filtered.length > 0 && (

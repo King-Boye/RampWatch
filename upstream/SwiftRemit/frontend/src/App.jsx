@@ -5,8 +5,7 @@ import WalletConnect from './components/WalletConnect'
 import CreateRemittance from './components/CreateRemittance'
 import RemittanceList from './components/RemittanceList'
 import AgentPanel from './components/AgentPanel'
-import ContractHealth from './components/ContractHealth'
-import { LanguageSelector } from './components/LanguageSelector'
+import ErrorBoundary from './components/ErrorBoundary'
 
 function App() {
   const { t } = useTranslation()
@@ -23,6 +22,7 @@ function App() {
         <p>{t('app.subtitle')}</p>
       </header>
 
+      <ErrorBoundary>
       <main className="app-main">
         <WalletConnect 
           walletAddress={walletAddress} 
@@ -44,29 +44,31 @@ function App() {
             </div>
 
             <div className="panels">
+              <ErrorBoundary>
               <CreateRemittance 
                 walletAddress={walletAddress}
                 contractId={contractId}
               />
+              </ErrorBoundary>
               
+              <ErrorBoundary>
               <AgentPanel 
                 walletAddress={walletAddress}
                 contractId={contractId}
               />
+              </ErrorBoundary>
             </div>
 
+            <ErrorBoundary>
             <RemittanceList 
               walletAddress={walletAddress}
               contractId={contractId}
             />
-
-            <ContractHealth
-              walletAddress={walletAddress}
-              contractId={contractId}
-            />
+            </ErrorBoundary>
           </>
         )}
       </main>
+      </ErrorBoundary>
 
       <footer className="app-footer">
         <p>{t('app.footer')}</p>
