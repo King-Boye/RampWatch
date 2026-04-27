@@ -511,6 +511,22 @@ export class SwiftRemitClient {
     ]);
   }
 
+  /**
+   * Extend TTLs for critical contract storage keys (admin only).
+   *
+   * Call this periodically (e.g. daily) to prevent instance and persistent
+   * storage entries from expiring. The backend scheduler calls this automatically.
+   *
+   * @param admin - Admin address
+   * @param extendByLedgers - Number of ledgers to extend TTL by (max 3_110_400 ≈ 1 year)
+   */
+  async extendStorageTtl(admin: string, extendByLedgers: number): Promise<Transaction> {
+    return this.prepareTransaction(admin, "extend_storage_ttl", [
+      addressToScVal(admin),
+      xdr.ScVal.scvU32(extendByLedgers),
+    ]);
+  }
+
   /** Add a new admin (existing admin only). */
   async addAdmin(
     caller: string,
