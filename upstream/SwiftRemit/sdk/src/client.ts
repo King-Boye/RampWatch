@@ -18,10 +18,7 @@ import type {
   CreateRemittanceParams,
   BatchCreateEntry,
   GovernanceConfig,
-  RemittanceEvent,
-  RemittanceEventType,
-  SubscribeOptions,
-  Unsubscribe,
+  Proposal,
 } from "./types.js";
 import {
   parseRemittance,
@@ -34,6 +31,7 @@ import {
   optionToScVal,
   bytesNToScVal,
   stringToScVal,
+  parseProposal,
 } from "./convert.js";
 
 /** Errors that should NOT be retried (auth failures, validation errors, etc.) */
@@ -605,133 +603,59 @@ export class SwiftRemitClient {
     };
   }
 
-  // ─── Event subscription ──────────────────────────────────────────────────────
+  // ─── Governance ──────────────────────────────────────────────────────────────
+
+  /** Fetch a single proposal by ID. */
+  async getProposal(sourceAddress: string, proposalId: bigint): Promise<Proposal> {
+    const val = await this.simulateCall(sourceAddress, "get_proposal", [
+      u64ToScVal(proposalId),
+    ]);
+    return parseProposal(val);
+  }
 
   /**
-   * Subscribe to real-time remittance contract events via Horizon SSE.
-   *
-   * Uses `SorobanRpc.Server.getEvents` under the hood, polling from the latest
-   * ledger and reconnecting automatically on stream disconnect.
-   *
-   * @param callback - Called for each matching event.
-   * @param options  - Optional filters (remittanceId, sender, agent) and cursor.
-   * @returns An `Unsubscribe` function — call it to stop the subscription.
-   *
-   * @example
-   * ```ts
-   * const unsub = client.subscribeToRemittanceEvents(
-   *   (event) => console.log(event.type, event.remittanceId),
-   *   { remittanceId: 42n }
-   * );
-   * // later…
-   * unsub();
-   * ```
+   * Fetch all proposals with state Pending or Approved.
+   * Iterates proposal IDs starting from 0 until the contract returns NotFound.
    */
-  subscribeToRemittanceEvents(
-    callback: (event: RemittanceEvent) => void,
-    options: SubscribeOptions = {}
-  ): Unsubscribe {
-    let stopped = false;
-    let cursor = options.cursor ?? "now";
-    // Reconnect delay in ms; doubles on each failure up to 30 s
-    let reconnectDelayMs = 1_000;
-
-    const contractId = this.contract.contractId();
-
-    const poll = async (): Promise<void> => {
-      while (!stopped) {
-        try {
-          const response = await this.server.getEvents({
-            startLedger: cursor === "now" ? undefined : undefined,
-            filters: [
-              {
-                type: "contract",
-                contractIds: [contractId],
-                topics: [EVENT_TYPES.map((t) => xdr.ScVal.scvSymbol(t))],
-              },
-            ],
-            cursor: cursor === "now" ? undefined : cursor,
-            limit: 100,
-          } as Parameters<typeof this.server.getEvents>[0]);
-
-          reconnectDelayMs = 1_000; // reset on success
-
-          for (const event of response.events) {
-            // Advance cursor so we don't re-process on reconnect
-            cursor = event.pagingToken;
-
-            const eventType = this.parseEventType(event);
-            if (!eventType) continue;
-
-            const remittanceId = this.parseRemittanceId(event);
-
-            // Apply filters
-            if (options.remittanceId !== undefined && remittanceId !== options.remittanceId) continue;
-
-            const remittanceEvent: RemittanceEvent = {
-              type: eventType,
-              remittanceId,
-              ledger: event.ledger,
-              ledgerClosedAt: event.ledgerClosedAt,
-              raw: {
-                topics: event.topic.map((t) => t.toXDR("base64")),
-                value: event.value.toXDR("base64"),
-              },
-            };
-
-            try {
-              callback(remittanceEvent);
-            } catch {
-              // Swallow callback errors so the stream stays alive
-            }
-          }
-
-          // Wait before next poll (Horizon closes SSE after ~60 s; we poll every 5 s)
-          await this.sleep(5_000);
-        } catch (err) {
-          if (stopped) break;
-          console.warn(
-            `[SwiftRemitClient] Event stream error, reconnecting in ${reconnectDelayMs}ms:`,
-            err
-          );
-          await this.sleep(reconnectDelayMs);
-          reconnectDelayMs = Math.min(reconnectDelayMs * 2, 30_000);
+  async getActiveProposals(sourceAddress: string): Promise<Proposal[]> {
+    const proposals: Proposal[] = [];
+    let id = 0n;
+    while (true) {
+      try {
+        const val = await this.simulateCall(sourceAddress, "get_proposal", [
+          u64ToScVal(id),
+        ]);
+        const p = parseProposal(val);
+        if (p.state === "Pending" || p.state === "Approved") {
+          proposals.push(p);
         }
+        id++;
+      } catch {
+        break; // ProposalNotFound — no more proposals
       }
-    };
-
-    // Start polling in the background (fire-and-forget)
-    poll().catch(() => {/* already handled inside */});
-
-    return () => {
-      stopped = true;
-    };
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  private parseEventType(event: SorobanRpc.Api.EventResponse): RemittanceEventType | null {
-    if (!event.topic.length) return null;
-    try {
-      const sym = scValToNative(event.topic[0]) as string;
-      if ((EVENT_TYPES as string[]).includes(sym)) return sym as RemittanceEventType;
-    } catch {
-      // ignore malformed topics
     }
-    return null;
+    return proposals;
   }
 
-  private parseRemittanceId(event: SorobanRpc.Api.EventResponse): bigint {
-    try {
-      // Convention: second topic is the remittance ID (u64)
-      if (event.topic.length >= 2) {
-        return BigInt(scValToNative(event.topic[1]) as number);
-      }
-    } catch {
-      // ignore
-    }
-    return 0n;
+  /** Cast an approval vote on a pending proposal (admin only). */
+  async voteOnProposal(
+    sourceAddress: string,
+    proposalId: bigint
+  ): Promise<Transaction> {
+    return this.prepareTransaction(sourceAddress, "vote", [
+      addressToScVal(sourceAddress),
+      u64ToScVal(proposalId),
+    ]);
+  }
+
+  /** Execute an approved proposal after the timelock has elapsed (admin only). */
+  async executeProposal(
+    sourceAddress: string,
+    proposalId: bigint
+  ): Promise<Transaction> {
+    return this.prepareTransaction(sourceAddress, "execute", [
+      addressToScVal(sourceAddress),
+      u64ToScVal(proposalId),
+    ]);
   }
 }

@@ -144,6 +144,28 @@ export interface SwiftRemitClientOptions {
   retryBackoffFactor?: number;
 }
 
+export type ProposalState = "Pending" | "Approved" | "Executed" | "Expired";
+
+export type ProposalAction =
+  | { UpdateFee: number }
+  | { RegisterAgent: string }
+  | { RemoveAgent: string }
+  | { AddAdmin: string }
+  | { RemoveAdmin: string }
+  | { UpdateQuorum: number }
+  | { UpdateTimelock: bigint };
+
+export interface Proposal {
+  id: bigint;
+  proposer: string;
+  action: ProposalAction;
+  state: ProposalState;
+  createdAt: bigint;
+  expiry: bigint;
+  approvalCount: number;
+  approvalTimestamp: bigint | null;
+}
+
 export interface GovernanceConfig {
   /** Minimum number of admin approvals required to pass a proposal */
   quorum: number;

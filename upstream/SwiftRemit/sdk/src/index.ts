@@ -18,6 +18,9 @@ export type {
   EscrowStatus,
   Role,
   GovernanceConfig,
+  Proposal,
+  ProposalState,
+  ProposalAction,
 } from "./types.js";
 export {
   parseRemittance,
@@ -25,6 +28,7 @@ export {
   parseCircuitBreakerStatus,
   parseHealthStatus,
   parseFeeBreakdown,
+  parseProposal,
   addressToScVal,
   u64ToScVal,
   i128ToScVal,
