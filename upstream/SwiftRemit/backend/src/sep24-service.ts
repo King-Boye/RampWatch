@@ -9,6 +9,8 @@ import {
   getSep24TransactionById,
 } from './database';
 import { AnchorKycConfig } from './types';
+import { cancelRemittanceOnChain } from './stellar';
+import { WebhookDispatcher } from './webhook-dispatcher';
 
 /**
  * SEP-24 transaction types
@@ -157,12 +159,7 @@ export class Sep24Service {
   private pool: Pool;
   private anchorConfigs: Map<string, AnchorSep24Config> = new Map();
   private httpClient: AxiosInstance;
-  /** Configurable anchor timeout in hours (default: 24). */
-  private anchorTimeoutHours: number;
-  /** Prometheus counter: number of transactions timed out due to anchor unresponsiveness. */
-  private stalledTransactionsTotal = 0;
-  /** Optional webhook URL to notify on anchor timeout. */
-  private timeoutWebhookUrl?: string;
+  private dispatcher: WebhookDispatcher;
 
   constructor(pool: Pool) {
     this.pool = pool;
@@ -171,6 +168,7 @@ export class Sep24Service {
     this.httpClient = axios.create({
       timeout: 30000, // 30 second timeout for SEP-24 requests
     });
+    this.dispatcher = new WebhookDispatcher();
   }
 
   /** Return the current stalled_transactions_total counter value (for Prometheus scraping). */
@@ -349,23 +347,11 @@ export class Sep24Service {
       try {
         // Check for anchor timeout on pending_anchor status
         const createdAt = transaction.created_at || new Date();
-        const ageHours = (Date.now() - (createdAt instanceof Date ? createdAt : new Date(createdAt as string)).getTime()) / (1000 * 60 * 60);
-
-        if (transaction.status === 'pending_anchor' && ageHours > this.anchorTimeoutHours) {
-          await updateSep24TransactionStatus(transaction.transaction_id, 'error');
-          this.stalledTransactionsTotal++;
-          console.warn(
-            `Transaction ${transaction.transaction_id} timed out after ${ageHours.toFixed(1)}h in pending_anchor`
-          );
-          await this.notifyAnchorTimeout(transaction as Sep24TransactionRecord);
-          continue;
-        }
-
-        // Legacy timeout path (non-pending_anchor statuses)
-        const timeSinceCreationMinutes = ageHours * 60;
-        if (timeSinceCreationMinutes > config.timeout_minutes) {
-          await updateSep24TransactionStatus(transaction.transaction_id, 'expired');
-          console.log(`Transaction ${transaction.transaction_id} marked as expired`);
+        const timeSinceCreation = (Date.now() - createdAt.getTime()) / (1000 * 60);
+        
+        if (timeSinceCreation > config.timeout_minutes) {
+          // Trigger refund flow (idempotent)
+          await this.processExpiredRefund(transaction);
           continue;
         }
 
@@ -407,31 +393,58 @@ export class Sep24Service {
   }
 
   /**
-   * Send a webhook notification when a transaction times out in pending_anchor status.
+   * Process an expired SEP-24 transaction:
+   * 1. Idempotency check — skip if already refunded.
+   * 2. Call cancel_remittance on the Soroban contract.
+   * 3. Mark the transaction as 'refunded' in the DB.
+   * 4. Emit a sep24.expired_refund webhook event.
    */
-  private async notifyAnchorTimeout(transaction: Sep24TransactionRecord): Promise<void> {
-    const webhookUrl = this.timeoutWebhookUrl;
-    if (!webhookUrl) return;
+  private async processExpiredRefund(transaction: any): Promise<void> {
+    const { transaction_id, status } = transaction;
 
-    const payload = {
-      event: 'sep24.anchor_timeout',
-      transaction_id: transaction.transaction_id,
-      anchor_id: transaction.anchor_id,
-      user_id: transaction.user_id,
-      asset_code: transaction.asset_code,
-      amount: transaction.amount,
-      created_at: transaction.created_at,
-      timeout_hours: this.anchorTimeoutHours,
-    };
+    // Idempotency: skip if already refunded or expired-and-processed
+    if (status === 'refunded') {
+      console.log(`Transaction ${transaction_id} already refunded, skipping`);
+      return;
+    }
 
+    // Derive the on-chain remittance ID from external_transaction_id (set at creation time)
+    const remittanceId = transaction.external_transaction_id
+      ? parseInt(transaction.external_transaction_id, 10)
+      : null;
+
+    if (remittanceId !== null && !isNaN(remittanceId)) {
+      try {
+        await cancelRemittanceOnChain(remittanceId);
+      } catch (err) {
+        console.error(
+          `cancel_remittance failed for transaction ${transaction_id} (remittance ${remittanceId}):`,
+          err
+        );
+        // Still mark expired so we don't retry indefinitely; operator can investigate
+      }
+    } else {
+      console.warn(
+        `Transaction ${transaction_id} has no valid external_transaction_id; skipping on-chain cancel`
+      );
+    }
+
+    // Mark as refunded (idempotent status update)
+    await updateSep24TransactionStatus(transaction_id, 'refunded');
+    console.log(`Transaction ${transaction_id} marked as refunded`);
+
+    // Emit webhook event
     try {
-      await this.httpClient.post(webhookUrl, payload, {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 10_000,
+      await this.dispatcher.dispatchSep24ExpiredRefund({
+        transaction_id,
+        anchor_id: transaction.anchor_id,
+        user_id: transaction.user_id,
+        asset_code: transaction.asset_code,
+        amount: transaction.amount ?? transaction.amount_in,
+        refunded_at: new Date().toISOString(),
       });
-      console.log(`Anchor timeout webhook sent for transaction ${transaction.transaction_id}`);
-    } catch (error) {
-      console.error(`Failed to send anchor timeout webhook for ${transaction.transaction_id}:`, error);
+    } catch (err) {
+      console.error(`Failed to dispatch sep24.expired_refund webhook for ${transaction_id}:`, err);
     }
   }
 
