@@ -157,12 +157,25 @@ export class Sep24Service {
   private pool: Pool;
   private anchorConfigs: Map<string, AnchorSep24Config> = new Map();
   private httpClient: AxiosInstance;
+  /** Configurable anchor timeout in hours (default: 24). */
+  private anchorTimeoutHours: number;
+  /** Prometheus counter: number of transactions timed out due to anchor unresponsiveness. */
+  private stalledTransactionsTotal = 0;
+  /** Optional webhook URL to notify on anchor timeout. */
+  private timeoutWebhookUrl?: string;
 
   constructor(pool: Pool) {
     this.pool = pool;
+    this.anchorTimeoutHours = parseFloat(process.env.ANCHOR_TIMEOUT_HOURS ?? '24');
+    this.timeoutWebhookUrl = process.env.ANCHOR_TIMEOUT_WEBHOOK_URL;
     this.httpClient = axios.create({
       timeout: 30000, // 30 second timeout for SEP-24 requests
     });
+  }
+
+  /** Return the current stalled_transactions_total counter value (for Prometheus scraping). */
+  getStalledTransactionsTotal(): number {
+    return this.stalledTransactionsTotal;
   }
 
   /**
@@ -334,12 +347,23 @@ export class Sep24Service {
 
     for (const transaction of pendingTransactions) {
       try {
-        // Check for timeout
+        // Check for anchor timeout on pending_anchor status
         const createdAt = transaction.created_at || new Date();
-        const timeSinceCreation = (Date.now() - createdAt.getTime()) / (1000 * 60);
-        
-        if (timeSinceCreation > config.timeout_minutes) {
-          // Mark as expired
+        const ageHours = (Date.now() - (createdAt instanceof Date ? createdAt : new Date(createdAt as string)).getTime()) / (1000 * 60 * 60);
+
+        if (transaction.status === 'pending_anchor' && ageHours > this.anchorTimeoutHours) {
+          await updateSep24TransactionStatus(transaction.transaction_id, 'error');
+          this.stalledTransactionsTotal++;
+          console.warn(
+            `Transaction ${transaction.transaction_id} timed out after ${ageHours.toFixed(1)}h in pending_anchor`
+          );
+          await this.notifyAnchorTimeout(transaction as Sep24TransactionRecord);
+          continue;
+        }
+
+        // Legacy timeout path (non-pending_anchor statuses)
+        const timeSinceCreationMinutes = ageHours * 60;
+        if (timeSinceCreationMinutes > config.timeout_minutes) {
           await updateSep24TransactionStatus(transaction.transaction_id, 'expired');
           console.log(`Transaction ${transaction.transaction_id} marked as expired`);
           continue;
@@ -379,6 +403,35 @@ export class Sep24Service {
       } catch (error) {
         console.error(`Failed to poll transaction ${transaction.transaction_id}:`, error);
       }
+    }
+  }
+
+  /**
+   * Send a webhook notification when a transaction times out in pending_anchor status.
+   */
+  private async notifyAnchorTimeout(transaction: Sep24TransactionRecord): Promise<void> {
+    const webhookUrl = this.timeoutWebhookUrl;
+    if (!webhookUrl) return;
+
+    const payload = {
+      event: 'sep24.anchor_timeout',
+      transaction_id: transaction.transaction_id,
+      anchor_id: transaction.anchor_id,
+      user_id: transaction.user_id,
+      asset_code: transaction.asset_code,
+      amount: transaction.amount,
+      created_at: transaction.created_at,
+      timeout_hours: this.anchorTimeoutHours,
+    };
+
+    try {
+      await this.httpClient.post(webhookUrl, payload, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 10_000,
+      });
+      console.log(`Anchor timeout webhook sent for transaction ${transaction.transaction_id}`);
+    } catch (error) {
+      console.error(`Failed to send anchor timeout webhook for ${transaction.transaction_id}:`, error);
     }
   }
 
