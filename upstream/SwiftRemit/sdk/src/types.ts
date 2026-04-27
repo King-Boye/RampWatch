@@ -70,6 +70,10 @@ export interface BatchCreateEntry {
   /** Amount in stroops */
   amount: bigint;
   expiry?: bigint;
+  /** ISO 4217 currency code (e.g. "USDC", "USD") */
+  currency?: string;
+  /** ISO 3166-1 alpha-2 country code (e.g. "NG", "GH") */
+  country?: string;
 }
 
 export interface SettlementConfig {

@@ -1,4 +1,4 @@
-export { SwiftRemitClient } from "./client.js";
+export { SwiftRemitClient, MAX_BATCH_SIZE } from "./client.js";
 export type {
   SwiftRemitClientOptions,
   Remittance,

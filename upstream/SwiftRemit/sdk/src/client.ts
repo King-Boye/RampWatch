@@ -32,6 +32,9 @@ import {
   stringToScVal,
 } from "./convert.js";
 
+/** Maximum number of entries allowed in a single batch remittance call. */
+export const MAX_BATCH_SIZE = 50;
+
 export class SwiftRemitClient {
   private readonly contract: Contract;
   private readonly server: SorobanRpc.Server;
@@ -374,6 +377,12 @@ export class SwiftRemitClient {
     sender: string,
     entries: BatchCreateEntry[]
   ): Promise<Transaction> {
+    if (entries.length === 0) {
+      throw new Error("Batch must contain at least one entry");
+    }
+    if (entries.length > MAX_BATCH_SIZE) {
+      throw new Error(`Batch size ${entries.length} exceeds MAX_BATCH_SIZE (${MAX_BATCH_SIZE})`);
+    }
     const entriesScVal = xdr.ScVal.scvVec(
       entries.map((e) =>
         xdr.ScVal.scvMap([
