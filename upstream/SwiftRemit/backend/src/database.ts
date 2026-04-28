@@ -788,6 +788,11 @@ export function getPool(): Pool {
   return pool;
 }
 
+/** Drain and close the PostgreSQL connection pool. Safe to call multiple times. */
+export async function closePool(): Promise<void> {
+  await pool.end();
+}
+
 // ── Contract Events ──────────────────────────────────────────────────────────
 
 export interface ContractEvent {

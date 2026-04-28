@@ -83,6 +83,8 @@ mod test_governance;
 #[cfg(test)]
 mod test_governance_property;
 #[cfg(test)]
+mod test_dispute;
+#[cfg(test)]
 mod test_circuit_breaker;
 
 use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, String, Vec};

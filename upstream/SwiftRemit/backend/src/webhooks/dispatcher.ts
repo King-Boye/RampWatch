@@ -22,6 +22,8 @@ const DEFAULT_OPTIONS: WebhookDeliveryOptions = {
 };
 
 export class WebhookDispatcher {
+  private inFlight = 0;
+
   constructor(
     private store: IWebhookStore,
     private logger?: Console | any,
@@ -74,6 +76,7 @@ export class WebhookDispatcher {
    * Dispatch a webhook event to all subscribers
    */
   async dispatch(event: EventType, payload: WebhookPayload): Promise<{ success: number; failed: number }> {
+    this.inFlight++;
     try {
       const subscribers = await this.store.getSubscribers(event);
 
@@ -120,6 +123,8 @@ export class WebhookDispatcher {
     } catch (error) {
       this.logger.error('Dispatch error:', error);
       throw error;
+    } finally {
+      this.inFlight--;
     }
   }
 
@@ -200,6 +205,35 @@ export class WebhookDispatcher {
 
         return false;
       }
+    }
+  }
+
+  /**
+   * Drain all in-flight webhook dispatches.
+   *
+   * Waits up to `timeoutMs` for any currently-running `dispatch` or
+   * `attemptDelivery` calls to settle. New dispatches started after
+   * `drain()` is called will still be awaited — callers should stop
+   * enqueuing work before calling this.
+   *
+   * @param timeoutMs Maximum milliseconds to wait (default: 30 000)
+   */
+  async drain(timeoutMs = 30_000): Promise<void> {
+    if (this.inFlight === 0) return;
+
+    this.logger.info(`Draining ${this.inFlight} in-flight webhook dispatch(es)…`);
+
+    const deadline = Date.now() + timeoutMs;
+    while (this.inFlight > 0 && Date.now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    }
+
+    if (this.inFlight > 0) {
+      this.logger.warn(
+        `Drain timeout reached with ${this.inFlight} dispatch(es) still in flight. Proceeding with shutdown.`
+      );
+    } else {
+      this.logger.info('All in-flight webhook dispatches completed.');
     }
   }
 

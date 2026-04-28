@@ -15,6 +15,8 @@ export class MetricsService {
     swiftremit_accumulated_fees: 0,
     swiftremit_webhook_dead_letter_count: 0,
     db_pool_available_connections: 0,
+    kyc_poller_last_run_timestamp_seconds: 0,
+    contract_event_indexer_lag_ledgers: 0,
   };
 
   // FX rate staleness metrics
@@ -149,6 +151,21 @@ export class MetricsService {
   }
 
   /**
+   * Record that the KYC poller completed a run (call at the end of each poll cycle).
+   */
+  recordKycPollerRun(): void {
+    this.metrics.kyc_poller_last_run_timestamp_seconds = Math.floor(Date.now() / 1000);
+  }
+
+  /**
+   * Update the contract event indexer lag (ledgers behind the chain tip).
+   * Call this from the Stellar event listener after each poll.
+   */
+  updateContractEventIndexerLag(lagLedgers: number): void {
+    this.metrics.contract_event_indexer_lag_ledgers = lagLedgers;
+  }
+
+  /**
    * Update all metrics
    */
   async updateAllMetrics(): Promise<void> {
@@ -215,6 +232,16 @@ export class MetricsService {
     lines.push('# HELP db_pool_available_connections Number of idle (available) connections in the PostgreSQL pool');
     lines.push('# TYPE db_pool_available_connections gauge');
     lines.push(`db_pool_available_connections ${this.metrics.db_pool_available_connections}`);
+
+    // KYC poller last run timestamp
+    lines.push('# HELP kyc_poller_last_run_timestamp_seconds Unix timestamp of the last successful KYC poller run');
+    lines.push('# TYPE kyc_poller_last_run_timestamp_seconds gauge');
+    lines.push(`kyc_poller_last_run_timestamp_seconds ${this.metrics.kyc_poller_last_run_timestamp_seconds}`);
+
+    // Contract event indexer lag
+    lines.push('# HELP contract_event_indexer_lag_ledgers Number of ledgers the event indexer is behind the chain tip');
+    lines.push('# TYPE contract_event_indexer_lag_ledgers gauge');
+    lines.push(`contract_event_indexer_lag_ledgers ${this.metrics.contract_event_indexer_lag_ledgers}`);
 
     return lines.join('\n') + '\n';
   }
