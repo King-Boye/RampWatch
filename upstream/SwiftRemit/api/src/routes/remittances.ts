@@ -32,6 +32,7 @@ export interface Remittance {
   amount: number;
   fee: number;
   status: RemittanceStatus;
+  token?: string;
   memo?: string;
   created_at: string;
   updated_at: string;
