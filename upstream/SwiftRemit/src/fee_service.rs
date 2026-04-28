@@ -188,6 +188,15 @@ pub fn calculate_fees_with_breakdown(
     // Calculate protocol fee
     let protocol_fee = calculate_protocol_fee(amount, protocol_fee_bps)?;
 
+    // Validate total fees don't exceed amount
+    let total_fees = platform_fee
+        .checked_add(protocol_fee)
+        .ok_or(ContractError::Overflow)?;
+    
+    if total_fees > amount {
+        return Err(ContractError::Overflow);
+    }
+
     // Calculate net amount
     let net_amount = amount
         .checked_sub(platform_fee)
@@ -243,6 +252,15 @@ pub fn calculate_fees_with_breakdown_for_sender(
 
     // Calculate protocol fee
     let protocol_fee = calculate_protocol_fee(amount, protocol_fee_bps)?;
+
+    // Validate total fees don't exceed amount
+    let total_fees = platform_fee
+        .checked_add(protocol_fee)
+        .ok_or(ContractError::Overflow)?;
+    
+    if total_fees > amount {
+        return Err(ContractError::Overflow);
+    }
 
     // Calculate net amount
     let net_amount = amount
