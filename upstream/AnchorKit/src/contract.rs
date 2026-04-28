@@ -1378,6 +1378,77 @@ impl AnchorKitContract {
         }
         metadata
     }
+    /// Computes a health score (0-100) for an anchor based on cached metadata.
+    ///
+    /// # Formula
+    ///
+    /// The health score is a weighted combination of three metrics:
+    /// - **Uptime (40%)**: `uptime_percentage / 100` (0-10000 scale → 0-100)
+    /// - **Reputation (35%)**: `reputation_score / 100` (0-10000 scale → 0-100)
+    /// - **Settlement Speed (25%)**: Inverse of `average_settlement_time`, normalized
+    ///
+    /// Settlement speed scoring:
+    /// - 0-300s: 100 points (excellent)
+    /// - 301-600s: 80 points (good)
+    /// - 601-1800s: 60 points (acceptable)
+    /// - 1801-3600s: 40 points (slow)
+    /// - >3600s: 20 points (very slow)
+    ///
+    /// Final score = (uptime_weight × uptime_score) + (reputation_weight × reputation_score) + (speed_weight × speed_score)
+    ///
+    /// # Errors
+    ///
+    /// - `CacheNotFound` (49): No metadata cached for this anchor
+    /// - `CacheExpired` (48): Metadata cache has expired
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let score = contract.get_anchor_health_score(&env, &anchor_addr);
+    /// // score is 0-100, where 100 is perfect health
+    /// ```
+    pub fn get_anchor_health_score(env: Env, anchor: Address) -> u32 {
+        // Retrieve cached metadata (will panic with CacheNotFound or CacheExpired if unavailable)
+        let metadata = Self::get_cached_metadata(env.clone(), anchor);
+
+        // Weight constants (must sum to 100)
+        const UPTIME_WEIGHT: u32 = 40;
+        const REPUTATION_WEIGHT: u32 = 35;
+        const SPEED_WEIGHT: u32 = 25;
+
+        // 1. Uptime score: scale from 0-10000 to 0-100
+        let uptime_score = metadata.uptime_percentage / 100;
+
+        // 2. Reputation score: scale from 0-10000 to 0-100
+        let reputation_score = metadata.reputation_score / 100;
+
+        // 3. Settlement speed score: tiered scoring based on settlement time
+        let speed_score = if metadata.average_settlement_time <= 300 {
+            100 // Excellent: ≤5 minutes
+        } else if metadata.average_settlement_time <= 600 {
+            80 // Good: 5-10 minutes
+        } else if metadata.average_settlement_time <= 1800 {
+            60 // Acceptable: 10-30 minutes
+        } else if metadata.average_settlement_time <= 3600 {
+            40 // Slow: 30-60 minutes
+        } else {
+            20 // Very slow: >1 hour
+        };
+
+        // Calculate weighted health score
+        let health_score = (UPTIME_WEIGHT * uptime_score
+            + REPUTATION_WEIGHT * reputation_score
+            + SPEED_WEIGHT * speed_score)
+            / 100;
+
+        // Ensure score is capped at 100
+        if health_score > 100 {
+            100
+        } else {
+            health_score
+        }
+    }
+
 
     /// Issue #276: list all anchors that currently have active metadata cache entries.
     pub fn list_cached_anchors(env: Env) -> Vec<Address> {
