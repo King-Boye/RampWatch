@@ -25,6 +25,7 @@ pub struct Session {
     pub created_at: u64,
     pub nonce: u64,
     pub operation_count: u64,
+    pub expires_at: u64,
 }
 
 #[contracttype]
@@ -339,26 +340,10 @@ struct AnchorDeactivated {
 
 #[contracttype]
 #[derive(Clone)]
-pub struct AttestorRegistered(pub Address);
-
-#[contracttype]
-#[derive(Clone)]
-pub struct AttestorRevoked(pub Address);
-
-#[contracttype]
-#[derive(Clone)]
-pub struct AdminTransferProposed {
-    pub current_admin: Address,
-    pub new_admin: Address,
+struct SessionExpired {
+    session_id: u64,
+    expired_at: u64,
 }
-
-#[contracttype]
-#[derive(Clone)]
-pub struct AdminTransferred {
-    pub old_admin: Address,
-    pub new_admin: Address,
-}
-
 
 // ---------------------------------------------------------------------------
 // TTLs (in ledgers)
@@ -932,6 +917,7 @@ impl AnchorKitContract {
             created_at: now,
             nonce,
             operation_count: 0,
+            expires_at: now + SESSION_TTL,
         };
         let sess_key = StorageKey::Session(session_id);
         env.storage().persistent().set(&sess_key, &session);
@@ -1063,6 +1049,11 @@ impl AnchorKitContract {
         payload_hash: Bytes,
         signature: Bytes,
     ) -> u64 {
+        Self::check_session_expiry(&env, session_id);
+        let session = Self::get_session(env.clone(), session_id);
+        if session.initiator != issuer {
+            panic_with_error!(&env, ErrorCode::UnauthorizedAttestor);
+        }
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
         Self::check_timestamp(&env, timestamp);
@@ -1129,6 +1120,7 @@ impl AnchorKitContract {
     }
 
     pub fn register_attestor_with_session(env: Env, session_id: u64, attestor: Address) {
+        Self::check_session_expiry(&env, session_id);
         Self::require_admin(&env);
         let key = StorageKey::Attestor(attestor.clone());
         if env.storage().persistent().has(&key) {
@@ -1184,6 +1176,7 @@ impl AnchorKitContract {
     }
 
     pub fn revoke_attestor_with_session(env: Env, session_id: u64, attestor: Address) {
+        Self::check_session_expiry(&env, session_id);
         Self::require_admin(&env);
         let key = StorageKey::Attestor(attestor.clone());
         if !env.storage().persistent().has(&key) {
@@ -1271,6 +1264,11 @@ impl AnchorKitContract {
     }
 
     pub fn get_session_operation_count(env: Env, session_id: u64) -> u64 {
+        Self::check_session_expiry(&env, session_id);
+        let sess_key = StorageKey::Session(session_id);
+        if !env.storage().persistent().has(&sess_key) {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
         env.storage()
             .persistent()
             .get::<_, u64>(&StorageKey::SessionOpCount(session_id))
@@ -1360,6 +1358,77 @@ impl AnchorKitContract {
         }
         metadata
     }
+    /// Computes a health score (0-100) for an anchor based on cached metadata.
+    ///
+    /// # Formula
+    ///
+    /// The health score is a weighted combination of three metrics:
+    /// - **Uptime (40%)**: `uptime_percentage / 100` (0-10000 scale → 0-100)
+    /// - **Reputation (35%)**: `reputation_score / 100` (0-10000 scale → 0-100)
+    /// - **Settlement Speed (25%)**: Inverse of `average_settlement_time`, normalized
+    ///
+    /// Settlement speed scoring:
+    /// - 0-300s: 100 points (excellent)
+    /// - 301-600s: 80 points (good)
+    /// - 601-1800s: 60 points (acceptable)
+    /// - 1801-3600s: 40 points (slow)
+    /// - >3600s: 20 points (very slow)
+    ///
+    /// Final score = (uptime_weight × uptime_score) + (reputation_weight × reputation_score) + (speed_weight × speed_score)
+    ///
+    /// # Errors
+    ///
+    /// - `CacheNotFound` (49): No metadata cached for this anchor
+    /// - `CacheExpired` (48): Metadata cache has expired
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let score = contract.get_anchor_health_score(&env, &anchor_addr);
+    /// // score is 0-100, where 100 is perfect health
+    /// ```
+    pub fn get_anchor_health_score(env: Env, anchor: Address) -> u32 {
+        // Retrieve cached metadata (will panic with CacheNotFound or CacheExpired if unavailable)
+        let metadata = Self::get_cached_metadata(env.clone(), anchor);
+
+        // Weight constants (must sum to 100)
+        const UPTIME_WEIGHT: u32 = 40;
+        const REPUTATION_WEIGHT: u32 = 35;
+        const SPEED_WEIGHT: u32 = 25;
+
+        // 1. Uptime score: scale from 0-10000 to 0-100
+        let uptime_score = metadata.uptime_percentage / 100;
+
+        // 2. Reputation score: scale from 0-10000 to 0-100
+        let reputation_score = metadata.reputation_score / 100;
+
+        // 3. Settlement speed score: tiered scoring based on settlement time
+        let speed_score = if metadata.average_settlement_time <= 300 {
+            100 // Excellent: ≤5 minutes
+        } else if metadata.average_settlement_time <= 600 {
+            80 // Good: 5-10 minutes
+        } else if metadata.average_settlement_time <= 1800 {
+            60 // Acceptable: 10-30 minutes
+        } else if metadata.average_settlement_time <= 3600 {
+            40 // Slow: 30-60 minutes
+        } else {
+            20 // Very slow: >1 hour
+        };
+
+        // Calculate weighted health score
+        let health_score = (UPTIME_WEIGHT * uptime_score
+            + REPUTATION_WEIGHT * reputation_score
+            + SPEED_WEIGHT * speed_score)
+            / 100;
+
+        // Ensure score is capped at 100
+        if health_score > 100 {
+            100
+        } else {
+            health_score
+        }
+    }
+
 
     /// Issue #276: list all anchors that currently have active metadata cache entries.
     pub fn list_cached_anchors(env: Env) -> Vec<Address> {
@@ -1881,6 +1950,20 @@ impl AnchorKitContract {
         inst.set(&ck, &next);
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
         id
+    }
+
+    fn check_session_expiry(env: &Env, session_id: u64) {
+        let sess_key = StorageKey::Session(session_id);
+        if let Some(session) = env.storage().persistent().get::<_, Session>(&sess_key) {
+            let now = env.ledger().timestamp();
+            if now >= session.expires_at {
+                env.events().publish(
+                    (symbol_short!("session"), symbol_short!("expired"), session_id),
+                    SessionExpired { session_id, expired_at: now },
+                );
+                panic_with_error!(env, ErrorCode::ValidationError);
+            }
+        }
     }
 
     fn store_attestation(
