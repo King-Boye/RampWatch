@@ -318,3 +318,89 @@ console.log("Batch submitted:", result.hash);
 ## License
 
 MIT
+
+## React Native
+
+A React Native wrapper is available in `sdk/react-native/`. It wraps the core TypeScript SDK with:
+
+- A `SwiftRemitSigner` interface so any wallet (expo-secure-store, react-native-keychain, WalletConnect) can be plugged in without changing call sites.
+- `SwiftRemitRNClient` — extends `SwiftRemitClient` with a `submitSigned(tx)` method that signs via the injected signer.
+- React hooks: `useCreateRemittance`, `useNetworkToggle`.
+
+### Installation
+
+```bash
+npm install @swiftremit/react-native-sdk @swiftremit/sdk @stellar/stellar-sdk
+# or
+yarn add @swiftremit/react-native-sdk @swiftremit/sdk @stellar/stellar-sdk
+```
+
+### Quick Start
+
+```typescript
+import { SwiftRemitRNClient, Networks, RpcUrls, toStroops } from '@swiftremit/react-native-sdk';
+import * as SecureStore from 'expo-secure-store';
+import { Keypair, TransactionBuilder } from '@stellar/stellar-sdk';
+
+// 1. Implement the signer using expo-secure-store
+const signer = {
+  async getPublicKey() {
+    return (await SecureStore.getItemAsync('stellar_public_key')) ?? '';
+  },
+  async signTransaction(xdr: string, { networkPassphrase }: { networkPassphrase: string }) {
+    const secret = await SecureStore.getItemAsync('stellar_secret_key');
+    if (!secret) throw new Error('No key stored');
+    const keypair = Keypair.fromSecret(secret);
+    const tx = TransactionBuilder.fromXDR(xdr, networkPassphrase);
+    tx.sign(keypair);
+    return tx.toXDR();
+  },
+};
+
+// 2. Create the client
+const client = new SwiftRemitRNClient({
+  contractId: 'CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+  networkPassphrase: Networks.TESTNET,
+  rpcUrl: RpcUrls.TESTNET,
+  signer,
+});
+
+// 3. Create a remittance — sign and submit in one call
+const address = await client.getAddress();
+const tx = await client.createRemittance({
+  sender: address,
+  agent: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+  amount: toStroops(100),
+});
+const result = await client.submitSigned(tx);
+console.log('Remittance created:', result.hash);
+```
+
+### Hooks
+
+```tsx
+import { useCreateRemittance, useNetworkToggle, toStroops } from '@swiftremit/react-native-sdk';
+
+function SendScreen({ client }) {
+  const { createRemittance, loading, error } = useCreateRemittance(client);
+  const { network, toggle } = useNetworkToggle('testnet');
+
+  return (
+    <>
+      <Button title={`Network: ${network}`} onPress={toggle} />
+      <Button
+        title={loading ? 'Sending…' : 'Send 100 USDC'}
+        disabled={loading}
+        onPress={() =>
+          createRemittance({
+            sender: '...',
+            agent: '...',
+            amount: toStroops(100),
+          })
+        }
+      />
+      {error && <Text>{error.message}</Text>}
+    </>
+  );
+}
+```

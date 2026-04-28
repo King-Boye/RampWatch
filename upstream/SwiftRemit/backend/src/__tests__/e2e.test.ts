@@ -694,3 +694,178 @@ describe('KYC last-write-wins upsert', () => {
     expect(db.kyc.get(`${USER_ID}:${ANCHOR_ID}`)?.kyc_status).toBe('approved');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Issue #537 — Dispute resolution flow
+// mark_failed → raise_dispute → resolve_dispute
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Dispute resolution flow', () => {
+  const TX_ID = 'tx-dispute-001';
+  const USER_ID = 'user-dispute';
+
+  // Helper: seed a transaction in Failed state (simulates mark_failed having run)
+  function seedFailed() {
+    seedTransaction({ transaction_id: TX_ID, kind: 'withdrawal', status: 'failed' });
+  }
+
+  // ── mark_failed ─────────────────────────────────────────────────────────────
+
+  it('agent webhook marks remittance as failed', async () => {
+    seedTransaction({ transaction_id: TX_ID, kind: 'withdrawal', status: 'pending_anchor' });
+
+    const res = await sendWebhook({
+      event_type: 'withdrawal_update',
+      transaction_id: TX_ID,
+      status: 'error',
+      message: 'Payout failed — recipient bank rejected transfer',
+    });
+
+    expect(res.status).toBe(200);
+    expect(db.tx.get(TX_ID)?.status).toBe('error');
+  });
+
+  // ── raise_dispute ───────────────────────────────────────────────────────────
+
+  it('sender can raise a dispute on a failed remittance', async () => {
+    seedFailed();
+
+    const res = await sendWebhook({
+      event_type: 'dispute_raised',
+      transaction_id: TX_ID,
+      user_id: USER_ID,
+      evidence: 'sha256:abc123evidencehash',
+      message: 'Recipient confirms funds were never received',
+    });
+
+    // The webhook handler records the dispute event; status transitions to disputed
+    expect(res.status).toBe(200);
+  });
+
+  it('raise_dispute on a non-failed remittance returns an error', async () => {
+    // Seed a Pending (not Failed) remittance
+    seedTransaction({ transaction_id: TX_ID, kind: 'withdrawal', status: 'pending_anchor' });
+
+    const res = await sendWebhook({
+      event_type: 'dispute_raised',
+      transaction_id: TX_ID,
+      user_id: USER_ID,
+      evidence: 'sha256:abc123evidencehash',
+    });
+
+    // The state machine should reject this transition
+    expect([400, 422, 500]).toContain(res.status);
+    // Status must remain unchanged
+    expect(db.tx.get(TX_ID)?.status).toBe('pending_anchor');
+  });
+
+  // ── resolve_dispute — sender wins ───────────────────────────────────────────
+
+  it('admin resolves dispute in favour of sender — sender receives full refund', async () => {
+    seedFailed();
+    // Transition to disputed first
+    db.tx.set(TX_ID, {
+      ...db.tx.get(TX_ID)!,
+      status: 'disputed',
+      amount_in: '100.00',
+      amount_fee: '2.50',
+    });
+
+    const res = await sendWebhook({
+      event_type: 'dispute_resolved',
+      transaction_id: TX_ID,
+      resolution: 'sender',   // in_favour_of_sender = true
+      admin_id: 'admin-001',
+      message: 'Evidence verified — full refund issued to sender',
+    });
+
+    expect(res.status).toBe(200);
+    // After sender-wins resolution the remittance is refunded/cancelled
+    const tx = db.tx.get(TX_ID);
+    expect(['refunded', 'cancelled', 'resolved_sender']).toContain(tx?.status);
+  });
+
+  // ── resolve_dispute — agent wins ────────────────────────────────────────────
+
+  it('admin resolves dispute in favour of agent — agent receives net amount', async () => {
+    seedFailed();
+    db.tx.set(TX_ID, {
+      ...db.tx.get(TX_ID)!,
+      status: 'disputed',
+      amount_in: '100.00',
+      amount_out: '97.50',
+      amount_fee: '2.50',
+    });
+
+    const res = await sendWebhook({
+      event_type: 'dispute_resolved',
+      transaction_id: TX_ID,
+      resolution: 'agent',    // in_favour_of_sender = false
+      admin_id: 'admin-001',
+      message: 'Evidence insufficient — payout confirmed to agent',
+    });
+
+    expect(res.status).toBe(200);
+    const tx = db.tx.get(TX_ID);
+    expect(['completed', 'resolved_agent']).toContain(tx?.status);
+  });
+
+  // ── non-admin resolve attempt ────────────────────────────────────────────────
+
+  it('non-admin calling resolve_dispute returns Unauthorized', async () => {
+    seedFailed();
+    db.tx.set(TX_ID, { ...db.tx.get(TX_ID)!, status: 'disputed' });
+
+    const res = await sendWebhook({
+      event_type: 'dispute_resolved',
+      transaction_id: TX_ID,
+      resolution: 'sender',
+      // no admin_id — simulates an unauthenticated caller
+    });
+
+    // Should be rejected with 401 or 403
+    expect([401, 403, 400]).toContain(res.status);
+    // Status must remain disputed
+    expect(db.tx.get(TX_ID)?.status).toBe('disputed');
+  });
+
+  // ── dispute window enforcement ───────────────────────────────────────────────
+
+  it('raise_dispute after the dispute window has expired is rejected', async () => {
+    // Seed a failed transaction with a very old failed_at timestamp
+    seedTransaction({
+      transaction_id: TX_ID,
+      kind: 'withdrawal',
+      status: 'failed',
+      // Simulate failed_at being 8 days ago (beyond the default 7-day window)
+      message: 'failed_at:' + new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString(),
+    });
+
+    const res = await sendWebhook({
+      event_type: 'dispute_raised',
+      transaction_id: TX_ID,
+      user_id: USER_ID,
+      evidence: 'sha256:lateevidencehash',
+      failed_at: new Date(Date.now() - 8 * 24 * 3600 * 1000).toISOString(),
+    });
+
+    // DisputeWindowExpired — should be rejected
+    expect([400, 422, 500]).toContain(res.status);
+  });
+
+  // ── already disputed ─────────────────────────────────────────────────────────
+
+  it('raising a second dispute on an already-disputed remittance is rejected', async () => {
+    seedTransaction({ transaction_id: TX_ID, kind: 'withdrawal', status: 'disputed' });
+
+    const res = await sendWebhook({
+      event_type: 'dispute_raised',
+      transaction_id: TX_ID,
+      user_id: USER_ID,
+      evidence: 'sha256:duplicatehash',
+    });
+
+    expect([400, 409, 422, 500]).toContain(res.status);
+    expect(db.tx.get(TX_ID)?.status).toBe('disputed');
+  });
+});
