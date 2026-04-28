@@ -122,6 +122,19 @@ mod session_tests {
         let session_id = client.create_session(&user);
         assert_eq!(client.get_session_operation_count(&session_id), 0);
     }
+    #[test]
+    #[should_panic(expected = "HostError: Error(Contract, #15)")]
+    fn test_get_session_operation_count_panics_for_non_existent_session() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        client.get_session_operation_count(&999u64);
+    }
 
     #[test]
     fn test_operation_count_increments_with_register_attestor_with_session() {

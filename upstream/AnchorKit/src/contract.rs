@@ -24,6 +24,7 @@ pub struct Session {
     pub created_at: u64,
     pub nonce: u64,
     pub operation_count: u64,
+    pub expires_at: u64,
 }
 
 #[contracttype]
@@ -338,26 +339,10 @@ struct AnchorDeactivated {
 
 #[contracttype]
 #[derive(Clone)]
-pub struct AttestorRegistered(pub Address);
-
-#[contracttype]
-#[derive(Clone)]
-pub struct AttestorRevoked(pub Address);
-
-#[contracttype]
-#[derive(Clone)]
-pub struct AdminTransferProposed {
-    pub current_admin: Address,
-    pub new_admin: Address,
+struct SessionExpired {
+    session_id: u64,
+    expired_at: u64,
 }
-
-#[contracttype]
-#[derive(Clone)]
-pub struct AdminTransferred {
-    pub old_admin: Address,
-    pub new_admin: Address,
-}
-
 
 // ---------------------------------------------------------------------------
 // TTLs (in ledgers)
@@ -366,6 +351,7 @@ const PERSISTENT_TTL: u32 = 1_555_200;
 const SPAN_TTL: u32 = 17_280;
 const INSTANCE_TTL: u32 = 518_400;
 const MIN_TEMP_TTL: u32 = 15;
+const SESSION_TTL: u64 = 86_400; // 24 hours in seconds
 
 fn pending_admin_key(env: &Env) -> soroban_sdk::Vec<soroban_sdk::Symbol> {
     soroban_sdk::vec![env, symbol_short!("PADMIN")]
@@ -932,6 +918,7 @@ impl AnchorKitContract {
             created_at: now,
             nonce,
             operation_count: 0,
+            expires_at: now + SESSION_TTL,
         };
         let sess_key = StorageKey::Session(session_id);
         env.storage().persistent().set(&sess_key, &session);
@@ -964,6 +951,10 @@ impl AnchorKitContract {
     }
 
     pub fn get_session_operation_count(env: Env, session_id: u64) -> u64 {
+        let sess_key = StorageKey::Session(session_id);
+        if !env.storage().persistent().has(&sess_key) {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
         env.storage()
             .persistent()
             .get::<_, u64>(&(symbol_short!("SOPCNT"), session_id))
@@ -1082,6 +1073,7 @@ impl AnchorKitContract {
         payload_hash: Bytes,
         signature: Bytes,
     ) -> u64 {
+        Self::check_session_expiry(&env, session_id);
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
         Self::check_timestamp(&env, timestamp);
@@ -1147,6 +1139,7 @@ impl AnchorKitContract {
     }
 
     pub fn register_attestor_with_session(env: Env, session_id: u64, attestor: Address) {
+        Self::check_session_expiry(&env, session_id);
         Self::require_admin(&env);
         let key = StorageKey::Attestor(attestor.clone());
         if env.storage().persistent().has(&key) {
@@ -1202,6 +1195,7 @@ impl AnchorKitContract {
     }
 
     pub fn revoke_attestor_with_session(env: Env, session_id: u64, attestor: Address) {
+        Self::check_session_expiry(&env, session_id);
         Self::require_admin(&env);
         let key = StorageKey::Attestor(attestor.clone());
         if !env.storage().persistent().has(&key) {
@@ -1289,6 +1283,11 @@ impl AnchorKitContract {
     }
 
     pub fn get_session_operation_count(env: Env, session_id: u64) -> u64 {
+        Self::check_session_expiry(&env, session_id);
+        let sess_key = StorageKey::Session(session_id);
+        if !env.storage().persistent().has(&sess_key) {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
         env.storage()
             .persistent()
             .get::<_, u64>(&StorageKey::SessionOpCount(session_id))
@@ -1972,6 +1971,20 @@ impl AnchorKitContract {
         inst.set(&ck, &next);
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
         id
+    }
+
+    fn check_session_expiry(env: &Env, session_id: u64) {
+        let sess_key = StorageKey::Session(session_id);
+        if let Some(session) = env.storage().persistent().get::<_, Session>(&sess_key) {
+            let now = env.ledger().timestamp();
+            if now >= session.expires_at {
+                env.events().publish(
+                    (symbol_short!("session"), symbol_short!("expired"), session_id),
+                    SessionExpired { session_id, expired_at: now },
+                );
+                panic_with_error!(env, ErrorCode::ValidationError);
+            }
+        }
     }
 
     fn store_attestation(
