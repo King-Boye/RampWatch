@@ -46,8 +46,9 @@ pub enum ErrorCode {
     InvalidSep10Token = 18,
     StorageCorrupted = 50,
     CacheExpired = 48,
+StorageCorrupted = 19,
     CacheNotFound = 49,
-    StorageCorrupted = 50,
+    AuditLogMaxSizeInvalid = 51,
 }
 
 impl ErrorCode {
@@ -76,8 +77,10 @@ impl ErrorCode {
             ErrorCode::StorageCorrupted => "On-chain storage entry is corrupted or unreadable",
             ErrorCode::CacheExpired => "Cache entry has expired",
             ErrorCode::CacheNotFound => "Cache entry not found",
+            ErrorCode::AuditLogMaxSizeInvalid => "max_audit_log_size must be at least 1",
         }
     }
+
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +205,7 @@ impl AnchorKitError {
         Self::from_code(ErrorCode::RateLimitExceeded)
     }
 
-    pub fn storage_corrupted() -> Self {
+pub fn storage_corrupted() -> Self {
         Self::from_code(ErrorCode::StorageCorrupted)
     }
 
@@ -212,6 +215,15 @@ impl AnchorKitError {
 
     pub fn cache_not_found() -> Self {
         Self::from_code(ErrorCode::CacheNotFound)
+    }
+}
+
+impl core::fmt::Display for AnchorKitError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match &self.context {
+            Some(context) => write!(f, "[E{}] {} ({})", self.code as u32, self.message, context),
+            None => write!(f, "[E{}] {}", self.code as u32, self.message),
+        }
     }
 }
 
@@ -288,8 +300,11 @@ mod tests {
 
     #[test]
     fn test_error_code_default_messages_are_non_empty() {
-        let codes = [
+let codes = [
             ErrorCode::AlreadyInitialized,
+            ErrorCode::UnauthorizedProposeAdmin,
+            ErrorCode::NoPendingAdmin,
+            ErrorCode::NotPendingAdmin,
             ErrorCode::AttestorAlreadyRegistered,
             ErrorCode::AttestorNotRegistered,
             ErrorCode::UnauthorizedAttestor,
@@ -330,4 +345,19 @@ mod tests {
         let b = a.clone();
         assert_eq!(a, b);
     }
+
+    #[test]
+    fn test_display_format_without_context() {
+        let err = AnchorKitError::new(ErrorCode::RateLimitExceeded, "Rate limit exceeded");
+        let formatted = alloc::format!("{}", err);
+        assert_eq!(formatted, "[E16] Rate limit exceeded");
+    }
+
+    #[test]
+    fn test_display_format_with_context() {
+        let err = AnchorKitError::with_context(ErrorCode::ValidationError, "Schema mismatch", "field: transaction_id");
+        let formatted = alloc::format!("{}", err);
+        assert_eq!(formatted, "[E15] Schema mismatch (field: transaction_id)");
+    }
 }
+
