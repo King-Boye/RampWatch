@@ -12,6 +12,8 @@ mod transaction_state_tracker;
 pub mod storage;
 pub mod sep6;
 pub mod contract;
+pub mod events;
+pub mod types;
 
 pub use domain_validator::validate_anchor_domain;
 pub use errors::{AnchorKitError, ErrorCode};
