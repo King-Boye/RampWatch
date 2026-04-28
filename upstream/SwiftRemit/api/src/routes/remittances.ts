@@ -1,20 +1,26 @@
 /**
  * GET /api/remittances
  *
- * Query remittances by agent address with optional status filter and pagination.
- * Resolves issue #472.
+ * Query remittances by agent address with cursor-based pagination.
+ * Resolves issues #472 and #531.
  *
  * Query parameters:
- *   agent  {string}  - Stellar address of the agent (required)
+ *   agent  {string}  - Stellar address of the agent (optional)
  *   status {string}  - Filter by status: Pending | Processing | Completed | Cancelled (optional)
- *   page   {number}  - 1-based page number (default: 1)
+ *   cursor {string}  - Opaque pagination cursor from previous response (optional)
  *   limit  {number}  - Items per page, max 100 (default: 20)
+ *
+ * Response includes:
+ *   - data: Array of remittance objects
+ *   - next_cursor: Opaque token for fetching the next page (null if no more results)
+ *   - has_more: Boolean indicating if more results exist
  *
  * The `memo` field is included in each remittance object when present (issue #538).
  */
 
 import { Router, Request, Response } from 'express';
 import { ErrorResponse } from '../types';
+import { RemittanceStore } from '../db/remittanceStore';
 
 export type RemittanceStatus = 'Pending' | 'Processing' | 'Completed' | 'Cancelled' | 'Failed' | 'Disputed';
 
@@ -31,8 +37,12 @@ export interface Remittance {
 }
 
 const VALID_STATUSES: RemittanceStatus[] = ['Pending', 'Processing', 'Completed', 'Cancelled', 'Failed', 'Disputed'];
-const DEFAULT_PAGE_LIMIT = 20;
-const MAX_PAGE_LIMIT = 100;
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
+
+export type RemittancesRouterOptions = {
+  remittanceStore?: RemittanceStore;
+};
 
 function timestamp(): string {
   return new Date().toISOString();
@@ -43,121 +53,126 @@ function sendError(res: Response, status: number, message: string, code: string)
 }
 
 /**
- * Stub data source — in production this would query the contract via RPC
- * or a database populated by the event listener.
+ * Creates the remittances router with optional store injection for testing.
  */
-function fetchRemittancesByAgent(
-  agent: string,
-  status?: RemittanceStatus,
-  page = 1,
-  limit = DEFAULT_PAGE_LIMIT,
-): { items: Remittance[]; total: number } {
-  // Placeholder: real implementation queries contract/DB
-  const items: Remittance[] = [];
-  return { items, total: 0 };
+export function createRemittancesRouter(options: RemittancesRouterOptions = {}): Router {
+  const router = Router();
+  const { remittanceStore } = options;
+
+  /**
+   * @openapi
+   * /api/remittances:
+   *   get:
+   *     summary: Query remittances with cursor-based pagination
+   *     description: >
+   *       Returns a cursor-paginated list of remittances with optional agent and status filtering.
+   *       Cursor pagination provides stable results even when new records are inserted.
+   *     tags:
+   *       - Remittances
+   *     parameters:
+   *       - name: agent
+   *         in: query
+   *         required: false
+   *         description: Stellar address of the agent
+   *         schema:
+   *           type: string
+   *       - name: status
+   *         in: query
+   *         required: false
+   *         description: Filter by remittance status
+   *         schema:
+   *           type: string
+   *           enum: [Pending, Processing, Completed, Cancelled, Failed, Disputed]
+   *       - name: cursor
+   *         in: query
+   *         required: false
+   *         description: Opaque pagination cursor from previous response
+   *         schema:
+   *           type: string
+   *       - name: limit
+   *         in: query
+   *         required: false
+   *         description: Items per page (max 100)
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *           maximum: 100
+   *           default: 20
+   *     responses:
+   *       200:
+   *         description: Cursor-paginated list of remittances
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/Remittance'
+   *                 next_cursor:
+   *                   type: string
+   *                   nullable: true
+   *                 has_more:
+   *                   type: boolean
+   *                 timestamp:
+   *                   type: string
+   *       400:
+   *         description: Invalid query parameters
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ErrorResponse'
+   */
+  router.get('/', async (req: Request, res: Response) => {
+    const { agent, status, cursor, limit: limitStr } = req.query as Record<string, string | undefined>;
+
+    if (status !== undefined && !VALID_STATUSES.includes(status as RemittanceStatus)) {
+      return sendError(
+        res,
+        400,
+        `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}`,
+        'INVALID_STATUS',
+      );
+    }
+
+    const limit = limitStr !== undefined ? parseInt(limitStr, 10) : DEFAULT_LIMIT;
+
+    if (isNaN(limit) || limit < 1 || limit > MAX_LIMIT) {
+      return sendError(res, 400, `\`limit\` must be between 1 and ${MAX_LIMIT}`, 'INVALID_LIMIT');
+    }
+
+    if (!remittanceStore) {
+      return sendError(res, 503, 'Remittance store not configured', 'SERVICE_UNAVAILABLE');
+    }
+
+    try {
+      const result = await remittanceStore.queryWithCursor(
+        cursor || null,
+        limit,
+        agent?.trim(),
+        status as RemittanceStatus | undefined,
+      );
+
+      return res.json({
+        success: true,
+        data: result.items,
+        next_cursor: result.nextCursor,
+        has_more: result.hasMore,
+        timestamp: timestamp(),
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Invalid cursor')) {
+        return sendError(res, 400, error.message, 'INVALID_CURSOR');
+      }
+      throw error;
+    }
+  });
+
+  return router;
 }
 
-const router = Router();
-
-/**
- * @openapi
- * /api/remittances:
- *   get:
- *     summary: Query remittances by agent address
- *     description: >
- *       Returns a paginated list of remittances assigned to the given agent,
- *       with optional status filtering.
- *     tags:
- *       - Remittances
- *     parameters:
- *       - name: agent
- *         in: query
- *         required: true
- *         description: Stellar address of the agent
- *         schema:
- *           type: string
- *       - name: status
- *         in: query
- *         required: false
- *         description: Filter by remittance status
- *         schema:
- *           type: string
- *           enum: [Pending, Processing, Completed, Cancelled, Failed, Disputed]
- *       - name: page
- *         in: query
- *         required: false
- *         description: 1-based page number
- *         schema:
- *           type: integer
- *           minimum: 1
- *           default: 1
- *       - name: limit
- *         in: query
- *         required: false
- *         description: Items per page (max 100)
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 100
- *           default: 20
- *     responses:
- *       200:
- *         description: Paginated list of remittances
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/RemittanceListResponse'
- *       400:
- *         description: Invalid query parameters
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-router.get('/', (req: Request, res: Response) => {
-  const { agent, status, page: pageStr, limit: limitStr } = req.query as Record<string, string | undefined>;
-
-  if (!agent || typeof agent !== 'string' || agent.trim() === '') {
-    return sendError(res, 400, '`agent` query parameter is required', 'MISSING_AGENT');
-  }
-
-  if (status !== undefined && !VALID_STATUSES.includes(status as RemittanceStatus)) {
-    return sendError(
-      res,
-      400,
-      `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}`,
-      'INVALID_STATUS',
-    );
-  }
-
-  const page = pageStr !== undefined ? parseInt(pageStr, 10) : 1;
-  const limit = limitStr !== undefined ? parseInt(limitStr, 10) : DEFAULT_PAGE_LIMIT;
-
-  if (isNaN(page) || page < 1) {
-    return sendError(res, 400, '`page` must be a positive integer', 'INVALID_PAGE');
-  }
-  if (isNaN(limit) || limit < 1 || limit > MAX_PAGE_LIMIT) {
-    return sendError(res, 400, `\`limit\` must be between 1 and ${MAX_PAGE_LIMIT}`, 'INVALID_LIMIT');
-  }
-
-  const { items, total } = fetchRemittancesByAgent(
-    agent.trim(),
-    status as RemittanceStatus | undefined,
-    page,
-    limit,
-  );
-
-  return res.json({
-    success: true,
-    data: items,
-    pagination: {
-      page,
-      limit,
-      total,
-      total_pages: Math.ceil(total / limit),
-    },
-    timestamp: timestamp(),
-  });
-});
-
-export default router;
+// Default export for backward compatibility
+export default createRemittancesRouter();
