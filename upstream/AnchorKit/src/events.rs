@@ -46,6 +46,13 @@ pub(crate) struct AttestEvent {
 
 #[contracttype]
 #[derive(Clone)]
+pub(crate) struct AuditLogPruned {
+    pub pruned_count: u64,
+    pub new_offset: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
 pub struct EndpointUpdated {
     pub attestor: Address,
     pub endpoint: String,
@@ -57,4 +64,12 @@ pub(crate) struct AnchorDeactivated {
     pub anchor: Address,
     pub failure_count: u32,
     pub threshold: u32,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct RateLimitReset {
+    pub attestor: Address,
+    pub admin: Address,
+    pub timestamp: u64,
 }

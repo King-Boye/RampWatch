@@ -19,6 +19,25 @@ pub fn build_sep10_jwt(signing_key: &SigningKey, sub: &str, exp: u64) -> alloc::
     format!("{}.{}", signing_input, sig_b64)
 }
 
+/// Build a SEP-10 JWT that includes an `scp` (scope) claim.
+///
+/// `scope` is a space-separated list of service names (e.g. `"deposit withdrawal"`).
+pub fn build_sep10_jwt_with_scope(
+    signing_key: &SigningKey,
+    sub: &str,
+    exp: u64,
+    scope: &str,
+) -> alloc::string::String {
+    let header = r#"{"alg":"EdDSA","typ":"JWT"}"#;
+    let payload = format!(r#"{{"sub":"{}","exp":{},"scp":"{}"}}"#, sub, exp, scope);
+    let header_b64 = URL_SAFE_NO_PAD.encode(header);
+    let payload_b64 = URL_SAFE_NO_PAD.encode(payload);
+    let signing_input = format!("{}.{}", header_b64, payload_b64);
+    let sig = signing_key.sign(signing_input.as_bytes());
+    let sig_b64 = URL_SAFE_NO_PAD.encode(sig.to_bytes());
+    format!("{}.{}", signing_input, sig_b64)
+}
+
 /// Registers an [`SigningKey`] as the SEP-10 JWT verifier for `sep10_issuer` and registers `attestor`
 /// using a JWT whose `sub` matches `attestor`'s strkey.
 pub fn register_attestor_with_sep10(

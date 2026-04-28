@@ -271,6 +271,42 @@ fn test_symlink_detection() {
 }
 
 #[test]
+fn test_symlink_creation() {
+    let temp = std::env::temp_dir();
+    let target = temp.join("anchorkit_symlink_target.txt");
+    let link = temp.join("anchorkit_symlink_link.txt");
+
+    fs::write(&target, b"symlink target").expect("Failed to write target file");
+
+    // Attempt symlink creation; on Windows this requires elevated privileges.
+    #[cfg(windows)]
+    let result = std::os::windows::fs::symlink_file(&target, &link);
+
+    #[cfg(not(windows))]
+    let result = std::os::unix::fs::symlink(&target, &link);
+
+    match result {
+        Ok(()) => {
+            let metadata = fs::symlink_metadata(&link).expect("Failed to get symlink metadata");
+            assert!(metadata.file_type().is_symlink(), "Expected a symlink");
+            fs::remove_file(&link).ok();
+        }
+        Err(e) => {
+            // On Windows without SeCreateSymbolicLinkPrivilege this is expected.
+            #[cfg(windows)]
+            {
+                eprintln!("SKIP test_symlink_creation: symlink creation requires elevated privileges on this system ({e})");
+                // Not a test failure — privilege is unavailable.
+            }
+            #[cfg(not(windows))]
+            panic!("Symlink creation failed on Unix: {e}");
+        }
+    }
+
+    fs::remove_file(&target).ok();
+}
+
+#[test]
 fn test_config_schema_path() {
     let schema = Path::new("config_schema.json");
     assert_eq!(

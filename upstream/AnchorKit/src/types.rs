@@ -69,7 +69,8 @@ pub struct OperationContext {
     pub operation_type: String,
     pub timestamp: u64,
     pub status: String,
-    pub result_data: u64,
+    /// Human-readable outcome, e.g. `"attestation_id=42"`.
+    pub result_summary: String,
 }
 
 #[contracttype]
@@ -205,7 +206,7 @@ pub struct MetadataCache {
 #[derive(Clone)]
 pub struct CapabilitiesCache {
     pub toml_url: String,
-    pub capabilities: String,
+    pub capabilities: Vec<u32>,
     pub cached_at: u64,
     pub ttl_seconds: u64,
 }
@@ -229,6 +230,9 @@ pub struct AssetInfo {
     pub deposit_max_amount: u64,
     pub withdrawal_min_amount: u64,
     pub withdrawal_max_amount: u64,
+    /// Number of decimal places for the asset (e.g. 7 for USDC on Stellar).
+    /// Parsed from the `significant_decimals` field of stellar.toml; defaults to 7.
+    pub decimals: u32,
 }
 
 #[contracttype]

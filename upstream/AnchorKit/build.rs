@@ -2,10 +2,27 @@ use std::path::Path;
 use std::process::Command;
 
 fn main() {
+    // Always watch the build script itself and top-level schema/validator
+    println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=config_schema.json");
-    println!("cargo:rerun-if-changed=configs/");
+    println!("cargo:rerun-if-changed=validate_config_strict.py");
     println!("cargo:rerun-if-changed=src/config.rs");
     println!("cargo:rerun-if-changed=src/validation.rs");
+
+    // Emit rerun-if-changed for every individual config file so Cargo
+    // skips re-running this script when nothing in configs/ has changed.
+    // (A directory-level directive only watches the dir entry itself, not
+    // the files inside it, so we enumerate them explicitly.)
+    if let Ok(entries) = std::fs::read_dir("configs") {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                if ext == "json" || ext == "toml" {
+                    println!("cargo:rerun-if-changed={}", path.display());
+                }
+            }
+        }
+    }
 
     // Strict compile-time validation to prevent misconfiguration bugs
     validate_configs_at_build();

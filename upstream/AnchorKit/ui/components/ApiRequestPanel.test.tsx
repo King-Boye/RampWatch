@@ -327,4 +327,240 @@ describe('ApiRequestPanel', () => {
       expect(pre?.textContent).toContain('level1');
     });
   });
+
+  describe('JSON Validation', () => {
+    it('renders editable textarea when editable prop is true', () => {
+      render(
+        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
+      );
+      const textarea = screen.getByRole('textbox', { name: /request body json/i });
+      expect(textarea).toBeInTheDocument();
+    });
+
+    it('validates JSON on body change', () => {
+      render(
+        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
+      );
+      const textarea = screen.getByRole('textbox', { name: /request body json/i });
+      
+      // Enter invalid JSON
+      fireEvent.change(textarea, { target: { value: '{"invalid": json}' } });
+      
+      expect(screen.getByText(/Invalid JSON/i)).toBeInTheDocument();
+    });
+
+    it('shows inline error for invalid JSON', () => {
+      render(
+        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
+      );
+      const textarea = screen.getByRole('textbox', { name: /request body json/i });
+      
+      // Enter invalid JSON
+      fireEvent.change(textarea, { target: { value: '{"key": "value"' } });
+      
+      const errorElement = screen.getByRole('alert');
+      expect(errorElement).toBeInTheDocument();
+      expect(errorElement).toHaveTextContent(/Invalid JSON/i);
+    });
+
+    it('clears error when JSON becomes valid', () => {
+      render(
+        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
+      );
+      const textarea = screen.getByRole('textbox', { name: /request body json/i });
+      
+      // Enter invalid JSON
+      fireEvent.change(textarea, { target: { value: '{"invalid"' } });
+      expect(screen.getByText(/Invalid JSON/i)).toBeInTheDocument();
+      
+      // Fix the JSON
+      fireEvent.change(textarea, { target: { value: '{"valid": "json"}' } });
+      expect(screen.queryByText(/Invalid JSON/i)).not.toBeInTheDocument();
+    });
+
+    it('disables submit button while JSON is invalid', () => {
+      const mockSubmit = jest.fn();
+      render(
+        <ApiRequestPanel
+          endpoint={mockEndpoint}
+          editable={true}
+          onSubmit={mockSubmit}
+        />
+      );
+      const textarea = screen.getByRole('textbox', { name: /request body json/i });
+      const submitButton = screen.getByRole('button', { name: /submit request/i });
+      
+      // Enter invalid JSON
+      fireEvent.change(textarea, { target: { value: '{"invalid": }' } });
+      
+      expect(submitButton).toBeDisabled();
+    });
+
+    it('enables submit button when JSON is valid', () => {
+      const mockSubmit = jest.fn();
+      render(
+        <ApiRequestPanel
+          endpoint={mockEndpoint}
+          editable={true}
+          onSubmit={mockSubmit}
+        />
+      );
+      const textarea = screen.getByRole('textbox', { name: /request body json/i });
+      const submitButton = screen.getByRole('button', { name: /submit request/i });
+      
+      // Enter valid JSON
+      fireEvent.change(textarea, { target: { value: '{"valid": "json"}' } });
+      
+      expect(submitButton).not.toBeDisabled();
+    });
+
+    it('calls onSubmit with parsed JSON when submitted', () => {
+      const mockSubmit = jest.fn();
+      render(
+        <ApiRequestPanel
+          endpoint={mockEndpoint}
+          editable={true}
+          onSubmit={mockSubmit}
+        />
+      );
+      const textarea = screen.getByRole('textbox', { name: /request body json/i });
+      const submitButton = screen.getByRole('button', { name: /submit request/i });
+      
+      // Enter valid JSON
+      const testData = { test: 'data', value: 123 };
+      fireEvent.change(textarea, { target: { value: JSON.stringify(testData) } });
+      
+      // Submit
+      fireEvent.click(submitButton);
+      
+      expect(mockSubmit).toHaveBeenCalledWith(testData);
+    });
+
+    it('does not call onSubmit when JSON is invalid', () => {
+      const mockSubmit = jest.fn();
+      render(
+        <ApiRequestPanel
+          endpoint={mockEndpoint}
+          editable={true}
+          onSubmit={mockSubmit}
+        />
+      );
+      const textarea = screen.getByRole('textbox', { name: /request body json/i });
+      
+      // Enter invalid JSON
+      fireEvent.change(textarea, { target: { value: '{"invalid": }' } });
+      
+      // Try to submit (button should be disabled)
+      const submitButton = screen.getByRole('button', { name: /submit request/i });
+      fireEvent.click(submitButton);
+      
+      expect(mockSubmit).not.toHaveBeenCalled();
+    });
+
+    it('allows empty JSON body', () => {
+      const mockSubmit = jest.fn();
+      render(
+        <ApiRequestPanel
+          endpoint={mockEndpoint}
+          editable={true}
+          onSubmit={mockSubmit}
+        />
+      );
+      const submitButton = screen.getByRole('button', { name: /submit request/i });
+      
+      // Submit with empty body
+      fireEvent.click(submitButton);
+      
+      expect(submitButton).not.toBeDisabled();
+      expect(mockSubmit).toHaveBeenCalledWith({});
+    });
+
+    it('handles whitespace-only input as valid', () => {
+      render(
+        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
+      );
+      const textarea = screen.getByRole('textbox', { name: /request body json/i });
+      
+      // Enter whitespace
+      fireEvent.change(textarea, { target: { value: '   \n  \t  ' } });
+      
+      expect(screen.queryByText(/Invalid JSON/i)).not.toBeInTheDocument();
+    });
+
+    it('shows specific JSON error messages', () => {
+      render(
+        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
+      );
+      const textarea = screen.getByRole('textbox', { name: /request body json/i });
+      
+      // Enter JSON with specific error
+      fireEvent.change(textarea, { target: { value: '{"key": "value",}' } });
+      
+      const errorElement = screen.getByRole('alert');
+      expect(errorElement).toBeInTheDocument();
+      // Error message should contain details from JSON.parse
+      expect(errorElement.textContent).toContain('Invalid JSON');
+    });
+
+    it('disables submit button when loading', () => {
+      const mockSubmit = jest.fn();
+      render(
+        <ApiRequestPanel
+          endpoint={mockEndpoint}
+          editable={true}
+          onSubmit={mockSubmit}
+          isLoading={true}
+        />
+      );
+      const submitButton = screen.getByRole('button', { name: /submitting/i });
+      
+      expect(submitButton).toBeDisabled();
+    });
+
+    it('initializes textarea with requestBody when provided', () => {
+      const initialBody = { initial: 'data' };
+      render(
+        <ApiRequestPanel
+          endpoint={mockEndpoint}
+          editable={true}
+          requestBody={initialBody}
+        />
+      );
+      const textarea = screen.getByRole('textbox', { name: /request body json/i });
+      
+      expect(textarea).toHaveValue(JSON.stringify(initialBody, null, 2));
+    });
+
+    it('applies error class to textarea when JSON is invalid', () => {
+      render(
+        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
+      );
+      const textarea = screen.getByRole('textbox', { name: /request body json/i });
+      
+      // Enter invalid JSON
+      fireEvent.change(textarea, { target: { value: '{invalid}' } });
+      
+      expect(textarea).toHaveClass('error');
+    });
+
+    it('sets aria-invalid when JSON is invalid', () => {
+      render(
+        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
+      );
+      const textarea = screen.getByRole('textbox', { name: /request body json/i });
+      
+      // Enter invalid JSON
+      fireEvent.change(textarea, { target: { value: '{invalid}' } });
+      
+      expect(textarea).toHaveAttribute('aria-invalid', 'true');
+    });
+
+    it('does not render submit button when onSubmit is not provided', () => {
+      render(
+        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
+      );
+      
+      expect(screen.queryByRole('button', { name: /submit/i })).not.toBeInTheDocument();
+    });
+  });
 });

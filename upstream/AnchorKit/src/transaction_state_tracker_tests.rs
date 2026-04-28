@@ -36,7 +36,15 @@ mod transaction_state_tracker_tests {
             TransactionState::from_str("failed"),
             Some(TransactionState::Failed)
         );
-        assert_eq!(TransactionState::from_str("unknown"), None);
+        // Unrecognized strings map to Unknown, not Error or None
+        assert_eq!(
+            TransactionState::from_str("some_future_state"),
+            Some(TransactionState::Unknown)
+        );
+        assert_eq!(
+            TransactionState::from_str("unknown"),
+            Some(TransactionState::Unknown)
+        );
     }
 
     #[test]
@@ -79,7 +87,12 @@ mod transaction_state_tracker_tests {
         assert!(result.is_ok());
         let record = result.unwrap();
         assert_eq!(record.state, TransactionState::Failed);
-        assert_eq!(record.error_message, Some(error_msg));
+        assert_eq!(record.error_message, Some(error_msg.clone()));
+        // failure_reason must be persisted and retrievable via get_transaction_state
+        assert_eq!(record.failure_reason, Some(error_msg.clone()));
+
+        let fetched = tracker.get_transaction_state(1, &env).unwrap().unwrap();
+        assert_eq!(fetched.failure_reason, Some(error_msg));
     }
 
     #[test]
@@ -177,9 +190,23 @@ mod transaction_state_tracker_tests {
         tracker.create_transaction(2, initiator.clone(), &env).ok();
         assert_eq!(tracker.cache_size(), 2);
 
-        let clear_result = tracker.clear_cache();
+        let clear_result = tracker.clear_cache(&initiator, &env);
         assert!(clear_result.is_ok());
         assert_eq!(tracker.cache_size(), 0);
+    }
+
+    #[test]
+    fn test_clear_cache_production_requires_admin() {
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new(false);
+        let admin = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        // In production mode, clear_cache requires admin auth.
+        // Calling without mock auth should panic (require_auth panics when not authorized).
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tracker.clear_cache(&admin, &env)
+        }));
+        assert!(result.is_err(), "Expected panic due to missing admin auth in production mode");
     }
 
     #[test]
@@ -198,5 +225,55 @@ mod transaction_state_tracker_tests {
         // Timestamps should be set and last_updated should reflect the change
         assert_eq!(record2.timestamp, initial_timestamp);
         assert!(record2.last_updated >= initial_timestamp);
+    }
+
+    #[test]
+    fn test_get_transaction_count_by_state_basic() {
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new(true);
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        tracker.create_transaction(1, initiator.clone(), &env).ok();
+        tracker.create_transaction(2, initiator.clone(), &env).ok();
+        tracker.create_transaction(3, initiator.clone(), &env).ok();
+
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::Pending), 3);
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::InProgress), 0);
+
+        tracker.start_transaction(1, &env).ok();
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::Pending), 2);
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::InProgress), 1);
+
+        tracker.complete_transaction(1, &env).ok();
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::InProgress), 0);
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::Completed), 1);
+    }
+
+    #[test]
+    fn test_get_transaction_count_by_state_failed() {
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new(true);
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        tracker.create_transaction(1, initiator.clone(), &env).ok();
+        tracker.create_transaction(2, initiator.clone(), &env).ok();
+        let err = String::from_str(&env, "err");
+        tracker.fail_transaction(1, err, &env).ok();
+
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::Pending), 1);
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::Failed), 1);
+    }
+
+    #[test]
+    fn test_get_transaction_count_by_state_after_clear() {
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new(true);
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        tracker.create_transaction(1, initiator.clone(), &env).ok();
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::Pending), 1);
+
+        tracker.clear_cache().ok();
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::Pending), 0);
     }
 }
