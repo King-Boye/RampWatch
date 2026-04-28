@@ -80,6 +80,43 @@ Uses **proptest** library with 1000+ test cases per property.
    prop_assert!(norm_tier1 >= norm_tier2 >= norm_tier3);
    ```
 
+## Running the Tests
+
+### TypeScript Property Tests
+```bash
+# Standard testing (1000 cases per property)
+cd backend
+npm test -- fee-calculation-property.test.ts
+
+# Quick validation (100 cases)
+cd backend
+npm test -- fee-calculation-property.test.ts --reporter=verbose
+```
+
+### Rust Property Tests
+```bash
+# Quick validation (10 test cases)
+PROPTEST_CASES=10 cargo test fee_service_property_tests --lib -- --nocapture
+
+# Standard fuzzing (100 test cases per property - default)
+cargo test fee_service_property_tests --lib -- --nocapture
+
+# Intensive fuzzing (1000+ test cases)
+PROPTEST_CASES=1000 cargo test fee_service_property_tests --lib -- --nocapture
+
+# Run specific test
+cargo test prop_percentage_fee_never_negative --lib -- --nocapture
+
+# Verbose output (shows generated values)
+PROPTEST_VERBOSE=1 cargo test fee_service_property_tests --lib -- --nocapture
+```
+
+### Comprehensive Test Runner
+```bash
+# Run all property-based tests
+./run-property-tests.sh
+```
+
 ## Key Test Strategies
 
 ### Input Generation
@@ -120,29 +157,6 @@ let boundary2 = 10000_0000000i128; // Tier 2/3 boundary
 let just_below = boundary1 - 1;
 let fee_below = calculate_fee_by_strategy(just_below, &strategy)?;
 let fee_at = calculate_fee_by_strategy(boundary1, &strategy)?;
-```
-
-## Running the Tests
-
-### Individual Test Suites
-
-```bash
-# TypeScript property tests
-cd backend
-npm test -- fee-calculation-property.test.ts
-
-# Rust property tests  
-cargo test fee_service_property_tests --release
-
-# All fee-related tests
-cargo test fee_service --release
-```
-
-### Comprehensive Test Runner
-
-```bash
-# Run all property-based tests
-./run-property-tests.sh
 ```
 
 ## Test Configuration
@@ -222,8 +236,49 @@ These property tests should be integrated into the continuous integration pipeli
 - name: Run Property-Based Tests
   run: |
     cd backend && npm test -- fee-calculation-property.test.ts
-    cargo test fee_service_property_tests --release
+    PROPTEST_CASES=500 cargo test fee_service_property_tests --lib -- --nocapture --test-threads=1
 ```
+
+For nightly/stress testing:
+```yaml
+- name: Intensive fee fuzzing
+  if: github.event_name == 'schedule'
+  run: |
+    PROPTEST_CASES=5000 cargo test fee_service_property_tests --lib -- --nocapture
+```
+
+## Performance Benchmarks
+
+Expected runtimes (approximate):
+- **TypeScript (1000 cases)**: ~30-60 seconds
+- **Rust (10 cases)**: ~2-3 seconds
+- **Rust (100 cases)**: ~20-30 seconds
+- **Rust (500 cases)**: 2-3 minutes
+- **Rust (1000 cases)**: 4-5 minutes
+
+Times vary based on system performance and compilation cache.
+
+## Manual Fee Calculation for Verification
+
+The test suite includes helper functions to verify calculations:
+
+```typescript
+// TypeScript
+function calculateExpectedFee(amount: number, bps: number): number {
+  return Math.max(MIN_FEE, Math.floor((amount * bps) / 10000));
+}
+```
+
+```rust
+// Rust
+fn manual_percentage_fee(amount: i128, bps: u32) -> Option<i128> {
+    let product = (amount as i128).checked_mul(bps as i128)?;
+    let fee = product.checked_div(FEE_DIVISOR)?;
+    Some(fee.max(MIN_FEE))
+}
+```
+
+**Formula**: `fee = max(MIN_FEE, (amount × bps) / 10000)`
 
 ## Future Enhancements
 
@@ -232,5 +287,8 @@ These property tests should be integrated into the continuous integration pipeli
 3. **Stateful Testing**: Test sequences of fee calculations
 4. **Integration Properties**: Test fee calculations in full transaction flows
 5. **Metamorphic Testing**: Verify relationships between different fee strategies
+6. **Corridor-specific fee validation**
+7. **Volume discount validation**
+8. **Multi-token fee calculations**
 
 This comprehensive property-based testing approach provides strong assurance that the fee calculation logic is mathematically sound, handles edge cases correctly, and protects against overflows and other arithmetic errors.
