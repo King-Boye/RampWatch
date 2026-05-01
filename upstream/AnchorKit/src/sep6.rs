@@ -9,7 +9,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::errors::{Error, ErrorCode};
-use crate::retry::{RetryConfig, retry_with_backoff};
+use crate::retry::RetryConfig;
 
 // ── Normalized response types ────────────────────────────────────────────────
 
@@ -254,8 +254,8 @@ pub fn is_http_error_retryable(http_status: u32) -> bool {
 /// ```
 pub fn fetch_transaction_status_with_retry<S>(
     raw: RawTransactionResponse,
-    retry_config: Option<RetryConfig>,
-    mut sleep_fn: S,
+    _retry_config: Option<RetryConfig>,
+    _sleep_fn: S,
 ) -> Result<TransactionStatusResponse, Error>
 where
     S: FnMut(u64),
@@ -478,7 +478,7 @@ mod tests {
     fn test_initiate_deposit_valid_stellar_address_accepted() {
         let mut raw = raw_deposit();
         // 56-char G-address
-        raw.depositor_account = Some("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN".to_string());
+        raw.depositor_account = Some("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA".to_string());
         assert!(initiate_deposit(raw).is_ok());
     }
 
@@ -575,7 +575,7 @@ mod tests {
 
     // ── list_transactions ────────────────────────────────────────────────────
 
-    const VALID_ACCOUNT: &str = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+    const VALID_ACCOUNT: &str = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
 
     fn make_raw_tx(id: &str, status: &str) -> RawTransactionResponse {
         RawTransactionResponse {

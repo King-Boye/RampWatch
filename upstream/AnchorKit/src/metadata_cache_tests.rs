@@ -49,7 +49,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let result = client.try_get_cached_metadata(&anchor);
         assert!(result.is_err());
@@ -64,7 +64,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let meta = sample_metadata(&env, &anchor);
         client.cache_metadata(&anchor, &meta, &3600u64);
@@ -83,7 +83,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let meta = sample_metadata(&env, &anchor);
         client.cache_metadata(&anchor, &meta, &10u64);
@@ -104,7 +104,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &100_u64, &None);
 
         let meta = sample_metadata(&env, &anchor);
         client.cache_metadata(&anchor, &meta, &0u64);
@@ -113,7 +113,7 @@ mod metadata_cache_tests {
         set_ledger(&env, 999_999_999);
         let result = client.try_get_cached_metadata(&anchor);
         assert!(result.is_ok(), "ttl_seconds=0 entry should never expire");
-        assert_eq!(result.unwrap().reputation_score, 9000);
+        assert_eq!(result.unwrap().unwrap().reputation_score, 9000);
     }
 
     #[test]
@@ -125,7 +125,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let meta = sample_metadata(&env, &anchor);
         client.cache_metadata(&anchor, &meta, &3600u64);
@@ -152,7 +152,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let toml_url = String::from_str(&env, "https://anchor.example/.well-known/stellar.toml");
         let mut caps = soroban_sdk::Vec::new(&env);
@@ -174,7 +174,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let toml_url = String::from_str(&env, "https://anchor.example/.well-known/stellar.toml");
         let mut caps = soroban_sdk::Vec::new(&env);
@@ -195,7 +195,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let toml_url = String::from_str(&env, "https://anchor.example/.well-known/stellar.toml");
         let mut caps = soroban_sdk::Vec::new(&env);
@@ -218,7 +218,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &100_u64, &None);
 
         let meta = sample_metadata(&env, &anchor);
         client.cache_metadata(&anchor, &meta, &3600u64);
@@ -244,7 +244,7 @@ mod metadata_cache_tests {
 
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &100_u64, &None);
 
         // No entry yet
         assert!(client.get_cache_age_seconds(&anchor).is_none());
@@ -269,7 +269,7 @@ mod metadata_cache_tests {
         let admin = Address::generate(&env);
         let anchor1 = Address::generate(&env);
         let anchor2 = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &100_u64, &None);
 
         let meta1 = sample_metadata(&env, &anchor1);
         let meta2 = sample_metadata(&env, &anchor2);
@@ -301,7 +301,7 @@ mod metadata_cache_tests {
         let admin = Address::generate(&env);
         let anchor1 = Address::generate(&env);
         let anchor2 = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         // Initially empty
         let list = client.list_cached_anchors();

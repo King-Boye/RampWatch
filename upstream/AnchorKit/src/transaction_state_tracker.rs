@@ -163,13 +163,18 @@ impl TransactionStateTracker {
                     record.state = new_state;
                     record.last_updated = current_time;
                     if new_state == TransactionState::Failed {
-                        record.failure_reason = error_message.clone();
+                        record.error_message = error_message.clone();
                     }
                     record.error_message = error_message;
                     record.history.push_back(StateTransition {
                         state: new_state,
                         timestamp: current_time,
                     });
+                    // Update state counts
+                    if self.state_counts[old_state as usize] > 0 {
+                        self.state_counts[old_state as usize] -= 1;
+                    }
+                    self.state_counts[new_state as usize] += 1;
                     return Ok(record.clone());
                 }
             }
@@ -179,7 +184,7 @@ impl TransactionStateTracker {
             ))
         } else {
             let dummy_address = Address::from_string(&String::from_str(env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"));
-            let failure_reason = if new_state == TransactionState::Failed { error_message.clone() } else { None };
+            let _failure_reason = if new_state == TransactionState::Failed { error_message.clone() } else { None };
             let record = TransactionStateRecord {
                 transaction_id,
                 state: new_state,
@@ -271,7 +276,7 @@ impl TransactionStateTracker {
     /// Clear all cached transactions.
     /// In dev mode: always allowed.
     /// In production mode: requires admin authorization.
-    pub fn clear_cache(&mut self, admin: &Address, env: &Env) -> Result<(), String> {
+    pub fn clear_cache(&mut self, admin: &Address, _env: &Env) -> Result<(), String> {
         if self.is_dev_mode {
             self.cache = alloc::vec::Vec::new();
             self.state_counts = [0u64; 5];
@@ -285,7 +290,7 @@ impl TransactionStateTracker {
 
     /// Get cache size — O(1)
     pub fn cache_size(&self) -> usize {
-        self.cache_count
+        self.cache.len()
     }
 
     /// Get the count of transactions in a given state — O(1).

@@ -10,7 +10,7 @@ mod request_id_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::register_attestor_with_sep10;
+    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -100,18 +100,19 @@ mod request_id_tests {
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
         let signing_key = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &signing_key);
 
         let req_id = client.generate_request_id();
+        let p = payload(&env, 0x01);
         let attest_id = client.submit_with_request_id(
             &req_id,
             &attestor,
             &subject,
             &1000u64,
-            &payload(&env, 0x01),
-            &Bytes::new(&env),
+            &p,
+            &sign_payload(&env, &signing_key, &p),
         );
 
         assert_eq!(attest_id, 0);
@@ -142,18 +143,19 @@ mod request_id_tests {
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
         let signing_key = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &signing_key);
 
         let req_id = client.generate_request_id();
+        let p = payload(&env, 0x01);
         client.submit_with_request_id(
             &req_id,
             &attestor,
             &subject,
             &1000u64,
-            &payload(&env, 0x01),
-            &Bytes::new(&env),
+            &p,
+            &sign_payload(&env, &signing_key, &p),
         );
 
         let span = client.get_tracing_span(&req_id.id).unwrap();
@@ -181,7 +183,7 @@ mod request_id_tests {
         let unregistered = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let req_id = client.generate_request_id();
 
@@ -218,7 +220,7 @@ mod request_id_tests {
         let admin = Address::generate(&env);
         let anchor = Address::generate(&env);
 
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
         let signing_key = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &anchor, &anchor, &signing_key);
 

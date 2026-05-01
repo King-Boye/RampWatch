@@ -10,7 +10,7 @@ mod streaming_flow_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::register_attestor_with_sep10;
+    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -42,7 +42,7 @@ mod streaming_flow_tests {
         let anchor = Address::generate(&env);
         let user = Address::generate(&env);
 
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &anchor, &anchor, &sk);
 
@@ -85,7 +85,7 @@ mod streaming_flow_tests {
         let subject = Address::generate(&env);
         let user = Address::generate(&env);
 
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
@@ -95,13 +95,12 @@ mod streaming_flow_tests {
         services.push_back(4u32);
         client.configure_services(&attestor, &services);
 
-        let session_id = client.create_session(&user);
+        let session_id = client.create_session(&attestor);
         assert_eq!(session_id, 0);
 
         let mut payload = Bytes::new(&env);
         for _ in 0..32 { payload.push_back(0x01); }
-        let mut sig = Bytes::new(&env);
-        sig.push_back(0x0a); sig.push_back(0x0b); sig.push_back(0x0c);
+        let sig = sign_payload(&env, &sk, &payload);
 
         let attest_id = client.submit_attestation_with_session(
             &session_id,
@@ -134,7 +133,7 @@ mod streaming_flow_tests {
         let user1 = Address::generate(&env);
         let user2 = Address::generate(&env);
 
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &anchor, &anchor, &sk);
 

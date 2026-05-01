@@ -15,7 +15,11 @@
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                }
+                },
+                {
+                  "u64": 100
+                },
+                "void"
               ]
             }
           },
@@ -79,7 +83,10 @@
           "sub_invocations": []
         }
       ]
-    ]
+    ],
+    [],
+    [],
+    []
   ],
   "ledger": {
     "protocol_version": 21,
@@ -98,7 +105,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SESS"
+                  "symbol": "Session"
                 },
                 {
                   "u64": 0
@@ -118,7 +125,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SESS"
+                      "symbol": "Session"
                     },
                     {
                       "u64": 0
@@ -138,6 +145,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "expires_at"
+                      },
+                      "val": {
+                        "u64": 86400
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "initiator"
                       },
                       "val": {
@@ -149,7 +164,7 @@
                         "symbol": "nonce"
                       },
                       "val": {
-                        "u64": 0
+                        "u64": 6775509081846337106
                       }
                     },
                     {
@@ -184,7 +199,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SESS"
+                  "symbol": "Session"
                 },
                 {
                   "u64": 1
@@ -204,7 +219,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SESS"
+                      "symbol": "Session"
                     },
                     {
                       "u64": 1
@@ -224,6 +239,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "expires_at"
+                      },
+                      "val": {
+                        "u64": 86400
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "initiator"
                       },
                       "val": {
@@ -235,7 +258,7 @@
                         "symbol": "nonce"
                       },
                       "val": {
-                        "u64": 0
+                        "u64": 16898274228234171706
                       }
                     },
                     {
@@ -270,7 +293,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SESS"
+                  "symbol": "Session"
                 },
                 {
                   "u64": 2
@@ -290,7 +313,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SESS"
+                      "symbol": "Session"
                     },
                     {
                       "u64": 2
@@ -310,6 +333,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "expires_at"
+                      },
+                      "val": {
+                        "u64": 86400
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "initiator"
                       },
                       "val": {
@@ -321,7 +352,7 @@
                         "symbol": "nonce"
                       },
                       "val": {
-                        "u64": 0
+                        "u64": 1881330075107078953
                       }
                     },
                     {
@@ -356,7 +387,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SNONCE"
+                  "symbol": "SessionNonce"
                 },
                 {
                   "u64": 0
@@ -376,7 +407,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SNONCE"
+                      "symbol": "SessionNonce"
                     },
                     {
                       "u64": 0
@@ -385,7 +416,7 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "u64": 0
+                  "u64": 6775509081846337106
                 }
               }
             },
@@ -401,7 +432,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SNONCE"
+                  "symbol": "SessionNonce"
                 },
                 {
                   "u64": 1
@@ -421,7 +452,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SNONCE"
+                      "symbol": "SessionNonce"
                     },
                     {
                       "u64": 1
@@ -430,7 +461,7 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "u64": 0
+                  "u64": 16898274228234171706
                 }
               }
             },
@@ -446,7 +477,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SNONCE"
+                  "symbol": "SessionNonce"
                 },
                 {
                   "u64": 2
@@ -466,7 +497,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SNONCE"
+                      "symbol": "SessionNonce"
                     },
                     {
                       "u64": 2
@@ -475,7 +506,7 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "u64": 0
+                  "u64": 1881330075107078953
                 }
               }
             },
@@ -517,6 +548,30 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "AuditLogMaxSize"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 100
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "RPWINDOW"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 300
                         }
                       },
                       {
@@ -716,7 +771,15 @@
               }
             ],
             "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u64": 100
+                },
+                "void"
+              ]
             }
           }
         }
@@ -1038,6 +1101,300 @@
             ],
             "data": {
               "u64": 2
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_call"
+              },
+              {
+                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+              },
+              {
+                "symbol": "get_session"
+              }
+            ],
+            "data": {
+              "u64": 0
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_return"
+              },
+              {
+                "symbol": "get_session"
+              }
+            ],
+            "data": {
+              "map": [
+                {
+                  "key": {
+                    "symbol": "created_at"
+                  },
+                  "val": {
+                    "u64": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "expires_at"
+                  },
+                  "val": {
+                    "u64": 86400
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "initiator"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "nonce"
+                  },
+                  "val": {
+                    "u64": 6775509081846337106
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "operation_count"
+                  },
+                  "val": {
+                    "u64": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "session_id"
+                  },
+                  "val": {
+                    "u64": 0
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_call"
+              },
+              {
+                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+              },
+              {
+                "symbol": "get_session"
+              }
+            ],
+            "data": {
+              "u64": 1
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_return"
+              },
+              {
+                "symbol": "get_session"
+              }
+            ],
+            "data": {
+              "map": [
+                {
+                  "key": {
+                    "symbol": "created_at"
+                  },
+                  "val": {
+                    "u64": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "expires_at"
+                  },
+                  "val": {
+                    "u64": 86400
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "initiator"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "nonce"
+                  },
+                  "val": {
+                    "u64": 16898274228234171706
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "operation_count"
+                  },
+                  "val": {
+                    "u64": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "session_id"
+                  },
+                  "val": {
+                    "u64": 1
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_call"
+              },
+              {
+                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+              },
+              {
+                "symbol": "get_session"
+              }
+            ],
+            "data": {
+              "u64": 2
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_return"
+              },
+              {
+                "symbol": "get_session"
+              }
+            ],
+            "data": {
+              "map": [
+                {
+                  "key": {
+                    "symbol": "created_at"
+                  },
+                  "val": {
+                    "u64": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "expires_at"
+                  },
+                  "val": {
+                    "u64": 86400
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "initiator"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "nonce"
+                  },
+                  "val": {
+                    "u64": 1881330075107078953
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "operation_count"
+                  },
+                  "val": {
+                    "u64": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "session_id"
+                  },
+                  "val": {
+                    "u64": 2
+                  }
+                }
+              ]
             }
           }
         }

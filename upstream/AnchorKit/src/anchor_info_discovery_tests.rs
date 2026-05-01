@@ -1,4 +1,4 @@
-The #![cfg(test)]
+#![cfg(test)]
 
 mod anchor_info_discovery_tests {
     use soroban_sdk::{
@@ -6,12 +6,7 @@ mod anchor_info_discovery_tests {
         Address, Env, String, Vec,
     };
 
- feat/get-anchor-currencies
     use crate::contract::{AnchorKitContract, AnchorKitContractClient, AssetInfo, FiatCurrency, StellarToml};
-
-    use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::types::{AssetInfo, StellarToml};
- main
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -127,13 +122,14 @@ mod anchor_info_discovery_tests {
             accounts,
             signing_key: None,
             currencies,
+            fiat_currencies: Vec::new(&env),
             transfer_server: String::from_str(&env, "https://api.example.com"),
             transfer_server_sep0024: String::from_str(&env, "https://api.example.com/sep24"),
             kyc_server: String::from_str(&env, "https://kyc.example.com"),
             web_auth_endpoint: String::from_str(&env, "https://auth.example.com"),
         };
 
-        client.fetch_anchor_info(&anchor, &toml_no_key, &3600u64);
+        client.fetch_anchor_info(&anchor, &toml_no_key, &Some(3600u64));
 
         let toml = client.get_anchor_toml(&anchor);
         assert_eq!(toml.signing_key, None);
@@ -207,7 +203,7 @@ mod anchor_info_discovery_tests {
 
         client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
 
-        let assets = client.get_anchor_assets(&anchor).unwrap();
+        let assets = client.get_anchor_assets(&anchor);
         assert_eq!(assets.len(), 2);
         assert!(assets.contains(&String::from_str(&env, "USDC")));
         assert!(assets.contains(&String::from_str(&env, "XLM")));
@@ -371,7 +367,7 @@ mod anchor_info_discovery_tests {
         let (client, anchor) = setup(&env);
 
         // Cache with 3600s TTL
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &3600u64);
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
         
         // At 2000, still valid
         set_ledger(&env, 2000);
@@ -558,19 +554,31 @@ mod anchor_info_discovery_tests {
         assert_eq!(btcln.decimals, 8);
     }
 
- feat/get-anchor-currencies
-    #[test]
-    fn test_get_anchor_currencies_with_fiat_entries() {
-
     // Issue #277: zero-fee anchors (common on testnet) must be handled without divide-by-zero
     #[test]
     fn test_fee_structure_zero_fee_anchor() {
- main
         let env = make_env();
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
- feat/get-anchor-currencies
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+
+        // XLM asset has fee_fixed = 0 and fee_percent = 0 (see xlm_asset helper)
+        let (dep_fixed, dep_pct) = client.get_anchor_deposit_fees(&anchor, &String::from_str(&env, "XLM"));
+        let (wit_fixed, wit_pct) = client.get_anchor_withdrawal_fees(&anchor, &String::from_str(&env, "XLM"));
+
+        assert_eq!(dep_fixed, 0, "zero-fee anchor deposit fixed fee should be 0");
+        assert_eq!(dep_pct, 0, "zero-fee anchor deposit percent fee should be 0");
+        assert_eq!(wit_fixed, 0, "zero-fee anchor withdrawal fixed fee should be 0");
+        assert_eq!(wit_pct, 0, "zero-fee anchor withdrawal percent fee should be 0");
+    }
+
+    #[test]
+    fn test_get_anchor_currencies_with_fiat_entries() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
         let mut fiat = Vec::new(&env);
         fiat.push_back(FiatCurrency {
             code: String::from_str(&env, "USD"),
@@ -594,7 +602,7 @@ mod anchor_info_discovery_tests {
             version: String::from_str(&env, "2.0.0"),
             network_passphrase: String::from_str(&env, "Test SDF Network ; September 2015"),
             accounts,
-            signing_key: String::from_str(&env, "GSIGN123"),
+            signing_key: Some(String::from_str(&env, "GSIGN123")),
             currencies,
             fiat_currencies: fiat,
             transfer_server: String::from_str(&env, "https://api.example.com"),
@@ -603,9 +611,9 @@ mod anchor_info_discovery_tests {
             web_auth_endpoint: String::from_str(&env, "https://auth.example.com"),
         };
 
-        client.fetch_anchor_info(&anchor, &toml, &3600u64);
+        client.fetch_anchor_info(&anchor, &toml, &Some(3600u64));
 
-        let result = client.get_anchor_currencies(&anchor).unwrap();
+        let result = client.get_anchor_currencies(&anchor);
         assert_eq!(result.len(), 2);
 
         let usd = result.get(0).unwrap();
@@ -628,14 +636,7 @@ mod anchor_info_discovery_tests {
 
         client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
 
-        // XLM asset has fee_fixed = 0 and fee_percent = 0 (see xlm_asset helper)
-        let (dep_fixed, dep_pct) = client.get_anchor_deposit_fees(&anchor, &String::from_str(&env, "XLM"));
-        let (wit_fixed, wit_pct) = client.get_anchor_withdrawal_fees(&anchor, &String::from_str(&env, "XLM"));
-
-        assert_eq!(dep_fixed, 0, "zero-fee anchor deposit fixed fee should be 0");
-        assert_eq!(dep_pct, 0, "zero-fee anchor deposit percent fee should be 0");
-        assert_eq!(wit_fixed, 0, "zero-fee anchor withdrawal fixed fee should be 0");
-        assert_eq!(wit_pct, 0, "zero-fee anchor withdrawal percent fee should be 0");
- main
+        let result = client.get_anchor_currencies(&anchor);
+        assert_eq!(result.len(), 0, "sample_toml has no fiat currencies");
     }
 }

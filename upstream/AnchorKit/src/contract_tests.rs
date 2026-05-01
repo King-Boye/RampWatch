@@ -14,7 +14,7 @@ fn test_initialize_first_call_succeeds() {
     let admin = e.accounts().generate_and_create();
     let client = AnchorKitContractClient::new(&e, &e.register_contract(None, AnchorKitContract));
 
-    client.initialize(&admin);
+    client.initialize(&admin, &100_u64, &None);
 
     // Verify admin is stored
     let stored_admin = client.get_admin();
@@ -30,10 +30,10 @@ fn test_initialize_second_call_returns_already_initialized() {
     let client = AnchorKitContractClient::new(&e, &e.register_contract(None, AnchorKitContract));
 
     // First call succeeds
-    client.initialize(&admin);
+    client.initialize(&admin, &100_u64, &None);
 
     // Second call should error with AlreadyInitialized
-    let err = client.initialize(&admin);
+    let err = client.initialize(&admin, &100_u64, &None);
     assert_eq!(err.err().unwrap().current_errors()[0].code, ErrorCode::AlreadyInitialized as u32);
 
     // Admin unchanged
@@ -51,10 +51,10 @@ fn test_initialize_different_admin_fails() {
     let client = AnchorKitContractClient::new(&e, &e.register_contract(None, AnchorKitContract));
 
     // Initialize with admin1
-    client.initialize(&admin1);
+    client.initialize(&admin1, &100_u64, &None);
 
     // Try with admin2 - should fail AlreadyInitialized
-    let err = client.with_authorization(&admin2, || client.initialize(&admin2));
+    let err = client.with_authorization(&admin2, || client.initialize(&admin2, &100_u64, &None));
     assert_eq!(err.err().unwrap().current_errors()[0].code, ErrorCode::AlreadyInitialized as u32);
 }
 
@@ -67,7 +67,7 @@ fn test_admin_transfer_full_flow() {
     let admin2 = e.accounts().generate_and_create();
     let client = AnchorKitContractClient::new(&e, &e.register_contract(None, AnchorKitContract));
 
-    client.initialize(&admin1);
+    client.initialize(&admin1, &100_u64, &None);
 
     // admin1 proposes admin2
     client.propose_admin(&admin2);
@@ -97,7 +97,7 @@ fn test_unauthorized_propose_admin() {
     let unauthorized = e.accounts().generate_and_create();
     let client = AnchorKitContractClient::new(&e, &e.register_contract(None, AnchorKitContract));
 
-    client.initialize(&admin1);
+    client.initialize(&admin1, &100_u64, &None);
 
     // unauthorized tries to propose
     client.with_authorization(&unauthorized, || client.propose_admin(&admin2));
@@ -113,7 +113,7 @@ fn test_accept_no_pending() {
     let admin2 = e.accounts().generate_and_create();
     let client = AnchorKitContractClient::new(&e, &e.register_contract(None, AnchorKitContract));
 
-    client.initialize(&admin1);
+    client.initialize(&admin1, &100_u64, &None);
 
     // admin2 tries to accept without propose
     client.with_authorization(&admin2, || client.accept_admin());
@@ -129,7 +129,7 @@ fn test_accept_wrong_caller() {
     let wrong = e.accounts().generate_and_create();
     let client = AnchorKitContractClient::new(&e, &e.register_contract(None, AnchorKitContract));
 
-    client.initialize(&admin1);
+    client.initialize(&admin1, &100_u64, &None);
     client.propose_admin(&admin2);
 
     // wrong caller tries accept

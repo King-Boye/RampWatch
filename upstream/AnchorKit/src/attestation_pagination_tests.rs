@@ -9,7 +9,7 @@ mod attestation_pagination_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::register_attestor_with_sep10;
+    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -38,14 +38,6 @@ mod attestation_pagination_tests {
         b
     }
 
-    fn sig(env: &Env, byte: u8) -> Bytes {
-        let mut b = Bytes::new(env);
-        for _ in 0..64 {
-            b.push_back(byte);
-        }
-        b
-    }
-
     #[test]
     fn test_list_attestations_empty() {
         let env = make_env();
@@ -68,14 +60,16 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // Submit 5 attestations
         for i in 0..5 {
-            client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &payload(&env, i), &sig(&env, i));
+            let p = payload(&env, i);
+            let s = sign_payload(&env, &sk, &p);
+            client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &p, &s);
         }
 
         let results = client.list_attestations(&subject, &0, &10);
@@ -94,14 +88,16 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // Submit 10 attestations
         for i in 0..10 {
-            client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &payload(&env, i), &sig(&env, i));
+            let p = payload(&env, i);
+            let s = sign_payload(&env, &sk, &p);
+            client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &p, &s);
         }
 
         // Page 1: offset 0, limit 3
@@ -133,17 +129,20 @@ mod attestation_pagination_tests {
         let attestor = Address::generate(&env);
         let subj1 = Address::generate(&env);
         let subj2 = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // Subj1: 2 attestations
-        client.submit_attestation(&attestor, &subj1, &1700000001, &payload(&env, 1), &sig(&env, 1));
-        client.submit_attestation(&attestor, &subj1, &1700000002, &payload(&env, 2), &sig(&env, 2));
+        let p1 = payload(&env, 1);
+        let p2 = payload(&env, 2);
+        let p3 = payload(&env, 3);
+        client.submit_attestation(&attestor, &subj1, &1700000001, &p1, &sign_payload(&env, &sk, &p1));
+        client.submit_attestation(&attestor, &subj1, &1700000002, &p2, &sign_payload(&env, &sk, &p2));
 
         // Subj2: 1 attestation
-        client.submit_attestation(&attestor, &subj2, &1700000003, &payload(&env, 3), &sig(&env, 3));
+        client.submit_attestation(&attestor, &subj2, &1700000003, &p3, &sign_payload(&env, &sk, &p3));
 
         let res1 = client.list_attestations(&subj1, &0, &10);
         assert_eq!(res1.len(), 2);
@@ -165,14 +164,16 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // Submit 60 attestations
         for i in 0..60 {
-            client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &payload(&env, i as u8), &sig(&env, i as u8));
+            let p = payload(&env, i as u8);
+            let s = sign_payload(&env, &sk, &p);
+            client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &p, &s);
         }
 
         // Request 100, should get only 50
@@ -191,7 +192,7 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         // Seed the counter to u64::MAX so the next increment overflows
         env.as_contract(&contract_id, &|| {
@@ -203,7 +204,8 @@ mod attestation_pagination_tests {
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // This should panic due to overflow guard
-        client.submit_attestation(&attestor, &subject, &1700000001, &payload(&env, 1), &sig(&env, 1));
+        let p = payload(&env, 1);
+        client.submit_attestation(&attestor, &subject, &1700000001, &p, &sign_payload(&env, &sk, &p));
     }
 
     #[test]
@@ -216,12 +218,13 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
-        client.submit_attestation(&attestor, &subject, &1700000001, &payload(&env, 1), &sig(&env, 1));
+        let p1 = payload(&env, 1);
+        client.submit_attestation(&attestor, &subject, &1700000001, &p1, &sign_payload(&env, &sk, &p1));
 
         let results = client.list_attestations(&subject, &5, &10);
         assert_eq!(results.len(), 0);

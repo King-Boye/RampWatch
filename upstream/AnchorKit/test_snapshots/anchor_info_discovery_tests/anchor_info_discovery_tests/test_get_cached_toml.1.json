@@ -48,6 +48,14 @@
                               },
                               {
                                 "key": {
+                                  "symbol": "decimals"
+                                },
+                                "val": {
+                                  "u32": 7
+                                }
+                              },
+                              {
+                                "key": {
                                   "symbol": "deposit_enabled"
                                 },
                                 "val": {
@@ -148,6 +156,14 @@
                               },
                               {
                                 "key": {
+                                  "symbol": "decimals"
+                                },
+                                "val": {
+                                  "u32": 7
+                                }
+                              },
+                              {
+                                "key": {
                                   "symbol": "deposit_enabled"
                                 },
                                 "val": {
@@ -241,6 +257,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "fiat_currencies"
+                      },
+                      "val": {
+                        "vec": []
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "kyc_server"
                       },
                       "val": {
@@ -326,7 +350,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "TOMLCACHE"
+                  "symbol": "TomlCache"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -346,7 +370,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "TOMLCACHE"
+                      "symbol": "TomlCache"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -396,6 +420,14 @@
                                       },
                                       "val": {
                                         "string": "USDC"
+                                      }
+                                    },
+                                    {
+                                      "key": {
+                                        "symbol": "decimals"
+                                      },
+                                      "val": {
+                                        "u32": 7
                                       }
                                     },
                                     {
@@ -500,6 +532,14 @@
                                     },
                                     {
                                       "key": {
+                                        "symbol": "decimals"
+                                      },
+                                      "val": {
+                                        "u32": 7
+                                      }
+                                    },
+                                    {
+                                      "key": {
                                         "symbol": "deposit_enabled"
                                       },
                                       "val": {
@@ -589,6 +629,14 @@
                                   ]
                                 }
                               ]
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "fiat_currencies"
+                            },
+                            "val": {
+                              "vec": []
                             }
                           },
                           {
@@ -811,6 +859,14 @@
                               },
                               {
                                 "key": {
+                                  "symbol": "decimals"
+                                },
+                                "val": {
+                                  "u32": 7
+                                }
+                              },
+                              {
+                                "key": {
                                   "symbol": "deposit_enabled"
                                 },
                                 "val": {
@@ -911,6 +967,14 @@
                               },
                               {
                                 "key": {
+                                  "symbol": "decimals"
+                                },
+                                "val": {
+                                  "u32": 7
+                                }
+                              },
+                              {
+                                "key": {
                                   "symbol": "deposit_enabled"
                                 },
                                 "val": {
@@ -1000,6 +1064,14 @@
                             ]
                           }
                         ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "fiat_currencies"
+                      },
+                      "val": {
+                        "vec": []
                       }
                     },
                     {
@@ -1164,6 +1236,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "decimals"
+                            },
+                            "val": {
+                              "u32": 7
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "deposit_enabled"
                             },
                             "val": {
@@ -1264,6 +1344,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "decimals"
+                            },
+                            "val": {
+                              "u32": 7
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "deposit_enabled"
                             },
                             "val": {
@@ -1353,6 +1441,14 @@
                         ]
                       }
                     ]
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "fiat_currencies"
+                  },
+                  "val": {
+                    "vec": []
                   }
                 },
                 {

@@ -7,11 +7,12 @@
     [],
     [],
     [],
+    [],
     []
   ],
   "ledger": {
     "protocol_version": 21,
-    "sequence_number": 0,
+    "sequence_number": 10,
     "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
@@ -103,7 +104,7 @@
                         "symbol": "total_requests"
                       },
                       "val": {
-                        "u64": 2
+                        "u64": 3
                       }
                     },
                     {
@@ -111,7 +112,7 @@
                         "symbol": "window_start_ledger"
                       },
                       "val": {
-                        "u32": 0
+                        "u32": 10
                       }
                     }
                   ]
@@ -178,5 +179,46 @@
       ]
     ]
   },
-  "events": []
+  "events": [
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000002",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "rate"
+              },
+              {
+                "symbol": "win_reset"
+              }
+            ],
+            "data": {
+              "map": [
+                {
+                  "key": {
+                    "symbol": "attestor"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "window_start"
+                  },
+                  "val": {
+                    "u64": 10
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    }
+  ]
 }

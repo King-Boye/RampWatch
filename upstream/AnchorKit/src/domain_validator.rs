@@ -89,6 +89,7 @@ pub fn validate_anchor_domain(domain: &str) -> Result<(), AnchorKitError> {
 /// Results are returned in the same order as the input slice.
 /// Each entry is `Ok(())` when the corresponding URL is valid, or
 /// `Err(AnchorKitError)` when it fails validation.
+#[allow(dead_code)]
 pub fn validate_anchor_domain_batch(urls: &[&str]) -> Vec<Result<(), AnchorKitError>> {
     urls.iter().map(|url| validate_anchor_domain(url)).collect()
 }
@@ -148,9 +149,10 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
     // "localhost.localdomain" and similar variants must also be rejected.
     {
         let d = domain_without_port;
+        let db = d.as_bytes();
         let is_localhost = d.eq_ignore_ascii_case("localhost")
-            || d.len() > 9 && d[..9].eq_ignore_ascii_case("localhost") && d.as_bytes()[9] == b'.'
-            || d.len() > 9 && d[d.len()-9..].eq_ignore_ascii_case("localhost") && d.as_bytes()[d.len()-10] == b'.';
+            || d.len() > 9 && db[..9].eq_ignore_ascii_case(b"localhost") && db[9] == b'.'
+            || d.len() > 9 && db[db.len()-9..].eq_ignore_ascii_case(b"localhost") && db[db.len()-10] == b'.';
         if is_localhost {
             return Err(AnchorKitError::invalid_endpoint_format());
         }
@@ -187,6 +189,11 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
 
     // Reject pure IPv4 addresses (all labels are numeric)
     if labels.iter().all(|l| l.chars().all(|c| c.is_ascii_digit())) {
+        return Err(AnchorKitError::invalid_endpoint_format());
+    }
+
+    // DNS total domain length limit: 253 characters
+    if domain_without_port.len() > 253 {
         return Err(AnchorKitError::invalid_endpoint_format());
     }
 
@@ -340,8 +347,8 @@ mod tests {
         let long_domain = format!("https://{}.com", "a".repeat(2048));
         assert!(validate_anchor_domain(&long_domain).is_err());
         
-        // Maximum acceptable length
-        let max_domain = format!("https://{}.com", "a".repeat(2000));
+        // Maximum acceptable length: use a path to reach near-2048 without violating label limits
+        let max_domain = format!("https://example.com/{}", "a".repeat(2020));
         assert!(validate_anchor_domain(&max_domain).is_ok());
     }
 
@@ -448,8 +455,8 @@ mod tests {
 
     #[test]
     fn test_length_boundaries() {
-        // "https://" (8) + label (2036) + ".com" (4) = 2048 exactly (should pass)
-        let max_valid_domain = format!("https://{}.com", "a".repeat(2036));
+        // "https://example.com/" (20) + path (2028) = 2048 exactly (should pass)
+        let max_valid_domain = format!("https://example.com/{}", "a".repeat(2028));
         assert!(validate_anchor_domain(&max_valid_domain).is_ok());
 
         // One char over 2048 (should fail)
@@ -472,13 +479,14 @@ mod tests {
         let domain_64 = format!("https://{}.com", label_64);
         assert!(validate_anchor_domain(&domain_64).is_err());
 
-        // 253-char domain (valid)
-        let domain_part_253 = format!("{}.com", "a".repeat(249)); // 249 + 1 (.) + 3 (com) = 253
+        // 253-char domain (valid): use multiple ≤63-char labels
+        // 63 + "." + 63 + "." + 63 + "." + 57 + "." + "com" = 63+1+63+1+63+1+57+1+3 = 253
+        let domain_part_253 = format!("{}.{}.{}.{}.com", "a".repeat(63), "a".repeat(63), "a".repeat(63), "a".repeat(57));
         let full_url_253 = format!("https://{}", domain_part_253);
         assert!(validate_anchor_domain(&full_url_253).is_ok());
 
         // 254-char domain (invalid)
-        let domain_part_254 = format!("{}.com", "a".repeat(250));
+        let domain_part_254 = format!("{}.{}.{}.{}.com", "a".repeat(63), "a".repeat(63), "a".repeat(63), "a".repeat(58));
         let full_url_254 = format!("https://{}", domain_part_254);
         assert!(validate_anchor_domain(&full_url_254).is_err());
     }

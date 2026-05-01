@@ -235,14 +235,28 @@ pub struct AssetInfo {
     pub decimals: u32,
 }
 
+/// Represents a fiat currency supported by an anchor (e.g. USD, EUR).
+#[contracttype]
+#[derive(Clone)]
+pub struct FiatCurrency {
+    pub code: String,
+    pub name: String,
+    pub deposit_enabled: bool,
+    pub withdrawal_enabled: bool,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub struct StellarToml {
     pub version: String,
     pub network_passphrase: String,
     pub accounts: Vec<String>,
-    pub signing_key: String,
+    /// The SIGNING_KEY from stellar.toml, used for SEP-10 verification.
+    /// `None` when the anchor does not publish a signing key.
+    pub signing_key: Option<String>,
     pub currencies: Vec<AssetInfo>,
+    /// Fiat currencies supported by this anchor (USD, EUR, etc.).
+    pub fiat_currencies: Vec<FiatCurrency>,
     pub transfer_server: String,
     pub transfer_server_sep0024: String,
     pub kyc_server: String,

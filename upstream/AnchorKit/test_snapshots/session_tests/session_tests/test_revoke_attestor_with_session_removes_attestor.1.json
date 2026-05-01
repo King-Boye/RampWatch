@@ -15,7 +15,11 @@
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                }
+                },
+                {
+                  "u64": 100
+                },
+                "void"
               ]
             }
           },
@@ -105,7 +109,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "AUDIT"
+                  "symbol": "AuditLog"
                 },
                 {
                   "u64": 0
@@ -125,7 +129,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "AUDIT"
+                      "symbol": "AuditLog"
                     },
                     {
                       "u64": 0
@@ -175,10 +179,10 @@
                           },
                           {
                             "key": {
-                              "symbol": "result_data"
+                              "symbol": "result_summary"
                             },
                             "val": {
-                              "u64": 0
+                              "string": "attestor_registered"
                             }
                           },
                           {
@@ -232,7 +236,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "AUDIT"
+                  "symbol": "AuditLog"
                 },
                 {
                   "u64": 1
@@ -252,7 +256,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "AUDIT"
+                      "symbol": "AuditLog"
                     },
                     {
                       "u64": 1
@@ -302,10 +306,10 @@
                           },
                           {
                             "key": {
-                              "symbol": "result_data"
+                              "symbol": "result_summary"
                             },
                             "val": {
-                              "u64": 0
+                              "string": "attestor_revoked"
                             }
                           },
                           {
@@ -359,7 +363,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SESS"
+                  "symbol": "Session"
                 },
                 {
                   "u64": 0
@@ -379,7 +383,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SESS"
+                      "symbol": "Session"
                     },
                     {
                       "u64": 0
@@ -399,6 +403,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "expires_at"
+                      },
+                      "val": {
+                        "u64": 86400
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "initiator"
                       },
                       "val": {
@@ -410,7 +422,7 @@
                         "symbol": "nonce"
                       },
                       "val": {
-                        "u64": 0
+                        "u64": 6775509081846337106
                       }
                     },
                     {
@@ -445,7 +457,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SNONCE"
+                  "symbol": "SessionNonce"
                 },
                 {
                   "u64": 0
@@ -465,7 +477,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SNONCE"
+                      "symbol": "SessionNonce"
                     },
                     {
                       "u64": 0
@@ -474,7 +486,7 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "u64": 0
+                  "u64": 6775509081846337106
                 }
               }
             },
@@ -490,7 +502,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SOPCNT"
+                  "symbol": "SessionOpCount"
                 },
                 {
                   "u64": 0
@@ -510,7 +522,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SOPCNT"
+                      "symbol": "SessionOpCount"
                     },
                     {
                       "u64": 0
@@ -573,6 +585,30 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "AuditLogMaxSize"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 100
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "RPWINDOW"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 300
                         }
                       },
                       {
@@ -772,7 +808,15 @@
               }
             ],
             "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u64": 100
+                },
+                "void"
+              ]
             }
           }
         }

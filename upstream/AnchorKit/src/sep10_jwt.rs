@@ -165,7 +165,7 @@ pub fn service_scope_name(service_code: u32) -> Option<&'static [u8]> {
 ///
 /// The `scp` value is treated as a space-separated list of scope tokens.
 /// Returns `Err(())` if the claim is absent, the service code is unknown, or the scope is missing.
-pub fn check_token_scope(env: &Env, token: &String, service_code: u32) -> Result<(), ()> {
+pub fn check_token_scope(_env: &Env, token: &String, service_code: u32) -> Result<(), ()> {
     let scope_name = service_scope_name(service_code).ok_or(())?;
 
     let n = token.len();
@@ -388,8 +388,8 @@ mod tests {
 
         let mut keys = soroban_sdk::Vec::new(&env);
         keys.push_back(pk);
-        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub)).is_ok());
-        assert!(verify_sep10_jwt(&env, &token, &keys, None).is_ok());
+        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub), 0).is_ok());
+        assert!(verify_sep10_jwt(&env, &token, &keys, None, 0).is_ok());
     }
 
     #[test]
@@ -407,7 +407,7 @@ mod tests {
 
         let mut keys = soroban_sdk::Vec::new(&env);
         keys.push_back(pk);
-        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub)).is_err());
+        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub), 0).is_err());
     }
 
     #[test]
@@ -431,7 +431,7 @@ mod tests {
 
         let mut keys = soroban_sdk::Vec::new(&env);
         keys.push_back(pk);
-        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub)).is_err());
+        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub), 0).is_err());
 
         // Malformed payloads should also return Err, not panic
         let malformed_cases: &[&[u8]] = &[
@@ -518,6 +518,8 @@ mod tests {
         ledger(&env, 1_030);
         let signing_key = SigningKey::generate(&mut OsRng);
         let pk = Bytes::from_slice(&env, signing_key.verifying_key().as_bytes());
+        let mut keys = soroban_sdk::Vec::new(&env);
+        keys.push_back(pk);
 
         let attestor = Address::generate(&env);
         let sub = attestor.to_string();
@@ -527,10 +529,10 @@ mod tests {
         let token = String::from_str(&env, jwt.as_str());
 
         // Without skew: rejected.
-        assert!(verify_sep10_jwt(&env, &token, &pk, None, 0).is_err());
+        assert!(verify_sep10_jwt(&env, &token, &keys, None, 0).is_err());
         // With 60 s skew: accepted (exp + 60 = 1_060 > 1_030).
-        assert!(verify_sep10_jwt(&env, &token, &pk, None, 60).is_ok());
+        assert!(verify_sep10_jwt(&env, &token, &keys, None, 60).is_ok());
         // With skew exactly equal to lag (30 s): exp + 30 = 1_030, not strictly greater — rejected.
-        assert!(verify_sep10_jwt(&env, &token, &pk, None, 30).is_err());
+        assert!(verify_sep10_jwt(&env, &token, &keys, None, 30).is_err());
     }
 }

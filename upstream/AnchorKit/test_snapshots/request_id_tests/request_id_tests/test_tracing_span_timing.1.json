@@ -15,7 +15,11 @@
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                }
+                },
+                {
+                  "u64": 100
+                },
+                "void"
               ]
             }
           },
@@ -36,7 +40,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "bytes": "2a8e4c1b7ade28fb09123cb0ab3771573af1f5657e4a665dddf28cf2ed26310c"
+                  "bytes": "c1a58e4cc0c50ee8ab5892501dca042e280f64b57da39ef7049c6424109103dc"
                 }
               ]
             }
@@ -58,7 +62,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJDQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBSEszTSIsImV4cCI6ODc0MDB9.rUxs27qEL3UqQDdjH1gNQAGHc5EOrS0GFgianlp0bIomCpX8dAizCc8Jh2FKcRgudDWWF7zTNx2REJCHSw_6AA"
+                  "string": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJDQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBSEszTSIsImV4cCI6ODc0MDB9.jPh4fwILUyuk9kmqMJbDSbLTv5Mlt0TBLuRVyj_s6ltNJHutcx_1sjiLWPc76sImu4CV-qMCkkTcJSHjTPbrBg"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -113,7 +117,7 @@
                   "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
                 },
                 {
-                  "bytes": ""
+                  "bytes": "2410f41395c80b2c2118775b4bc77c023fe8d0958eaf435ce872d535714feebb5659f98a3428638d83bd6b2f43821bc1756457e79e54f67211d8b0057f71a505"
                 }
               ]
             }
@@ -141,7 +145,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "ATTEST"
+                  "symbol": "Attest"
                 },
                 {
                   "u64": 0
@@ -161,7 +165,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "ATTEST"
+                      "symbol": "Attest"
                     },
                     {
                       "u64": 0
@@ -200,7 +204,7 @@
                         "symbol": "signature"
                       },
                       "val": {
-                        "bytes": ""
+                        "bytes": "2410f41395c80b2c2118775b4bc77c023fe8d0958eaf435ce872d535714feebb5659f98a3428638d83bd6b2f43821bc1756457e79e54f67211d8b0057f71a505"
                       }
                     },
                     {
@@ -235,7 +239,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "ATTESTOR"
+                  "symbol": "Attestor"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -255,7 +259,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "ATTESTOR"
+                      "symbol": "Attestor"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -280,7 +284,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SEP10KEY"
+                  "symbol": "Sep10Key"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -300,7 +304,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SEP10KEY"
+                      "symbol": "Sep10Key"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -309,7 +313,11 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "bytes": "2a8e4c1b7ade28fb09123cb0ab3771573af1f5657e4a665dddf28cf2ed26310c"
+                  "vec": [
+                    {
+                      "bytes": "c1a58e4cc0c50ee8ab5892501dca042e280f64b57da39ef7049c6424109103dc"
+                    }
+                  ]
                 }
               }
             },
@@ -325,7 +333,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SPAN"
+                  "symbol": "Span"
                 },
                 {
                   "bytes": "1dbf595975a7597010512dc1a625a467"
@@ -345,7 +353,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SPAN"
+                      "symbol": "Span"
                     },
                     {
                       "bytes": "1dbf595975a7597010512dc1a625a467"
@@ -436,7 +444,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SUBATT"
+                  "symbol": "SubjectAttestation"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -459,7 +467,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SUBATT"
+                      "symbol": "SubjectAttestation"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -487,7 +495,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SUBCNT"
+                  "symbol": "SubjectCount"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -507,7 +515,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SUBCNT"
+                      "symbol": "SubjectCount"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -532,7 +540,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "USED"
+                  "symbol": "Used"
                 },
                 {
                   "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
@@ -552,7 +560,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "USED"
+                      "symbol": "Used"
                     },
                     {
                       "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
@@ -595,6 +603,14 @@
                     "storage": [
                       {
                         "key": {
+                          "symbol": "TOTALCNT"
+                        },
+                        "val": {
+                          "u64": 1
+                        }
+                      },
+                      {
+                        "key": {
                           "vec": [
                             {
                               "symbol": "ADMIN"
@@ -609,12 +625,36 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AuditLogMaxSize"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 100
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "COUNTER"
                             }
                           ]
                         },
                         "val": {
                           "u64": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "RPWINDOW"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 300
                         }
                       }
                     ]
@@ -802,7 +842,15 @@
               }
             ],
             "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u64": 100
+                },
+                "void"
+              ]
             }
           }
         }
@@ -854,7 +902,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "bytes": "2a8e4c1b7ade28fb09123cb0ab3771573af1f5657e4a665dddf28cf2ed26310c"
+                  "bytes": "c1a58e4cc0c50ee8ab5892501dca042e280f64b57da39ef7049c6424109103dc"
                 }
               ]
             }
@@ -908,7 +956,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJDQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBSEszTSIsImV4cCI6ODc0MDB9.rUxs27qEL3UqQDdjH1gNQAGHc5EOrS0GFgianlp0bIomCpX8dAizCc8Jh2FKcRgudDWWF7zTNx2REJCHSw_6AA"
+                  "string": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJDQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBSEszTSIsImV4cCI6ODc0MDB9.jPh4fwILUyuk9kmqMJbDSbLTv5Mlt0TBLuRVyj_s6ltNJHutcx_1sjiLWPc76sImu4CV-qMCkkTcJSHjTPbrBg"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -932,13 +980,16 @@
                 "symbol": "attestor"
               },
               {
-                "symbol": "added"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                "symbol": "reg"
               }
             ],
-            "data": "void"
+            "data": {
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                }
+              ]
+            }
           }
         }
       },
@@ -1082,7 +1133,7 @@
                   "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
                 },
                 {
-                  "bytes": ""
+                  "bytes": "2410f41395c80b2c2118775b4bc77c023fe8d0958eaf435ce872d535714feebb5659f98a3428638d83bd6b2f43821bc1756457e79e54f67211d8b0057f71a505"
                 }
               ]
             }
