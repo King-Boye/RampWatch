@@ -133,6 +133,8 @@ const SPAN_TTL: u32 = 17_280;
 const INSTANCE_TTL: u32 = 518_400;
 /// Session TTL in seconds (~24 hours).
 const SESSION_TTL: u64 = 86_400;
+/// Session storage TTL in ledgers (~24 hours at 5s/ledger).
+const SESSION_LEDGER_TTL: u32 = 17_280;
 
 fn pending_admin_key(env: &Env) -> soroban_sdk::Vec<soroban_sdk::Symbol> {
     soroban_sdk::vec![env, symbol_short!("PADMIN")]
@@ -604,6 +606,31 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::ServicesNotConfigured);
         }
 
+        let inst = env.storage().instance();
+        let qcnt_key = key_quote_counter(&env);
+        let next: u64 = inst.get(&qcnt_key).unwrap_or(0u64) + 1;
+        inst.set(&qcnt_key, &next);
+        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+
+        let quote = Quote {
+            quote_id: next,
+            anchor: anchor.clone(),
+            base_asset: from_asset,
+            quote_asset: to_asset,
+            rate: amount,
+            fee_percentage: fee_bps,
+            minimum_amount: min_amount,
+            maximum_amount: max_amount,
+            valid_until: expires_at,
+        };
+        let q_key = StorageKey::Quote(anchor.clone(), next);
+        env.storage().persistent().set(&q_key, &quote);
+        env.storage().persistent().extend_ttl(&q_key, PERSISTENT_TTL, PERSISTENT_TTL);
+
+        let lq_key = StorageKey::LatestQuote(anchor.clone());
+        env.storage().persistent().set(&lq_key, &next);
+        env.storage().persistent().extend_ttl(&lq_key, PERSISTENT_TTL, PERSISTENT_TTL);
+
         let now = env.ledger().timestamp();
         Self::store_span(&env, &request_id, String::from_str(&env, "submit_quote"), anchor, now, String::from_str(&env, "success"));
     }
@@ -703,11 +730,11 @@ impl AnchorKitContract {
         };
         let sess_key = StorageKey::Session(session_id);
         env.storage().persistent().set(&sess_key, &session);
-        env.storage().persistent().extend_ttl(&sess_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        env.storage().persistent().extend_ttl(&sess_key, SESSION_LEDGER_TTL, SESSION_LEDGER_TTL);
 
         let snonce_key = StorageKey::SessionNonce(session_id);
         env.storage().persistent().set(&snonce_key, &nonce);
-        env.storage().persistent().extend_ttl(&snonce_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        env.storage().persistent().extend_ttl(&snonce_key, SESSION_LEDGER_TTL, SESSION_LEDGER_TTL);
 
         env.events().publish(
             (symbol_short!("session"), symbol_short!("created"), session_id),
@@ -901,9 +928,10 @@ impl AnchorKitContract {
         id
     }
 
-    pub fn register_attestor_with_session(env: Env, session_id: u64, attestor: Address) {
+    pub fn register_attestor_with_session(env: Env, session_id: u64, attestor: Address, sep10_token: String, sep10_issuer: Address) {
         Self::check_session_expiry(&env, session_id);
         Self::require_admin(&env);
+        Self::verify_sep10_token_matches_attestor(&env, &sep10_token, &sep10_issuer, &attestor);
         let key = StorageKey::Attestor(attestor.clone());
         if env.storage().persistent().has(&key) {
             panic_with_error!(&env, ErrorCode::AttestorAlreadyRegistered);
@@ -1045,16 +1073,18 @@ impl AnchorKitContract {
         result
     }
 
-    pub fn get_session_operation_count(env: Env, session_id: u64) -> u64 {
-        Self::check_session_expiry(&env, session_id);
+    pub fn get_session_operation_count(env: Env, session_id: u64) -> Option<u64> {
         let sess_key = StorageKey::Session(session_id);
         if !env.storage().persistent().has(&sess_key) {
-            panic_with_error!(&env, ErrorCode::ValidationError);
+            return None;
         }
-        env.storage()
-            .persistent()
-            .get::<_, u64>(&StorageKey::SessionOpCount(session_id))
-            .unwrap_or(0)
+        Self::check_session_expiry(&env, session_id);
+        Some(
+            env.storage()
+                .persistent()
+                .get::<_, u64>(&StorageKey::SessionOpCount(session_id))
+                .unwrap_or(0),
+        )
     }
 
     // -----------------------------------------------------------------------

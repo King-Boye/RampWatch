@@ -10,7 +10,7 @@ mod session_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
+    use crate::sep10_test_util::{build_sep10_jwt, register_attestor_with_sep10, sign_payload};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -45,6 +45,30 @@ mod session_tests {
             b.push_back(x);
         }
         b
+    }
+
+    /// Register an attestor via `register_attestor_with_session`, generating a valid SEP-10 token.
+    fn register_with_session(
+        env: &Env,
+        client: &AnchorKitContractClient,
+        session_id: u64,
+        attestor: &Address,
+        sk: &SigningKey,
+    ) {
+        let issuer = attestor.clone();
+        let pk = soroban_sdk::Bytes::from_slice(env, sk.verifying_key().as_bytes());
+        client.set_sep10_jwt_verifying_key(&issuer, &pk);
+
+        let sub = attestor.to_string();
+        let mut buf = [0u8; 128];
+        let len = sub.len() as usize;
+        let final_len = if len > 128 { 128 } else { len };
+        sub.copy_into_slice(&mut buf[..final_len]);
+        let sub_str = core::str::from_utf8(&buf[..final_len]).unwrap_or("");
+        let exp = env.ledger().timestamp().saturating_add(86_400);
+        let jwt = build_sep10_jwt(sk, sub_str, exp);
+        let token = String::from_str(env, jwt.as_str());
+        client.register_attestor_with_session(&session_id, attestor, &token, &issuer);
     }
 
     // -----------------------------------------------------------------------
@@ -120,11 +144,10 @@ mod session_tests {
         client.initialize(&admin, &100_u64, &None);
 
         let session_id = client.create_session(&user);
-        assert_eq!(client.get_session_operation_count(&session_id), 0);
+        assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 0);
     }
     #[test]
-    #[should_panic(expected = "HostError: Error(Contract, #15)")]
-    fn test_get_session_operation_count_panics_for_non_existent_session() {
+    fn test_get_session_operation_count_returns_none_for_non_existent_session() {
         let env = make_env();
         setup_ledger(&env);
         let contract_id = env.register_contract(None, AnchorKitContract);
@@ -133,7 +156,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         client.initialize(&admin, &100_u64, &None);
 
-        client.get_session_operation_count(&999u64);
+        assert!(client.get_session_operation_count(&999u64).is_none());
     }
 
     #[test]
@@ -149,9 +172,10 @@ mod session_tests {
         client.initialize(&admin, &100_u64, &None);
 
         let session_id = client.create_session(&user);
-        client.register_attestor_with_session(&session_id, &attestor);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_with_session(&env, &client, session_id, &attestor, &sk);
 
-        assert_eq!(client.get_session_operation_count(&session_id), 1);
+        assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 1);
     }
 
     #[test]
@@ -181,7 +205,7 @@ mod session_tests {
             &sign_payload(&env, &sk, &p),
         );
 
-        assert_eq!(client.get_session_operation_count(&session_id), 1);
+        assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 1);
     }
 
     #[test]
@@ -234,7 +258,8 @@ mod session_tests {
         client.initialize(&admin, &100_u64, &None);
 
         let session_id = client.create_session(&user);
-        client.register_attestor_with_session(&session_id, &attestor);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_with_session(&env, &client, session_id, &attestor, &sk);
 
         assert!(client.is_attestor(&attestor));
     }
@@ -252,7 +277,8 @@ mod session_tests {
         client.initialize(&admin, &100_u64, &None);
 
         let session_id = client.create_session(&user);
-        client.register_attestor_with_session(&session_id, &attestor);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_with_session(&env, &client, session_id, &attestor, &sk);
 
         let log = client.get_audit_log(&0u64);
         assert_eq!(log.log_id, 0);
@@ -279,7 +305,8 @@ mod session_tests {
         client.initialize(&admin, &100_u64, &None);
 
         let session_id = client.create_session(&user);
-        client.register_attestor_with_session(&session_id, &attestor);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_with_session(&env, &client, session_id, &attestor, &sk);
         client.revoke_attestor_with_session(&session_id, &attestor);
 
         assert!(!client.is_attestor(&attestor));
@@ -298,7 +325,8 @@ mod session_tests {
         client.initialize(&admin, &100_u64, &None);
 
         let session_id = client.create_session(&user);
-        client.register_attestor_with_session(&session_id, &attestor);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_with_session(&env, &client, session_id, &attestor, &sk);
         client.revoke_attestor_with_session(&session_id, &attestor);
 
         // log_id 0 = register, log_id 1 = revoke
@@ -329,9 +357,7 @@ mod session_tests {
         let session_id = client.create_session(&attestor);
         // Set Sep10 key so signature verification works, then register via session (writes audit log)
         let sk = SigningKey::generate(&mut OsRng);
-        let pk = soroban_sdk::Bytes::from_slice(&env, sk.verifying_key().as_bytes());
-        client.set_sep10_jwt_verifying_key(&attestor, &pk);
-        client.register_attestor_with_session(&session_id, &attestor);
+        register_with_session(&env, &client, session_id, &attestor, &sk);
         let p = payload(&env, 0x01);
         client.submit_attestation_with_session(
             &session_id,
@@ -373,9 +399,7 @@ mod session_tests {
 
         // Step 2: set Sep10 key, then register via session (writes audit log_id=0 "register")
         let sk = SigningKey::generate(&mut OsRng);
-        let pk = soroban_sdk::Bytes::from_slice(&env, sk.verifying_key().as_bytes());
-        client.set_sep10_jwt_verifying_key(&attestor, &pk);
-        client.register_attestor_with_session(&session_id, &attestor);
+        register_with_session(&env, &client, session_id, &attestor, &sk);
         assert!(client.is_attestor(&attestor));
 
         // Step 3: two attestations
@@ -401,7 +425,7 @@ mod session_tests {
         assert_eq!(id1, 1);
 
         // Step 4: verify operation count = 3 (register + 2 attests)
-        assert_eq!(client.get_session_operation_count(&session_id), 3);
+        assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 3);
 
         // Step 5: verify audit logs
         let log0 = client.get_audit_log(&0u64);
@@ -433,20 +457,17 @@ mod session_tests {
 
         let mut csprng = OsRng;
         let signing_key = SigningKey::generate(&mut csprng);
+        let sk2 = SigningKey::generate(&mut csprng);
         let attestor = Address::generate(&env);
         let attestor2 = Address::generate(&env);
         let attestor3 = Address::generate(&env);
 
-        // Set Sep10 key for attestor so signature verification works
-        let pk = soroban_sdk::Bytes::from_slice(&env, signing_key.verifying_key().as_bytes());
-        client.set_sep10_jwt_verifying_key(&attestor, &pk);
-
         // Write log_id=0 via register_attestor_with_session
         let session_id = client.create_session(&attestor);
-        client.register_attestor_with_session(&session_id, &attestor);
+        register_with_session(&env, &client, session_id, &attestor, &signing_key);
 
         // Write log_id=1 via register_attestor_with_session for attestor2
-        client.register_attestor_with_session(&session_id, &attestor2);
+        register_with_session(&env, &client, session_id, &attestor2, &sk2);
 
         // log_id=0 still accessible (live=[0,1], count=2 == max_size, no prune yet).
         let log0 = client.get_audit_log(&0u64);
@@ -477,17 +498,14 @@ mod session_tests {
 
         let mut csprng = OsRng;
         let signing_key = SigningKey::generate(&mut csprng);
+        let sk2 = SigningKey::generate(&mut csprng);
         let attestor = Address::generate(&env);
         let attestor2 = Address::generate(&env);
 
-        // Set Sep10 key for attestor so signature verification works
-        let pk = soroban_sdk::Bytes::from_slice(&env, signing_key.verifying_key().as_bytes());
-        client.set_sep10_jwt_verifying_key(&attestor, &pk);
-
         // Write log_id=0 and log_id=1 via register_attestor_with_session
         let session_id = client.create_session(&attestor);
-        client.register_attestor_with_session(&session_id, &attestor);
-        client.register_attestor_with_session(&session_id, &attestor2);
+        register_with_session(&env, &client, session_id, &attestor, &signing_key);
+        register_with_session(&env, &client, session_id, &attestor2, &sk2);
 
         // Write log_id=2 → prunes log_id=0.
         let ph = payload(&env, 0xCD);
