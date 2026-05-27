@@ -1230,11 +1230,21 @@ impl AnchorKitContract {
             / 100;
 
         // Ensure score is capped at 100
-        if health_score > 100 {
-            100
-        } else {
-            health_score
+        let final_score = if health_score > 100 { 100 } else { health_score };
+
+        // Issue #464: enforce configurable minimum acceptable health score.
+        // When key_health_threshold is set (> 0), reject anchors whose computed
+        // score falls below it so callers cannot route to unhealthy anchors.
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&key_health_threshold(&env))
+            .unwrap_or(0u32);
+        if threshold > 0 && final_score < threshold {
+            panic_with_error!(&env, ErrorCode::ValidationError);
         }
+
+        final_score
     }
 
 
@@ -1291,7 +1301,8 @@ impl AnchorKitContract {
         env.storage().temporary().remove(&key);
     }
 
-    /// Issue #258: admin-only emergency flush of all MetadataCache and CapabilitiesCache entries.
+    /// Issue #258/#463: admin-only emergency flush of all MetadataCache,
+    /// CapabilitiesCache, and TomlCache entries for every tracked anchor.
     /// Emits a `CacheInvalidated` event with the count of cleared entries.
     pub fn invalidate_all_caches(env: Env) {
         Self::require_admin(&env);
@@ -1310,6 +1321,12 @@ impl AnchorKitContract {
             let caps_key = StorageKey::CapabilitiesCache(anchor.clone());
             if env.storage().temporary().has(&caps_key) {
                 env.storage().temporary().remove(&caps_key);
+                count += 1;
+            }
+            // Issue #463: also flush cached stellar.toml entries
+            let toml_key = StorageKey::TomlCache(anchor.clone());
+            if env.storage().temporary().has(&toml_key) {
+                env.storage().temporary().remove(&toml_key);
                 count += 1;
             }
         }
