@@ -29,8 +29,6 @@ pub enum StorageKey {
     Span(Bytes),
     /// Session record by session ID (persistent).
     Session(u64),
-    /// Session nonce by session ID (persistent).
-    SessionNonce(u64),
     /// Session operation count by session ID (persistent).
     SessionOpCount(u64),
     /// Audit log entry by log ID (persistent).
