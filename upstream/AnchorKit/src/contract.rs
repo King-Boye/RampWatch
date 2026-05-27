@@ -127,9 +127,20 @@ struct AttestorRevoked(Address);
 
 // ---------------------------------------------------------------------------
 // TTLs (in ledgers)
+//
+// Stellar/Soroban ledgers close roughly every 5 seconds on mainnet and the
+// public testnet, so the ledger counts below are sized as follows:
+//   PERSISTENT_TTL = 1_555_200 ledgers ≈ 7_776_000 s ≈ 90 days
+//   INSTANCE_TTL   =   518_400 ledgers ≈ 2_592_000 s ≈ 30 days
+//   SPAN_TTL       =    17_280 ledgers ≈    86_400 s ≈ 24 hours
+// If you deploy against a network with a different ledger close time, scale
+// these constants accordingly (or override them per-network in a fork).
 // ---------------------------------------------------------------------------
+/// Persistent-storage TTL: ~90 days at 5 s/ledger.
 const PERSISTENT_TTL: u32 = 1_555_200;
+/// Temporary-storage TTL for tracing spans: ~24 hours at 5 s/ledger.
 const SPAN_TTL: u32 = 17_280;
+/// Instance-storage TTL: ~30 days at 5 s/ledger.
 const INSTANCE_TTL: u32 = 518_400;
 /// Session TTL in seconds (~24 hours).
 const SESSION_TTL: u64 = 86_400;
@@ -515,6 +526,9 @@ impl AnchorKitContract {
     ) -> u64 {
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
+        if let Err(e) = crate::rate_limiter::RateLimiter::check_and_increment(&env, &issuer) {
+            panic_with_error!(&env, e);
+        }
         Self::check_timestamp(&env, timestamp);
         Self::verify_attestation_signature(&env, &issuer, &payload_hash, &signature);
 
@@ -552,6 +566,9 @@ impl AnchorKitContract {
     ) -> u64 {
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
+        if let Err(e) = crate::rate_limiter::RateLimiter::check_and_increment(&env, &issuer) {
+            panic_with_error!(&env, e);
+        }
         Self::check_timestamp(&env, timestamp);
         Self::verify_attestation_signature(&env, &issuer, &payload_hash, &signature);
 
