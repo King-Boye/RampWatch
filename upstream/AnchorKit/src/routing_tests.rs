@@ -82,8 +82,8 @@ mod routing_tests {
             &10000u64, &20u32, &100u64, &100000u64, &1_003_600u64,
         );
 
-        let q1 = client.get_quote(&anchor1, &1u64);
-        let q2 = client.get_quote(&anchor2, &2u64);
+        let q1 = client.get_quote(&anchor1, &1u64).unwrap();
+        let q2 = client.get_quote(&anchor2, &2u64).unwrap();
 
         assert_eq!(q1.fee_percentage, 50);
         assert_eq!(q2.fee_percentage, 20);
@@ -273,8 +273,8 @@ mod routing_tests {
             &10000u64, &25u32, &100u64, &100000u64, &1_003_600u64,
         );
 
-        let q1 = client.get_quote(&anchor1, &1u64);
-        let q2 = client.get_quote(&anchor1, &2u64);
+        let q1 = client.get_quote(&anchor1, &1u64).unwrap();
+        let q2 = client.get_quote(&anchor1, &2u64).unwrap();
 
         assert_eq!(q1.valid_until, 1_000_100);
         assert_eq!(q2.valid_until, 1_003_600);
@@ -344,7 +344,7 @@ mod routing_tests {
 
         // No quotes submitted
         let result = client.try_get_quote(&anchor1, &1u64);
-        assert!(result.is_err());
+        assert_eq!(result, Ok(None));
     }
 
     #[test]
@@ -373,12 +373,12 @@ mod routing_tests {
             &10050u64, &30u32, &100u64, &100000u64, &1_003_600u64,
         );
 
-        let q1 = client.get_quote(&anchor1, &1u64);
-        let q2 = client.get_quote(&anchor2, &2u64);
+        let q1 = client.get_quote(&anchor1, &1u64).unwrap();
+        let q2 = client.get_quote(&anchor2, &2u64).unwrap();
 
         // anchor3 has no quote
         let result = client.try_get_quote(&anchor3, &3u64);
-        assert!(result.is_err());
+        assert_eq!(result, Ok(None));
 
         assert_eq!(q1.fee_percentage, 25);
         assert_eq!(q2.fee_percentage, 30);
@@ -400,7 +400,7 @@ mod routing_tests {
             &10000u64, &25u32, &100u64, &100000u64, &1_003_600u64,
         );
 
-        let q = client.get_quote(&anchor1, &1u64);
+        let q = client.get_quote(&anchor1, &1u64).unwrap();
         assert_eq!(q.minimum_amount, 100);
         assert_eq!(q.maximum_amount, 100000);
 

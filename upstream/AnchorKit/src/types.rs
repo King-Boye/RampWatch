@@ -124,18 +124,6 @@ pub struct AnchorServices {
 
 #[contracttype]
 #[derive(Clone)]
-pub struct RoutingAnchorMeta {
-    pub anchor: Address,
-    pub reputation_score: u32,
-    pub average_settlement_time: u64,
-    pub liquidity_score: u32,
-    pub uptime_percentage: u32,
-    pub total_volume: u64,
-    pub is_active: bool,
-}
-
-#[contracttype]
-#[derive(Clone)]
 pub struct RoutingRequest {
     pub base_asset: String,
     pub quote_asset: String,

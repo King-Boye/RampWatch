@@ -20,7 +20,7 @@ use crate::storage::{
 pub use crate::types::{
     AnchorMetadata, AnchorServices, AssetInfo, Attestation, AuditLog, CapabilitiesCache,
     CachedToml, FiatCurrency, HealthStatus, MetadataCache, OperationContext, Quote, RequestId,
-    RoutingAnchorMeta, RoutingOptions, RoutingRequest, Session, StellarToml, TracingSpan,
+    RoutingOptions, RoutingRequest, Session, StellarToml, TracingSpan,
     SERVICE_DEPOSITS, SERVICE_WITHDRAWALS, SERVICE_QUOTES, SERVICE_KYC, ServiceType,
 };
 
@@ -732,10 +732,6 @@ impl AnchorKitContract {
         env.storage().persistent().set(&sess_key, &session);
         env.storage().persistent().extend_ttl(&sess_key, SESSION_LEDGER_TTL, SESSION_LEDGER_TTL);
 
-        let snonce_key = StorageKey::SessionNonce(session_id);
-        env.storage().persistent().set(&snonce_key, &nonce);
-        env.storage().persistent().extend_ttl(&snonce_key, SESSION_LEDGER_TTL, SESSION_LEDGER_TTL);
-
         env.events().publish(
             (symbol_short!("session"), symbol_short!("created"), session_id),
             SessionCreatedEvent { session_id, initiator, timestamp: now },
@@ -1368,7 +1364,7 @@ impl AnchorKitContract {
             if let Some(mut meta) = env
                 .storage()
                 .persistent()
-                .get::<_, RoutingAnchorMeta>(&meta_key)
+                .get::<_, AnchorMetadata>(&meta_key)
             {
                 if meta.is_active {
                     meta.is_active = false;
@@ -1393,10 +1389,8 @@ impl AnchorKitContract {
     // Routing
     // -----------------------------------------------------------------------
 
-    pub fn get_quote(env: Env, anchor: Address, quote_id: u64) -> Quote {
-        let key = StorageKey::Quote(anchor.clone(), quote_id);
-        env.storage().persistent().get::<_, Quote>(&key)
-            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NoQuotesAvailable))
+    pub fn get_quote(env: Env, anchor: Address, quote_id: u64) -> Option<Quote> {
+        env.storage().persistent().get::<_, Quote>(&StorageKey::Quote(anchor, quote_id))
     }
 
     pub fn set_anchor_metadata(
@@ -1409,7 +1403,7 @@ impl AnchorKitContract {
         total_volume: u64,
     ) {
         Self::require_admin(&env);
-        let meta = RoutingAnchorMeta {
+        let meta = AnchorMetadata {
             anchor: anchor.clone(),
             reputation_score,
             average_settlement_time,
@@ -1465,7 +1459,7 @@ impl AnchorKitContract {
         for anchor in anchors.iter() {
             // Check reputation filter
             let meta_key = StorageKey::AnchorMeta(anchor.clone());
-            let meta: RoutingAnchorMeta = match env.storage().persistent().get(&meta_key) {
+            let meta: AnchorMetadata = match env.storage().persistent().get(&meta_key) {
                 Some(m) => m,
                 None => continue,
             };
@@ -1516,13 +1510,13 @@ impl AnchorKitContract {
             // Need settlement time from metadata
             let meta_key = StorageKey::AnchorMeta(best.anchor.clone());
             let mut best_time: u64 = env.storage().persistent()
-                .get::<_, RoutingAnchorMeta>(&meta_key)
+                .get::<_, AnchorMetadata>(&meta_key)
                 .map(|m| m.average_settlement_time)
                 .unwrap_or(u64::MAX);
             for q in candidates.iter() {
                 let mk = StorageKey::AnchorMeta(q.anchor.clone());
                 let t = env.storage().persistent()
-                    .get::<_, RoutingAnchorMeta>(&mk)
+                    .get::<_, AnchorMetadata>(&mk)
                     .map(|m| m.average_settlement_time)
                     .unwrap_or(u64::MAX);
                 if t < best_time {
@@ -1533,13 +1527,13 @@ impl AnchorKitContract {
         } else if strategy_sym == reputation_sym {
             let meta_key = StorageKey::AnchorMeta(best.anchor.clone());
             let mut best_rep: u32 = env.storage().persistent()
-                .get::<_, RoutingAnchorMeta>(&meta_key)
+                .get::<_, AnchorMetadata>(&meta_key)
                 .map(|m| m.reputation_score)
                 .unwrap_or(0);
             for q in candidates.iter() {
                 let mk = StorageKey::AnchorMeta(q.anchor.clone());
                 let rep = env.storage().persistent()
-                    .get::<_, RoutingAnchorMeta>(&mk)
+                    .get::<_, AnchorMetadata>(&mk)
                     .map(|m| m.reputation_score)
                     .unwrap_or(0);
                 if rep > best_rep {
@@ -1553,9 +1547,9 @@ impl AnchorKitContract {
             // fee_percentage = 0 or settlement_time = 0 contribute 0 to avoid division by zero.
             let balanced_score = |env: &Env, q: &Quote| -> u64 {
                 let mk = (symbol_short!("ANCHMETA"), q.anchor.clone());
-                let meta: RoutingAnchorMeta = env.storage().persistent()
+                let meta: AnchorMetadata = env.storage().persistent()
                     .get(&mk)
-                    .unwrap_or(RoutingAnchorMeta {
+                    .unwrap_or(AnchorMetadata {
                         anchor: q.anchor.clone(),
                         reputation_score: 0,
                         average_settlement_time: 0,
