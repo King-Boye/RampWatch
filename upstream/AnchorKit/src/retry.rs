@@ -39,12 +39,29 @@ impl RetryConfig {
 
     /// Compute the delay (ms) for a given attempt index (0-based), with jitter.
     ///
-    /// delay = min(base * multiplier^attempt, max) + jitter(0..base/2)
+    /// `delay = min(base * multiplier^attempt, max) + jitter(0..=base/2)`
+    ///
+    /// # Jitter properties
+    ///
+    /// The jitter is derived deterministically from `jitter_seed` via
+    /// `seed % (base_delay_ms / 2 + 1)`. This is intentionally **approximate**
+    /// and **not cryptographically uniform**:
+    ///
+    /// - When `base_delay_ms / 2 + 1` is not a power of two, modulo introduces
+    ///   a small bias toward lower values. The bias is bounded by
+    ///   `range / u64::MAX` and is negligible for typical retry ranges
+    ///   (sub-millisecond effect for any realistic `base_delay_ms`).
+    /// - The jitter exists to desynchronize retry storms across clients, not
+    ///   to provide secret-quality randomness. Do not use this output for any
+    ///   security-sensitive purpose.
+    ///
+    /// If unbiased jitter is ever required, swap the modulo for rejection
+    /// sampling or a power-of-two mask.
     pub fn delay_for_attempt(&self, attempt: u32, jitter_seed: u64) -> u64 {
         let exp = (self.backoff_multiplier as u64).saturating_pow(attempt);
         let raw = self.base_delay_ms.saturating_mul(exp);
         let capped = raw.min(self.max_delay_ms);
-        // Simple deterministic jitter: seed % (base_delay_ms / 2 + 1)
+        // Approximate jitter — see doc comment for bias caveat.
         let jitter = jitter_seed % (self.base_delay_ms / 2 + 1);
         capped.saturating_add(jitter)
     }
@@ -53,7 +70,13 @@ impl RetryConfig {
 /// Classify whether an error code is retryable.
 ///
 /// Retryable: transient network/server errors.
-/// Non-retryable: auth failures, bad input, protocol violations.
+/// Non-retryable: auth failures, bad input, protocol violations, and
+/// rate-limit rejections. `RateLimitExceeded` is intentionally excluded:
+/// the rate window only clears after `window_length` ledgers, so retrying
+/// in a tight backoff loop would burn through every attempt and still fail.
+/// Callers that need to recover from a rate limit should wait for the
+/// window to reset (or call the admin reset path) before issuing the
+/// next request.
 pub fn is_retryable(code: u32) -> bool {
     use crate::errors::ErrorCode;
     matches!(
@@ -65,7 +88,6 @@ pub fn is_retryable(code: u32) -> bool {
             || code == ErrorCode::NoQuotesAvailable as u32
             || code == ErrorCode::CacheExpired as u32
             || code == ErrorCode::CacheNotFound as u32
-            || code == ErrorCode::RateLimitExceeded as u32
     )
 }
 

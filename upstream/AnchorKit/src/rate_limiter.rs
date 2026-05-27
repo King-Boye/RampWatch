@@ -53,7 +53,19 @@ impl RateLimiter {
             })
     }
 
-    /// Get the current rate limit configuration
+    /// Get the current global rate limit configuration.
+    ///
+    /// If no configuration has been set via [`update_config`], the following defaults apply:
+    /// - `max_submissions = 10`
+    /// - `window_length = 100` ledgers
+    ///
+    /// At Stellar's target close time of ~5 seconds per ledger, the default window
+    /// is approximately **500 seconds (~8 minutes)** of wall-clock time, allowing
+    /// up to 10 submissions per attestor in that period.
+    ///
+    /// These defaults are intentionally conservative. Operators expecting higher
+    /// submission volumes should tune the configuration via
+    /// [`update_config`](Self::update_config), either globally or per-attestor.
     pub fn get_config(env: Env) -> RateLimitConfig {
         let config_key = Self::get_config_key(&env);
         env.storage().persistent().get::<_, RateLimitConfig>(&config_key)
@@ -93,21 +105,30 @@ impl RateLimiter {
             );
         }
 
-        state.total_requests += 1;
-
         if state.submission_count >= config.max_submissions {
             env.storage().persistent().set(&state_key, &state);
             return Err(ErrorCode::RateLimitExceeded);
         }
 
         state.submission_count += 1;
+        state.total_requests += 1;
         env.storage().persistent().set(&state_key, &state);
 
         Ok(())
     }
 
-    /// Update the global rate limit configuration, or set a per-attestor override when
-    /// `attestor` is `Some`.
+    /// Admin function to tune the rate limit configuration.
+    ///
+    /// When `attestor` is `None`, updates the global configuration that applies
+    /// to every attestor without a per-attestor override. When `attestor` is
+    /// `Some(addr)`, sets a per-attestor override for `addr` only — useful for
+    /// granting higher (or lower) limits to specific addresses.
+    ///
+    /// The window length is measured in ledgers. At Stellar's ~5 s ledger close
+    /// time, a `window_length` of 100 corresponds to roughly 500 s of wall-clock
+    /// time. Operators tuning these values should pick a window that matches the
+    /// burstiness of their workload. See [`get_config`](Self::get_config) for the
+    /// active defaults.
     pub fn update_config(
         env: &Env,
         _admin: &Address,
@@ -348,7 +369,9 @@ mod tests {
             RateLimiter::get_state(env.clone(), attestor.clone())
         });
         assert_eq!(state.submission_count, 1);
-        assert_eq!(state.total_requests, 3);
+        // Two submissions succeeded (one before the window expired, one after).
+        // The rejected attempt in between does not increment total_requests.
+        assert_eq!(state.total_requests, 2);
     }
 
     #[test]
@@ -513,19 +536,20 @@ mod tests {
         env.as_contract(&contract_address, &|| {
             RateLimiter::update_config(&env, &admin, RateLimitConfig { max_submissions: 1, window_length: 100 }, None).unwrap();
 
-            // Make 3 submissions (2 will succeed, 3rd fails due to limit)
+            // One submission succeeds; the next is rejected by the rate limit
+            // and must NOT count toward total_requests.
             RateLimiter::check_and_increment(&env, &attestor).unwrap();
-            let _ = RateLimiter::check_and_increment(&env, &attestor); // Fails but increments total_requests
+            let _ = RateLimiter::check_and_increment(&env, &attestor); // Rejected, no counter bump
 
             let state_before = RateLimiter::get_state(env.clone(), attestor.clone());
-            assert_eq!(state_before.total_requests, 2); // 2 attempts recorded
+            assert_eq!(state_before.total_requests, 1); // Only successful submission counted
 
             // Admin resets rate limit
             RateLimiter::reset_rate_limit(&env, &admin, &attestor).unwrap();
 
-            // total_requests should still be 2 (never reset)
+            // total_requests should still be 1 (never reset)
             let state_after = RateLimiter::get_state(env.clone(), attestor.clone());
-            assert_eq!(state_after.total_requests, 2);
+            assert_eq!(state_after.total_requests, 1);
             assert_eq!(state_after.submission_count, 0); // But submission_count is reset
         });
     }
