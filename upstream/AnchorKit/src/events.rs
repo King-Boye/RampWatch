@@ -73,3 +73,10 @@ pub struct RateLimitReset {
     pub admin: Address,
     pub timestamp: u64,
 }
+
+#[contracttype]
+#[derive(Clone)]
+pub struct RateLimitWindowReset {
+    pub attestor: Address,
+    pub window_start: u64,
+}

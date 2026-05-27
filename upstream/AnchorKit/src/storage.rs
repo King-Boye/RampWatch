@@ -51,6 +51,10 @@ pub enum StorageKey {
     AnchorMeta(Address),
     /// Stellar.toml cache for an anchor (temporary).
     TomlCache(Address),
+    /// Per-attestor rate-limit state — submission count + window start (persistent).
+    RateLimitState(Address),
+    /// Per-attestor rate-limit configuration override (persistent).
+    RateLimitOverride(Address),
     // --- Instance-storage counters (stored as Vec<Symbol> keys) ---
     // These are kept as plain symbol_short! vecs because instance storage
     // requires a Vec<Symbol> key; they are defined as named constants below.
