@@ -31,6 +31,42 @@ use alloc::string::String;
 /// Numeric error codes for every AnchorKit error kind.
 ///
 /// The `#[contracterror]` attribute keeps Soroban on-chain compatibility.
+///
+/// ## Migration note
+///
+/// Prior to this fix the codes were non-contiguous: values 1-19 were followed
+/// by a gap (20-47) and then 48-54, with `NotInitialized` at 101.
+/// All codes have been renumbered to the contiguous range **1-30**.
+/// Clients that matched on raw numeric values must update their mappings:
+///
+/// | Old code | New code | Name                    |
+/// |----------|----------|-------------------------|
+/// | 1        | 1        | AlreadyInitialized      |
+/// | 2        | 2        | AttestorAlreadyRegistered |
+/// | 3        | 3        | AttestorNotRegistered   |
+/// | 4        | 4        | UnauthorizedAttestor    |
+/// | 5        | 5        | InvalidTimestamp        |
+/// | 6        | 6        | ReplayAttack            |
+/// | 7        | 7        | InvalidQuote            |
+/// | 8        | 8        | InvalidServiceType      |
+/// | 9        | 9        | InvalidTransactionIntent |
+/// | 10       | 10       | StaleQuote              |
+/// | 11       | 11       | ComplianceNotMet        |
+/// | 12       | 12       | InvalidEndpointFormat   |
+/// | 13       | 13       | NoQuotesAvailable       |
+/// | 14       | 14       | ServicesNotConfigured   |
+/// | 15       | 15       | ValidationError         |
+/// | 16       | 16       | RateLimitExceeded       |
+/// | 17       | 17       | AttestationNotFound     |
+/// | 18       | 18       | InvalidSep10Token       |
+/// | 19       | 19       | StorageCorrupted        |
+/// | 48       | 20       | CacheExpired            |
+/// | 49       | 21       | CacheNotFound           |
+/// | 51       | 22       | AuditLogMaxSizeInvalid  |
+/// | 52       | 23       | UnauthorizedProposeAdmin |
+/// | 53       | 24       | NoPendingAdmin          |
+/// | 54       | 25       | NotPendingAdmin         |
+/// | 101      | 26       | NotInitialized          |
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -51,16 +87,16 @@ pub enum ErrorCode {
     ServicesNotConfigured = 14,
     ValidationError = 15,
     RateLimitExceeded = 16,
-    NotInitialized = 101,
     AttestationNotFound = 17,
     InvalidSep10Token = 18,
     StorageCorrupted = 19,
-    CacheExpired = 48,
-    CacheNotFound = 49,
-    AuditLogMaxSizeInvalid = 51,
-    UnauthorizedProposeAdmin = 52,
-    NoPendingAdmin = 53,
-    NotPendingAdmin = 54,
+    CacheExpired = 20,
+    CacheNotFound = 21,
+    AuditLogMaxSizeInvalid = 22,
+    UnauthorizedProposeAdmin = 23,
+    NoPendingAdmin = 24,
+    NotPendingAdmin = 25,
+    NotInitialized = 26,
 }
 
 impl ErrorCode {
