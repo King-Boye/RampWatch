@@ -90,13 +90,14 @@ pub enum ErrorCode {
     AttestationNotFound = 17,
     InvalidSep10Token = 18,
     StorageCorrupted = 19,
-    CacheExpired = 20,
-    CacheNotFound = 21,
-    AuditLogMaxSizeInvalid = 22,
-    UnauthorizedProposeAdmin = 23,
-    NoPendingAdmin = 24,
-    NotPendingAdmin = 25,
-    NotInitialized = 26,
+    CacheExpired = 48,
+    CacheNotFound = 49,
+    AuditLogMaxSizeInvalid = 51,
+    UnauthorizedProposeAdmin = 52,
+    NoPendingAdmin = 53,
+    NotPendingAdmin = 54,
+    SessionNotFound = 55,
+    SessionExpired = 56,
 }
 
 impl ErrorCode {
@@ -129,6 +130,8 @@ impl ErrorCode {
             ErrorCode::UnauthorizedProposeAdmin => "A pending admin proposal already exists",
             ErrorCode::NoPendingAdmin => "No pending admin transfer found",
             ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
+            ErrorCode::SessionNotFound => "Session not found",
+            ErrorCode::SessionExpired => "Session has expired",
         }
     }
 
@@ -374,6 +377,8 @@ let codes = [
             ErrorCode::StorageCorrupted,
             ErrorCode::CacheExpired,
             ErrorCode::CacheNotFound,
+            ErrorCode::SessionNotFound,
+            ErrorCode::SessionExpired,
         ];
         for code in codes {
             assert!(!code.default_message().is_empty());
