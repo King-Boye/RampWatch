@@ -48,7 +48,7 @@ pub enum ErrorCode {
     CacheExpired = 48,
     CacheNotFound = 49,
     AuditLogMaxSizeInvalid = 51,
-    UnauthorizedProposeAdmin = 52,
+    PendingAdminAlreadyExists = 52,
     NoPendingAdmin = 53,
     NotPendingAdmin = 54,
 }
@@ -80,7 +80,7 @@ impl ErrorCode {
             ErrorCode::CacheExpired => "Cache entry has expired",
             ErrorCode::CacheNotFound => "Cache entry not found",
             ErrorCode::AuditLogMaxSizeInvalid => "max_audit_log_size must be at least 1",
-            ErrorCode::UnauthorizedProposeAdmin => "A pending admin proposal already exists",
+            ErrorCode::PendingAdminAlreadyExists => "An admin transfer is already pending",
             ErrorCode::NoPendingAdmin => "No pending admin transfer found",
             ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
         }
@@ -307,7 +307,7 @@ mod tests {
     fn test_error_code_default_messages_are_non_empty() {
 let codes = [
             ErrorCode::AlreadyInitialized,
-            ErrorCode::UnauthorizedProposeAdmin,
+            ErrorCode::PendingAdminAlreadyExists,
             ErrorCode::NoPendingAdmin,
             ErrorCode::NotPendingAdmin,
             ErrorCode::AttestorAlreadyRegistered,

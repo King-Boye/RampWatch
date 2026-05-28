@@ -202,7 +202,7 @@ impl AnchorKitContract {
         Self::require_admin(&env);
         let inst = env.storage().instance();
         if inst.has(&pending_admin_key(&env)) {
-            panic_with_error!(&env, ErrorCode::UnauthorizedProposeAdmin);
+            panic_with_error!(&env, ErrorCode::PendingAdminAlreadyExists);
         }
         if new_admin == env.current_contract_address() {
             panic_with_error!(&env, ErrorCode::ValidationError);
