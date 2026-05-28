@@ -29,6 +29,7 @@ impl RetryConfig {
         max_delay_ms: u64,
         backoff_multiplier: u32,
     ) -> Self {
+        assert!(max_attempts >= 1, "max_attempts must be at least 1");
         RetryConfig {
             max_attempts,
             base_delay_ms,
@@ -261,5 +262,11 @@ mod retry_tests {
         assert!(delays[0] >= 100);
         // Second delay is for attempt 1: 100 * 2^1 + jitter = 200 + jitter
         assert!(delays[1] >= 200);
+    }
+
+    #[test]
+    #[should_panic(expected = "max_attempts must be at least 1")]
+    fn test_max_attempts_zero_panics() {
+        let _ = RetryConfig::new(0, 100, 5000, 2);
     }
 }
