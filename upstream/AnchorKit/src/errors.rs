@@ -221,6 +221,22 @@ pub fn storage_corrupted() -> Self {
     pub fn cache_not_found() -> Self {
         Self::from_code(ErrorCode::CacheNotFound)
     }
+
+    pub fn audit_log_max_size_invalid() -> Self {
+        Self::from_code(ErrorCode::AuditLogMaxSizeInvalid)
+    }
+
+    pub fn unauthorized_propose_admin() -> Self {
+        Self::from_code(ErrorCode::UnauthorizedProposeAdmin)
+    }
+
+    pub fn no_pending_admin() -> Self {
+        Self::from_code(ErrorCode::NoPendingAdmin)
+    }
+
+    pub fn not_pending_admin() -> Self {
+        Self::from_code(ErrorCode::NotPendingAdmin)
+    }
 }
 
 impl core::fmt::Display for AnchorKitError {
@@ -294,6 +310,10 @@ mod tests {
         assert_eq!(AnchorKitError::invalid_sep10_token().code, ErrorCode::InvalidSep10Token);
         assert_eq!(AnchorKitError::cache_expired().code, ErrorCode::CacheExpired);
         assert_eq!(AnchorKitError::cache_not_found().code, ErrorCode::CacheNotFound);
+        assert_eq!(AnchorKitError::audit_log_max_size_invalid().code, ErrorCode::AuditLogMaxSizeInvalid);
+        assert_eq!(AnchorKitError::unauthorized_propose_admin().code, ErrorCode::UnauthorizedProposeAdmin);
+        assert_eq!(AnchorKitError::no_pending_admin().code, ErrorCode::NoPendingAdmin);
+        assert_eq!(AnchorKitError::not_pending_admin().code, ErrorCode::NotPendingAdmin);
     }
 
     #[test]
