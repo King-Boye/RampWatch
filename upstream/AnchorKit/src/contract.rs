@@ -1100,6 +1100,20 @@ impl AnchorKitContract {
         )
     }
 
+    /// Returns the current audit log pruning offset — the ID of the first live
+    /// audit log entry.  Any log ID below this value has been pruned and is no
+    /// longer available in storage.
+    ///
+    /// Callers can use this to detect gaps in a session's audit trail:
+    /// if `log_id < get_audit_log_offset()` the entry was intentionally pruned,
+    /// not lost.  Returns `0` when no pruning has occurred yet.
+    pub fn get_audit_log_offset(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&key_audit_log_offset(&env))
+            .unwrap_or(0u64)
+    }
+
     // -----------------------------------------------------------------------
     // Metadata cache
     // -----------------------------------------------------------------------
