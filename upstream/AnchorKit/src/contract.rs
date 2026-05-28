@@ -25,6 +25,7 @@ pub use crate::types::{
 };
 
 const MIN_TEMP_TTL: u32 = 15; // min_temp_entry_ttl - 1
+const LEDGER_PERIOD_SECS: u64 = 5; // approximate seconds per ledger
 
 // ---------------------------------------------------------------------------
 // Event structs
@@ -1149,7 +1150,8 @@ impl AnchorKitContract {
         }
         let now = env.ledger().timestamp();
         let entry = MetadataCache { metadata, cached_at: now, ttl_seconds };
-        let ledger_ttl = if ttl_seconds as u32 > MIN_TEMP_TTL { ttl_seconds as u32 } else { MIN_TEMP_TTL };
+        let ledger_ttl = ((ttl_seconds + LEDGER_PERIOD_SECS - 1) / LEDGER_PERIOD_SECS) as u32;
+        let ledger_ttl = ledger_ttl.max(MIN_TEMP_TTL);
         env.storage().temporary().set(&key, &entry);
         env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
 
@@ -1321,7 +1323,8 @@ impl AnchorKitContract {
         let now = env.ledger().timestamp();
         let entry = CapabilitiesCache { toml_url, capabilities, cached_at: now, ttl_seconds };
         let key = StorageKey::CapabilitiesCache(anchor);
-        let ledger_ttl = if ttl_seconds as u32 > MIN_TEMP_TTL { ttl_seconds as u32 } else { MIN_TEMP_TTL };
+        let ledger_ttl = ((ttl_seconds + LEDGER_PERIOD_SECS - 1) / LEDGER_PERIOD_SECS) as u32;
+        let ledger_ttl = ledger_ttl.max(MIN_TEMP_TTL);
         env.storage().temporary().set(&key, &entry);
         env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
     }
