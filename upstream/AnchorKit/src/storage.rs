@@ -4,11 +4,13 @@ use soroban_sdk::{contracttype, Address, Bytes};
 ///
 /// Using an enum prevents typos in raw string literals and makes every
 /// storage access site self-documenting.
+///
+/// Note: the admin address is stored under the `key_admin(env)` Vec<Symbol>
+/// key in instance storage (see the helper below). There is no `Admin` variant
+/// here to avoid having two representations for the same logical key.
 #[contracttype]
 #[derive(Clone)]
 pub enum StorageKey {
-    /// Contract administrator address (instance storage).
-    Admin,
     /// SEP-10 JWT verifying key for an attestor (persistent).
     Sep10Key(Address),
     /// Whether an address is a registered attestor (persistent).
