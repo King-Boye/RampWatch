@@ -269,11 +269,7 @@ impl AnchorKitContract {
         }
 
         let hash = env.crypto().sha256(&input);
-        let hash_bytes = Bytes::from_array(&env, &hash.into());
-        let mut id = Bytes::new(&env);
-        for i in 0..16u32 {
-            id.push_back(hash_bytes.get(i).unwrap());
-        }
+        let id = Bytes::from_array(&env, &hash.into());
 
         RequestId { id, created_at: ts }
     }
