@@ -7,12 +7,22 @@
 //! The [`ErrorCode`] enum enumerates every distinct error kind. Use the
 //! provided constructor helpers (e.g. [`AnchorKitError::already_initialized`])
 //! to build errors without touching raw codes.
+//!
+//! ## no-std / WASM builds
+//!
+//! When compiled without the `std` feature (e.g. for Soroban WASM), heap
+//! allocation via `alloc::string::String` is unavailable on the hot path.
+//! In that case `AnchorKitError` stores only an `ErrorCode` discriminant and
+//! a `&'static str` message slice — no heap allocation required.
+//! The full `String`-based struct is only compiled when `feature = "std"` is
+//! active (the default for host-side / test builds).
 
-
-extern crate alloc;
-
-use alloc::string::String;
 use soroban_sdk::contracterror;
+
+#[cfg(feature = "std")]
+extern crate alloc;
+#[cfg(feature = "std")]
+use alloc::string::String;
 
 // ---------------------------------------------------------------------------
 // ErrorCode — the canonical list of all error kinds (replaces the old Error enum)
@@ -90,14 +100,20 @@ impl ErrorCode {
 
 // ---------------------------------------------------------------------------
 // AnchorKitError — the unified base error type
+//
+// std build  : full struct with heap-allocated String fields (message + context)
+// no-std/WASM: thin wrapper around ErrorCode + &'static str — zero heap alloc
 // ---------------------------------------------------------------------------
 
 /// The base error type for all AnchorKit errors.
 ///
-/// Every error carries:
-/// - `code`: the [`ErrorCode`] identifying the error kind
-/// - `message`: a human-readable description
-/// - `context`: optional extra detail (field name, received value, etc.)
+/// **std builds** (default): carries a heap-allocated `message` and optional
+/// `context` string for rich diagnostics.
+///
+/// **no-std / WASM builds** (`wasm` feature, no `std`): stores only the
+/// [`ErrorCode`] discriminant and a `&'static str` message slice so that no
+/// heap allocation is required on the hot path inside a Soroban contract.
+#[cfg(feature = "std")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AnchorKitError {
     pub code: ErrorCode,
@@ -105,6 +121,20 @@ pub struct AnchorKitError {
     pub context: Option<String>,
 }
 
+/// Thin no-std / WASM variant — no heap allocation.
+#[cfg(not(feature = "std"))]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AnchorKitError {
+    pub code: ErrorCode,
+    pub message: &'static str,
+    pub context: Option<&'static str>,
+}
+
+// ---------------------------------------------------------------------------
+// std implementation
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "std")]
 impl AnchorKitError {
     /// Create a new error with a custom message and no context.
     pub fn new(code: ErrorCode, message: &str) -> Self {
@@ -130,105 +160,82 @@ impl AnchorKitError {
         AnchorKitError::new(code, message)
     }
 
-    // ------------------------------------------------------------------
-    // Named constructors — one per ErrorCode variant
-    // ------------------------------------------------------------------
-
-    pub fn already_initialized() -> Self {
-        Self::from_code(ErrorCode::AlreadyInitialized)
-    }
-
-    pub fn attestor_already_registered() -> Self {
-        Self::from_code(ErrorCode::AttestorAlreadyRegistered)
-    }
-
-    pub fn attestor_not_registered() -> Self {
-        Self::from_code(ErrorCode::AttestorNotRegistered)
-    }
-
-    pub fn unauthorized_attestor() -> Self {
-        Self::from_code(ErrorCode::UnauthorizedAttestor)
-    }
-
-    pub fn invalid_timestamp() -> Self {
-        Self::from_code(ErrorCode::InvalidTimestamp)
-    }
-
-    pub fn replay_attack() -> Self {
-        Self::from_code(ErrorCode::ReplayAttack)
-    }
-
-    pub fn invalid_quote() -> Self {
-        Self::from_code(ErrorCode::InvalidQuote)
-    }
-
-    pub fn invalid_service_type() -> Self {
-        Self::from_code(ErrorCode::InvalidServiceType)
-    }
-
-    pub fn invalid_transaction_intent() -> Self {
-        Self::from_code(ErrorCode::InvalidTransactionIntent)
-    }
-
-    pub fn stale_quote() -> Self {
-        Self::from_code(ErrorCode::StaleQuote)
-    }
-
-    pub fn compliance_not_met() -> Self {
-        Self::from_code(ErrorCode::ComplianceNotMet)
-    }
-
-    pub fn invalid_endpoint_format() -> Self {
-        Self::from_code(ErrorCode::InvalidEndpointFormat)
-    }
-
-    pub fn no_quotes_available() -> Self {
-        Self::from_code(ErrorCode::NoQuotesAvailable)
-    }
-
-    pub fn services_not_configured() -> Self {
-        Self::from_code(ErrorCode::ServicesNotConfigured)
-    }
-
-    pub fn not_initialized() -> Self {
-        Self::from_code(ErrorCode::NotInitialized)
-    }
-
-    pub fn attestation_not_found() -> Self {
-        Self::from_code(ErrorCode::AttestationNotFound)
-    }
-
-    pub fn invalid_sep10_token() -> Self {
-        Self::from_code(ErrorCode::InvalidSep10Token)
-    }
+    pub fn already_initialized() -> Self { Self::from_code(ErrorCode::AlreadyInitialized) }
+    pub fn attestor_already_registered() -> Self { Self::from_code(ErrorCode::AttestorAlreadyRegistered) }
+    pub fn attestor_not_registered() -> Self { Self::from_code(ErrorCode::AttestorNotRegistered) }
+    pub fn unauthorized_attestor() -> Self { Self::from_code(ErrorCode::UnauthorizedAttestor) }
+    pub fn invalid_timestamp() -> Self { Self::from_code(ErrorCode::InvalidTimestamp) }
+    pub fn replay_attack() -> Self { Self::from_code(ErrorCode::ReplayAttack) }
+    pub fn invalid_quote() -> Self { Self::from_code(ErrorCode::InvalidQuote) }
+    pub fn invalid_service_type() -> Self { Self::from_code(ErrorCode::InvalidServiceType) }
+    pub fn invalid_transaction_intent() -> Self { Self::from_code(ErrorCode::InvalidTransactionIntent) }
+    pub fn stale_quote() -> Self { Self::from_code(ErrorCode::StaleQuote) }
+    pub fn compliance_not_met() -> Self { Self::from_code(ErrorCode::ComplianceNotMet) }
+    pub fn invalid_endpoint_format() -> Self { Self::from_code(ErrorCode::InvalidEndpointFormat) }
+    pub fn no_quotes_available() -> Self { Self::from_code(ErrorCode::NoQuotesAvailable) }
+    pub fn services_not_configured() -> Self { Self::from_code(ErrorCode::ServicesNotConfigured) }
+    pub fn not_initialized() -> Self { Self::from_code(ErrorCode::NotInitialized) }
+    pub fn attestation_not_found() -> Self { Self::from_code(ErrorCode::AttestationNotFound) }
+    pub fn invalid_sep10_token() -> Self { Self::from_code(ErrorCode::InvalidSep10Token) }
+    pub fn rate_limit_exceeded() -> Self { Self::from_code(ErrorCode::RateLimitExceeded) }
+    pub fn storage_corrupted() -> Self { Self::from_code(ErrorCode::StorageCorrupted) }
+    pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
+    pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
 
     pub fn validation_error(context: &str) -> Self {
         Self::with_context(ErrorCode::ValidationError, ErrorCode::ValidationError.default_message(), context)
     }
-
-    pub fn rate_limit_exceeded() -> Self {
-        Self::from_code(ErrorCode::RateLimitExceeded)
-    }
-
-pub fn storage_corrupted() -> Self {
-        Self::from_code(ErrorCode::StorageCorrupted)
-    }
-
-    pub fn cache_expired() -> Self {
-        Self::from_code(ErrorCode::CacheExpired)
-    }
-
-    pub fn cache_not_found() -> Self {
-        Self::from_code(ErrorCode::CacheNotFound)
-    }
 }
 
+#[cfg(feature = "std")]
 impl core::fmt::Display for AnchorKitError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match &self.context {
-            Some(context) => write!(f, "[E{}] {} ({})", self.code as u32, self.message, context),
+            Some(ctx) => write!(f, "[E{}] {} ({})", self.code as u32, self.message, ctx),
             None => write!(f, "[E{}] {}", self.code as u32, self.message),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// no-std / WASM implementation — zero heap allocation
+// ---------------------------------------------------------------------------
+
+#[cfg(not(feature = "std"))]
+impl AnchorKitError {
+    /// Create an error from a code using its static default message.
+    pub fn from_code(code: ErrorCode) -> Self {
+        AnchorKitError { code, message: code.default_message(), context: None }
+    }
+
+    pub fn already_initialized() -> Self { Self::from_code(ErrorCode::AlreadyInitialized) }
+    pub fn attestor_already_registered() -> Self { Self::from_code(ErrorCode::AttestorAlreadyRegistered) }
+    pub fn attestor_not_registered() -> Self { Self::from_code(ErrorCode::AttestorNotRegistered) }
+    pub fn unauthorized_attestor() -> Self { Self::from_code(ErrorCode::UnauthorizedAttestor) }
+    pub fn invalid_timestamp() -> Self { Self::from_code(ErrorCode::InvalidTimestamp) }
+    pub fn replay_attack() -> Self { Self::from_code(ErrorCode::ReplayAttack) }
+    pub fn invalid_quote() -> Self { Self::from_code(ErrorCode::InvalidQuote) }
+    pub fn invalid_service_type() -> Self { Self::from_code(ErrorCode::InvalidServiceType) }
+    pub fn invalid_transaction_intent() -> Self { Self::from_code(ErrorCode::InvalidTransactionIntent) }
+    pub fn stale_quote() -> Self { Self::from_code(ErrorCode::StaleQuote) }
+    pub fn compliance_not_met() -> Self { Self::from_code(ErrorCode::ComplianceNotMet) }
+    pub fn invalid_endpoint_format() -> Self { Self::from_code(ErrorCode::InvalidEndpointFormat) }
+    pub fn no_quotes_available() -> Self { Self::from_code(ErrorCode::NoQuotesAvailable) }
+    pub fn services_not_configured() -> Self { Self::from_code(ErrorCode::ServicesNotConfigured) }
+    pub fn not_initialized() -> Self { Self::from_code(ErrorCode::NotInitialized) }
+    pub fn attestation_not_found() -> Self { Self::from_code(ErrorCode::AttestationNotFound) }
+    pub fn invalid_sep10_token() -> Self { Self::from_code(ErrorCode::InvalidSep10Token) }
+    pub fn rate_limit_exceeded() -> Self { Self::from_code(ErrorCode::RateLimitExceeded) }
+    pub fn storage_corrupted() -> Self { Self::from_code(ErrorCode::StorageCorrupted) }
+    pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
+    pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
+    pub fn validation_error(_context: &str) -> Self { Self::from_code(ErrorCode::ValidationError) }
+}
+
+#[cfg(not(feature = "std"))]
+impl core::fmt::Display for AnchorKitError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "[E{}] {}", self.code as u32, self.message)
     }
 }
 
@@ -243,7 +250,7 @@ pub type Error = AnchorKitError;
 // Tests
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
 
