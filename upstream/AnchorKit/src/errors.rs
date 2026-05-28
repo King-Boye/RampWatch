@@ -51,6 +51,7 @@ pub enum ErrorCode {
     UnauthorizedProposeAdmin = 52,
     NoPendingAdmin = 53,
     NotPendingAdmin = 54,
+    InvalidStrategy = 55,
 }
 
 impl ErrorCode {
@@ -83,6 +84,7 @@ impl ErrorCode {
             ErrorCode::UnauthorizedProposeAdmin => "A pending admin proposal already exists",
             ErrorCode::NoPendingAdmin => "No pending admin transfer found",
             ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
+            ErrorCode::InvalidStrategy => "Routing strategy symbol is not recognized",
         }
     }
 
@@ -221,6 +223,10 @@ pub fn storage_corrupted() -> Self {
     pub fn cache_not_found() -> Self {
         Self::from_code(ErrorCode::CacheNotFound)
     }
+
+    pub fn invalid_strategy() -> Self {
+        Self::from_code(ErrorCode::InvalidStrategy)
+    }
 }
 
 impl core::fmt::Display for AnchorKitError {
@@ -310,6 +316,7 @@ let codes = [
             ErrorCode::UnauthorizedProposeAdmin,
             ErrorCode::NoPendingAdmin,
             ErrorCode::NotPendingAdmin,
+            ErrorCode::InvalidStrategy,
             ErrorCode::AttestorAlreadyRegistered,
             ErrorCode::AttestorNotRegistered,
             ErrorCode::UnauthorizedAttestor,

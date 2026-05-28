@@ -143,11 +143,11 @@ pub struct RoutingRequest {
 /// | `"LowestFee"`         | Selects the anchor with the lowest `fee_percentage`.       |
 /// | `"FastestSettlement"` | Selects the anchor with the lowest `average_settlement_time`. |
 /// | `"HighestReputation"` | Selects the anchor with the highest `reputation_score`.    |
+/// | `"Balanced"`          | Composite scoring: (40_000/fee) + (30_000/time) + (reputation*3000/10000). |
 ///
-/// **Default:** `strategy` is required and must contain exactly one symbol.
-/// Passing an empty `Vec` causes the call to panic with `NoQuotesAvailable`.
-/// An unrecognised symbol falls through all branches and returns the first
-/// candidate in iteration order (no explicit sort).
+/// **Validation:** `strategy` is required and must contain exactly one symbol.
+/// - Passing an empty `Vec` causes the call to panic with `NoQuotesAvailable`.
+/// - An unrecognised symbol causes the call to panic with `InvalidStrategy`.
 ///
 /// # Other fields
 ///

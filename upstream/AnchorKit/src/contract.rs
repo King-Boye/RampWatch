@@ -1554,6 +1554,14 @@ impl AnchorKitContract {
         let reputation_sym = Symbol::new(&env, "HighestReputation");
         let balanced_sym = Symbol::new(&env, "Balanced");
 
+        // Validate that the strategy symbol is recognized
+        if strategy_sym != lowest_fee_sym 
+            && strategy_sym != fastest_sym 
+            && strategy_sym != reputation_sym 
+            && strategy_sym != balanced_sym {
+            panic_with_error!(&env, ErrorCode::InvalidStrategy);
+        }
+
         let mut best: Quote = candidates.get(0).unwrap();
 
         if strategy_sym == lowest_fee_sym {
