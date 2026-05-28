@@ -98,6 +98,11 @@ pub struct Attestation {
     pub timestamp: u64,
     pub payload_hash: Bytes,
     pub signature: Bytes,
+    /// Set to `true` when the issuer attestor has been revoked after this
+    /// attestation was submitted. Historical attestations are preserved for
+    /// audit purposes; callers should treat `issuer_revoked = true` as a
+    /// signal that the issuer's authority has been withdrawn.
+    pub issuer_revoked: bool,
 }
 
 #[contracttype]
