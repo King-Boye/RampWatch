@@ -1128,7 +1128,7 @@ impl AnchorKitContract {
         env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
 
         // Issue #276: maintain CACHED_ANCHORS set
-        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
+        let list_key = key_anchor_list(&env);
         let mut list: Vec<Address> = env.storage().persistent()
             .get::<_, Vec<Address>>(&list_key)
             .unwrap_or_else(|| Vec::new(&env));
@@ -1170,7 +1170,7 @@ impl AnchorKitContract {
         env.storage().temporary().remove(&key);
 
         // Issue #276: remove from CACHED_ANCHORS set
-        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
+        let list_key = key_anchor_list(&env);
         if let Some(list) = env.storage().persistent().get::<_, Vec<Address>>(&list_key) {
             let mut new_list = Vec::new(&env);
             for a in list.iter() {
@@ -1267,7 +1267,7 @@ impl AnchorKitContract {
 
     /// Issue #276: list all anchors that currently have active metadata cache entries.
     pub fn list_cached_anchors(env: Env) -> Vec<Address> {
-        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
+        let list_key = key_anchor_list(&env);
         env.storage().persistent()
             .get::<_, Vec<Address>>(&list_key)
             .unwrap_or_else(|| Vec::new(&env))
@@ -1323,7 +1323,7 @@ impl AnchorKitContract {
     /// Emits a `CacheInvalidated` event with the count of cleared entries.
     pub fn invalidate_all_caches(env: Env) {
         Self::require_admin(&env);
-        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
+        let list_key = key_anchor_list(&env);
         let anchors: Vec<Address> = env.storage().persistent()
             .get::<_, Vec<Address>>(&list_key)
             .unwrap_or_else(|| Vec::new(&env));
@@ -1776,7 +1776,7 @@ impl AnchorKitContract {
             .get(&key_replay_window(env))
             .unwrap_or(300u64);
         let lower = now.saturating_sub(window);
-        if timestamp < lower || timestamp > now {
+on this r        if timestamp < lower || timestamp > now {
             panic_with_error!(env, ErrorCode::InvalidTimestamp);
         }
     }
