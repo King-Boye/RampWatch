@@ -158,6 +158,35 @@ fn parse_json_scp(payload: &[u8]) -> Result<Vec<u8>, ()> {
     Err(())
 }
 
+/// Parse first `"alg":"..."` string value from the JWT header.
+fn parse_json_alg(header: &[u8]) -> Result<Vec<u8>, ()> {
+    let key = b"\"alg\":";
+    let pos = find_bytes(header, key).ok_or(())?;
+    let mut i = pos + key.len();
+    while i < header.len() && header[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    if i >= header.len() || header[i] != b'"' {
+        return Err(());
+    }
+    i += 1;
+    let start = i;
+    while i < header.len() {
+        if header[i] == b'\\' {
+            if i + 1 >= header.len() {
+                return Err(());
+            }
+            i += 2;
+            continue;
+        }
+        if header[i] == b'"' {
+            return Ok(header[start..i].to_vec());
+        }
+        i += 1;
+    }
+    Err(())
+}
+
 /// Returns the canonical scope name for a service code (matches SERVICE_* constants in contract.rs).
 pub fn service_scope_name(service_code: u32) -> Option<&'static [u8]> {
     match service_code {
@@ -279,7 +308,8 @@ pub fn verify_sep10_jwt(
     let sig_b64 = &buf[d1 + 1..n_usize];
 
     let header_dec = base64url_decode(header_b64).map_err(|_| ())?;
-    if !contains_subslice(&header_dec, b"EdDSA") {
+    let alg = parse_json_alg(&header_dec)?;
+    if alg != b"EdDSA" {
         return Err(());
     }
 
@@ -509,6 +539,30 @@ mod tests {
         format!("{}.{}", signing_input, sig_b64)
     }
 
+    fn build_jwt_with_custom_alg(signing_key: &SigningKey, sub: &str, exp: u64, alg: &str) -> std::string::String {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        let header = format!(r#"{{"alg":"{}","typ":"JWT"}}"#, alg);
+        let payload = format!(r#"{{"sub":"{}","exp":{}}}"#, sub, exp);
+        let header_b64 = URL_SAFE_NO_PAD.encode(header);
+        let payload_b64 = URL_SAFE_NO_PAD.encode(payload);
+        let signing_input = format!("{}.{}", header_b64, payload_b64);
+        let sig = signing_key.sign(signing_input.as_bytes());
+        let sig_b64 = URL_SAFE_NO_PAD.encode(sig.to_bytes());
+        format!("{}.{}", signing_input, sig_b64)
+    }
+
+    fn build_jwt_without_alg(signing_key: &SigningKey, sub: &str, exp: u64) -> std::string::String {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        let header = r#"{"typ":"JWT"}"#;
+        let payload = format!(r#"{{"sub":"{}","exp":{}}}"#, sub, exp);
+        let header_b64 = URL_SAFE_NO_PAD.encode(header);
+        let payload_b64 = URL_SAFE_NO_PAD.encode(payload);
+        let signing_input = format!("{}.{}", header_b64, payload_b64);
+        let sig = signing_key.sign(signing_input.as_bytes());
+        let sig_b64 = URL_SAFE_NO_PAD.encode(sig.to_bytes());
+        format!("{}.{}", signing_input, sig_b64)
+    }
+
     #[test]
     fn check_token_scope_matches() {
         let env = Env::default();
@@ -560,5 +614,34 @@ mod tests {
         assert!(verify_sep10_jwt(&env, &token, &keys, None, 60).is_ok());
         // With skew exactly equal to lag (30 s): exp + 30 = 1_030, not strictly greater — rejected.
         assert!(verify_sep10_jwt(&env, &token, &keys, None, 30).is_err());
+    }
+
+    #[test]
+    fn verify_validates_alg_header() {
+        let env = Env::default();
+        ledger(&env, 1_000);
+        let signing_key = SigningKey::generate(&mut OsRng);
+        let pk = Bytes::from_slice(&env, signing_key.verifying_key().as_bytes());
+        let mut keys = soroban_sdk::Vec::new(&env);
+        keys.push_back(pk);
+
+        let attestor = Address::generate(&env);
+        let sub = attestor.to_string();
+        let sub_str: std::string::String = sub.to_string();
+
+        // EdDSA token is accepted
+        let jwt = build_jwt(&signing_key, sub_str.as_str(), 2_000);
+        let token = String::from_str(&env, jwt.as_str());
+        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub), 0).is_ok());
+
+        // HS256 token is rejected
+        let jwt_hs256 = build_jwt_with_custom_alg(&signing_key, sub_str.as_str(), 2_000, "HS256");
+        let token_hs256 = String::from_str(&env, jwt_hs256.as_str());
+        assert!(verify_sep10_jwt(&env, &token_hs256, &keys, Some(&sub), 0).is_err());
+
+        // Token with no alg field is rejected
+        let jwt_no_alg = build_jwt_without_alg(&signing_key, sub_str.as_str(), 2_000);
+        let token_no_alg = String::from_str(&env, jwt_no_alg.as_str());
+        assert!(verify_sep10_jwt(&env, &token_no_alg, &keys, Some(&sub), 0).is_err());
     }
 }
