@@ -285,6 +285,31 @@ pub fn fetch_transaction_status(
     })
 }
 
+/// Fetch and normalize transaction status, handling HTTP status codes separately.
+///
+/// Maps HTTP status codes to specific errors:
+/// - 404 → AttestationNotFound
+/// - 429 → RateLimitExceeded
+/// - Other non-2xx → Generic HTTP error
+/// - 2xx → Normalizes the raw response to TransactionStatusResponse
+///
+/// Returns `Err(Error::invalid_transaction_intent())` if the transaction ID is missing (for 2xx responses).
+pub fn get_transaction_status(
+    http_status: u32,
+    raw: RawTransactionResponse,
+) -> Result<TransactionStatusResponse, Error> {
+    match http_status {
+        404 => Err(Error::attestation_not_found()),
+        429 => Err(Error::rate_limit_exceeded()),
+        200..=299 => fetch_transaction_status(raw),
+        _ => Err(Error::with_context(
+            ErrorCode::ValidationError,
+            "HTTP request failed",
+            &alloc::format!("HTTP {}", http_status),
+        )),
+    }
+}
+
 /// Normalize a list of raw transaction responses for the given account and asset.
 ///
 /// Returns `Err(Error::ValidationError)` if `account` is not a valid Stellar address
@@ -541,6 +566,44 @@ mod tests {
             r.kind = Some(s.to_string());
             assert_eq!(fetch_transaction_status(r).unwrap().kind, TransactionKind::Deposit, "failed for {s}");
         }
+    }
+
+    // ── get_transaction_status tests ─────────────────────────────────────
+
+    #[test]
+    fn test_get_transaction_status_200_success() {
+        let raw = raw_tx_status();
+        let resp = get_transaction_status(200, raw).unwrap();
+        assert_eq!(resp.transaction_id, "txn-001");
+        assert_eq!(resp.status, TransactionStatus::Completed);
+    }
+
+    #[test]
+    fn test_get_transaction_status_404_returns_attestation_not_found() {
+        let raw = raw_tx_status();
+        let err = get_transaction_status(404, raw).unwrap_err();
+        assert_eq!(err.code, ErrorCode::AttestationNotFound);
+    }
+
+    #[test]
+    fn test_get_transaction_status_429_returns_rate_limit_exceeded() {
+        let raw = raw_tx_status();
+        let err = get_transaction_status(429, raw).unwrap_err();
+        assert_eq!(err.code, ErrorCode::RateLimitExceeded);
+    }
+
+    #[test]
+    fn test_get_transaction_status_500_returns_generic_error() {
+        let raw = raw_tx_status();
+        let err = get_transaction_status(500, raw).unwrap_err();
+        assert_eq!(err.code, ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn test_get_transaction_status_201_success() {
+        let raw = raw_tx_status();
+        let resp = get_transaction_status(201, raw).unwrap();
+        assert_eq!(resp.transaction_id, "txn-001");
     }
 
     #[test]
