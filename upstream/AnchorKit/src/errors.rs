@@ -98,6 +98,7 @@ pub enum ErrorCode {
     NotPendingAdmin = 54,
     SessionNotFound = 55,
     SessionExpired = 56,
+    MissingSigningKey = 57,
 }
 
 impl ErrorCode {
@@ -132,6 +133,7 @@ impl ErrorCode {
             ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
             ErrorCode::SessionNotFound => "Session not found",
             ErrorCode::SessionExpired => "Session has expired",
+            ErrorCode::MissingSigningKey => "Anchor TOML does not publish a signing key",
         }
     }
 
@@ -220,6 +222,7 @@ impl AnchorKitError {
     pub fn storage_corrupted() -> Self { Self::from_code(ErrorCode::StorageCorrupted) }
     pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
     pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
+    pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
 
     pub fn validation_error(context: &str) -> Self {
         Self::with_context(ErrorCode::ValidationError, ErrorCode::ValidationError.default_message(), context)
@@ -268,6 +271,7 @@ impl AnchorKitError {
     pub fn storage_corrupted() -> Self { Self::from_code(ErrorCode::StorageCorrupted) }
     pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
     pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
+    pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
     pub fn validation_error(_context: &str) -> Self { Self::from_code(ErrorCode::ValidationError) }
 }
 
@@ -379,6 +383,7 @@ let codes = [
             ErrorCode::CacheNotFound,
             ErrorCode::SessionNotFound,
             ErrorCode::SessionExpired,
+            ErrorCode::MissingSigningKey,
         ];
         for code in codes {
             assert!(!code.default_message().is_empty());

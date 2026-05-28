@@ -339,7 +339,10 @@ impl AnchorKitContract {
             .storage()
             .persistent()
             .get(&StorageKey::Sep10Key(issuer.clone()))
-            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::InvalidSep10Token));
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::MissingSigningKey));
+        if keys.is_empty() {
+            panic_with_error!(&env, ErrorCode::MissingSigningKey);
+        }
         if sep10_jwt::verify_sep10_jwt(&env, &token, &keys, None, 0).is_err() {
             panic_with_error!(&env, ErrorCode::InvalidSep10Token);
         }
@@ -355,7 +358,10 @@ impl AnchorKitContract {
             .storage()
             .persistent()
             .get(&StorageKey::Sep10Key(issuer.clone()))
-            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::InvalidSep10Token));
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::MissingSigningKey));
+        if keys.is_empty() {
+            panic_with_error!(&env, ErrorCode::MissingSigningKey);
+        }
         if sep10_jwt::verify_sep10_jwt(&env, &token, &keys, None, 0).is_err() {
             panic_with_error!(&env, ErrorCode::InvalidSep10Token);
         }
@@ -374,7 +380,10 @@ impl AnchorKitContract {
             .storage()
             .persistent()
             .get(&StorageKey::Sep10Key(issuer.clone()))
-            .unwrap_or_else(|| panic_with_error!(env, ErrorCode::InvalidSep10Token));
+            .unwrap_or_else(|| panic_with_error!(env, ErrorCode::MissingSigningKey));
+        if keys.is_empty() {
+            panic_with_error!(env, ErrorCode::MissingSigningKey);
+        }
         let expected = attestor.to_string();
         if sep10_jwt::verify_sep10_jwt(env, token, &keys, Some(&expected), 0).is_err() {
             panic_with_error!(env, ErrorCode::InvalidSep10Token);
