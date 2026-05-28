@@ -3,7 +3,7 @@
 mod routing_tests {
     use soroban_sdk::{
         testutils::{Address as _, Ledger, LedgerInfo},
-        Address, Env, String, Symbol, Vec,
+        Address, Env, String, Symbol, Vec, symbol_short,
     };
 
     use ed25519_dalek::SigningKey;
@@ -12,6 +12,7 @@ mod routing_tests {
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
     use crate::types::{RoutingOptions, RoutingRequest};
     use crate::sep10_test_util::register_attestor_with_sep10;
+    use crate::events::RoutingDecisionEvent;
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -573,5 +574,46 @@ mod routing_tests {
         // anchor_a wins: score 4630 > anchor_c 3950 > anchor_b 3800
         let best = client.route_transaction(&options);
         assert_eq!(best.anchor, anchor_a);
+    }
+
+    #[test]
+    fn test_route_transaction_emits_routing_decision_event() {
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let anchor = Address::generate(&env);
+        register_anchor(&env, &client, &anchor);
+
+        client.submit_quote(
+            &anchor,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &25u32, &100u64, &100000u64, &1_003_600u64,
+        );
+
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy: strategy.clone(),
+            min_reputation: 0,
+            max_anchors: 1,
+            require_kyc: false,
+        };
+
+        // Expect RoutingDecision event with correct fields
+        let event = RoutingDecisionEvent {
+            anchor: anchor.clone(),
+            strategy: String::from_str(&env, "LowestFee"),
+            quote_id: 1u64,
+            ledger_sequence: 0u32,
+        };
+        let topics = (symbol_short!("routing"),);
+        env.events().publish_expect(&topics, &event);
+
+        let best = client.route_transaction(&options);
+        assert_eq!(best.anchor, anchor);
+        assert_eq!(best.quote_id, 1u64);
     }
 }

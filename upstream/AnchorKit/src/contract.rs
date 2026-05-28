@@ -1608,6 +1608,26 @@ impl AnchorKitContract {
             }
         }
 
+        let strategy_str = if strategy_sym == lowest_fee_sym {
+            String::from_str(&env, "LowestFee")
+        } else if strategy_sym == fastest_sym {
+            String::from_str(&env, "FastestSettlement")
+        } else if strategy_sym == reputation_sym {
+            String::from_str(&env, "HighestReputation")
+        } else {
+            String::from_str(&env, "Balanced")
+        };
+
+        env.events().publish(
+            (symbol_short!("routing"),),
+            crate::events::RoutingDecisionEvent {
+                anchor: best.anchor.clone(),
+                strategy: strategy_str,
+                quote_id: best.quote_id,
+                ledger_sequence: env.ledger().sequence(),
+            },
+        );
+
         best
     }
 

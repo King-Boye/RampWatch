@@ -80,3 +80,12 @@ pub struct RateLimitWindowReset {
     pub attestor: Address,
     pub window_start: u64,
 }
+
+#[contracttype]
+#[derive(Clone)]
+pub(crate) struct RoutingDecisionEvent {
+    pub anchor: Address,
+    pub strategy: String,
+    pub quote_id: u64,
+    pub ledger_sequence: u32,
+}
