@@ -42,6 +42,7 @@ impl TransactionStatus {
             "expired" => Self::Expired,
             "incomplete" => Self::Incomplete,
             "pending" => Self::Pending,
+            "error" => Self::Error,
             _ => Self::Unknown(s.to_string()),
         }
     }
@@ -533,6 +534,12 @@ mod tests {
         raw.status = "some_unknown_status".to_string();
         let resp = fetch_transaction_status(raw).unwrap();
         assert_eq!(resp.status, TransactionStatus::Unknown("some_unknown_status".to_string()));
+    }
+
+    #[test]
+    fn test_transaction_status_from_str_error() {
+        let status = TransactionStatus::from_str("error");
+        assert_eq!(status, TransactionStatus::Error);
     }
 
     #[test]
