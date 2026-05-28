@@ -99,6 +99,7 @@ pub fn is_retryable(code: u32) -> bool {
 ///
 /// A `sleep_fn` callback is provided so callers can inject real or mock sleep
 /// (avoids pulling in `std::thread::sleep` or async runtimes).
+/// The delay value passed to `sleep_fn` is in **milliseconds**.
 pub fn retry_with_backoff<T, E, F, S>(
     config: &RetryConfig,
     mut f: F,
@@ -107,7 +108,7 @@ pub fn retry_with_backoff<T, E, F, S>(
 ) -> Result<T, E>
 where
     F: FnMut(u32) -> Result<T, E>,
-    S: FnMut(u64),
+    S: FnMut(u64), // delay_ms: millisecond delay value
 {
     let mut last_err: Option<E> = None;
 
@@ -242,5 +243,23 @@ mod retry_tests {
         );
         // 3 attempts → 2 sleeps (no sleep after last attempt)
         assert_eq!(sleep_calls, 2);
+    }
+
+    #[test]
+    fn test_sleep_fn_receives_millisecond_delay() {
+        let config = RetryConfig::new(3, 100, 5000, 2);
+        let mut delays = Vec::new();
+        let _ = retry_with_backoff(
+            &config,
+            |_| Err::<i32, _>(TestError::Transient),
+            is_retryable_test,
+            |delay_ms| delays.push(delay_ms),
+        );
+        // 2 retries from 3 attempts
+        assert_eq!(delays.len(), 2);
+        // First delay is for attempt 0: 100 * 2^0 + jitter = 100 + jitter
+        assert!(delays[0] >= 100);
+        // Second delay is for attempt 1: 100 * 2^1 + jitter = 200 + jitter
+        assert!(delays[1] >= 200);
     }
 }
