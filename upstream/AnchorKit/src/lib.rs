@@ -94,3 +94,6 @@ mod replay_window_tests;
 
 #[cfg(test)]
 mod anchor_health_score_tests;
+
+#[cfg(test)]
+mod audit_log_offset_tests;
