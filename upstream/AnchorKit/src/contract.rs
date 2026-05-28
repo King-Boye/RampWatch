@@ -1808,15 +1808,18 @@ impl AnchorKitContract {
 
     fn check_session_expiry(env: &Env, session_id: u64) {
         let sess_key = StorageKey::Session(session_id);
-        if let Some(session) = env.storage().persistent().get::<_, Session>(&sess_key) {
-            let now = env.ledger().timestamp();
-            if now >= session.expires_at {
-                env.events().publish(
-                    (symbol_short!("session"), symbol_short!("expired"), session_id),
-                    SessionExpired { session_id, expired_at: now },
-                );
-                panic_with_error!(env, ErrorCode::ValidationError);
-            }
+        let session: Session = env
+            .storage()
+            .persistent()
+            .get::<_, Session>(&sess_key)
+            .unwrap_or_else(|| panic_with_error!(env, ErrorCode::SessionNotFound));
+        let now = env.ledger().timestamp();
+        if now >= session.expires_at {
+            env.events().publish(
+                (symbol_short!("session"), symbol_short!("expired"), session_id),
+                SessionExpired { session_id, expired_at: now },
+            );
+            panic_with_error!(env, ErrorCode::SessionExpired);
         }
     }
 
