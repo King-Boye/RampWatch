@@ -152,8 +152,9 @@ pub struct RoutingRequest {
 /// # Other fields
 ///
 /// - `min_reputation` — anchors with a `reputation_score` strictly below this
-///   value are excluded before strategy selection. Set to `0` (the default) to
-///   include all active anchors regardless of reputation.
+///   value are excluded before strategy selection. When `min_reputation = 0`,
+///   reputation filtering is disabled and all anchors are included regardless
+///   of their reputation score.
 /// - `max_anchors` / `require_kyc` — reserved for future filtering; not yet
 ///   enforced by the current implementation.
 #[contracttype]
