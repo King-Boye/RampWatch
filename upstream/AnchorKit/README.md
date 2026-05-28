@@ -420,11 +420,19 @@ All existing methods remain unchanged. Session features are opt-in, allowing gra
 
 AnchorKit consists of:
 
-- **Core Contract** (`src/lib.rs`) - Main contract logic
+- **Module Declarations** (`src/lib.rs`) - Declares and re-exports all public modules; contains no business logic or tests
+- **Core Contract** (`src/contract.rs`) - Main contract entry points and on-chain validation logic
 - **Storage Layer** (`src/storage.rs`) - Persistent data management
 - **Event System** (`src/events.rs`) - Event definitions and publishing
 - **Type System** (`src/types.rs`) - Data structures
 - **Error Handling** (`src/errors.rs`) - Error codes and definitions
+- **SEP-6** (`src/sep6.rs`) - Normalized deposit/withdrawal service layer
+- **Rate Limiter** (`src/rate_limiter.rs`) - Per-attestor submission throttling
+- **Retry** (`src/retry.rs`) - Configurable exponential-backoff retry for off-chain requests
+- **Domain Validator** (`src/domain_validator.rs`) - HTTPS-only anchor domain URL validation
+- **Response Validator** (`src/response_validator.rs`) - Schema validation for anchor API responses
+- **Transaction State Tracker** (`src/transaction_state_tracker.rs`) - Tracks deposit/withdrawal lifecycle states
+- **SEP-10 JWT** (`src/sep10_jwt.rs`) - Ed25519 JWT verification for SEP-10 authentication
 
 ## Security
 
@@ -456,5 +464,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 For questions or issues:
 1. Check the documentation files
 2. Review the API specification
-3. Examine the test cases in `src/lib.rs`
+3. Examine the test cases in the dedicated test files — `src/lib.rs` only declares modules, the actual tests live in files such as `src/contract_tests.rs`, `src/session_tests.rs`, `src/anchor_info_discovery_tests.rs`, `src/anchor_health_score_tests.rs`, and other `src/*_tests.rs` files
 
