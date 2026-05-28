@@ -84,6 +84,8 @@ fn parse_json_exp(payload: &[u8]) -> Result<u64, ()> {
     while i < payload.len() && payload[i].is_ascii_digit() {
         any = true;
         let d = (payload[i] - b'0') as u64;
+        // An exp value that overflows u64 is treated as a malformed token
+        // and causes verify_sep10_jwt to return Err(()) — this is intentional.
         n = n
             .checked_mul(10)
             .and_then(|x| x.checked_add(d))
@@ -388,6 +390,13 @@ mod tests {
 
         // Length 5 after padding removal: 5 % 4 == 1 — invalid
         assert!(base64url_decode(b"ABCDE").is_err());
+    }
+
+    #[test]
+    fn parse_json_exp_overflow() {
+        // exp value exceeding u64::MAX is treated as malformed
+        let payload = b"{\"exp\":99999999999999999999}";
+        assert!(parse_json_exp(payload).is_err());
     }
 
     #[test]
