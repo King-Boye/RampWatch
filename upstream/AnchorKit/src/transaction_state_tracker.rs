@@ -77,8 +77,8 @@ pub struct TransactionStateTracker {
     cache: alloc::vec::Vec<TransactionStateRecord>,
     is_dev_mode: bool,
     /// Per-state counters indexed by TransactionState discriminant (1-based).
-    /// Index 0 is unused; indices 1-4 map to Pending/InProgress/Completed/Failed.
-    state_counts: [u64; 5],
+    /// Index 0 is unused; indices 1-5 map to Pending/InProgress/Completed/Failed/Unknown.
+    state_counts: [u64; 6],
 }
 
 #[allow(dead_code)]
@@ -88,7 +88,7 @@ impl TransactionStateTracker {
         TransactionStateTracker {
             cache: alloc::vec::Vec::new(),
             is_dev_mode,
-            state_counts: [0u64; 5],
+            state_counts: [0u64; 6],
         }
     }
 
@@ -293,7 +293,7 @@ impl TransactionStateTracker {
     pub fn clear_cache(&mut self, admin: &Address, _env: &Env) -> Result<(), String> {
         if self.is_dev_mode {
             self.cache = alloc::vec::Vec::new();
-            self.state_counts = [0u64; 5];
+            self.state_counts = [0u64; 6];
             Ok(())
         } else {
             admin.require_auth();
@@ -464,10 +464,25 @@ mod tests {
         let result = tracker.get_transaction_history(1, &env);
         assert!(result.is_ok());
         let history = result.unwrap();
-        
+
         assert_eq!(history.len(), 3);
         assert_eq!(history.get(0).unwrap().state, TransactionState::Pending);
         assert_eq!(history.get(1).unwrap().state, TransactionState::InProgress);
         assert_eq!(history.get(2).unwrap().state, TransactionState::Completed);
+    }
+
+    #[test]
+    fn test_unknown_state_counter() {
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new(true);
+
+        // Verify that Unknown state (index 5) is accessible without panic
+        let count = tracker.get_transaction_count_by_state(TransactionState::Unknown);
+        assert_eq!(count, 0);
+
+        // Directly increment the Unknown state counter to simulate a transition
+        // This verifies the array is large enough
+        tracker.state_counts[TransactionState::Unknown as usize] = 1;
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::Unknown), 1);
     }
 }
