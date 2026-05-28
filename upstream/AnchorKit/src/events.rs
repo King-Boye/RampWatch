@@ -89,3 +89,11 @@ pub(crate) struct RoutingDecisionEvent {
     pub quote_id: u64,
     pub ledger_sequence: u32,
 }
+
+#[contracttype]
+#[derive(Clone)]
+pub(crate) struct QuoteExpiredEvent {
+    pub anchor: Address,
+    pub quote_id: u64,
+    pub valid_until: u64,
+}

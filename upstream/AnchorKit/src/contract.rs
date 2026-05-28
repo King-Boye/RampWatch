@@ -1512,7 +1512,17 @@ impl AnchorKitContract {
                 None => continue,
             };
 
-            if quote.valid_until <= now { continue; }
+            if quote.valid_until <= now {
+                env.events().publish(
+                    (symbol_short!("quote"),),
+                    crate::events::QuoteExpiredEvent {
+                        anchor: anchor.clone(),
+                        quote_id,
+                        valid_until: quote.valid_until,
+                    },
+                );
+                continue;
+            }
             if options.request.amount < quote.minimum_amount || options.request.amount > quote.maximum_amount {
                 continue;
             }
