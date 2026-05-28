@@ -1217,37 +1217,42 @@ impl AnchorKitContract {
         let metadata = Self::get_cached_metadata(env.clone(), anchor);
 
         // Weight constants (must sum to 100)
-        const UPTIME_WEIGHT: u32 = 40;
-        const REPUTATION_WEIGHT: u32 = 35;
-        const SPEED_WEIGHT: u32 = 25;
+        const UPTIME_WEIGHT: u64 = 40;
+        const REPUTATION_WEIGHT: u64 = 35;
+        const SPEED_WEIGHT: u64 = 25;
+        const SCALE_FACTOR: u64 = 100; // Fixed-point scaling to preserve precision
 
-        // 1. Uptime score: scale from 0-10000 to 0-100
-        let uptime_score = metadata.uptime_percentage / 100;
+        // 1. Uptime score: scale from 0-10000 to 0-100 using fixed-point arithmetic
+        // Multiply by SCALE_FACTOR before dividing to preserve decimal precision
+        let uptime_score = (metadata.uptime_percentage as u64 * SCALE_FACTOR) / 100;
 
-        // 2. Reputation score: scale from 0-10000 to 0-100
-        let reputation_score = metadata.reputation_score / 100;
+        // 2. Reputation score: scale from 0-10000 to 0-100 using fixed-point arithmetic
+        let reputation_score = (metadata.reputation_score as u64 * SCALE_FACTOR) / 100;
 
         // 3. Settlement speed score: tiered scoring based on settlement time
         let speed_score = if metadata.average_settlement_time <= 300 {
-            100 // Excellent: ≤5 minutes
+            100 * SCALE_FACTOR // Excellent: ≤5 minutes
         } else if metadata.average_settlement_time <= 600 {
-            80 // Good: 5-10 minutes
+            80 * SCALE_FACTOR // Good: 5-10 minutes
         } else if metadata.average_settlement_time <= 1800 {
-            60 // Acceptable: 10-30 minutes
+            60 * SCALE_FACTOR // Acceptable: 10-30 minutes
         } else if metadata.average_settlement_time <= 3600 {
-            40 // Slow: 30-60 minutes
+            40 * SCALE_FACTOR // Slow: 30-60 minutes
         } else {
-            20 // Very slow: >1 hour
+            20 * SCALE_FACTOR // Very slow: >1 hour
         };
 
-        // Calculate weighted health score
-        let health_score = (UPTIME_WEIGHT * uptime_score
+        // Calculate weighted health score using fixed-point arithmetic
+        // All intermediate values are scaled by SCALE_FACTOR, so divide once at the end
+        let weighted_sum = UPTIME_WEIGHT * uptime_score
             + REPUTATION_WEIGHT * reputation_score
-            + SPEED_WEIGHT * speed_score)
-            / 100;
+            + SPEED_WEIGHT * speed_score;
+        
+        // Divide by (100 * SCALE_FACTOR) to get final score: 100 for weights, SCALE_FACTOR for precision
+        let health_score = weighted_sum / (100 * SCALE_FACTOR);
 
         // Ensure score is capped at 100
-        let final_score = if health_score > 100 { 100 } else { health_score };
+        let final_score = if health_score > 100 { 100 } else { health_score as u32 };
 
         // Issue #464: enforce configurable minimum acceptable health score.
         // When key_health_threshold is set (> 0), reject anchors whose computed
