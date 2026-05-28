@@ -109,6 +109,11 @@ fn is_valid_stellar_address(s: &str) -> bool {
         && s.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
+fn is_valid_asset_code(s: &str) -> bool {
+    let len = s.len();
+    len >= 1 && len <= 12 && s.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+}
+
 /// Classifies whether an HTTP status code represents a retryable error.
 ///
 /// Returns `true` for transient errors (5xx server errors, timeouts, connection errors).
@@ -174,8 +179,18 @@ where
 
 /// Normalize a raw anchor deposit response into a canonical [`DepositResponse`].
 ///
+/// Validates that asset_code is non-empty and matches the Stellar asset code format (1-12 uppercase alphanumeric).
+///
 /// Returns `Err(Error::invalid_transaction_intent())` if required fields are missing.
-pub fn initiate_deposit(raw: RawDepositResponse) -> Result<DepositResponse, Error> {
+/// Returns `Err(Error::ValidationError)` if asset_code is invalid.
+pub fn initiate_deposit(raw: RawDepositResponse, asset_code: &str) -> Result<DepositResponse, Error> {
+    if !is_valid_asset_code(asset_code) {
+        return Err(Error::with_context(
+            ErrorCode::ValidationError,
+            "Invalid asset code format: must be 1-12 uppercase alphanumeric characters",
+            asset_code,
+        ));
+    }
     if raw.transaction_id.is_empty() || raw.how.is_empty() {
         return Err(Error::invalid_transaction_intent());
     }
@@ -209,8 +224,18 @@ pub fn initiate_deposit(raw: RawDepositResponse) -> Result<DepositResponse, Erro
 
 /// Normalize a raw anchor withdrawal response into a canonical [`WithdrawalResponse`].
 ///
+/// Validates that asset_code is non-empty and matches the Stellar asset code format (1-12 uppercase alphanumeric).
+///
 /// Returns `Err(Error::invalid_transaction_intent())` if required fields are missing.
-pub fn initiate_withdrawal(raw: RawWithdrawalResponse) -> Result<WithdrawalResponse, Error> {
+/// Returns `Err(Error::ValidationError)` if asset_code is invalid.
+pub fn initiate_withdrawal(raw: RawWithdrawalResponse, asset_code: &str) -> Result<WithdrawalResponse, Error> {
+    if !is_valid_asset_code(asset_code) {
+        return Err(Error::with_context(
+            ErrorCode::ValidationError,
+            "Invalid asset code format: must be 1-12 uppercase alphanumeric characters",
+            asset_code,
+        ));
+    }
     if raw.transaction_id.is_empty() || raw.account_id.is_empty() {
         return Err(Error::invalid_transaction_intent());
     }
@@ -360,24 +385,60 @@ mod tests {
 
     #[test]
     fn test_initiate_deposit_normalizes_response() {
-        let resp = initiate_deposit(raw_deposit()).unwrap();
+        let resp = initiate_deposit(raw_deposit(), "USDC").unwrap();
         assert_eq!(resp.transaction_id, "txn-001");
         assert_eq!(resp.status, TransactionStatus::PendingExternal);
         assert_eq!(resp.fee_fixed, Some(1));
     }
 
     #[test]
+    fn test_initiate_deposit_empty_asset_code_returns_error() {
+        let err = initiate_deposit(raw_deposit(), "").unwrap_err();
+        assert_eq!(err.code, ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn test_initiate_deposit_asset_code_too_long_returns_error() {
+        let err = initiate_deposit(raw_deposit(), "TOOLONGASSETCODE").unwrap_err();
+        assert_eq!(err.code, ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn test_initiate_deposit_asset_code_with_lowercase_returns_error() {
+        let err = initiate_deposit(raw_deposit(), "usdc").unwrap_err();
+        assert_eq!(err.code, ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn test_initiate_deposit_valid_asset_code_proceeds() {
+        let resp = initiate_deposit(raw_deposit(), "USDC").unwrap();
+        assert_eq!(resp.transaction_id, "txn-001");
+    }
+
+    #[test]
+    fn test_initiate_deposit_single_char_asset_code_accepted() {
+        let resp = initiate_deposit(raw_deposit(), "X").unwrap();
+        assert_eq!(resp.transaction_id, "txn-001");
+    }
+
+    #[test]
+    fn test_initiate_deposit_twelve_char_asset_code_accepted() {
+        let resp = initiate_deposit(raw_deposit(), "LONGASSETCOD").unwrap();
+        assert_eq!(resp.transaction_id, "txn-001");
+    }
+
+    #[test]
     fn test_initiate_deposit_missing_fields_returns_error() {
         let mut raw = raw_deposit();
         raw.transaction_id = "".to_string();
-        assert_eq!(initiate_deposit(raw), Err(Error::invalid_transaction_intent()));
+        assert_eq!(initiate_deposit(raw, "USDC"), Err(Error::invalid_transaction_intent()));
     }
 
     #[test]
     fn test_initiate_deposit_invalid_stellar_address_returns_error() {
         let mut raw = raw_deposit();
         raw.depositor_account = Some("not-a-stellar-address".to_string());
-        let err = initiate_deposit(raw).unwrap_err();
+        let err = initiate_deposit(raw, "USDC").unwrap_err();
         assert_eq!(err.code, ErrorCode::ValidationError);
     }
 
@@ -386,20 +447,20 @@ mod tests {
         let mut raw = raw_deposit();
         // 56-char G-address
         raw.depositor_account = Some("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA".to_string());
-        assert!(initiate_deposit(raw).is_ok());
+        assert!(initiate_deposit(raw, "USDC").is_ok());
     }
 
     #[test]
     fn test_initiate_deposit_defaults_status_to_pending() {
         let mut raw = raw_deposit();
         raw.status = None;
-        let resp = initiate_deposit(raw).unwrap();
+        let resp = initiate_deposit(raw, "USDC").unwrap();
         assert_eq!(resp.status, TransactionStatus::Pending);
     }
 
     #[test]
     fn test_initiate_withdrawal_normalizes_response() {
-        let resp = initiate_withdrawal(raw_withdrawal()).unwrap();
+        let resp = initiate_withdrawal(raw_withdrawal(), "USDC").unwrap();
         assert_eq!(resp.transaction_id, "txn-002");
         assert_eq!(resp.status, TransactionStatus::PendingUser);
         assert_eq!(resp.memo_type, Some("id".to_string()));
@@ -407,11 +468,29 @@ mod tests {
     }
 
     #[test]
+    fn test_initiate_withdrawal_empty_asset_code_returns_error() {
+        let err = initiate_withdrawal(raw_withdrawal(), "").unwrap_err();
+        assert_eq!(err.code, ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn test_initiate_withdrawal_asset_code_too_long_returns_error() {
+        let err = initiate_withdrawal(raw_withdrawal(), "TOOLONGASSETCODE").unwrap_err();
+        assert_eq!(err.code, ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn test_initiate_withdrawal_valid_asset_code_proceeds() {
+        let resp = initiate_withdrawal(raw_withdrawal(), "USDC").unwrap();
+        assert_eq!(resp.transaction_id, "txn-002");
+    }
+
+    #[test]
     fn test_initiate_withdrawal_missing_account_returns_error() {
         let mut raw = raw_withdrawal();
         raw.account_id = "".to_string();
         assert_eq!(
-            initiate_withdrawal(raw),
+            initiate_withdrawal(raw, "USDC"),
             Err(Error::invalid_transaction_intent())
         );
     }
