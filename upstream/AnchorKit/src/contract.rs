@@ -1615,8 +1615,37 @@ impl AnchorKitContract {
     // Anchor Info Discovery
     // -----------------------------------------------------------------------
 
-    pub fn fetch_anchor_info(env: Env, anchor: Address, toml_data: StellarToml, ttl_override: Option<u64>) {
+    pub fn fetch_anchor_info(env: Env, anchor: Address, toml_data: StellarToml, network_passphrase: String, ttl_override: Option<u64>) {
         anchor.require_auth();
+
+        // Validate network_passphrase matches a known network before caching.
+        // Prevents caching a TOML from the wrong network, which would cause
+        // SEP-10 verification to succeed against the wrong signing key.
+        let np_len = network_passphrase.len() as usize;
+        if np_len > 256 {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        let mut np_buf = [0u8; 256];
+        network_passphrase.copy_into_slice(&mut np_buf[..np_len]);
+        let np_str = core::str::from_utf8(&np_buf[..np_len]).unwrap_or("");
+
+        const MAINNET: &str = "Public Global Stellar Network ; September 2015";
+        const TESTNET: &str = "Test SDF Network ; September 2015";
+        if np_str != MAINNET && np_str != TESTNET {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+
+        // Validate that the TOML's own network_passphrase matches the supplied one.
+        let toml_np_len = toml_data.network_passphrase.len() as usize;
+        if toml_np_len > 256 {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        let mut toml_np_buf = [0u8; 256];
+        toml_data.network_passphrase.copy_into_slice(&mut toml_np_buf[..toml_np_len]);
+        let toml_np_str = core::str::from_utf8(&toml_np_buf[..toml_np_len]).unwrap_or("");
+        if toml_np_str != np_str {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
 
         // Reject non-HTTPS endpoints to prevent MITM exposure of anchor metadata.
         let ts_len = toml_data.transfer_server.len() as usize;
