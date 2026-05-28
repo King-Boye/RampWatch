@@ -1,3 +1,12 @@
+//! Transaction state tracking for off-chain SDK usage.
+//!
+//! This module provides [`TransactionStateTracker`], an **off-chain only** utility
+//! that tracks transaction state transitions in memory. It is **not backed by
+//! on-chain Soroban storage** and cannot be queried via contract methods.
+//!
+//! Use this tracker in your client SDK to maintain local state of transaction
+//! lifecycle without storing state on the blockchain.
+
 use soroban_sdk::{contracttype, Address, Env, String};
 
 /// Transaction states for the state tracker
@@ -56,7 +65,12 @@ pub struct TransactionStateRecord {
     pub history: soroban_sdk::Vec<StateTransition>,
 }
 
-/// Transaction state tracker
+/// Off-chain transaction state tracker.
+///
+/// This type operates entirely in memory and is **not backed by on-chain storage**.
+/// It is suitable for client-side SDK usage to track transaction state locally
+/// during its lifecycle, but state is not persisted to or queryable from the
+/// Soroban contract.
 #[derive(Clone)]
 #[allow(dead_code)]
 pub struct TransactionStateTracker {
