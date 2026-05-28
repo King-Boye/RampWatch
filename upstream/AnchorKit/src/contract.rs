@@ -282,18 +282,41 @@ impl AnchorKitContract {
     // Attestor management
     // -----------------------------------------------------------------------
 
-    pub fn set_sep10_jwt_verifying_key(env: Env, issuer: Address, public_key: Bytes) {
+    pub fn upsert_sep10_verifying_key(env: Env, issuer: Address, public_key: Bytes) {
         Self::require_admin(&env);
         if public_key.len() != 32 {
             panic_with_error!(&env, ErrorCode::ValidationError);
         }
-        let mut keys: Vec<Bytes> = Vec::new(&env);
-        keys.push_back(public_key);
         let storage_key = StorageKey::Sep10Key(issuer.clone());
+        let mut keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&storage_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        // Replace in-place if the key already exists; otherwise append.
+        let mut found = false;
+        for i in 0..keys.len() {
+            if keys.get(i).unwrap() == public_key {
+                keys.set(i, public_key.clone());
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            if keys.len() >= sep10_jwt::MAX_VERIFYING_KEYS {
+                panic_with_error!(&env, ErrorCode::ValidationError);
+            }
+            keys.push_back(public_key);
+        }
         env.storage().persistent().set(&storage_key, &keys);
         env.storage()
             .persistent()
             .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
+    }
+
+    /// Deprecated alias kept for backward compatibility. Use `upsert_sep10_verifying_key` instead.
+    pub fn set_sep10_jwt_verifying_key(env: Env, issuer: Address, public_key: Bytes) {
+        Self::upsert_sep10_verifying_key(env, issuer, public_key);
     }
 
     pub fn add_sep10_verifying_key(env: Env, issuer: Address, public_key: Bytes) {
@@ -707,6 +730,18 @@ impl AnchorKitContract {
     // -----------------------------------------------------------------------
 
     pub fn compute_payload_hash(env: Env, subject: Address, timestamp: u64, data: Bytes) -> BytesN<32> {
+        compute_payload_hash(&env, &subject, timestamp, &data)
+    }
+
+    /// Compute the canonical payload hash via the contract method.
+    ///
+    /// Off-chain callers should prefer this method over calling
+    /// `deterministic_hash::compute_payload_hash` directly. Going through the
+    /// Soroban host environment ensures that `Address` XDR serialisation uses
+    /// the same host-side encoding as on-chain attestation submission, avoiding
+    /// divergence that can occur when the module function is called outside the
+    /// host context.
+    pub fn compute_payload_hash_public(env: Env, subject: Address, timestamp: u64, data: Bytes) -> BytesN<32> {
         compute_payload_hash(&env, &subject, timestamp, &data)
     }
 
@@ -1786,7 +1821,10 @@ impl AnchorKitContract {
         let inst = env.storage().instance();
         let ck = key_counter(env);
         let id: u64 = inst.get(&ck).unwrap_or(0u64);
-        let next = id.checked_add(1).unwrap_or_else(|| panic_with_error!(env, ErrorCode::ValidationError));
+        let next = id.saturating_add(1);
+        if next == u64::MAX {
+            panic_with_error!(env, ErrorCode::AttestationLimitReached);
+        }
         inst.set(&ck, &next);
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
         id

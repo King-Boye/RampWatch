@@ -51,6 +51,7 @@ pub enum ErrorCode {
     UnauthorizedProposeAdmin = 52,
     NoPendingAdmin = 53,
     NotPendingAdmin = 54,
+    AttestationLimitReached = 55,
 }
 
 impl ErrorCode {
@@ -83,6 +84,7 @@ impl ErrorCode {
             ErrorCode::UnauthorizedProposeAdmin => "A pending admin proposal already exists",
             ErrorCode::NoPendingAdmin => "No pending admin transfer found",
             ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
+            ErrorCode::AttestationLimitReached => "Attestation ID counter has reached u64::MAX",
         }
     }
 
