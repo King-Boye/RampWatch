@@ -409,6 +409,10 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::AttestorNotRegistered);
         }
         env.storage().persistent().remove(&key);
+        // Mark the attestor as revoked so historical attestations surface issuer_revoked=true.
+        let revoked_key = StorageKey::AttestorRevoked(attestor.clone());
+        env.storage().persistent().set(&revoked_key, &true);
+        env.storage().persistent().extend_ttl(&revoked_key, PERSISTENT_TTL, PERSISTENT_TTL);
         env.events().publish(
             (symbol_short!("attestor"), symbol_short!("revoked")),
             AttestorRevoked(attestor),
@@ -667,9 +671,14 @@ impl AnchorKitContract {
     // -----------------------------------------------------------------------
 
     pub fn get_attestation(env: Env, id: u64) -> Option<Attestation> {
-        env.storage()
+        let mut attestation = env.storage()
             .persistent()
-            .get::<_, Attestation>(&StorageKey::Attest(id))
+            .get::<_, Attestation>(&StorageKey::Attest(id))?;
+        // Reflect current revocation status without rewriting every stored attestation.
+        if env.storage().persistent().has(&StorageKey::AttestorRevoked(attestation.issuer.clone())) {
+            attestation.issuer_revoked = true;
+        }
+        Some(attestation)
     }
 
     pub fn list_attestations(env: Env, subject: Address, offset: u64, limit: u32) -> Vec<Attestation> {
@@ -693,7 +702,10 @@ impl AnchorKitContract {
             let index_key = StorageKey::SubjectAttestation(subject.clone(), i);
             if let Some(attestation_id) = env.storage().persistent().get::<_, u64>(&index_key) {
                 let main_key = StorageKey::Attest(attestation_id);
-                if let Some(attestation) = env.storage().persistent().get::<_, Attestation>(&main_key) {
+                if let Some(mut attestation) = env.storage().persistent().get::<_, Attestation>(&main_key) {
+                    if env.storage().persistent().has(&StorageKey::AttestorRevoked(attestation.issuer.clone())) {
+                        attestation.issuer_revoked = true;
+                    }
                     results.push_back(attestation);
                 }
             }
@@ -1006,6 +1018,10 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::AttestorNotRegistered);
         }
         env.storage().persistent().remove(&key);
+        // Mark the attestor as revoked so historical attestations surface issuer_revoked=true.
+        let revoked_key = StorageKey::AttestorRevoked(attestor.clone());
+        env.storage().persistent().set(&revoked_key, &true);
+        env.storage().persistent().extend_ttl(&revoked_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         let sopcnt_key = StorageKey::SessionOpCount(session_id);
         let op_index: u64 = env.storage().persistent().get(&sopcnt_key).unwrap_or(0u64);
@@ -1822,6 +1838,7 @@ impl AnchorKitContract {
             timestamp,
             payload_hash,
             signature,
+            issuer_revoked: false,
         };
         let key = StorageKey::Attest(id);
         env.storage().persistent().set(&key, &attestation);

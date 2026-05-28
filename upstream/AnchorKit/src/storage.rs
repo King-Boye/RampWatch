@@ -13,6 +13,10 @@ pub enum StorageKey {
     Sep10Key(Address),
     /// Whether an address is a registered attestor (persistent).
     Attestor(Address),
+    /// Revocation marker for an attestor — present when the attestor has been
+    /// revoked. Used by `get_attestation` to populate `issuer_revoked` without
+    /// rewriting every stored attestation (persistent).
+    AttestorRevoked(Address),
     /// HTTPS endpoint URL for an attestor (persistent).
     Endpoint(Address),
     /// Supported services record for an anchor (persistent).
