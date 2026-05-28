@@ -1865,58 +1865,47 @@ impl AnchorKitContract {
     /// # Panics
     ///
     /// Panics with `ErrorCode::UnauthorizedAttestor` if no valid signature is found.
-    fn verify_attestation_signature(
-        env: &Env,
-        issuer: &Address,
-        payload_hash: &Bytes,
-        signature: &Bytes,
-    ) {
-        let keys: Vec<Bytes> = env
-            .storage()
-            .persistent()
-            .get(&StorageKey::Sep10Key(issuer.clone()))
-            .unwrap_or_else(|| panic_with_error!(env, ErrorCode::UnauthorizedAttestor));
+    // Verifies that the attestation signature is valid for the given payload hash
+// using any of the public keys registered for the issuer.
+//
+// # Panics
+//
+// Panics with `ErrorCode::UnauthorizedAttestor` if no valid signature is found.
+fn verify_attestation_signature(
+    env: &Env,
+    issuer: &Address,
+    payload_hash: &Bytes,
+    signature: &Bytes,
+) {
+    // Retrieve the list of registered public keys for the issuer.
+    let keys: Vec<Bytes> = env
+        .storage()
+        .persistent()
+        .get(&StorageKey::Sep10Key(issuer.clone()))
+        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::UnauthorizedAttestor));
 
-        let sig_n: BytesN<64> = signature.clone().try_into().unwrap_or_else(|_| {
-            panic_with_error!(env, ErrorCode::UnauthorizedAttestor)
-        });
+    // Convert signature to the fixed-size BytesN<64> expected by env.crypto().ed25519_verify.
+    let sig_n: BytesN<64> = signature.clone().try_into().unwrap_or_else(|_| {
+        panic_with_error!(env, ErrorCode::UnauthorizedAttestor)
+    });
 
-        let mut verified = false;
-        let mut matching_key: Option<BytesN<32>> = None;
-
-        let mut sig_arr = [0u8; 64];
-        sig_n.copy_into_slice(&mut sig_arr);
-        let dalek_sig = ed25519_dalek::Signature::from_bytes(&sig_arr);
-
-        let mut payload_arr = [0u8; 32];
-        if payload_hash.len() == 32 {
-            payload_hash.copy_into_slice(&mut payload_arr);
-            for i in 0..keys.len() {
-                let key = keys.get(i).unwrap();
-                if key.len() == 32 {
-                    let mut pk_arr = [0u8; 32];
-                    key.copy_into_slice(&mut pk_arr);
-                    if let Ok(vk) = ed25519_dalek::VerifyingKey::from_bytes(&pk_arr) {
-                        use ed25519_dalek::Verifier;
-                        if vk.verify(&payload_arr, &dalek_sig).is_ok() {
-                            verified = true;
-                            if let Ok(k) = key.try_into() {
-                                matching_key = Some(k);
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
+    // Attempt verification with each stored public key.
+    for key in keys.iter() {
+        if key.len() != 32 {
+            continue; // Skip malformed keys.
         }
-
-        if !verified || matching_key.is_none() {
-            panic_with_error!(env, ErrorCode::UnauthorizedAttestor);
+        // Convert the key to BytesN<32>.
+        let pk_n: BytesN<32> = key.clone().try_into().unwrap();
+        // Use the host environment's crypto verification.
+        if env.crypto().ed25519_verify(&pk_n, payload_hash, &sig_n) {
+            // Successful verification; exit the function.
+            return;
         }
-
-        // Fulfill the requirement of using env.crypto()
-        env.crypto().ed25519_verify(&matching_key.unwrap(), payload_hash, &sig_n);
     }
+
+    // If we reach this point, no key verified the signature.
+    panic_with_error!(env, ErrorCode::UnauthorizedAttestor);
+}
 }
 
 pub fn get_endpoint(env: Env, attestor: Address) -> String {
