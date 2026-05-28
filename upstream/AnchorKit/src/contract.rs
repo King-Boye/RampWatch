@@ -1178,12 +1178,14 @@ impl AnchorKitContract {
     }
 
     /// Issue #260: returns seconds elapsed since the metadata cache entry was written,
-    /// or `None` if no cache entry exists for the anchor.
-    pub fn get_cache_age_seconds(env: Env, anchor: Address) -> Option<u64> {
+    /// or `Err(CacheNotFound)` if no cache entry exists for the anchor.
+    /// `Ok(0)` means the entry was just cached at the current ledger timestamp.
+    pub fn get_cache_age_seconds(env: Env, anchor: Address) -> Result<u64, ErrorCode> {
         let key = StorageKey::MetadataCache(anchor);
-        let entry: MetadataCache = env.storage().temporary().get(&key)?;
+        let entry: MetadataCache = env.storage().temporary().get(&key)
+            .ok_or(ErrorCode::CacheNotFound)?;
         let now = env.ledger().timestamp();
-        Some(now.saturating_sub(entry.cached_at))
+        Ok(now.saturating_sub(entry.cached_at))
     }
 
     // #272: return the cached data so callers avoid a second storage read.
