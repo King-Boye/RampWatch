@@ -37,6 +37,12 @@ pub fn base64url_decode(input: &[u8]) -> Result<Vec<u8>, ()> {
         }
         &input[..end]
     };
+
+    // Invalid base64 if length mod 4 equals 1 after padding removal.
+    if input.len() % 4 == 1 {
+        return Err(());
+    }
+
     let mut out: Vec<u8> = Vec::new();
     let mut buffer: u32 = 0;
     let mut bits: u32 = 0;
@@ -371,6 +377,17 @@ mod tests {
 
         // Invalid character should still error
         assert!(base64url_decode(b"SGVs!G8").is_err());
+    }
+
+    #[test]
+    fn base64url_rejects_invalid_padding_length() {
+        // Length 1 after padding removal: 1 % 4 == 1 — invalid
+        assert!(base64url_decode(b"A").is_err());
+        assert!(base64url_decode(b"A=").is_err());
+        assert!(base64url_decode(b"A==").is_err());
+
+        // Length 5 after padding removal: 5 % 4 == 1 — invalid
+        assert!(base64url_decode(b"ABCDE").is_err());
     }
 
     #[test]
