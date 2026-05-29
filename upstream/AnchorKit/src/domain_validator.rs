@@ -69,17 +69,53 @@ pub fn validate_anchor_domain(domain: &str) -> Result<(), AnchorKitError> {
         Some(h) if !h.is_empty() => h,
         _ => return Err(AnchorKitError::invalid_endpoint_format()),
     };
-    
+
     // Remove query parameters and fragments from host
-    let host = host_with_query
+    let host_with_port = host_with_query
         .split('?').next().unwrap_or(host_with_query)
         .split('#').next().unwrap_or(host_with_query);
+
+    // Parse host and port separately — extract just the host for validation
+    let host = if let Some(colon_pos) = host_with_port.rfind(':') {
+        // Validate port number before extracting just the host
+        let port_str = &host_with_port[colon_pos + 1..];
+        if port_str.is_empty() {
+            return Err(AnchorKitError::invalid_endpoint_format());
+        }
+
+        // Check if port is numeric
+        for c in port_str.chars() {
+            if !c.is_ascii_digit() {
+                return Err(AnchorKitError::invalid_endpoint_format());
+            }
+        }
+
+        // Validate port range (1-65535); reject port 80 since this validator
+        // is HTTPS-only and port 80 is the HTTP default — not a valid HTTPS port.
+        if let Ok(port) = port_str.parse::<u32>() {
+            if port == 0 || port > 65535 {
+                return Err(AnchorKitError::invalid_endpoint_format());
+            }
+            if port == 80 {
+                return Err(AnchorKitError::invalid_endpoint_format());
+            }
+        } else {
+            return Err(AnchorKitError::invalid_endpoint_format());
+        }
+
+        &host_with_port[..colon_pos]
+    } else {
+        host_with_port
+    };
 
     // Validate host structure
     validate_host(host)?;
 
     // Check for invalid characters in the full URL
     validate_url_characters(domain)?;
+
+    // Check for path traversal sequences
+    validate_path_traversal(domain)?;
 
     Ok(())
 }
@@ -106,38 +142,9 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
         return Err(AnchorKitError::invalid_endpoint_format());
     }
 
-    // Check for port specification (optional)
-    let domain_without_port = if let Some(colon_pos) = host.rfind(':') {
-        // Validate port number
-        let port_str = &host[colon_pos + 1..];
-        if port_str.is_empty() {
-            return Err(AnchorKitError::invalid_endpoint_format());
-        }
-        
-        // Check if port is numeric
-        for c in port_str.chars() {
-            if !c.is_ascii_digit() {
-                return Err(AnchorKitError::invalid_endpoint_format());
-            }
-        }
-        
-        // Validate port range (1-65535); reject port 80 since this validator
-        // is HTTPS-only and port 80 is the HTTP default — not a valid HTTPS port.
-        if let Ok(port) = port_str.parse::<u32>() {
-            if port == 0 || port > 65535 {
-                return Err(AnchorKitError::invalid_endpoint_format());
-            }
-            if port == 80 {
-                return Err(AnchorKitError::invalid_endpoint_format());
-            }
-        } else {
-            return Err(AnchorKitError::invalid_endpoint_format());
-        }
-        
-        &host[..colon_pos]
-    } else {
-        host
-    };
+    // Port validation and separation is done in validate_anchor_domain,
+    // so host should not contain a port here.
+    let domain_without_port = host;
 
     // Check for valid domain structure
     if domain_without_port.is_empty() {
@@ -241,6 +248,68 @@ fn validate_url_characters(url: &str) -> Result<(), AnchorKitError> {
         }
     }
     Ok(())
+}
+
+/// Validates for path traversal sequences in the URL path
+fn validate_path_traversal(url: &str) -> Result<(), AnchorKitError> {
+    let domain_part = &url[8..]; // Skip "https://"
+
+    // Extract path (everything after the first '/')
+    let path = if let Some(slash_pos) = domain_part.find('/') {
+        &domain_part[slash_pos..]
+    } else {
+        // No path component, safe
+        return Ok(());
+    };
+
+    // Check raw path for literal .. segments
+    if path.contains("/../") || path.starts_with("../") || path.ends_with("/..") {
+        return Err(AnchorKitError::path_traversal_detected());
+    }
+
+    // Check for percent-encoded variants: %2E%2E (..in encoded form) and %2F (/ in encoded form)
+    // Patterns to detect: %2E%2E (encoded ..), %2F..%2F (encoded /.../), variations
+    if path.contains("%2E%2E") || path.contains("%2e%2e") {
+        return Err(AnchorKitError::path_traversal_detected());
+    }
+
+    if path.contains("%2F..%2F") || path.contains("%2f..%2f") ||
+       path.contains("%2F..%2f") || path.contains("%2f..%2F") {
+        return Err(AnchorKitError::path_traversal_detected());
+    }
+
+    // Attempt to decode the path and check again
+    // Since we're in a no-std environment (alloc), we'll manually decode
+    // Look for %2E%2E and %2F patterns that could form traversals when decoded
+    let decoded = percent_decode_simple(path);
+    if decoded.contains("/../") || decoded.starts_with("../") || decoded.ends_with("/..") {
+        return Err(AnchorKitError::path_traversal_detected());
+    }
+
+    Ok(())
+}
+
+/// Simple percent-decoder for common URL-encoded characters
+fn percent_decode_simple(s: &str) -> alloc::string::String {
+    use alloc::string::String;
+    let mut result = String::new();
+    let bytes = s.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(hex_str) = core::str::from_utf8(&bytes[i+1..i+3]) {
+                if let Ok(byte_val) = u8::from_str_radix(hex_str, 16) {
+                    result.push(byte_val as char);
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        result.push(bytes[i] as char);
+        i += 1;
+    }
+    result
 }
 
 #[cfg(test)]
@@ -609,12 +678,58 @@ mod tests {
         assert!(validate_anchor_domain("https://a-b-c.example.com").is_ok());
         assert!(validate_anchor_domain("https://123-456.example.com").is_ok());
         assert!(validate_anchor_domain("https://a1b2c3.example.com").is_ok());
-        
+
         // Invalid labels
         assert!(validate_anchor_domain("https://-abc.example.com").is_err());
         assert!(validate_anchor_domain("https://abc-.example.com").is_err());
         assert!(validate_anchor_domain("https://a--b.example.com").is_ok()); // Double hyphens allowed in middle
         assert!(validate_anchor_domain("https://.example.com").is_err());
         assert!(validate_anchor_domain("https://example..com").is_err());
+    }
+
+    #[test]
+    fn test_path_traversal_literal_sequences() {
+        // Reject URLs with /../ in path
+        assert!(validate_anchor_domain("https://example.com/../admin").is_err());
+        assert!(validate_anchor_domain("https://example.com/path/../secret").is_err());
+        assert!(validate_anchor_domain("https://example.com/api/v1/../v2/endpoint").is_err());
+
+        // Leading ../ and trailing /.. should be rejected
+        assert!(validate_anchor_domain("https://example.com/../").is_err());
+        assert!(validate_anchor_domain("https://example.com/path/..").is_err());
+    }
+
+    #[test]
+    fn test_path_traversal_percent_encoded() {
+        // Reject URLs with %2E%2E (encoded ..)
+        assert!(validate_anchor_domain("https://example.com/path%2E%2Esecret").is_err());
+        assert!(validate_anchor_domain("https://example.com/%2E%2Eadmin").is_err());
+
+        // Case insensitive - %2e%2e should also be rejected
+        assert!(validate_anchor_domain("https://example.com/path%2e%2esecret").is_err());
+        assert!(validate_anchor_domain("https://example.com/%2e%2e/admin").is_err());
+    }
+
+    #[test]
+    fn test_path_traversal_encoded_slashes() {
+        // Reject %2F..%2F patterns (encoded /./)
+        assert!(validate_anchor_domain("https://example.com/path%2F..%2Fother").is_err());
+        assert!(validate_anchor_domain("https://example.com/%2F..%2F").is_err());
+
+        // Case insensitive variants
+        assert!(validate_anchor_domain("https://example.com/%2f..%2f").is_err());
+        assert!(validate_anchor_domain("https://example.com/%2F..%2f").is_err());
+        assert!(validate_anchor_domain("https://example.com/%2f..%2F").is_err());
+    }
+
+    #[test]
+    fn test_clean_paths_still_pass() {
+        // Normal clean paths should still be allowed
+        assert!(validate_anchor_domain("https://example.com").is_ok());
+        assert!(validate_anchor_domain("https://example.com/").is_ok());
+        assert!(validate_anchor_domain("https://example.com/api/v1/endpoint").is_ok());
+        assert!(validate_anchor_domain("https://example.com/path/to/resource").is_ok());
+        assert!(validate_anchor_domain("https://example.com/sep6").is_ok());
+        assert!(validate_anchor_domain("https://example.com/path%20with%20spaces").is_ok());
     }
 }

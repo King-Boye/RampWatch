@@ -98,7 +98,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let toml = client.get_anchor_toml(&anchor);
         assert_eq!(toml.version, String::from_str(&env, "2.0.0"));
@@ -129,7 +129,7 @@ mod anchor_info_discovery_tests {
             web_auth_endpoint: String::from_str(&env, "https://auth.example.com"),
         };
 
-        client.fetch_anchor_info(&anchor, &toml_no_key, &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &toml_no_key, &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let toml = client.get_anchor_toml(&anchor);
         assert_eq!(toml.signing_key, None);
@@ -141,7 +141,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let toml = client.get_anchor_toml(&anchor);
         assert_eq!(toml.network_passphrase, String::from_str(&env, "Test SDF Network ; September 2015"));
@@ -164,7 +164,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 1000);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(1u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(1u64));
 
         set_ledger(&env, 1002);
         let result = client.try_get_anchor_toml(&anchor);
@@ -179,7 +179,7 @@ mod anchor_info_discovery_tests {
 
         // Override TTL to 7200s; cache should still be valid at timestamp 5000
         // (1000 + 7200 = 8200 > 5000)
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(7200u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(7200u64));
         set_ledger(&env, 5000);
         assert!(client.try_get_anchor_toml(&anchor).is_ok(), "cache should be valid within custom TTL");
 
@@ -190,7 +190,7 @@ mod anchor_info_discovery_tests {
         // None falls back to default 3600s TTL
         let anchor2 = Address::generate(&env);
         set_ledger(&env, 1000);
-        client.fetch_anchor_info(&anchor2, &sample_toml(&env), &None);
+        client.fetch_anchor_info(&anchor2, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &None);
         set_ledger(&env, 5000);
         assert!(client.try_get_anchor_toml(&anchor2).is_err(), "default 3600s TTL should expire at 5000");
     }
@@ -201,7 +201,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let assets = client.get_anchor_assets(&anchor);
         assert_eq!(assets.len(), 2);
@@ -215,7 +215,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let info = client.get_anchor_asset_info(&anchor, &String::from_str(&env, "USDC"));
         assert_eq!(info.issuer, String::from_str(&env, "GABC123"));
@@ -228,7 +228,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let result = client.try_get_anchor_asset_info(&anchor, &String::from_str(&env, "BTC"));
         assert!(result.is_err());
@@ -255,7 +255,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let (min, max) = client.get_anchor_deposit_limits(&anchor, &String::from_str(&env, "USDC"));
         assert_eq!(min, 1000);
@@ -279,7 +279,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let (min, max) = client.get_anchor_withdrawal_limits(&anchor, &String::from_str(&env, "USDC"));
         assert_eq!(min, 500);
@@ -303,7 +303,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let (fixed, percent) = client.get_anchor_deposit_fees(&anchor, &String::from_str(&env, "USDC"));
         assert_eq!(fixed, 100);
@@ -316,7 +316,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let (fixed, percent) = client.get_anchor_withdrawal_fees(&anchor, &String::from_str(&env, "USDC"));
         assert_eq!(fixed, 50);
@@ -329,7 +329,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         assert!(client.anchor_supports_deposits(&anchor, &String::from_str(&env, "USDC")));
     }
@@ -340,7 +340,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         assert!(client.anchor_supports_withdrawals(&anchor, &String::from_str(&env, "USDC")));
     }
@@ -351,7 +351,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
         let _ = client.get_anchor_toml(&anchor);
 
         client.refresh_anchor_info(&anchor, &true);
@@ -367,7 +367,7 @@ mod anchor_info_discovery_tests {
         let (client, anchor) = setup(&env);
 
         // Cache with 3600s TTL
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
         
         // At 2000, still valid
         set_ledger(&env, 2000);
@@ -392,7 +392,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let usdc_info = client.get_anchor_asset_info(&anchor, &String::from_str(&env, "USDC"));
         let xlm_info = client.get_anchor_asset_info(&anchor, &String::from_str(&env, "XLM"));
@@ -407,7 +407,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let info = client.get_anchor_asset_info(&anchor, &String::from_str(&env, "XLM"));
         assert_eq!(info.issuer, String::from_str(&env, "native"));
@@ -453,8 +453,8 @@ mod anchor_info_discovery_tests {
             web_auth_endpoint: String::from_str(&env, "https://auth2.example.com"),
         };
 
-        client.fetch_anchor_info(&anchor1, &sample_toml(&env), &Some(3600u64));
-        client.fetch_anchor_info(&anchor2, &toml2, &Some(3600u64));
+        client.fetch_anchor_info(&anchor1, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
+        client.fetch_anchor_info(&anchor2, &toml2, &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let info1 = client.get_anchor_asset_info(&anchor1, &String::from_str(&env, "USDC"));
         let info2 = client.get_anchor_asset_info(&anchor2, &String::from_str(&env, "USDC"));
@@ -471,7 +471,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let (dep_min, dep_max) = client.get_anchor_deposit_limits(&anchor, &String::from_str(&env, "USDC"));
         let (wit_min, wit_max) = client.get_anchor_withdrawal_limits(&anchor, &String::from_str(&env, "USDC"));
@@ -490,7 +490,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let (dep_fixed, dep_pct) = client.get_anchor_deposit_fees(&anchor, &String::from_str(&env, "USDC"));
         let (wit_fixed, wit_pct) = client.get_anchor_withdrawal_fees(&anchor, &String::from_str(&env, "USDC"));
@@ -508,7 +508,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         // USDC and XLM both use 7 decimals on Stellar (the default)
         let usdc = client.get_anchor_asset_info(&anchor, &String::from_str(&env, "USDC"));
@@ -549,7 +549,7 @@ mod anchor_info_discovery_tests {
             web_auth_endpoint: String::from_str(&env, "https://auth.example.com"),
         };
         let anchor2 = Address::generate(&env);
-        client.fetch_anchor_info(&anchor2, &toml_btc, &Some(3600u64));
+        client.fetch_anchor_info(&anchor2, &toml_btc, &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
         let btcln = client.get_anchor_asset_info(&anchor2, &String::from_str(&env, "BTCLN"));
         assert_eq!(btcln.decimals, 8);
     }
@@ -561,7 +561,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         // XLM asset has fee_fixed = 0 and fee_percent = 0 (see xlm_asset helper)
         let (dep_fixed, dep_pct) = client.get_anchor_deposit_fees(&anchor, &String::from_str(&env, "XLM"));
@@ -585,12 +585,18 @@ mod anchor_info_discovery_tests {
             name: String::from_str(&env, "US Dollar"),
             deposit_enabled: true,
             withdrawal_enabled: true,
+            country_code: Some(String::from_str(&env, "USA")),
+            desc: None,
+            display_decimals: Some(2),
         });
         fiat.push_back(FiatCurrency {
             code: String::from_str(&env, "EUR"),
             name: String::from_str(&env, "Euro"),
             deposit_enabled: true,
             withdrawal_enabled: false,
+            country_code: None,
+            desc: None,
+            display_decimals: None,
         });
 
         let mut currencies = Vec::new(&env);
@@ -611,7 +617,7 @@ mod anchor_info_discovery_tests {
             web_auth_endpoint: String::from_str(&env, "https://auth.example.com"),
         };
 
-        client.fetch_anchor_info(&anchor, &toml, &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &toml, &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let result = client.get_anchor_currencies(&anchor);
         assert_eq!(result.len(), 2);
@@ -634,9 +640,90 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        client.fetch_anchor_info(&anchor, &sample_toml(&env), &Some(3600u64));
+        client.fetch_anchor_info(&anchor, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
 
         let result = client.get_anchor_currencies(&anchor);
         assert_eq!(result.len(), 0, "sample_toml has no fiat currencies");
+    }
+
+    // --- Issue #498: network_passphrase validation ---
+
+    #[test]
+    fn test_fetch_anchor_info_testnet_passphrase_accepted() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        let result = client.try_fetch_anchor_info(
+            &anchor,
+            &sample_toml(&env),
+            &String::from_str(&env, "Test SDF Network ; September 2015"),
+            &Some(3600u64),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_fetch_anchor_info_mainnet_passphrase_accepted() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        let mut currencies = Vec::new(&env);
+        currencies.push_back(usdc_asset(&env));
+        let mut accounts = Vec::new(&env);
+        accounts.push_back(String::from_str(&env, "GANCHOR1"));
+
+        let mainnet_toml = StellarToml {
+            version: String::from_str(&env, "2.0.0"),
+            network_passphrase: String::from_str(&env, "Public Global Stellar Network ; September 2015"),
+            accounts,
+            signing_key: None,
+            currencies,
+            fiat_currencies: Vec::new(&env),
+            transfer_server: String::from_str(&env, "https://api.example.com"),
+            transfer_server_sep0024: String::from_str(&env, "https://api.example.com/sep24"),
+            kyc_server: String::from_str(&env, "https://kyc.example.com"),
+            web_auth_endpoint: String::from_str(&env, "https://auth.example.com"),
+        };
+
+        let result = client.try_fetch_anchor_info(
+            &anchor,
+            &mainnet_toml,
+            &String::from_str(&env, "Public Global Stellar Network ; September 2015"),
+            &Some(3600u64),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_fetch_anchor_info_unknown_passphrase_rejected() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        let result = client.try_fetch_anchor_info(
+            &anchor,
+            &sample_toml(&env),
+            &String::from_str(&env, "Some Unknown Network ; January 2024"),
+            &Some(3600u64),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fetch_anchor_info_mismatched_passphrase_rejected() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        // TOML has testnet passphrase but caller supplies mainnet — must be rejected
+        let result = client.try_fetch_anchor_info(
+            &anchor,
+            &sample_toml(&env),
+            &String::from_str(&env, "Public Global Stellar Network ; September 2015"),
+            &Some(3600u64),
+        );
+        assert!(result.is_err());
     }
 }

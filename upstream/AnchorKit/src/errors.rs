@@ -93,11 +93,12 @@ pub enum ErrorCode {
     CacheExpired = 48,
     CacheNotFound = 49,
     AuditLogMaxSizeInvalid = 51,
-    UnauthorizedProposeAdmin = 52,
+    PendingAdminAlreadyExists = 52,
     NoPendingAdmin = 53,
     NotPendingAdmin = 54,
     SessionNotFound = 55,
     SessionExpired = 56,
+    MissingSigningKey = 57,
 }
 
 impl ErrorCode {
@@ -127,11 +128,12 @@ impl ErrorCode {
             ErrorCode::CacheExpired => "Cache entry has expired",
             ErrorCode::CacheNotFound => "Cache entry not found",
             ErrorCode::AuditLogMaxSizeInvalid => "max_audit_log_size must be at least 1",
-            ErrorCode::UnauthorizedProposeAdmin => "A pending admin proposal already exists",
+            ErrorCode::PendingAdminAlreadyExists => "An admin transfer is already pending",
             ErrorCode::NoPendingAdmin => "No pending admin transfer found",
             ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
             ErrorCode::SessionNotFound => "Session not found",
             ErrorCode::SessionExpired => "Session has expired",
+            ErrorCode::MissingSigningKey => "Anchor TOML does not publish a signing key",
         }
     }
 
@@ -220,6 +222,7 @@ impl AnchorKitError {
     pub fn storage_corrupted() -> Self { Self::from_code(ErrorCode::StorageCorrupted) }
     pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
     pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
+    pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
 
     pub fn validation_error(context: &str) -> Self {
         Self::with_context(ErrorCode::ValidationError, ErrorCode::ValidationError.default_message(), context)
@@ -240,11 +243,8 @@ impl core::fmt::Display for AnchorKitError {
 // no-std / WASM implementation — zero heap allocation
 // ---------------------------------------------------------------------------
 
-#[cfg(not(feature = "std"))]
-impl AnchorKitError {
-    /// Create an error from a code using its static default message.
-    pub fn from_code(code: ErrorCode) -> Self {
-        AnchorKitError { code, message: code.default_message(), context: None }
+    pub fn cache_not_found() -> Self {
+        Self::from_code(ErrorCode::CacheNotFound)
     }
 
     pub fn already_initialized() -> Self { Self::from_code(ErrorCode::AlreadyInitialized) }
@@ -268,6 +268,7 @@ impl AnchorKitError {
     pub fn storage_corrupted() -> Self { Self::from_code(ErrorCode::StorageCorrupted) }
     pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
     pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
+    pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
     pub fn validation_error(_context: &str) -> Self { Self::from_code(ErrorCode::ValidationError) }
 }
 
@@ -340,6 +341,10 @@ mod tests {
         assert_eq!(AnchorKitError::invalid_sep10_token().code, ErrorCode::InvalidSep10Token);
         assert_eq!(AnchorKitError::cache_expired().code, ErrorCode::CacheExpired);
         assert_eq!(AnchorKitError::cache_not_found().code, ErrorCode::CacheNotFound);
+        assert_eq!(AnchorKitError::audit_log_max_size_invalid().code, ErrorCode::AuditLogMaxSizeInvalid);
+        assert_eq!(AnchorKitError::unauthorized_propose_admin().code, ErrorCode::UnauthorizedProposeAdmin);
+        assert_eq!(AnchorKitError::no_pending_admin().code, ErrorCode::NoPendingAdmin);
+        assert_eq!(AnchorKitError::not_pending_admin().code, ErrorCode::NotPendingAdmin);
     }
 
     #[test]
@@ -353,9 +358,10 @@ mod tests {
     fn test_error_code_default_messages_are_non_empty() {
 let codes = [
             ErrorCode::AlreadyInitialized,
-            ErrorCode::UnauthorizedProposeAdmin,
+            ErrorCode::PendingAdminAlreadyExists,
             ErrorCode::NoPendingAdmin,
             ErrorCode::NotPendingAdmin,
+            ErrorCode::InvalidStrategy,
             ErrorCode::AttestorAlreadyRegistered,
             ErrorCode::AttestorNotRegistered,
             ErrorCode::UnauthorizedAttestor,
@@ -379,6 +385,7 @@ let codes = [
             ErrorCode::CacheNotFound,
             ErrorCode::SessionNotFound,
             ErrorCode::SessionExpired,
+            ErrorCode::MissingSigningKey,
         ];
         for code in codes {
             assert!(!code.default_message().is_empty());
