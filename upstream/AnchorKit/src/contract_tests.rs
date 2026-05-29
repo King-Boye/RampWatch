@@ -83,12 +83,12 @@ fn test_admin_transfer_full_flow() {
 
     // admin1 can no longer propose (require_admin fails)
     let err = client.with_authorization(&admin1, || client.propose_admin(&e.accounts().generate_and_create()));
-    assert_eq!(err.err().unwrap().current_errors()[0].code, ErrorCode::UnauthorizedProposeAdmin as u32);
+    assert_eq!(err.err().unwrap().current_errors()[0].code, ErrorCode::PendingAdminAlreadyExists as u32);
 }
 
 #[test]
-#[should_panic(expected = "UnauthorizedProposeAdmin")]
-fn test_unauthorized_propose_admin() {
+#[should_panic(expected = "PendingAdminAlreadyExists")]
+fn test_pending_admin_already_exists() {
     let e = Env::default();
     e.mock_all_auths();
 
