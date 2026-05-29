@@ -3,7 +3,7 @@
 mod routing_tests {
     use soroban_sdk::{
         testutils::{Address as _, Ledger, LedgerInfo},
-        Address, Env, String, Symbol, Vec,
+        Address, Env, String, Symbol, Vec, symbol_short,
     };
 
     use ed25519_dalek::SigningKey;
@@ -12,6 +12,7 @@ mod routing_tests {
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
     use crate::types::{RoutingOptions, RoutingRequest};
     use crate::sep10_test_util::register_attestor_with_sep10;
+    use crate::events::{RoutingDecisionEvent, QuoteExpiredEvent};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -573,5 +574,162 @@ mod routing_tests {
         // anchor_a wins: score 4630 > anchor_c 3950 > anchor_b 3800
         let best = client.route_transaction(&options);
         assert_eq!(best.anchor, anchor_a);
+    }
+
+    #[test]
+    fn test_route_transaction_emits_routing_decision_event() {
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let anchor = Address::generate(&env);
+        register_anchor(&env, &client, &anchor);
+
+        client.submit_quote(
+            &anchor,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &25u32, &100u64, &100000u64, &1_003_600u64,
+        );
+
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy: strategy.clone(),
+            min_reputation: 0,
+            max_anchors: 1,
+            require_kyc: false,
+        };
+
+        // Expect RoutingDecision event with correct fields
+        let event = RoutingDecisionEvent {
+            anchor: anchor.clone(),
+            strategy: String::from_str(&env, "LowestFee"),
+            quote_id: 1u64,
+            ledger_sequence: 0u32,
+        };
+        let topics = (symbol_short!("routing"),);
+        env.events().publish_expect(&topics, &event);
+
+        let best = client.route_transaction(&options);
+        assert_eq!(best.anchor, anchor);
+        assert_eq!(best.quote_id, 1u64);
+    }
+
+    #[test]
+    fn test_expired_quote_emits_quote_expired_event() {
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let anchor1 = Address::generate(&env);
+        let anchor2 = Address::generate(&env);
+        register_anchor(&env, &client, &anchor1);
+        register_anchor(&env, &client, &anchor2);
+
+        // Submit quotes with the same expiration
+        let valid_until = 1_002_000u64;
+        client.submit_quote(
+            &anchor1,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &25u32, &100u64, &100000u64, &valid_until,
+        );
+        client.submit_quote(
+            &anchor2,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &30u32, &100u64, &100000u64, &valid_until,
+        );
+
+        // Move time forward so quote expires
+        set_ledger(&env, 1_003_000); // Now > valid_until
+
+        // Expect QuoteExpired events for both expired quotes
+        let expired_event1 = QuoteExpiredEvent {
+            anchor: anchor1.clone(),
+            quote_id: 1u64,
+            valid_until,
+        };
+        let expired_event2 = QuoteExpiredEvent {
+            anchor: anchor2.clone(),
+            quote_id: 2u64,
+            valid_until,
+        };
+        let quote_topics = (symbol_short!("quote"),);
+        env.events().publish_expect(&quote_topics, &expired_event1);
+        env.events().publish_expect(&quote_topics, &expired_event2);
+
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy,
+            min_reputation: 0,
+            max_anchors: 2,
+            require_kyc: false,
+        };
+
+        // Should fail because all quotes are expired
+        let result = client.try_route_transaction(&options);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mixed_valid_and_expired_quotes() {
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let anchor1 = Address::generate(&env);
+        let anchor2 = Address::generate(&env);
+        register_anchor(&env, &client, &anchor1);
+        register_anchor(&env, &client, &anchor2);
+
+        // anchor1 has a quote that will expire
+        let expired_until = 1_001_000u64;
+        client.submit_quote(
+            &anchor1,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &50u32, &100u64, &100000u64, &expired_until,
+        );
+
+        // anchor2 has a valid quote
+        let valid_until = 1_003_000u64;
+        client.submit_quote(
+            &anchor2,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &25u32, &100u64, &100000u64, &valid_until,
+        );
+
+        // Move time forward
+        set_ledger(&env, 1_002_000); // Now between expired_until and valid_until
+
+        // Expect QuoteExpired event only for anchor1's expired quote
+        let expired_event = QuoteExpiredEvent {
+            anchor: anchor1.clone(),
+            quote_id: 1u64,
+            valid_until: expired_until,
+        };
+        let quote_topics = (symbol_short!("quote"),);
+        env.events().publish_expect(&quote_topics, &expired_event);
+
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy,
+            min_reputation: 0,
+            max_anchors: 2,
+            require_kyc: false,
+        };
+
+        // Should succeed and select anchor2 (valid quote)
+        let best = client.route_transaction(&options);
+        assert_eq!(best.anchor, anchor2);
+        assert_eq!(best.quote_id, 2u64);
     }
 }
