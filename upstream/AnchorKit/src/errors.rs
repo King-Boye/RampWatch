@@ -96,7 +96,7 @@ pub enum ErrorCode {
     PendingAdminAlreadyExists = 52,
     NoPendingAdmin = 53,
     NotPendingAdmin = 54,
-    PathTraversalDetected = 55,
+    AttestationLimitReached = 55,
 }
 
 impl ErrorCode {
@@ -129,7 +129,7 @@ impl ErrorCode {
             ErrorCode::PendingAdminAlreadyExists => "An admin transfer is already pending",
             ErrorCode::NoPendingAdmin => "No pending admin transfer found",
             ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
-            ErrorCode::PathTraversalDetected => "Path traversal sequence detected in URL",
+            ErrorCode::AttestationLimitReached => "Attestation ID counter has reached u64::MAX",
         }
     }
 

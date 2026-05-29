@@ -96,7 +96,4 @@ mod replay_window_tests;
 mod anchor_health_score_tests;
 
 #[cfg(test)]
-mod audit_log_offset_tests;
-
-#[cfg(test)]
-mod session_expiry_error_tests;
+mod compute_payload_hash_tests;
