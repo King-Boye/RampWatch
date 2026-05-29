@@ -810,6 +810,19 @@ impl AnchorKitContract {
     ) -> u64 {
         anchor.require_auth();
         Self::check_attestor(&env, &anchor);
+
+        // Validate quote parameters
+        if rate == 0 {
+            panic_with_error!(&env, ErrorCode::InvalidQuote);
+        }
+        if minimum_amount > maximum_amount {
+            panic_with_error!(&env, ErrorCode::InvalidQuote);
+        }
+        let now = env.ledger().timestamp();
+        if valid_until <= now {
+            panic_with_error!(&env, ErrorCode::InvalidQuote);
+        }
+
         let inst = env.storage().instance();
         let qcnt_key = key_quote_counter(&env);
         let next: u64 = inst.get(&qcnt_key).unwrap_or(0u64) + 1;
