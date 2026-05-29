@@ -75,6 +75,40 @@ mod metadata_cache_tests {
     }
 
     #[test]
+    #[should_panic(expected = "ValidationError")]
+    fn test_cache_metadata_reputation_score_must_be_at_most_10000() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let anchor = Address::generate(&env);
+        client.initialize(&admin, &100_u64, &None);
+
+        let mut meta = sample_metadata(&env, &anchor);
+        meta.reputation_score = 10001;
+        client.cache_metadata(&anchor, &meta, &3600u64);
+    }
+
+    #[test]
+    #[should_panic(expected = "ValidationError")]
+    fn test_cache_metadata_uptime_percentage_must_be_at_most_10000() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let anchor = Address::generate(&env);
+        client.initialize(&admin, &100_u64, &None);
+
+        let mut meta = sample_metadata(&env, &anchor);
+        meta.uptime_percentage = 10001;
+        client.cache_metadata(&anchor, &meta, &3600u64);
+    }
+
+    #[test]
     fn test_cache_expiration() {
         let env = make_env();
         set_ledger(&env, 0);

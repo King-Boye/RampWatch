@@ -1252,6 +1252,9 @@ impl AnchorKitContract {
         // Issue #259: skip write if metadata is unchanged.
         // ttl_seconds=0 entries live in persistent storage (never network-evicted);
         // all other entries live in temporary storage.
+        if metadata.reputation_score > 10000 || metadata.uptime_percentage > 10000 {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
         let key = StorageKey::MetadataCache(anchor.clone());
         let existing: Option<MetadataCache> = env.storage().persistent().get(&key)
             .or_else(|| env.storage().temporary().get(&key));
