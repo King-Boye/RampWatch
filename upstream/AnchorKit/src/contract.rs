@@ -1556,6 +1556,18 @@ impl AnchorKitContract {
             if !meta.is_active { continue; }
             if meta.reputation_score < options.min_reputation { continue; }
 
+            // Check KYC requirement filter
+            if options.require_kyc {
+                let services_key = StorageKey::Services(anchor.clone());
+                let services_record: AnchorServices = match env.storage().persistent().get(&services_key) {
+                    Some(sr) => sr,
+                    None => continue,
+                };
+                if !services_record.services.contains(SERVICE_KYC) {
+                    continue;
+                }
+            }
+
             // Get latest quote for this anchor
             let lq_key = StorageKey::LatestQuote(anchor.clone());
             let quote_id: u64 = match env.storage().persistent().get(&lq_key) {
@@ -1574,6 +1586,11 @@ impl AnchorKitContract {
             }
 
             candidates.push_back(quote);
+
+            // Stop adding candidates if we've reached max_anchors limit
+            if options.max_anchors > 0 && candidates.len() >= options.max_anchors as usize {
+                break;
+            }
         }
 
         if candidates.is_empty() {

@@ -159,8 +159,13 @@ pub struct RoutingRequest {
 /// - `min_reputation` — anchors with a `reputation_score` strictly below this
 ///   value are excluded before strategy selection. Set to `0` (the default) to
 ///   include all active anchors regardless of reputation.
-/// - `max_anchors` / `require_kyc` — reserved for future filtering; not yet
-///   enforced by the current implementation.
+/// - `max_anchors` — limits the number of candidate anchors considered before
+///   strategy selection. Set to `0` (the default) to consider all active anchors.
+///   When set to a positive value, only the first N anchors (in iteration order)
+///   that pass all other filters are included in the candidate pool.
+/// - `require_kyc` — when set to `true`, only anchors that support the KYC service
+///   (SERVICE_KYC) are included in the candidate pool. Set to `false` (the default)
+///   to include all active anchors regardless of KYC capability.
 #[contracttype]
 #[derive(Clone)]
 pub struct RoutingOptions {
