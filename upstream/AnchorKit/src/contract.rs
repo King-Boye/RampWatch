@@ -435,6 +435,18 @@ impl AnchorKitContract {
         }
     }
 
+    fn add_to_cached_anchors(env: &Env, anchor: &Address) {
+        let list_key = soroban_sdk::vec![env, symbol_short!("CANCHORS")];
+        let mut list: Vec<Address> = env.storage().persistent()
+            .get::<_, Vec<Address>>(&list_key)
+            .unwrap_or_else(|| Vec::new(env));
+        if !list.contains(anchor) {
+            list.push_back(anchor.clone());
+            env.storage().persistent().set(&list_key, &list);
+            env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        }
+    }
+
     pub fn register_attestor(env: Env, attestor: Address, sep10_token: String, sep10_issuer: Address) {
         Self::require_admin(&env);
         Self::verify_sep10_token_matches_attestor(&env, &sep10_token, &sep10_issuer, &attestor);
@@ -1259,16 +1271,7 @@ impl AnchorKitContract {
         env.storage().temporary().set(&key, &entry);
         env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
 
-        // Issue #276: maintain CACHED_ANCHORS set
-        let list_key = key_anchor_list(&env);
-        let mut list: Vec<Address> = env.storage().persistent()
-            .get::<_, Vec<Address>>(&list_key)
-            .unwrap_or_else(|| Vec::new(&env));
-        if !list.contains(&anchor) {
-            list.push_back(anchor);
-            env.storage().persistent().set(&list_key, &list);
-            env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
-        }
+        Self::add_to_cached_anchors(&env, &anchor);
     }
 
     pub fn get_cached_metadata(env: Env, anchor: Address) -> AnchorMetadata {
@@ -1403,11 +1406,40 @@ impl AnchorKitContract {
 
 
     /// Issue #276: list all anchors that currently have active metadata cache entries.
+    ///
+    /// Filters out any anchor whose temporary cache keys have all been evicted, and
+    /// writes the pruned list back to persistent storage so CANCHORS does not grow
+    /// unboundedly after natural TTL eviction.
     pub fn list_cached_anchors(env: Env) -> Vec<Address> {
-        let list_key = key_anchor_list(&env);
-        env.storage().persistent()
+        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
+        let list: Vec<Address> = env.storage().persistent()
             .get::<_, Vec<Address>>(&list_key)
-            .unwrap_or_else(|| Vec::new(&env))
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let mut active = Vec::new(&env);
+        let mut pruned = false;
+        for anchor in list.iter() {
+            let meta_key = StorageKey::MetadataCache(anchor.clone());
+            let caps_key = StorageKey::CapabilitiesCache(anchor.clone());
+            let toml_key = StorageKey::TomlCache(anchor.clone());
+            if env.storage().temporary().has(&meta_key)
+                || env.storage().temporary().has(&caps_key)
+                || env.storage().temporary().has(&toml_key)
+            {
+                active.push_back(anchor);
+            } else {
+                // All temp entries for this anchor have been evicted; mark for pruning.
+                pruned = true;
+            }
+        }
+
+        // Write back the pruned list so stale entries don't accumulate in persistent storage.
+        if pruned {
+            env.storage().persistent().set(&list_key, &active);
+            env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        }
+
+        active
     }
 
     // -----------------------------------------------------------------------
@@ -1431,11 +1463,12 @@ impl AnchorKitContract {
 
         let now = env.ledger().timestamp();
         let entry = CapabilitiesCache { toml_url, capabilities, cached_at: now, ttl_seconds };
-        let key = StorageKey::CapabilitiesCache(anchor);
-        let ledger_ttl = ((ttl_seconds + LEDGER_PERIOD_SECS - 1) / LEDGER_PERIOD_SECS) as u32;
-        let ledger_ttl = ledger_ttl.max(MIN_TEMP_TTL);
+        let key = StorageKey::CapabilitiesCache(anchor.clone());
+        let ledger_ttl = if ttl_seconds as u32 > MIN_TEMP_TTL { ttl_seconds as u32 } else { MIN_TEMP_TTL };
         env.storage().temporary().set(&key, &entry);
         env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
+
+        Self::add_to_cached_anchors(&env, &anchor);
     }
 
     pub fn get_cached_capabilities(env: Env, anchor: Address) -> CapabilitiesCache {
@@ -1452,8 +1485,25 @@ impl AnchorKitContract {
 
     pub fn refresh_capabilities_cache(env: Env, anchor: Address) {
         Self::require_admin(&env);
-        let key = StorageKey::CapabilitiesCache(anchor);
+        let key = StorageKey::CapabilitiesCache(anchor.clone());
         env.storage().temporary().remove(&key);
+
+        // If no other cache entries remain for this anchor, remove it from CANCHORS.
+        let meta_key = StorageKey::MetadataCache(anchor.clone());
+        let toml_key = StorageKey::TomlCache(anchor.clone());
+        if !env.storage().temporary().has(&meta_key) && !env.storage().temporary().has(&toml_key) {
+            let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
+            if let Some(list) = env.storage().persistent().get::<_, Vec<Address>>(&list_key) {
+                let mut new_list = Vec::new(&env);
+                for a in list.iter() {
+                    if a != anchor {
+                        new_list.push_back(a);
+                    }
+                }
+                env.storage().persistent().set(&list_key, &new_list);
+                env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
+            }
+        }
     }
 
     /// Issue #258/#463: admin-only emergency flush of all MetadataCache,
@@ -1859,10 +1909,12 @@ impl AnchorKitContract {
             cached_at: now,
             ttl_seconds,
         };
-        let key = StorageKey::TomlCache(anchor);
+        let key = StorageKey::TomlCache(anchor.clone());
         let ledger_ttl = if ttl_seconds as u32 > MIN_TEMP_TTL { ttl_seconds as u32 } else { MIN_TEMP_TTL };
         env.storage().temporary().set(&key, &cached);
         env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
+
+        Self::add_to_cached_anchors(&env, &anchor);
     }
 
     pub fn get_anchor_toml(env: Env, anchor: Address) -> StellarToml {
