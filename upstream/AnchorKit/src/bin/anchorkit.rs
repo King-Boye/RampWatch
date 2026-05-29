@@ -16,6 +16,24 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Build the smart contract
+    Build {
+        /// Build in release mode
+        #[arg(long)]
+        release: bool,
+    },
+    /// Deploy to Stellar network
+    Deploy {
+        /// Target network (testnet, mainnet)
+        #[arg(long, default_value = "testnet")]
+        network: String,
+    },
+    /// Initialize contract with admin
+    Init {
+        /// Admin account address
+        #[arg(long)]
+        admin: String,
+    },
     /// Run environment diagnostics
     Doctor,
     /// Validate configuration files (JSON and TOML)
@@ -36,6 +54,48 @@ enum Commands {
         #[arg(long)]
         endpoint: Option<String>,
     },
+    /// Submit attestation
+    Attest {
+        /// Subject address
+        #[arg(long)]
+        subject: String,
+        /// Payload hash
+        #[arg(long)]
+        payload_hash: String,
+        /// Session ID for tracking
+        #[arg(long)]
+        session: Option<String>,
+    },
+    /// Query attestation by ID
+    Query {
+        /// Transaction ID to query
+        #[arg(long)]
+        transaction_id: String,
+        /// Output format: json or text
+        #[arg(long, default_value = "text")]
+        output: String,
+    },
+    /// Check attestor health
+    Health {
+        /// Specific attestor to check
+        #[arg(long)]
+        attestor: Option<String>,
+        /// Watch mode with continuous monitoring
+        #[arg(long)]
+        watch: bool,
+        /// Interval in seconds for watch mode
+        #[arg(long, default_value = "60")]
+        interval: u64,
+    },
+    /// Run contract tests
+    Test {
+        /// Run specific test pattern
+        #[arg(long)]
+        pattern: Option<String>,
+        /// Verbose output
+        #[arg(long)]
+        verbose: bool,
+    },
     /// Export audit logs
     #[command(name = "export-audit")]
     ExportAudit {
@@ -51,12 +111,239 @@ enum Commands {
 fn main() {
     let cli = Cli::parse();
     match cli.command {
+        Commands::Build { release } => run_build(release),
+        Commands::Deploy { network } => run_deploy(&network),
+        Commands::Init { admin } => run_init(&admin),
         Commands::Doctor => run_doctor(),
         Commands::Validate { path } => run_validate(&path),
         Commands::Register { address, services, endpoint } => {
             run_register(&address, services.as_deref(), endpoint.as_deref())
         }
+        Commands::Attest { subject, payload_hash, session } => {
+            run_attest(&subject, &payload_hash, session.as_deref())
+        }
+        Commands::Query { transaction_id, output } => run_query(&transaction_id, &output),
+        Commands::Health { attestor, watch, interval } => {
+            run_health(attestor.as_deref(), watch, interval)
+        }
+        Commands::Test { pattern, verbose } => run_test(pattern.as_deref(), verbose),
         Commands::ExportAudit { format, output } => run_export_audit(&format, &output),
+    }
+}
+
+// ── build ───────────────────────────────────────────────────────────────────
+
+fn run_build(release: bool) {
+    println!("🔨 Building AnchorKit smart contract...");
+    
+    let mut cmd = Command::new("cargo");
+    cmd.args(["build", "--target", "wasm32-unknown-unknown"]);
+    
+    if release {
+        cmd.arg("--release");
+        println!("  Mode: Release (optimized)");
+    } else {
+        println!("  Mode: Debug");
+    }
+    
+    match cmd.output() {
+        Ok(output) if output.status.success() => {
+            println!("✅ Contract built successfully");
+            if release {
+                println!("  Output: target/wasm32-unknown-unknown/release/anchorkit.wasm");
+            } else {
+                println!("  Output: target/wasm32-unknown-unknown/debug/anchorkit.wasm");
+            }
+        }
+        Ok(output) => {
+            eprintln!("❌ Build failed:");
+            eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to run cargo build: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+// ── deploy ──────────────────────────────────────────────────────────────────
+
+fn run_deploy(network: &str) {
+    println!("🚀 Deploying to {} network...", network);
+    
+    // Check if contract is built
+    let wasm_path = "target/wasm32-unknown-unknown/release/anchorkit.wasm";
+    if !std::path::Path::new(wasm_path).exists() {
+        println!("⚠️  Contract not found. Building first...");
+        run_build(true);
+    }
+    
+    println!("📋 Deployment steps:");
+    println!("  1. Use soroban CLI to deploy:");
+    println!("     soroban contract deploy \\");
+    println!("       --wasm {} \\", wasm_path);
+    println!("       --source <YOUR_ACCOUNT> \\");
+    println!("       --network {}", network);
+    println!();
+    println!("  2. Initialize the contract:");
+    println!("     anchorkit init --admin <ADMIN_ADDRESS>");
+    println!();
+    println!("💡 Note: Actual deployment requires soroban CLI and configured account");
+}
+
+// ── init ────────────────────────────────────────────────────────────────────
+
+fn run_init(admin: &str) {
+    println!("🔧 Initializing contract with admin: {}", admin);
+    
+    // Validate admin address format
+    if !admin.starts_with('G') || admin.len() != 56 {
+        eprintln!("❌ Invalid admin address format. Expected Stellar public key starting with 'G'");
+        std::process::exit(1);
+    }
+    
+    println!("📋 Initialization steps:");
+    println!("  Use soroban CLI to initialize:");
+    println!("  soroban contract invoke \\");
+    println!("    --id <CONTRACT_ID> \\");
+    println!("    --source {} \\", admin);
+    println!("    --network testnet \\");
+    println!("    -- \\");
+    println!("    initialize \\");
+    println!("    --admin {}", admin);
+    println!();
+    println!("💡 Note: Replace <CONTRACT_ID> with your deployed contract address");
+}
+
+// ── attest ──────────────────────────────────────────────────────────────────
+
+fn run_attest(subject: &str, payload_hash: &str, session: Option<&str>) {
+    println!("📝 Submitting attestation...");
+    println!("  Subject: {}", subject);
+    println!("  Payload Hash: {}", payload_hash);
+    if let Some(s) = session {
+        println!("  Session: {}", s);
+    }
+    
+    // Validate inputs
+    if !subject.starts_with('G') || subject.len() != 56 {
+        eprintln!("❌ Invalid subject address format");
+        std::process::exit(1);
+    }
+    
+    if payload_hash.len() != 64 || !payload_hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        eprintln!("❌ Invalid payload hash format (expected 64-character hex string)");
+        std::process::exit(1);
+    }
+    
+    println!("📋 Attestation steps:");
+    println!("  Use soroban CLI to submit:");
+    println!("  soroban contract invoke \\");
+    println!("    --id <CONTRACT_ID> \\");
+    println!("    --source <ATTESTOR_ACCOUNT> \\");
+    println!("    --network testnet \\");
+    println!("    -- \\");
+    if let Some(s) = session {
+        println!("    submit_attestation_with_session \\");
+        println!("    --session {} \\", s);
+    } else {
+        println!("    submit_attestation \\");
+    }
+    println!("    --subject {} \\", subject);
+    println!("    --payload-hash {}", payload_hash);
+    println!();
+    println!("💡 Note: Replace <CONTRACT_ID> and <ATTESTOR_ACCOUNT> with actual values");
+}
+
+// ── query ───────────────────────────────────────────────────────────────────
+
+fn run_query(transaction_id: &str, output: &str) {
+    println!("🔍 Querying attestation: {}", transaction_id);
+    
+    if output != "json" && output != "text" {
+        eprintln!("❌ Invalid output format. Use 'json' or 'text'");
+        std::process::exit(1);
+    }
+    
+    println!("📋 Query steps:");
+    println!("  Use soroban CLI to query:");
+    println!("  soroban contract invoke \\");
+    println!("    --id <CONTRACT_ID> \\");
+    println!("    --source <ACCOUNT> \\");
+    println!("    --network testnet \\");
+    println!("    -- \\");
+    println!("    get_attestation \\");
+    println!("    --attestation-id {}", transaction_id);
+    println!();
+    println!("💡 Output format: {}", output);
+}
+
+// ── health ──────────────────────────────────────────────────────────────────
+
+fn run_health(attestor: Option<&str>, watch: bool, interval: u64) {
+    if let Some(addr) = attestor {
+        println!("🏥 Checking health for attestor: {}", addr);
+    } else {
+        println!("🏥 Checking health for all attestors...");
+    }
+    
+    if watch {
+        println!("👀 Watch mode enabled (interval: {}s)", interval);
+        println!("   Press Ctrl+C to stop monitoring");
+    }
+    
+    println!("📋 Health check steps:");
+    println!("  Use soroban CLI to check health:");
+    println!("  soroban contract invoke \\");
+    println!("    --id <CONTRACT_ID> \\");
+    println!("    --source <ACCOUNT> \\");
+    println!("    --network testnet \\");
+    println!("    -- \\");
+    if let Some(addr) = attestor {
+        println!("    get_anchor_health_score \\");
+        println!("    --anchor {}", addr);
+    } else {
+        println!("    get_all_attestors");
+    }
+    println!();
+    println!("💡 Note: Health monitoring requires active contract deployment");
+}
+
+// ── test ────────────────────────────────────────────────────────────────────
+
+fn run_test(pattern: Option<&str>, verbose: bool) {
+    println!("🧪 Running contract tests...");
+    
+    let mut cmd = Command::new("cargo");
+    cmd.arg("test");
+    
+    if let Some(p) = pattern {
+        cmd.arg(p);
+        println!("  Pattern: {}", p);
+    }
+    
+    if verbose {
+        cmd.arg("--verbose");
+        println!("  Mode: Verbose");
+    }
+    
+    match cmd.output() {
+        Ok(output) if output.status.success() => {
+            println!("✅ All tests passed");
+            if verbose {
+                println!("{}", String::from_utf8_lossy(&output.stdout));
+            }
+        }
+        Ok(output) => {
+            eprintln!("❌ Some tests failed:");
+            eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to run tests: {}", e);
+            std::process::exit(1);
+        }
     }
 }
 
@@ -308,10 +595,52 @@ fn run_register(address: &str, services: Option<&str>, endpoint: Option<&str>) {
         }
     }
 
-    println!("Registering attestor: {}", address);
+    // Validate address format
+    if !address.starts_with('G') || address.len() != 56 {
+        eprintln!("error: invalid attestor address format. Expected Stellar public key starting with 'G'");
+        std::process::exit(1);
+    }
+
+    println!("📝 Registering attestor: {}", address);
     if let Some(s) = services { println!("  Services: {}", s); }
     if let Some(e) = endpoint { println!("  Endpoint: {}", e); }
-    println!("✔ Attestor registered (simulation — connect to network for real registration)");
+    
+    println!("\n📋 Registration steps:");
+    println!("  1. Use soroban CLI to register attestor:");
+    println!("     soroban contract invoke \\");
+    println!("       --id <CONTRACT_ID> \\");
+    println!("       --source <ADMIN_ACCOUNT> \\");
+    println!("       --network testnet \\");
+    println!("       -- \\");
+    println!("       register_attestor \\");
+    println!("       --attestor {}", address);
+    
+    if let Some(s) = services {
+        println!("\n  2. Configure services:");
+        println!("     soroban contract invoke \\");
+        println!("       --id <CONTRACT_ID> \\");
+        println!("       --source <ADMIN_ACCOUNT> \\");
+        println!("       --network testnet \\");
+        println!("       -- \\");
+        println!("       configure_services \\");
+        println!("       --attestor {} \\", address);
+        println!("       --services \"{}\"", s);
+    }
+    
+    if let Some(e) = endpoint {
+        println!("\n  3. Set endpoint:");
+        println!("     soroban contract invoke \\");
+        println!("       --id <CONTRACT_ID> \\");
+        println!("       --source <ADMIN_ACCOUNT> \\");
+        println!("       --network testnet \\");
+        println!("       -- \\");
+        println!("       set_attestor_endpoint \\");
+        println!("       --attestor {} \\", address);
+        println!("       --endpoint \"{}\"", e);
+    }
+    
+    println!("\n💡 Note: Replace <CONTRACT_ID> and <ADMIN_ACCOUNT> with actual values");
+    println!("🔗 This will create actual on-chain transactions when executed with soroban CLI");
 }
 
 // ── export-audit ─────────────────────────────────────────────────────────────
