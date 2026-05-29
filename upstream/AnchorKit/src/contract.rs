@@ -269,11 +269,7 @@ impl AnchorKitContract {
         }
 
         let hash = env.crypto().sha256(&input);
-        let hash_bytes = Bytes::from_array(&env, &hash.into());
-        let mut id = Bytes::new(&env);
-        for i in 0..16u32 {
-            id.push_back(hash_bytes.get(i).unwrap());
-        }
+        let id = Bytes::from_array(&env, &hash.into());
 
         RequestId { id, created_at: ts }
     }
@@ -409,6 +405,10 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::AttestorNotRegistered);
         }
         env.storage().persistent().remove(&key);
+        // Mark the attestor as revoked so historical attestations surface issuer_revoked=true.
+        let revoked_key = StorageKey::AttestorRevoked(attestor.clone());
+        env.storage().persistent().set(&revoked_key, &true);
+        env.storage().persistent().extend_ttl(&revoked_key, PERSISTENT_TTL, PERSISTENT_TTL);
         env.events().publish(
             (symbol_short!("attestor"), symbol_short!("revoked")),
             AttestorRevoked(attestor),
@@ -455,9 +455,26 @@ impl AnchorKitContract {
         if !Self::is_attestor(env.clone(), attestor.clone()) {
             panic_with_error!(&env, ErrorCode::AttestorNotRegistered);
         }
-        env.storage().persistent()
+        let endpoint: String = env
+            .storage()
+            .persistent()
             .get::<_, String>(&StorageKey::Endpoint(attestor))
-            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestorNotRegistered))
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestorNotRegistered));
+
+        // Re-validate on read: a storage entry written by an older contract version
+        // with looser validation rules must not be returned as a trusted URL.
+        let len = endpoint.len() as usize;
+        if len > 128 {
+            panic_with_error!(&env, ErrorCode::InvalidEndpointFormat);
+        }
+        let mut rust_buf = [0u8; 128];
+        endpoint.copy_into_slice(&mut rust_buf[..len]);
+        let endpoint_str = core::str::from_utf8(&rust_buf[..len]).unwrap_or("");
+        if crate::validate_anchor_domain(endpoint_str).is_err() {
+            panic_with_error!(&env, ErrorCode::InvalidEndpointFormat);
+        }
+
+        endpoint
     }
 
     // -----------------------------------------------------------------------
@@ -478,6 +495,14 @@ impl AnchorKitContract {
         }
         let mut seen = Vec::new(&env);
         for s in services.iter() {
+            // Reject any value that is not one of the four known service constants.
+            if s != SERVICE_DEPOSITS
+                && s != SERVICE_WITHDRAWALS
+                && s != SERVICE_QUOTES
+                && s != SERVICE_KYC
+            {
+                panic_with_error!(&env, ErrorCode::InvalidServiceType);
+            }
             if seen.contains(s) {
                 panic_with_error!(&env, ErrorCode::InvalidServiceType);
             }
@@ -667,9 +692,14 @@ impl AnchorKitContract {
     // -----------------------------------------------------------------------
 
     pub fn get_attestation(env: Env, id: u64) -> Option<Attestation> {
-        env.storage()
+        let mut attestation = env.storage()
             .persistent()
-            .get::<_, Attestation>(&StorageKey::Attest(id))
+            .get::<_, Attestation>(&StorageKey::Attest(id))?;
+        // Reflect current revocation status without rewriting every stored attestation.
+        if env.storage().persistent().has(&StorageKey::AttestorRevoked(attestation.issuer.clone())) {
+            attestation.issuer_revoked = true;
+        }
+        Some(attestation)
     }
 
     pub fn list_attestations(env: Env, subject: Address, offset: u64, limit: u32) -> Vec<Attestation> {
@@ -693,7 +723,10 @@ impl AnchorKitContract {
             let index_key = StorageKey::SubjectAttestation(subject.clone(), i);
             if let Some(attestation_id) = env.storage().persistent().get::<_, u64>(&index_key) {
                 let main_key = StorageKey::Attest(attestation_id);
-                if let Some(attestation) = env.storage().persistent().get::<_, Attestation>(&main_key) {
+                if let Some(mut attestation) = env.storage().persistent().get::<_, Attestation>(&main_key) {
+                    if env.storage().persistent().has(&StorageKey::AttestorRevoked(attestation.issuer.clone())) {
+                        attestation.issuer_revoked = true;
+                    }
                     results.push_back(attestation);
                 }
             }
@@ -1006,6 +1039,10 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::AttestorNotRegistered);
         }
         env.storage().persistent().remove(&key);
+        // Mark the attestor as revoked so historical attestations surface issuer_revoked=true.
+        let revoked_key = StorageKey::AttestorRevoked(attestor.clone());
+        env.storage().persistent().set(&revoked_key, &true);
+        env.storage().persistent().extend_ttl(&revoked_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         let sopcnt_key = StorageKey::SessionOpCount(session_id);
         let op_index: u64 = env.storage().persistent().get(&sopcnt_key).unwrap_or(0u64);
@@ -1098,6 +1135,20 @@ impl AnchorKitContract {
                 .get::<_, u64>(&StorageKey::SessionOpCount(session_id))
                 .unwrap_or(0),
         )
+    }
+
+    /// Returns the current audit log pruning offset — the ID of the first live
+    /// audit log entry.  Any log ID below this value has been pruned and is no
+    /// longer available in storage.
+    ///
+    /// Callers can use this to detect gaps in a session's audit trail:
+    /// if `log_id < get_audit_log_offset()` the entry was intentionally pruned,
+    /// not lost.  Returns `0` when no pruning has occurred yet.
+    pub fn get_audit_log_offset(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&key_audit_log_offset(&env))
+            .unwrap_or(0u64)
     }
 
     // -----------------------------------------------------------------------
@@ -1824,15 +1875,18 @@ impl AnchorKitContract {
 
     fn check_session_expiry(env: &Env, session_id: u64) {
         let sess_key = StorageKey::Session(session_id);
-        if let Some(session) = env.storage().persistent().get::<_, Session>(&sess_key) {
-            let now = env.ledger().timestamp();
-            if now >= session.expires_at {
-                env.events().publish(
-                    (symbol_short!("session"), symbol_short!("expired"), session_id),
-                    SessionExpired { session_id, expired_at: now },
-                );
-                panic_with_error!(env, ErrorCode::ValidationError);
-            }
+        let session: Session = env
+            .storage()
+            .persistent()
+            .get::<_, Session>(&sess_key)
+            .unwrap_or_else(|| panic_with_error!(env, ErrorCode::SessionNotFound));
+        let now = env.ledger().timestamp();
+        if now >= session.expires_at {
+            env.events().publish(
+                (symbol_short!("session"), symbol_short!("expired"), session_id),
+                SessionExpired { session_id, expired_at: now },
+            );
+            panic_with_error!(env, ErrorCode::SessionExpired);
         }
     }
 
@@ -1852,6 +1906,7 @@ impl AnchorKitContract {
             timestamp,
             payload_hash,
             signature,
+            issuer_revoked: false,
         };
         let key = StorageKey::Attest(id);
         env.storage().persistent().set(&key, &attestation);

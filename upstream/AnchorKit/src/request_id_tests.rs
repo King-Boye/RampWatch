@@ -44,7 +44,7 @@ mod request_id_tests {
 
         let req_id = client.generate_request_id();
         assert_eq!(req_id.created_at, 1000);
-        assert_eq!(req_id.id.len(), 16);
+        assert_eq!(req_id.id.len(), 32);
     }
 
     #[test]
