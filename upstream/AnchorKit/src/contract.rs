@@ -1899,8 +1899,7 @@ impl AnchorKitContract {
             .get(&key_replay_window(env))
             .unwrap_or(300u64);
         let lower = now.saturating_sub(window);
-        let upper = now.saturating_add(window);
-        if timestamp < lower || timestamp > upper {
+        if timestamp < lower || timestamp > now {
             panic_with_error!(env, ErrorCode::InvalidTimestamp);
         }
     }
