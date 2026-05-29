@@ -1,3 +1,5 @@
+#![cfg(feature = "std")]
+
 use clap::{Parser, Subcommand};
 use std::process::Command;
 use std::time::Instant;
