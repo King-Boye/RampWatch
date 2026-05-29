@@ -146,6 +146,33 @@ mod replay_window_tests {
         );
     }
 
+    // -----------------------------------------------------------------------
+    // Future timestamp rejection (issue #436)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[should_panic]
+    fn rejects_future_timestamp_within_window() {
+        let env = make_env();
+        set_ts(&env, 1_000_000);
+        let (client, admin, attestor, sk) = setup(&env);
+
+        client.initialize(&admin, &100_u64, &None);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
+
+        // timestamp = now + 1 s → future, must be rejected even though it's within the old symmetric window
+        let ts: u64 = 1_000_000 + 1;
+        let hash = dummy_hash(&env, 6);
+        let sig = sign_payload(&env, &sk, &hash);
+        client.submit_attestation(
+            &attestor,
+            &Address::generate(&env),
+            &ts,
+            &hash,
+            &sig,
+        );
+    }
+
     #[test]
     fn custom_window_zero_only_accepts_exact_timestamp() {
         let env = make_env();
