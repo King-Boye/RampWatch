@@ -639,4 +639,36 @@ mod anchor_info_discovery_tests {
         let result = client.get_anchor_currencies(&anchor);
         assert_eq!(result.len(), 0, "sample_toml has no fiat currencies");
     }
+
+    // -----------------------------------------------------------------------
+    // Issue #499: deposit/withdrawal limits return Result with cache key check
+    // -----------------------------------------------------------------------
+
+    /// When no TOML is cached, get_anchor_deposit_limits must return CacheNotFound.
+    #[test]
+    fn test_get_deposit_limits_uncached_returns_cache_not_found() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        let result = client.try_get_anchor_deposit_limits(&anchor, &String::from_str(&env, "USDC"));
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            crate::errors::ErrorCode::CacheNotFound,
+        );
+    }
+
+    /// When no TOML is cached, get_anchor_withdrawal_limits must return CacheNotFound.
+    #[test]
+    fn test_get_withdrawal_limits_uncached_returns_cache_not_found() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        let result = client.try_get_anchor_withdrawal_limits(&anchor, &String::from_str(&env, "USDC"));
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            crate::errors::ErrorCode::CacheNotFound,
+        );
+    }
 }
