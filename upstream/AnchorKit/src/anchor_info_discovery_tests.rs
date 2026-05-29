@@ -646,84 +646,59 @@ mod anchor_info_discovery_tests {
         assert_eq!(result.len(), 0, "sample_toml has no fiat currencies");
     }
 
-    // --- Issue #498: network_passphrase validation ---
+    // -----------------------------------------------------------------------
+    // Issue #500: decimals validation
+    // -----------------------------------------------------------------------
 
+    /// decimals = 18 is the maximum valid value and must be accepted.
     #[test]
-    fn test_fetch_anchor_info_testnet_passphrase_accepted() {
-        let env = make_env();
-        set_ledger(&env, 0);
-        let (client, anchor) = setup(&env);
-
-        let result = client.try_fetch_anchor_info(
-            &anchor,
-            &sample_toml(&env),
-            &String::from_str(&env, "Test SDF Network ; September 2015"),
-            &Some(3600u64),
-        );
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_fetch_anchor_info_mainnet_passphrase_accepted() {
+    fn test_fetch_anchor_info_decimals_at_max_boundary_accepted() {
         let env = make_env();
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
         let mut currencies = Vec::new(&env);
-        currencies.push_back(usdc_asset(&env));
-        let mut accounts = Vec::new(&env);
-        accounts.push_back(String::from_str(&env, "GANCHOR1"));
-
-        let mainnet_toml = StellarToml {
-            version: String::from_str(&env, "2.0.0"),
-            network_passphrase: String::from_str(&env, "Public Global Stellar Network ; September 2015"),
-            accounts,
-            signing_key: None,
-            currencies,
-            fiat_currencies: Vec::new(&env),
-            transfer_server: String::from_str(&env, "https://api.example.com"),
-            transfer_server_sep0024: String::from_str(&env, "https://api.example.com/sep24"),
-            kyc_server: String::from_str(&env, "https://kyc.example.com"),
-            web_auth_endpoint: String::from_str(&env, "https://auth.example.com"),
-        };
-
-        let result = client.try_fetch_anchor_info(
-            &anchor,
-            &mainnet_toml,
-            &String::from_str(&env, "Public Global Stellar Network ; September 2015"),
-            &Some(3600u64),
-        );
-        assert!(result.is_ok());
+        currencies.push_back(AssetInfo {
+            decimals: 18,
+            ..usdc_asset(&env)
+        });
+        let toml = StellarToml { currencies, ..sample_toml(&env) };
+        // Must not panic.
+        client.fetch_anchor_info(&anchor, &toml, &Some(3600u64));
     }
 
+    /// decimals = 19 exceeds the maximum and must be rejected with ValidationError.
     #[test]
-    fn test_fetch_anchor_info_unknown_passphrase_rejected() {
+    fn test_fetch_anchor_info_decimals_out_of_range_rejected() {
         let env = make_env();
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        let result = client.try_fetch_anchor_info(
-            &anchor,
-            &sample_toml(&env),
-            &String::from_str(&env, "Some Unknown Network ; January 2024"),
-            &Some(3600u64),
-        );
-        assert!(result.is_err());
+        let mut currencies = Vec::new(&env);
+        currencies.push_back(AssetInfo {
+            decimals: 19,
+            ..usdc_asset(&env)
+        });
+        let toml = StellarToml { currencies, ..sample_toml(&env) };
+        let result = client.try_fetch_anchor_info(&anchor, &toml, &Some(3600u64));
+        assert!(result.is_err(), "decimals=19 should be rejected");
     }
 
+    /// decimals = 255 (u32 max-ish) must be rejected.
     #[test]
-    fn test_fetch_anchor_info_mismatched_passphrase_rejected() {
+    fn test_fetch_anchor_info_decimals_255_rejected() {
         let env = make_env();
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        // TOML has testnet passphrase but caller supplies mainnet — must be rejected
-        let result = client.try_fetch_anchor_info(
-            &anchor,
-            &sample_toml(&env),
-            &String::from_str(&env, "Public Global Stellar Network ; September 2015"),
-            &Some(3600u64),
-        );
-        assert!(result.is_err());
+        let mut currencies = Vec::new(&env);
+        currencies.push_back(AssetInfo {
+            decimals: 255,
+            ..usdc_asset(&env)
+        });
+        let toml = StellarToml { currencies, ..sample_toml(&env) };
+        let result = client.try_fetch_anchor_info(&anchor, &toml, &Some(3600u64));
+        assert!(result.is_err(), "decimals=255 should be rejected");
     }
+
 }
