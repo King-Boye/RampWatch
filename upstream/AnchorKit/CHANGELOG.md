@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unit tests for domain_validator edge cases (Unicode/IDN, IP addresses, trailing slashes, length boundaries)
 - License field to Cargo.toml
 
+### Fixed
+<!-- Bug fixes go here -->
+
+### Breaking Changes
+<!-- Breaking changes go here -->
+
 ### Changed
 - Updated README.md license section to reference LICENSE file
 
