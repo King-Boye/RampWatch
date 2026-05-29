@@ -1249,9 +1249,16 @@ impl AnchorKitContract {
 
     pub fn cache_metadata(env: Env, anchor: Address, metadata: AnchorMetadata, ttl_seconds: u64) {
         Self::require_admin(&env);
-        // Issue #259: skip write if metadata is unchanged
+        // Issue #259: skip write if metadata is unchanged.
+        // ttl_seconds=0 entries live in persistent storage (never network-evicted);
+        // all other entries live in temporary storage.
         let key = StorageKey::MetadataCache(anchor.clone());
-        if let Some(existing) = env.storage().temporary().get::<_, MetadataCache>(&key) {
+        let existing: Option<MetadataCache> = if ttl_seconds == 0 {
+            env.storage().persistent().get(&key)
+        } else {
+            env.storage().temporary().get(&key)
+        };
+        if let Some(existing) = existing {
             let m = &existing.metadata;
             if m.anchor == metadata.anchor
                 && m.reputation_score == metadata.reputation_score
@@ -1266,20 +1273,29 @@ impl AnchorKitContract {
         }
         let now = env.ledger().timestamp();
         let entry = MetadataCache { metadata, cached_at: now, ttl_seconds };
-        let ledger_ttl = ((ttl_seconds + LEDGER_PERIOD_SECS - 1) / LEDGER_PERIOD_SECS) as u32;
-        let ledger_ttl = ledger_ttl.max(MIN_TEMP_TTL);
-        env.storage().temporary().set(&key, &entry);
-        env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
+        if ttl_seconds == 0 {
+            // Persistent storage is not subject to network-level eviction within
+            // its TTL window, so ttl_seconds=0 ("never expire at app level") is
+            // backed by storage that won't disappear under the contract's feet.
+            env.storage().persistent().set(&key, &entry);
+            env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+        } else {
+            let ledger_ttl = if ttl_seconds as u32 > MIN_TEMP_TTL { ttl_seconds as u32 } else { MIN_TEMP_TTL };
+            env.storage().temporary().set(&key, &entry);
+            env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
+        }
 
         Self::add_to_cached_anchors(&env, &anchor);
     }
 
     pub fn get_cached_metadata(env: Env, anchor: Address) -> AnchorMetadata {
         let key = StorageKey::MetadataCache(anchor);
-        let entry: MetadataCache = env.storage().temporary().get(&key)
+        // ttl_seconds=0 entries are stored persistently; all others are temporary.
+        let entry: MetadataCache = env.storage().persistent().get(&key)
+            .or_else(|| env.storage().temporary().get(&key))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::CacheNotFound));
         let now = env.ledger().timestamp();
-        // ttl_seconds = 0 means "never expire" — skip the expiry check to prevent refresh loops
+        // ttl_seconds = 0 means "never expire at app level" — skip the expiry check
         if entry.ttl_seconds != 0 && entry.cached_at + entry.ttl_seconds <= now {
             panic_with_error!(&env, ErrorCode::CacheExpired);
         }
@@ -1291,8 +1307,8 @@ impl AnchorKitContract {
     /// `Ok(0)` means the entry was just cached at the current ledger timestamp.
     pub fn get_cache_age_seconds(env: Env, anchor: Address) -> Result<u64, ErrorCode> {
         let key = StorageKey::MetadataCache(anchor);
-        let entry: MetadataCache = env.storage().temporary().get(&key)
-            .ok_or(ErrorCode::CacheNotFound)?;
+        let entry: MetadataCache = env.storage().persistent().get(&key)
+            .or_else(|| env.storage().temporary().get(&key))?;
         let now = env.ledger().timestamp();
         Ok(now.saturating_sub(entry.cached_at))
     }
@@ -1301,9 +1317,12 @@ impl AnchorKitContract {
     pub fn refresh_metadata_cache(env: Env, anchor: Address) -> AnchorMetadata {
         Self::require_admin(&env);
         let key = StorageKey::MetadataCache(anchor.clone());
-        let entry: MetadataCache = env.storage().temporary().get(&key)
+        let entry: MetadataCache = env.storage().persistent().get(&key)
+            .or_else(|| env.storage().temporary().get(&key))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::CacheNotFound));
         let metadata = entry.metadata.clone();
+        // Remove from whichever storage tier holds the entry.
+        env.storage().persistent().remove(&key);
         env.storage().temporary().remove(&key);
 
         // Issue #276: remove from CACHED_ANCHORS set
