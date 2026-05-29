@@ -192,6 +192,7 @@ impl AnchorKitContract {
         }
         inst.set(&key_admin(&env), &admin);
         inst.set(&StorageKey::AuditLogMaxSize, &max_audit_log_size);
+        inst.set(&StorageKey::MaxPageSize, &50u32);
         // Default replay window: 300 seconds (5 minutes).
         let window = replay_window_seconds.unwrap_or(300u64);
         inst.set(&key_replay_window(&env), &window);
@@ -245,6 +246,26 @@ impl AnchorKitContract {
             .instance()
             .get::<_, Address>(&key_admin(&env))
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NotInitialized))
+    }
+
+    pub fn get_max_page_size(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get::<_, u32>(&StorageKey::MaxPageSize)
+            .unwrap_or(50u32)
+    }
+
+    pub fn set_max_page_size(env: Env, max_page_size: u32) {
+        Self::require_admin(&env);
+        if max_page_size == 0 {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        env.storage().instance().set(&StorageKey::MaxPageSize, &max_page_size);
+        env.storage().instance().extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+        env.events().publish(
+            (symbol_short!("pagesize"), symbol_short!("updated")),
+            max_page_size,
+        );
     }
 
     /// Returns `true` if the contract has been initialized, `false` otherwise.
@@ -736,7 +757,8 @@ impl AnchorKitContract {
     }
 
     pub fn list_attestations(env: Env, subject: Address, offset: u64, limit: u32) -> Vec<Attestation> {
-        let actual_limit = if limit > 50 { 50 } else { limit };
+        let max_page_size = Self::get_max_page_size(env.clone());
+        let actual_limit = if limit > max_page_size { max_page_size } else { limit };
         let mut results = Vec::new(&env);
 
         let count_key = StorageKey::SubjectCount(subject.clone());
