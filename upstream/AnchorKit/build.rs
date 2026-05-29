@@ -8,6 +8,7 @@ fn main() {
     println!("cargo:rerun-if-changed=validate_config_strict.py");
     println!("cargo:rerun-if-changed=src/config.rs");
     println!("cargo:rerun-if-changed=src/validation.rs");
+    println!("cargo:rerun-if-changed=Cargo.lock");
 
     // Emit rerun-if-changed for every individual config file so Cargo
     // skips re-running this script when nothing in configs/ has changed.
@@ -27,6 +28,7 @@ fn main() {
     // Strict compile-time validation to prevent misconfiguration bugs
     validate_configs_at_build();
     validate_schema_consistency();
+    check_soroban_sdk_version();
 }
 
 fn validate_configs_at_build() {
@@ -166,4 +168,76 @@ fn validate_schema_consistency() {
     }
 
     println!("cargo:warning=✓ Schema consistency validated");
+}
+
+/// The exact soroban-sdk patch version this contract has been tested against.
+/// If Cargo resolves a different version the build fails with a clear message so
+/// developers notice the mismatch before subtle runtime failures surface.
+const EXPECTED_SOROBAN_SDK_VERSION: &str = "21.7.7";
+
+/// Read the resolved soroban-sdk version from Cargo.lock and fail the build if it
+/// does not match EXPECTED_SOROBAN_SDK_VERSION.
+fn check_soroban_sdk_version() {
+    let lock_path = Path::new("Cargo.lock");
+    if !lock_path.exists() {
+        println!("cargo:warning=Cargo.lock not found; skipping soroban-sdk version check");
+        return;
+    }
+
+    let lock_content = match std::fs::read_to_string(lock_path) {
+        Ok(c) => c,
+        Err(e) => {
+            println!("cargo:warning=Could not read Cargo.lock: {}", e);
+            return;
+        }
+    };
+
+    match parse_lock_version(&lock_content, "soroban-sdk") {
+        Some(ref actual) if actual == EXPECTED_SOROBAN_SDK_VERSION => {
+            println!(
+                "cargo:warning=✓ soroban-sdk {} matches expected version",
+                actual
+            );
+        }
+        Some(actual) => {
+            panic!(
+                "\n\n❌ SOROBAN-SDK VERSION MISMATCH ❌\n\
+                Expected soroban-sdk version : {}\n\
+                Resolved soroban-sdk version : {}\n\n\
+                If you intentionally upgraded soroban-sdk, update \
+                EXPECTED_SOROBAN_SDK_VERSION in build.rs to {} and verify \
+                that all contract behaviour is still correct.\n",
+                EXPECTED_SOROBAN_SDK_VERSION, actual, actual
+            );
+        }
+        None => {
+            println!(
+                "cargo:warning=soroban-sdk not found in Cargo.lock; skipping version check"
+            );
+        }
+    }
+}
+
+/// Extract the resolved version of `package_name` from a Cargo.lock file.
+///
+/// Cargo.lock groups packages as `[[package]]` blocks; each block has `name`
+/// and `version` fields. We split by `[[package]]`, locate the block whose
+/// `name` field matches, and return its `version` value.
+fn parse_lock_version(lock_content: &str, package_name: &str) -> Option<std::string::String> {
+    for block in lock_content.split("[[package]]") {
+        let name_line = format!("name = \"{}\"", package_name);
+        if !block.lines().any(|l| l.trim() == name_line) {
+            continue;
+        }
+        for line in block.lines() {
+            let line = line.trim();
+            if line.starts_with("version = \"") && line.ends_with('"') {
+                let ver = line
+                    .trim_start_matches("version = \"")
+                    .trim_end_matches('"');
+                return Some(ver.to_string());
+            }
+        }
+    }
+    None
 }
