@@ -2007,14 +2007,22 @@ impl AnchorKitContract {
         panic_with_error!(&env, ErrorCode::ValidationError);
     }
 
-    pub fn get_anchor_deposit_limits(env: Env, anchor: Address, asset_code: String) -> (u64, u64) {
+    pub fn get_anchor_deposit_limits(env: Env, anchor: Address, asset_code: String) -> Result<(u64, u64), ErrorCode> {
+        let key = StorageKey::TomlCache(anchor.clone());
+        if !env.storage().temporary().has(&key) {
+            return Err(ErrorCode::CacheNotFound);
+        }
         let asset = Self::get_anchor_asset_info(env, anchor, asset_code);
-        (asset.deposit_min_amount, asset.deposit_max_amount)
+        Ok((asset.deposit_min_amount, asset.deposit_max_amount))
     }
 
-    pub fn get_anchor_withdrawal_limits(env: Env, anchor: Address, asset_code: String) -> (u64, u64) {
+    pub fn get_anchor_withdrawal_limits(env: Env, anchor: Address, asset_code: String) -> Result<(u64, u64), ErrorCode> {
+        let key = StorageKey::TomlCache(anchor.clone());
+        if !env.storage().temporary().has(&key) {
+            return Err(ErrorCode::CacheNotFound);
+        }
         let asset = Self::get_anchor_asset_info(env, anchor, asset_code);
-        (asset.withdrawal_min_amount, asset.withdrawal_max_amount)
+        Ok((asset.withdrawal_min_amount, asset.withdrawal_max_amount))
     }
 
     pub fn get_anchor_deposit_fees(env: Env, anchor: Address, asset_code: String) -> (u64, u32) {

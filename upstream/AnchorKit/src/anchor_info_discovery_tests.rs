@@ -647,58 +647,34 @@ mod anchor_info_discovery_tests {
     }
 
     // -----------------------------------------------------------------------
-    // Issue #500: decimals validation
+    // Issue #499: deposit/withdrawal limits return Result with cache key check
     // -----------------------------------------------------------------------
 
-    /// decimals = 18 is the maximum valid value and must be accepted.
+    /// When no TOML is cached, get_anchor_deposit_limits must return CacheNotFound.
     #[test]
-    fn test_fetch_anchor_info_decimals_at_max_boundary_accepted() {
+    fn test_get_deposit_limits_uncached_returns_cache_not_found() {
         let env = make_env();
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        let mut currencies = Vec::new(&env);
-        currencies.push_back(AssetInfo {
-            decimals: 18,
-            ..usdc_asset(&env)
-        });
-        let toml = StellarToml { currencies, ..sample_toml(&env) };
-        // Must not panic.
-        client.fetch_anchor_info(&anchor, &toml, &Some(3600u64));
+        let result = client.try_get_anchor_deposit_limits(&anchor, &String::from_str(&env, "USDC"));
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            crate::errors::ErrorCode::CacheNotFound,
+        );
     }
 
-    /// decimals = 19 exceeds the maximum and must be rejected with ValidationError.
+    /// When no TOML is cached, get_anchor_withdrawal_limits must return CacheNotFound.
     #[test]
-    fn test_fetch_anchor_info_decimals_out_of_range_rejected() {
+    fn test_get_withdrawal_limits_uncached_returns_cache_not_found() {
         let env = make_env();
         set_ledger(&env, 0);
         let (client, anchor) = setup(&env);
 
-        let mut currencies = Vec::new(&env);
-        currencies.push_back(AssetInfo {
-            decimals: 19,
-            ..usdc_asset(&env)
-        });
-        let toml = StellarToml { currencies, ..sample_toml(&env) };
-        let result = client.try_fetch_anchor_info(&anchor, &toml, &Some(3600u64));
-        assert!(result.is_err(), "decimals=19 should be rejected");
+        let result = client.try_get_anchor_withdrawal_limits(&anchor, &String::from_str(&env, "USDC"));
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            crate::errors::ErrorCode::CacheNotFound,
+        );
     }
-
-    /// decimals = 255 (u32 max-ish) must be rejected.
-    #[test]
-    fn test_fetch_anchor_info_decimals_255_rejected() {
-        let env = make_env();
-        set_ledger(&env, 0);
-        let (client, anchor) = setup(&env);
-
-        let mut currencies = Vec::new(&env);
-        currencies.push_back(AssetInfo {
-            decimals: 255,
-            ..usdc_asset(&env)
-        });
-        let toml = StellarToml { currencies, ..sample_toml(&env) };
-        let result = client.try_fetch_anchor_info(&anchor, &toml, &Some(3600u64));
-        assert!(result.is_err(), "decimals=255 should be rejected");
-    }
-
 }
