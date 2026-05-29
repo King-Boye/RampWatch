@@ -202,7 +202,7 @@ impl AnchorKitContract {
         Self::require_admin(&env);
         let inst = env.storage().instance();
         if inst.has(&pending_admin_key(&env)) {
-            panic_with_error!(&env, ErrorCode::UnauthorizedProposeAdmin);
+            panic_with_error!(&env, ErrorCode::PendingAdminAlreadyExists);
         }
         if new_admin == env.current_contract_address() {
             panic_with_error!(&env, ErrorCode::ValidationError);
@@ -278,18 +278,41 @@ impl AnchorKitContract {
     // Attestor management
     // -----------------------------------------------------------------------
 
-    pub fn set_sep10_jwt_verifying_key(env: Env, issuer: Address, public_key: Bytes) {
+    pub fn upsert_sep10_verifying_key(env: Env, issuer: Address, public_key: Bytes) {
         Self::require_admin(&env);
         if public_key.len() != 32 {
             panic_with_error!(&env, ErrorCode::ValidationError);
         }
-        let mut keys: Vec<Bytes> = Vec::new(&env);
-        keys.push_back(public_key);
         let storage_key = StorageKey::Sep10Key(issuer.clone());
+        let mut keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&storage_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        // Replace in-place if the key already exists; otherwise append.
+        let mut found = false;
+        for i in 0..keys.len() {
+            if keys.get(i).unwrap() == public_key {
+                keys.set(i, public_key.clone());
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            if keys.len() >= sep10_jwt::MAX_VERIFYING_KEYS {
+                panic_with_error!(&env, ErrorCode::ValidationError);
+            }
+            keys.push_back(public_key);
+        }
         env.storage().persistent().set(&storage_key, &keys);
         env.storage()
             .persistent()
             .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
+    }
+
+    /// Deprecated alias kept for backward compatibility. Use `upsert_sep10_verifying_key` instead.
+    pub fn set_sep10_jwt_verifying_key(env: Env, issuer: Address, public_key: Bytes) {
+        Self::upsert_sep10_verifying_key(env, issuer, public_key);
     }
 
     pub fn add_sep10_verifying_key(env: Env, issuer: Address, public_key: Bytes) {
@@ -464,9 +487,26 @@ impl AnchorKitContract {
         if !Self::is_attestor(env.clone(), attestor.clone()) {
             panic_with_error!(&env, ErrorCode::AttestorNotRegistered);
         }
-        env.storage().persistent()
+        let endpoint: String = env
+            .storage()
+            .persistent()
             .get::<_, String>(&StorageKey::Endpoint(attestor))
-            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestorNotRegistered))
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestorNotRegistered));
+
+        // Re-validate on read: a storage entry written by an older contract version
+        // with looser validation rules must not be returned as a trusted URL.
+        let len = endpoint.len() as usize;
+        if len > 128 {
+            panic_with_error!(&env, ErrorCode::InvalidEndpointFormat);
+        }
+        let mut rust_buf = [0u8; 128];
+        endpoint.copy_into_slice(&mut rust_buf[..len]);
+        let endpoint_str = core::str::from_utf8(&rust_buf[..len]).unwrap_or("");
+        if crate::validate_anchor_domain(endpoint_str).is_err() {
+            panic_with_error!(&env, ErrorCode::InvalidEndpointFormat);
+        }
+
+        endpoint
     }
 
     // -----------------------------------------------------------------------
@@ -487,6 +527,14 @@ impl AnchorKitContract {
         }
         let mut seen = Vec::new(&env);
         for s in services.iter() {
+            // Reject any value that is not one of the four known service constants.
+            if s != SERVICE_DEPOSITS
+                && s != SERVICE_WITHDRAWALS
+                && s != SERVICE_QUOTES
+                && s != SERVICE_KYC
+            {
+                panic_with_error!(&env, ErrorCode::InvalidServiceType);
+            }
             if seen.contains(s) {
                 panic_with_error!(&env, ErrorCode::InvalidServiceType);
             }
@@ -727,6 +775,18 @@ impl AnchorKitContract {
         compute_payload_hash(&env, &subject, timestamp, &data)
     }
 
+    /// Compute the canonical payload hash via the contract method.
+    ///
+    /// Off-chain callers should prefer this method over calling
+    /// `deterministic_hash::compute_payload_hash` directly. Going through the
+    /// Soroban host environment ensures that `Address` XDR serialisation uses
+    /// the same host-side encoding as on-chain attestation submission, avoiding
+    /// divergence that can occur when the module function is called outside the
+    /// host context.
+    pub fn compute_payload_hash_public(env: Env, subject: Address, timestamp: u64, data: Bytes) -> BytesN<32> {
+        compute_payload_hash(&env, &subject, timestamp, &data)
+    }
+
     pub fn verify_payload_hash(env: Env, attestation_id: u64, expected_hash: BytesN<32>) -> bool {
         let attestation = env
             .storage()
@@ -794,6 +854,19 @@ impl AnchorKitContract {
     ) -> u64 {
         anchor.require_auth();
         Self::check_attestor(&env, &anchor);
+
+        // Validate quote parameters
+        if rate == 0 {
+            panic_with_error!(&env, ErrorCode::InvalidQuote);
+        }
+        if minimum_amount > maximum_amount {
+            panic_with_error!(&env, ErrorCode::InvalidQuote);
+        }
+        let now = env.ledger().timestamp();
+        if valid_until <= now {
+            panic_with_error!(&env, ErrorCode::InvalidQuote);
+        }
+
         let inst = env.storage().instance();
         let qcnt_key = key_quote_counter(&env);
         let next: u64 = inst.get(&qcnt_key).unwrap_or(0u64) + 1;
@@ -1163,7 +1236,7 @@ impl AnchorKitContract {
         env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
 
         // Issue #276: maintain CACHED_ANCHORS set
-        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
+        let list_key = key_anchor_list(&env);
         let mut list: Vec<Address> = env.storage().persistent()
             .get::<_, Vec<Address>>(&list_key)
             .unwrap_or_else(|| Vec::new(&env));
@@ -1205,7 +1278,7 @@ impl AnchorKitContract {
         env.storage().temporary().remove(&key);
 
         // Issue #276: remove from CACHED_ANCHORS set
-        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
+        let list_key = key_anchor_list(&env);
         if let Some(list) = env.storage().persistent().get::<_, Vec<Address>>(&list_key) {
             let mut new_list = Vec::new(&env);
             for a in list.iter() {
@@ -1252,37 +1325,42 @@ impl AnchorKitContract {
         let metadata = Self::get_cached_metadata(env.clone(), anchor);
 
         // Weight constants (must sum to 100)
-        const UPTIME_WEIGHT: u32 = 40;
-        const REPUTATION_WEIGHT: u32 = 35;
-        const SPEED_WEIGHT: u32 = 25;
+        const UPTIME_WEIGHT: u64 = 40;
+        const REPUTATION_WEIGHT: u64 = 35;
+        const SPEED_WEIGHT: u64 = 25;
+        const SCALE_FACTOR: u64 = 100; // Fixed-point scaling to preserve precision
 
-        // 1. Uptime score: scale from 0-10000 to 0-100
-        let uptime_score = metadata.uptime_percentage / 100;
+        // 1. Uptime score: scale from 0-10000 to 0-100 using fixed-point arithmetic
+        // Multiply by SCALE_FACTOR before dividing to preserve decimal precision
+        let uptime_score = (metadata.uptime_percentage as u64 * SCALE_FACTOR) / 100;
 
-        // 2. Reputation score: scale from 0-10000 to 0-100
-        let reputation_score = metadata.reputation_score / 100;
+        // 2. Reputation score: scale from 0-10000 to 0-100 using fixed-point arithmetic
+        let reputation_score = (metadata.reputation_score as u64 * SCALE_FACTOR) / 100;
 
         // 3. Settlement speed score: tiered scoring based on settlement time
         let speed_score = if metadata.average_settlement_time <= 300 {
-            100 // Excellent: ≤5 minutes
+            100 * SCALE_FACTOR // Excellent: ≤5 minutes
         } else if metadata.average_settlement_time <= 600 {
-            80 // Good: 5-10 minutes
+            80 * SCALE_FACTOR // Good: 5-10 minutes
         } else if metadata.average_settlement_time <= 1800 {
-            60 // Acceptable: 10-30 minutes
+            60 * SCALE_FACTOR // Acceptable: 10-30 minutes
         } else if metadata.average_settlement_time <= 3600 {
-            40 // Slow: 30-60 minutes
+            40 * SCALE_FACTOR // Slow: 30-60 minutes
         } else {
-            20 // Very slow: >1 hour
+            20 * SCALE_FACTOR // Very slow: >1 hour
         };
 
-        // Calculate weighted health score
-        let health_score = (UPTIME_WEIGHT * uptime_score
+        // Calculate weighted health score using fixed-point arithmetic
+        // All intermediate values are scaled by SCALE_FACTOR, so divide once at the end
+        let weighted_sum = UPTIME_WEIGHT * uptime_score
             + REPUTATION_WEIGHT * reputation_score
-            + SPEED_WEIGHT * speed_score)
-            / 100;
+            + SPEED_WEIGHT * speed_score;
+        
+        // Divide by (100 * SCALE_FACTOR) to get final score: 100 for weights, SCALE_FACTOR for precision
+        let health_score = weighted_sum / (100 * SCALE_FACTOR);
 
         // Ensure score is capped at 100
-        let final_score = if health_score > 100 { 100 } else { health_score };
+        let final_score = if health_score > 100 { 100 } else { health_score as u32 };
 
         // Issue #464: enforce configurable minimum acceptable health score.
         // When key_health_threshold is set (> 0), reject anchors whose computed
@@ -1302,7 +1380,7 @@ impl AnchorKitContract {
 
     /// Issue #276: list all anchors that currently have active metadata cache entries.
     pub fn list_cached_anchors(env: Env) -> Vec<Address> {
-        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
+        let list_key = key_anchor_list(&env);
         env.storage().persistent()
             .get::<_, Vec<Address>>(&list_key)
             .unwrap_or_else(|| Vec::new(&env))
@@ -1358,7 +1436,7 @@ impl AnchorKitContract {
     /// Emits a `CacheInvalidated` event with the count of cleared entries.
     pub fn invalidate_all_caches(env: Env) {
         Self::require_admin(&env);
-        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
+        let list_key = key_anchor_list(&env);
         let anchors: Vec<Address> = env.storage().persistent()
             .get::<_, Vec<Address>>(&list_key)
             .unwrap_or_else(|| Vec::new(&env));
@@ -1535,6 +1613,18 @@ impl AnchorKitContract {
             if !meta.is_active { continue; }
             if meta.reputation_score < options.min_reputation { continue; }
 
+            // Check KYC requirement filter
+            if options.require_kyc {
+                let services_key = StorageKey::Services(anchor.clone());
+                let services_record: AnchorServices = match env.storage().persistent().get(&services_key) {
+                    Some(sr) => sr,
+                    None => continue,
+                };
+                if !services_record.services.contains(SERVICE_KYC) {
+                    continue;
+                }
+            }
+
             // Get latest quote for this anchor
             let lq_key = StorageKey::LatestQuote(anchor.clone());
             let quote_id: u64 = match env.storage().persistent().get(&lq_key) {
@@ -1547,12 +1637,27 @@ impl AnchorKitContract {
                 None => continue,
             };
 
-            if quote.valid_until <= now { continue; }
+            if quote.valid_until <= now {
+                env.events().publish(
+                    (symbol_short!("quote"),),
+                    crate::events::QuoteExpiredEvent {
+                        anchor: anchor.clone(),
+                        quote_id,
+                        valid_until: quote.valid_until,
+                    },
+                );
+                continue;
+            }
             if options.request.amount < quote.minimum_amount || options.request.amount > quote.maximum_amount {
                 continue;
             }
 
             candidates.push_back(quote);
+
+            // Stop adding candidates if we've reached max_anchors limit
+            if options.max_anchors > 0 && candidates.len() >= options.max_anchors as usize {
+                break;
+            }
         }
 
         if candidates.is_empty() {
@@ -1566,6 +1671,14 @@ impl AnchorKitContract {
         let fastest_sym = Symbol::new(&env, "FastestSettlement");
         let reputation_sym = Symbol::new(&env, "HighestReputation");
         let balanced_sym = Symbol::new(&env, "Balanced");
+
+        // Validate that the strategy symbol is recognized
+        if strategy_sym != lowest_fee_sym 
+            && strategy_sym != fastest_sym 
+            && strategy_sym != reputation_sym 
+            && strategy_sym != balanced_sym {
+            panic_with_error!(&env, ErrorCode::InvalidStrategy);
+        }
 
         let mut best: Quote = candidates.get(0).unwrap();
 
@@ -1643,6 +1756,26 @@ impl AnchorKitContract {
             }
         }
 
+        let strategy_str = if strategy_sym == lowest_fee_sym {
+            String::from_str(&env, "LowestFee")
+        } else if strategy_sym == fastest_sym {
+            String::from_str(&env, "FastestSettlement")
+        } else if strategy_sym == reputation_sym {
+            String::from_str(&env, "HighestReputation")
+        } else {
+            String::from_str(&env, "Balanced")
+        };
+
+        env.events().publish(
+            (symbol_short!("routing"),),
+            crate::events::RoutingDecisionEvent {
+                anchor: best.anchor.clone(),
+                strategy: strategy_str,
+                quote_id: best.quote_id,
+                ledger_sequence: env.ledger().sequence(),
+            },
+        );
+
         best
     }
 
@@ -1650,8 +1783,37 @@ impl AnchorKitContract {
     // Anchor Info Discovery
     // -----------------------------------------------------------------------
 
-    pub fn fetch_anchor_info(env: Env, anchor: Address, toml_data: StellarToml, ttl_override: Option<u64>) {
+    pub fn fetch_anchor_info(env: Env, anchor: Address, toml_data: StellarToml, network_passphrase: String, ttl_override: Option<u64>) {
         anchor.require_auth();
+
+        // Validate network_passphrase matches a known network before caching.
+        // Prevents caching a TOML from the wrong network, which would cause
+        // SEP-10 verification to succeed against the wrong signing key.
+        let np_len = network_passphrase.len() as usize;
+        if np_len > 256 {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        let mut np_buf = [0u8; 256];
+        network_passphrase.copy_into_slice(&mut np_buf[..np_len]);
+        let np_str = core::str::from_utf8(&np_buf[..np_len]).unwrap_or("");
+
+        const MAINNET: &str = "Public Global Stellar Network ; September 2015";
+        const TESTNET: &str = "Test SDF Network ; September 2015";
+        if np_str != MAINNET && np_str != TESTNET {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+
+        // Validate that the TOML's own network_passphrase matches the supplied one.
+        let toml_np_len = toml_data.network_passphrase.len() as usize;
+        if toml_np_len > 256 {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        let mut toml_np_buf = [0u8; 256];
+        toml_data.network_passphrase.copy_into_slice(&mut toml_np_buf[..toml_np_len]);
+        let toml_np_str = core::str::from_utf8(&toml_np_buf[..toml_np_len]).unwrap_or("");
+        if toml_np_str != np_str {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
 
         // Reject non-HTTPS endpoints to prevent MITM exposure of anchor metadata.
         let ts_len = toml_data.transfer_server.len() as usize;
@@ -1811,8 +1973,7 @@ impl AnchorKitContract {
             .get(&key_replay_window(env))
             .unwrap_or(300u64);
         let lower = now.saturating_sub(window);
-        let upper = now.saturating_add(window);
-        if timestamp < lower || timestamp > upper {
+on this r        if timestamp < lower || timestamp > now {
             panic_with_error!(env, ErrorCode::InvalidTimestamp);
         }
     }
@@ -1821,7 +1982,10 @@ impl AnchorKitContract {
         let inst = env.storage().instance();
         let ck = key_counter(env);
         let id: u64 = inst.get(&ck).unwrap_or(0u64);
-        let next = id.checked_add(1).unwrap_or_else(|| panic_with_error!(env, ErrorCode::ValidationError));
+        let next = id.saturating_add(1);
+        if next == u64::MAX {
+            panic_with_error!(env, ErrorCode::AttestationLimitReached);
+        }
         inst.set(&ck, &next);
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
         id

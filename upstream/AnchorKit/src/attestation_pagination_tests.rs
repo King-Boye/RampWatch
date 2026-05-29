@@ -182,8 +182,7 @@ mod attestation_pagination_tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_attestation_id_overflow_panics() {
+    fn test_attestation_id_overflow_returns_limit_reached() {
         let env = make_env();
         setup_ledger(&env);
         let contract_id = env.register_contract(None, AnchorKitContract);
@@ -194,18 +193,19 @@ mod attestation_pagination_tests {
         let subject = Address::generate(&env);
         client.initialize(&admin, &100_u64, &None);
 
-        // Seed the counter to u64::MAX so the next increment overflows
+        // Seed the counter to u64::MAX - 1 so the next increment hits the limit
         env.as_contract(&contract_id, &|| {
             let ck = soroban_sdk::vec![&env, soroban_sdk::symbol_short!("COUNTER")];
-            env.storage().instance().set(&ck, &u64::MAX);
+            env.storage().instance().set(&ck, &(u64::MAX - 1));
         });
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
-        // This should panic due to overflow guard
+        // Should return Err(AttestationLimitReached) instead of panicking
         let p = payload(&env, 1);
-        client.submit_attestation(&attestor, &subject, &1700000001, &p, &sign_payload(&env, &sk, &p));
+        let result = client.try_submit_attestation(&attestor, &subject, &1700000001, &p, &sign_payload(&env, &sk, &p));
+        assert!(result.is_err());
     }
 
     #[test]

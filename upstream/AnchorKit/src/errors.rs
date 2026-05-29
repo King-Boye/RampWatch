@@ -93,7 +93,7 @@ pub enum ErrorCode {
     CacheExpired = 48,
     CacheNotFound = 49,
     AuditLogMaxSizeInvalid = 51,
-    UnauthorizedProposeAdmin = 52,
+    PendingAdminAlreadyExists = 52,
     NoPendingAdmin = 53,
     NotPendingAdmin = 54,
     SessionNotFound = 55,
@@ -128,7 +128,7 @@ impl ErrorCode {
             ErrorCode::CacheExpired => "Cache entry has expired",
             ErrorCode::CacheNotFound => "Cache entry not found",
             ErrorCode::AuditLogMaxSizeInvalid => "max_audit_log_size must be at least 1",
-            ErrorCode::UnauthorizedProposeAdmin => "A pending admin proposal already exists",
+            ErrorCode::PendingAdminAlreadyExists => "An admin transfer is already pending",
             ErrorCode::NoPendingAdmin => "No pending admin transfer found",
             ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
             ErrorCode::SessionNotFound => "Session not found",
@@ -243,11 +243,8 @@ impl core::fmt::Display for AnchorKitError {
 // no-std / WASM implementation — zero heap allocation
 // ---------------------------------------------------------------------------
 
-#[cfg(not(feature = "std"))]
-impl AnchorKitError {
-    /// Create an error from a code using its static default message.
-    pub fn from_code(code: ErrorCode) -> Self {
-        AnchorKitError { code, message: code.default_message(), context: None }
+    pub fn cache_not_found() -> Self {
+        Self::from_code(ErrorCode::CacheNotFound)
     }
 
     pub fn already_initialized() -> Self { Self::from_code(ErrorCode::AlreadyInitialized) }
@@ -344,6 +341,10 @@ mod tests {
         assert_eq!(AnchorKitError::invalid_sep10_token().code, ErrorCode::InvalidSep10Token);
         assert_eq!(AnchorKitError::cache_expired().code, ErrorCode::CacheExpired);
         assert_eq!(AnchorKitError::cache_not_found().code, ErrorCode::CacheNotFound);
+        assert_eq!(AnchorKitError::audit_log_max_size_invalid().code, ErrorCode::AuditLogMaxSizeInvalid);
+        assert_eq!(AnchorKitError::unauthorized_propose_admin().code, ErrorCode::UnauthorizedProposeAdmin);
+        assert_eq!(AnchorKitError::no_pending_admin().code, ErrorCode::NoPendingAdmin);
+        assert_eq!(AnchorKitError::not_pending_admin().code, ErrorCode::NotPendingAdmin);
     }
 
     #[test]
@@ -357,9 +358,10 @@ mod tests {
     fn test_error_code_default_messages_are_non_empty() {
 let codes = [
             ErrorCode::AlreadyInitialized,
-            ErrorCode::UnauthorizedProposeAdmin,
+            ErrorCode::PendingAdminAlreadyExists,
             ErrorCode::NoPendingAdmin,
             ErrorCode::NotPendingAdmin,
+            ErrorCode::InvalidStrategy,
             ErrorCode::AttestorAlreadyRegistered,
             ErrorCode::AttestorNotRegistered,
             ErrorCode::UnauthorizedAttestor,
