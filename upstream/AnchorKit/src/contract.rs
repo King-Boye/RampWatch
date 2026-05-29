@@ -1253,11 +1253,8 @@ impl AnchorKitContract {
         // ttl_seconds=0 entries live in persistent storage (never network-evicted);
         // all other entries live in temporary storage.
         let key = StorageKey::MetadataCache(anchor.clone());
-        let existing: Option<MetadataCache> = if ttl_seconds == 0 {
-            env.storage().persistent().get(&key)
-        } else {
-            env.storage().temporary().get(&key)
-        };
+        let existing: Option<MetadataCache> = env.storage().persistent().get(&key)
+            .or_else(|| env.storage().temporary().get(&key));
         if let Some(existing) = existing {
             let m = &existing.metadata;
             if m.anchor == metadata.anchor
