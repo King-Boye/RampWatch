@@ -27,75 +27,14 @@ pub use crate::types::{
 const MIN_TEMP_TTL: u32 = 15; // min_temp_entry_ttl - 1
 const LEDGER_PERIOD_SECS: u64 = 5; // approximate seconds per ledger
 
+use crate::events::{
+    AnchorDeactivated, AttestEvent, AuditLogEvent, AuditLogPruned, EndpointUpdated,
+    QuoteReceivedEvent, QuoteSubmitEvent, SessionCreatedEvent,
+};
+
 // ---------------------------------------------------------------------------
-// Event structs
+// Contract-local event structs (not shared with events.rs)
 // ---------------------------------------------------------------------------
-
-#[contracttype]
-#[derive(Clone)]
-struct SessionCreatedEvent {
-    session_id: u64,
-    initiator: Address,
-    timestamp: u64,
-}
-
-#[contracttype]
-#[derive(Clone)]
-struct QuoteSubmitEvent {
-    quote_id: u64,
-    anchor: Address,
-    base_asset: String,
-    quote_asset: String,
-    rate: u64,
-    valid_until: u64,
-}
-
-#[contracttype]
-#[derive(Clone)]
-struct QuoteReceivedEvent {
-    quote_id: u64,
-    receiver: Address,
-    timestamp: u64,
-}
-
-#[contracttype]
-#[derive(Clone)]
-struct AuditLogEvent {
-    log_id: u64,
-    session_id: u64,
-    operation_index: u64,
-    operation_type: String,
-    status: String,
-}
-
-#[contracttype]
-#[derive(Clone)]
-struct AuditLogPruned {
-    pruned_count: u64,
-    new_offset: u64,
-}
-
-#[contracttype]
-#[derive(Clone)]
-struct AttestEvent {
-    payload_hash: Bytes,
-    timestamp: u64,
-}
-
-#[contracttype]
-#[derive(Clone)]
-pub struct EndpointUpdated {
-    pub attestor: Address,
-    pub endpoint: String,
-}
-
-#[contracttype]
-#[derive(Clone)]
-struct AnchorDeactivated {
-    anchor: Address,
-    failure_count: u32,
-    threshold: u32,
-}
 
 #[contracttype]
 #[derive(Clone)]
@@ -2086,7 +2025,7 @@ impl AnchorKitContract {
             .get(&key_replay_window(env))
             .unwrap_or(300u64);
         let lower = now.saturating_sub(window);
-on this r        if timestamp < lower || timestamp > now {
+        if timestamp < lower || timestamp > now {
             panic_with_error!(env, ErrorCode::InvalidTimestamp);
         }
     }

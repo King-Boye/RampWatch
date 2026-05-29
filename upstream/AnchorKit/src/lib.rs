@@ -36,7 +36,8 @@ pub use sep6::{
     TransactionStatusResponse,
 };
 pub use types::{DepositResponse, WithdrawalResponse, TransactionStatus};
-pub use contract::{AnchorKitContract, EndpointUpdated, get_admin, get_endpoint, set_endpoint, get_attestation_count};
+pub use contract::{AnchorKitContract, get_admin, get_endpoint, set_endpoint, get_attestation_count};
+pub use events::EndpointUpdated;
 
 #[cfg(test)]
 mod request_id_tests;
