@@ -132,26 +132,21 @@ AnchorKit now includes comprehensive session management and operation tracing to
 
 ### Quick Example
 
-```javascript
-// Create a session
-const sessionId = await contract.create_session(userAddress);
+Use Soroban transactions to invoke contract methods. For example, with the CLI:
 
-// Perform operations within the session
-const attestationId = await contract.submit_attestation_with_session(
-    sessionId,
-    issuer,
-    subject,
-    timestamp,
-    payloadHash,
-    signature
-);
-
-// Verify session completeness
-const operationCount = await contract.get_session_operation_count(sessionId);
-
-// Retrieve audit logs
-const auditLog = await contract.get_audit_log(0);
+```bash
+soroban contract invoke \
+    --id <CONTRACT_ID> \
+    --source <ADMIN_ACCOUNT> \
+    --network testnet \
+    -- \
+    register_attestor \
+    --attestor <ATTESTOR_ADDRESS> \
+    --sep10-token <JWT> \
+    --sep10-issuer <ISSUER_ADDRESS>
 ```
+
+If you prefer the Stellar JavaScript SDK, use its contract invocation API instead of direct async session helpers.
 
 ## Documentation
 
@@ -173,10 +168,10 @@ const auditLog = await contract.get_audit_log(0);
 - **[docs/features/WEBHOOK_MIDDLEWARE.md](./docs/features/WEBHOOK_MIDDLEWARE.md)** - Webhook middleware
 - **[docs/features/WEBHOOK_MONITOR.md](./docs/features/WEBHOOK_MONITOR.md)** - Webhook monitoring
 - **[docs/features/TRANSACTION_STATE_TRACKER.md](./docs/features/TRANSACTION_STATE_TRACKER.md)** - Transaction state tracking
-- **[docs/features/SEP10_AUTH.md](./docs/features/SEP10_AUTH.md)** - SEP-10 authentication
 - **[docs/features/SDK_CONFIG.md](./docs/features/SDK_CONFIG.md)** - SDK configuration
 - **[docs/features/STATUS_MONITOR.md](./docs/features/STATUS_MONITOR.md)** - Status monitoring
 - **[docs/features/ROUTING_STRATEGY.md](./docs/features/ROUTING_STRATEGY.md)** - Routing strategy selection (`route_transaction`)
+- **[docs/features/SEP10_AUTH.md](./docs/features/SEP10_AUTH.md)** - SEP-10 authentication; this is the canonical copy for the topic
 
 ### Guides
 - **[docs/guides/DOCTOR_COMMAND.md](./docs/guides/DOCTOR_COMMAND.md)** - CLI doctor command and environment diagnostics
