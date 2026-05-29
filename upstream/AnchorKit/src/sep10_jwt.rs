@@ -11,7 +11,10 @@ use soroban_sdk::{Bytes, Env, String};
 use ed25519_dalek::{Signature, VerifyingKey, Verifier};
 
 /// Maximum JWT character length accepted by the contract (defensive bound).
-pub const MAX_JWT_LEN: u32 = 2048;
+///
+/// SEP-10 JWTs with multiple scope claims and long sub fields can exceed 2048 bytes.
+/// 4096 provides headroom for realistic production tokens with comprehensive scope claims.
+pub const MAX_JWT_LEN: u32 = 4096;
 
 fn decode_base64url_char(c: u8) -> Option<u8> {
     match c {

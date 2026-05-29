@@ -23,8 +23,7 @@ pub use errors::Error;
 pub use rate_limiter::{RateLimiter, RateLimitConfig, RateLimitState};
 pub use response_validator::{
     validate_anchor_info_response, validate_deposit_response, validate_quote_response,
-    validate_withdraw_response, AnchorInfoResponse, DepositResponse as ValidatorDepositResponse,
-    QuoteResponse, WithdrawResponse,
+    validate_withdraw_response, AnchorInfoResponse, QuoteResponse,
 };
 pub use retry::{retry_with_backoff, is_retryable, RetryConfig};
 pub use deterministic_hash::{compute_payload_hash, verify_payload_hash};
@@ -32,10 +31,11 @@ pub use deterministic_hash::{compute_payload_hash, verify_payload_hash};
 #[cfg(test)]
 mod transaction_state_tracker_tests;
 pub use sep6::{
-    fetch_transaction_status, initiate_deposit, initiate_withdrawal, DepositResponse,
+    fetch_transaction_status, initiate_deposit, initiate_withdrawal,
     RawDepositResponse, RawTransactionResponse, RawWithdrawalResponse, TransactionKind,
-    TransactionStatus, TransactionStatusResponse, WithdrawalResponse,
+    TransactionStatusResponse,
 };
+pub use types::{DepositResponse, WithdrawalResponse, TransactionStatus};
 pub use contract::{AnchorKitContract, EndpointUpdated, get_admin, get_endpoint, set_endpoint, get_attestation_count};
 
 #[cfg(test)]
@@ -94,3 +94,6 @@ mod replay_window_tests;
 
 #[cfg(test)]
 mod anchor_health_score_tests;
+
+#[cfg(test)]
+mod compute_payload_hash_tests;
