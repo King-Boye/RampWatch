@@ -345,6 +345,12 @@ pub struct FiatCurrency {
     pub name: String,
     pub deposit_enabled: bool,
     pub withdrawal_enabled: bool,
+    /// ISO 3166-1 alpha-3 country code (e.g. "USA", "GBR"). From stellar.toml / SEP-6.
+    pub country_code: Option<String>,
+    /// Human-readable description of the currency.
+    pub desc: Option<String>,
+    /// Preferred number of decimal places to display (0–7).
+    pub display_decimals: Option<u32>,
 }
 
 #[contracttype]

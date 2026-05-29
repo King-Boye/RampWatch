@@ -585,12 +585,18 @@ mod anchor_info_discovery_tests {
             name: String::from_str(&env, "US Dollar"),
             deposit_enabled: true,
             withdrawal_enabled: true,
+            country_code: Some(String::from_str(&env, "USA")),
+            desc: None,
+            display_decimals: Some(2),
         });
         fiat.push_back(FiatCurrency {
             code: String::from_str(&env, "EUR"),
             name: String::from_str(&env, "Euro"),
             deposit_enabled: true,
             withdrawal_enabled: false,
+            country_code: None,
+            desc: None,
+            display_decimals: None,
         });
 
         let mut currencies = Vec::new(&env);
