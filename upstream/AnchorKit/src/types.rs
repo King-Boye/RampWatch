@@ -98,6 +98,11 @@ pub struct Attestation {
     pub timestamp: u64,
     pub payload_hash: Bytes,
     pub signature: Bytes,
+    /// Set to `true` when the issuer attestor has been revoked after this
+    /// attestation was submitted. Historical attestations are preserved for
+    /// audit purposes; callers should treat `issuer_revoked = true` as a
+    /// signal that the issuer's authority has been withdrawn.
+    pub issuer_revoked: bool,
 }
 
 #[contracttype]
@@ -143,17 +148,18 @@ pub struct RoutingRequest {
 /// | `"LowestFee"`         | Selects the anchor with the lowest `fee_percentage`.       |
 /// | `"FastestSettlement"` | Selects the anchor with the lowest `average_settlement_time`. |
 /// | `"HighestReputation"` | Selects the anchor with the highest `reputation_score`.    |
+/// | `"Balanced"`          | Composite scoring: (40_000/fee) + (30_000/time) + (reputation*3000/10000). |
 ///
-/// **Default:** `strategy` is required and must contain exactly one symbol.
-/// Passing an empty `Vec` causes the call to panic with `NoQuotesAvailable`.
-/// An unrecognised symbol falls through all branches and returns the first
-/// candidate in iteration order (no explicit sort).
+/// **Validation:** `strategy` is required and must contain exactly one symbol.
+/// - Passing an empty `Vec` causes the call to panic with `NoQuotesAvailable`.
+/// - An unrecognised symbol causes the call to panic with `InvalidStrategy`.
 ///
 /// # Other fields
 ///
 /// - `min_reputation` — anchors with a `reputation_score` strictly below this
-///   value are excluded before strategy selection. Set to `0` (the default) to
-///   include all active anchors regardless of reputation.
+///   value are excluded before strategy selection. When `min_reputation = 0`,
+///   reputation filtering is disabled and all anchors are included regardless
+///   of their reputation score.
 /// - `max_anchors` / `require_kyc` — reserved for future filtering; not yet
 ///   enforced by the current implementation.
 #[contracttype]
