@@ -74,6 +74,12 @@ mod deterministic_hash_snapshot_tests {
     // This module exists to satisfy the test_snapshots/deterministic_hash_tests path.
 }
 
+// Snapshot path note: anchor_info_discovery_tests uses an inner module of the
+// same name, so Soroban writes snapshots to
+//   test_snapshots/anchor_info_discovery_tests/anchor_info_discovery_tests/
+// The previously existing test_snapshots/anchor_info_discovery/tests/ directory
+// was generated under an older module layout and has been removed.
+
 #[cfg(test)]
 mod capability_detection_tests;
 
