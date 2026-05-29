@@ -321,6 +321,42 @@ fn run_export_audit(format: &str, output: &str) {
         eprintln!("error: unsupported format '{}'. Use 'json' or 'csv'", format);
         std::process::exit(1);
     }
+    
+    // Validate output path before starting export
+    let output_path = std::path::Path::new(output);
+    
+    // Check if parent directory exists
+    if let Some(parent) = output_path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            eprintln!("error: parent directory '{}' does not exist", parent.display());
+            eprintln!("  → Create the directory first or specify a valid path");
+            std::process::exit(1);
+        }
+        
+        // Check if parent directory is writable (Unix-specific check)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = parent.metadata() {
+                let permissions = metadata.permissions();
+                if permissions.mode() & 0o200 == 0 {
+                    eprintln!("error: directory '{}' is not writable", parent.display());
+                    eprintln!("  → Check directory permissions");
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+    
+    // Check if file already exists and is writable
+    if output_path.exists() {
+        if let Err(e) = std::fs::OpenOptions::new().write(true).open(output_path) {
+            eprintln!("error: cannot write to existing file '{}': {}", output, e);
+            eprintln!("  → Check file permissions or choose a different path");
+            std::process::exit(1);
+        }
+    }
+    
     println!("Fetching audit log entries...");
     let entries = fetch_audit_entries();
     let total = entries.len();
