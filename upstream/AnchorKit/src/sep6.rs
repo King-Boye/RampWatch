@@ -10,7 +10,105 @@ use alloc::vec::Vec;
 
 use crate::errors::{Error, ErrorCode};
 use crate::retry::RetryConfig;
-use crate::types::{DepositResponse, WithdrawalResponse, TransactionStatus};
+
+// ── Normalized response types ────────────────────────────────────────────────
+
+/// Normalized status values across all SEP-6 anchors.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TransactionStatus {
+    Pending,
+    Incomplete,
+    PendingExternal,
+    PendingAnchor,
+    PendingTrust,
+    PendingUser,
+    Completed,
+    Refunded,
+    Expired,
+    Error,
+    Unknown(String),
+}
+
+impl TransactionStatus {
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "pending_external" => Self::PendingExternal,
+            "pending_anchor" => Self::PendingAnchor,
+            "pending_trust" => Self::PendingTrust,
+            "pending_user" | "pending_user_transfer_start" => Self::PendingUser,
+            "completed" => Self::Completed,
+            "refunded" => Self::Refunded,
+            "expired" => Self::Expired,
+            "incomplete" => Self::Incomplete,
+            "pending" => Self::Pending,
+            "error" => Self::Error,
+            _ => Self::Unknown(s.to_string()),
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Pending => "pending",
+            Self::Incomplete => "incomplete",
+            Self::PendingExternal => "pending_external",
+            Self::PendingAnchor => "pending_anchor",
+            Self::PendingTrust => "pending_trust",
+            Self::PendingUser => "pending_user",
+            Self::Completed => "completed",
+            Self::Refunded => "refunded",
+            Self::Expired => "expired",
+            Self::Error => "error",
+            Self::Unknown(s) => s.as_str(),
+        }
+    }
+}
+
+/// Normalized response for a deposit initiation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DepositResponse {
+    /// Unique transaction ID assigned by the anchor.
+    pub transaction_id: String,
+    /// How the user should send funds (e.g. bank account, address).
+    pub how: String,
+    /// Optional extra instructions from the anchor.
+    pub extra_info: Option<String>,
+    /// Minimum deposit amount (in asset units), if provided.
+    pub min_amount: Option<u64>,
+    /// Maximum deposit amount (in asset units), if provided.
+    pub max_amount: Option<u64>,
+    /// Fee charged for the deposit, if provided.
+    pub fee_fixed: Option<u64>,
+    /// Percentage fee charged for the deposit in basis points, if provided (e.g. `150` = 1.50%).
+    pub fee_percent: Option<u32>,
+    /// Current status of the transaction.
+    pub status: TransactionStatus,
+}
+
+/// Normalized response for a withdrawal initiation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WithdrawalResponse {
+    /// Unique transaction ID assigned by the anchor.
+    pub transaction_id: String,
+    /// Stellar account the user should send funds to.
+    pub account_id: String,
+    /// Destination bank/wallet account for the off-chain withdrawal, if provided.
+    pub dest_account_id: Option<String>,
+    /// Optional memo to attach to the Stellar payment.
+    pub memo: Option<String>,
+    /// Optional memo type (`text`, `id`, `hash`).
+    pub memo_type: Option<String>,
+    /// Minimum withdrawal amount (in asset units), if provided.
+    pub min_amount: Option<u64>,
+    /// Maximum withdrawal amount (in asset units), if provided.
+    pub max_amount: Option<u64>,
+    /// Fee charged for the withdrawal, if provided.
+    pub fee_fixed: Option<u64>,
+    /// Percentage fee charged for the withdrawal in basis points, if provided (e.g. `150` = 1.50%).
+    pub fee_percent: Option<u32>,
+    /// Current status of the transaction.
+    pub status: TransactionStatus,
+}
 
 /// Normalized transaction status response.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -544,6 +642,12 @@ mod tests {
         raw.status = "some_unknown_status".to_string();
         let resp = fetch_transaction_status(raw).unwrap();
         assert_eq!(resp.status, TransactionStatus::Unknown("some_unknown_status".to_string()));
+    }
+
+    #[test]
+    fn test_transaction_status_from_str_error() {
+        let status = TransactionStatus::from_str("error");
+        assert_eq!(status, TransactionStatus::Error);
     }
 
     #[test]
