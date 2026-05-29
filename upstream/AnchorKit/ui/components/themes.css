@@ -24,6 +24,9 @@
   /* Brand / accent */
   --ak-accent:      #3b82f6;
   --ak-accent-hover:#2563eb;
+  --ak-accent-focus-shadow: rgba(59, 130, 246, 0.1);
+  --ak-accent-hover-shadow: rgba(59, 130, 246, 0.3);
+  --ak-error-focus-shadow: rgba(239, 68, 68, 0.1);
 
   /* Status – initiated */
   --ak-status-initiated-color:  #6366f1;
@@ -115,6 +118,9 @@
 
     --ak-accent:      #3b82f6;
     --ak-accent-hover:#60a5fa;
+    --ak-accent-focus-shadow: rgba(59, 130, 246, 0.2);
+    --ak-accent-hover-shadow: rgba(59, 130, 246, 0.4);
+    --ak-error-focus-shadow: rgba(239, 68, 68, 0.2);
 
     /* Status colors stay vivid but backgrounds darken */
     --ak-status-initiated-color:  #818cf8;
@@ -192,6 +198,9 @@
   --ak-text-subtle: #4b5563;
   --ak-accent:      #3b82f6;
   --ak-accent-hover:#60a5fa;
+  --ak-accent-focus-shadow: rgba(59, 130, 246, 0.2);
+  --ak-accent-hover-shadow: rgba(59, 130, 246, 0.4);
+  --ak-error-focus-shadow: rgba(239, 68, 68, 0.2);
   --ak-status-initiated-color:  #818cf8;
   --ak-status-initiated-bg:     rgba(99,102,241,0.15);
   --ak-status-initiated-border: rgba(99,102,241,0.35);
