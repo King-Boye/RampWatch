@@ -48,9 +48,8 @@ dominates the score.
 `strategy` is **required**. Passing an empty vec causes the call to panic with
 `NoQuotesAvailable`.
 
-An unrecognised symbol string does not error — it falls through all strategy
-branches and returns the **first candidate in storage iteration order**, which
-is non-deterministic. Always use one of the documented symbols above.
+An unrecognised symbol string causes the call to panic with `InvalidStrategy`.
+Always use one of the documented symbols above.
 
 ## Candidate Filtering
 
