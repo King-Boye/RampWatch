@@ -639,4 +639,60 @@ mod anchor_info_discovery_tests {
         let result = client.get_anchor_currencies(&anchor);
         assert_eq!(result.len(), 0, "sample_toml has no fiat currencies");
     }
+
+    // -----------------------------------------------------------------------
+    // Issue #500: decimals validation
+    // -----------------------------------------------------------------------
+
+    /// decimals = 18 is the maximum valid value and must be accepted.
+    #[test]
+    fn test_fetch_anchor_info_decimals_at_max_boundary_accepted() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        let mut currencies = Vec::new(&env);
+        currencies.push_back(AssetInfo {
+            decimals: 18,
+            ..usdc_asset(&env)
+        });
+        let toml = StellarToml { currencies, ..sample_toml(&env) };
+        // Must not panic.
+        client.fetch_anchor_info(&anchor, &toml, &Some(3600u64));
+    }
+
+    /// decimals = 19 exceeds the maximum and must be rejected with ValidationError.
+    #[test]
+    fn test_fetch_anchor_info_decimals_out_of_range_rejected() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        let mut currencies = Vec::new(&env);
+        currencies.push_back(AssetInfo {
+            decimals: 19,
+            ..usdc_asset(&env)
+        });
+        let toml = StellarToml { currencies, ..sample_toml(&env) };
+        let result = client.try_fetch_anchor_info(&anchor, &toml, &Some(3600u64));
+        assert!(result.is_err(), "decimals=19 should be rejected");
+    }
+
+    /// decimals = 255 (u32 max-ish) must be rejected.
+    #[test]
+    fn test_fetch_anchor_info_decimals_255_rejected() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, anchor) = setup(&env);
+
+        let mut currencies = Vec::new(&env);
+        currencies.push_back(AssetInfo {
+            decimals: 255,
+            ..usdc_asset(&env)
+        });
+        let toml = StellarToml { currencies, ..sample_toml(&env) };
+        let result = client.try_fetch_anchor_info(&anchor, &toml, &Some(3600u64));
+        assert!(result.is_err(), "decimals=255 should be rejected");
+    }
+
 }

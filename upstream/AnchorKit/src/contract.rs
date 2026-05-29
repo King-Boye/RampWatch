@@ -1711,6 +1711,13 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::InvalidEndpointFormat);
         }
 
+        // Validate decimals for each currency: must be in range 0..=18.
+        for asset in toml_data.currencies.iter() {
+            if asset.decimals > 18 {
+                panic_with_error!(&env, ErrorCode::ValidationError);
+            }
+        }
+
         let now = env.ledger().timestamp();
         let ttl_seconds = ttl_override.unwrap_or(3600);
         let cached = CachedToml {
