@@ -96,7 +96,7 @@ pub enum ErrorCode {
     UnauthorizedProposeAdmin = 52,
     NoPendingAdmin = 53,
     NotPendingAdmin = 54,
-    InvalidStrategy = 55,
+    PathTraversalDetected = 55,
 }
 
 impl ErrorCode {
@@ -129,7 +129,7 @@ impl ErrorCode {
             ErrorCode::UnauthorizedProposeAdmin => "A pending admin proposal already exists",
             ErrorCode::NoPendingAdmin => "No pending admin transfer found",
             ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
-            ErrorCode::InvalidStrategy => "Routing strategy symbol is not recognized",
+            ErrorCode::PathTraversalDetected => "Path traversal sequence detected in URL",
         }
     }
 
@@ -260,6 +260,10 @@ impl core::fmt::Display for AnchorKitError {
 
     pub fn invalid_strategy() -> Self {
         Self::from_code(ErrorCode::InvalidStrategy)
+    }
+
+    pub fn path_traversal_detected() -> Self {
+        Self::from_code(ErrorCode::PathTraversalDetected)
     }
 }
 

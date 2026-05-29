@@ -1593,7 +1593,17 @@ impl AnchorKitContract {
                 None => continue,
             };
 
-            if quote.valid_until <= now { continue; }
+            if quote.valid_until <= now {
+                env.events().publish(
+                    (symbol_short!("quote"),),
+                    crate::events::QuoteExpiredEvent {
+                        anchor: anchor.clone(),
+                        quote_id,
+                        valid_until: quote.valid_until,
+                    },
+                );
+                continue;
+            }
             if options.request.amount < quote.minimum_amount || options.request.amount > quote.maximum_amount {
                 continue;
             }
@@ -1701,6 +1711,26 @@ impl AnchorKitContract {
                 }
             }
         }
+
+        let strategy_str = if strategy_sym == lowest_fee_sym {
+            String::from_str(&env, "LowestFee")
+        } else if strategy_sym == fastest_sym {
+            String::from_str(&env, "FastestSettlement")
+        } else if strategy_sym == reputation_sym {
+            String::from_str(&env, "HighestReputation")
+        } else {
+            String::from_str(&env, "Balanced")
+        };
+
+        env.events().publish(
+            (symbol_short!("routing"),),
+            crate::events::RoutingDecisionEvent {
+                anchor: best.anchor.clone(),
+                strategy: strategy_str,
+                quote_id: best.quote_id,
+                ledger_sequence: env.ledger().sequence(),
+            },
+        );
 
         best
     }
