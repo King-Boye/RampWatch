@@ -478,6 +478,14 @@ impl AnchorKitContract {
         }
         let mut seen = Vec::new(&env);
         for s in services.iter() {
+            // Reject any value that is not one of the four known service constants.
+            if s != SERVICE_DEPOSITS
+                && s != SERVICE_WITHDRAWALS
+                && s != SERVICE_QUOTES
+                && s != SERVICE_KYC
+            {
+                panic_with_error!(&env, ErrorCode::InvalidServiceType);
+            }
             if seen.contains(s) {
                 panic_with_error!(&env, ErrorCode::InvalidServiceType);
             }
