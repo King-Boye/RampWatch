@@ -2,7 +2,7 @@ use soroban_sdk::{contracttype, Address, Bytes, String};
 
 #[contracttype]
 #[derive(Clone)]
-pub(crate) struct SessionCreatedEvent {
+pub struct SessionCreatedEvent {
     pub session_id: u64,
     pub initiator: Address,
     pub timestamp: u64,
@@ -10,7 +10,7 @@ pub(crate) struct SessionCreatedEvent {
 
 #[contracttype]
 #[derive(Clone)]
-pub(crate) struct QuoteSubmitEvent {
+pub struct QuoteSubmitEvent {
     pub quote_id: u64,
     pub anchor: Address,
     pub base_asset: String,
@@ -21,7 +21,7 @@ pub(crate) struct QuoteSubmitEvent {
 
 #[contracttype]
 #[derive(Clone)]
-pub(crate) struct QuoteReceivedEvent {
+pub struct QuoteReceivedEvent {
     pub quote_id: u64,
     pub receiver: Address,
     pub timestamp: u64,
@@ -29,7 +29,7 @@ pub(crate) struct QuoteReceivedEvent {
 
 #[contracttype]
 #[derive(Clone)]
-pub(crate) struct AuditLogEvent {
+pub struct AuditLogEvent {
     pub log_id: u64,
     pub session_id: u64,
     pub operation_index: u64,
@@ -39,14 +39,14 @@ pub(crate) struct AuditLogEvent {
 
 #[contracttype]
 #[derive(Clone)]
-pub(crate) struct AttestEvent {
+pub struct AttestEvent {
     pub payload_hash: Bytes,
     pub timestamp: u64,
 }
 
 #[contracttype]
 #[derive(Clone)]
-pub(crate) struct AuditLogPruned {
+pub struct AuditLogPruned {
     pub pruned_count: u64,
     pub new_offset: u64,
 }
@@ -60,7 +60,7 @@ pub struct EndpointUpdated {
 
 #[contracttype]
 #[derive(Clone)]
-pub(crate) struct AnchorDeactivated {
+pub struct AnchorDeactivated {
     pub anchor: Address,
     pub failure_count: u32,
     pub threshold: u32,
@@ -83,7 +83,7 @@ pub struct RateLimitWindowReset {
 
 #[contracttype]
 #[derive(Clone)]
-pub(crate) struct RoutingDecisionEvent {
+pub struct RoutingDecisionEvent {
     pub anchor: Address,
     pub strategy: String,
     pub quote_id: u64,
@@ -92,7 +92,7 @@ pub(crate) struct RoutingDecisionEvent {
 
 #[contracttype]
 #[derive(Clone)]
-pub(crate) struct QuoteExpiredEvent {
+pub struct QuoteExpiredEvent {
     pub anchor: Address,
     pub quote_id: u64,
     pub valid_until: u64,
