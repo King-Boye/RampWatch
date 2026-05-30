@@ -17,11 +17,14 @@ export interface AnchorErrorBoundaryProps {
   onError?: (error: AnchorKitError, errorInfo: React.ErrorInfo) => void;
   /** Optional label shown in the default fallback (e.g. "Anchor Feed", "Price Widget") */
   componentLabel?: string;
+  /** When any value in this array changes, the error state is automatically reset */
+  resetKeys?: unknown[];
 }
 
 interface State {
   hasError: boolean;
   error: AnchorKitError | null;
+  prevResetKeys: unknown[] | undefined;
 }
 
 // ─── Normalise any thrown value into an AnchorKitError ────────────────────────
@@ -225,11 +228,29 @@ export class AnchorErrorBoundary extends Component<
 > {
   constructor(props: AnchorErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, prevResetKeys: props.resetKeys };
     this.reset = this.reset.bind(this);
   }
 
-  static getDerivedStateFromError(raw: unknown): State {
+  static getDerivedStateFromProps(
+    props: AnchorErrorBoundaryProps,
+    state: State,
+  ): Partial<State> | null {
+    if (
+      state.hasError &&
+      props.resetKeys !== undefined &&
+      state.prevResetKeys !== undefined &&
+      props.resetKeys.some((key, i) => !Object.is(key, state.prevResetKeys![i]))
+    ) {
+      return { hasError: false, error: null, prevResetKeys: props.resetKeys };
+    }
+    if (props.resetKeys !== state.prevResetKeys) {
+      return { prevResetKeys: props.resetKeys };
+    }
+    return null;
+  }
+
+  static getDerivedStateFromError(raw: unknown): Partial<State> {
     return { hasError: true, error: normaliseError(raw) };
   }
 
