@@ -13,7 +13,7 @@ path = "src/bin/anchorkit.rs"
 
 [features]
 default = ["std"]
-std = ["serde", "serde_json"]
+std = ["serde", "serde_json", "toml"]
 wasm = []
 mock-only = []
 stress-tests = []
@@ -26,7 +26,7 @@ hex = "0.4"
 ed25519-dalek = { version = "2", default-features = false }
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
-toml = "0.8"
+toml = { version = "0.8", optional = true }
 
 [dev-dependencies]
 soroban-sdk = { version = "21.7.0", features = ["testutils"] }
