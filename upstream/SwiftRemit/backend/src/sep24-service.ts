@@ -473,32 +473,65 @@ export class Sep24Service {
   }
 
   /**
-   * Query transaction status from anchor
+   * Exponential backoff with ±10% jitter, capped at 16 s.
+   */
+  private calcBackoff(attempt: number): number {
+    const BASE_MS = 1000;
+    const MAX_MS = 16000;
+    const exponential = BASE_MS * Math.pow(2, attempt - 1);
+    const capped = Math.min(exponential, MAX_MS);
+    const jitter = capped * 0.1 * (Math.random() * 2 - 1);
+    return Math.round(capped + jitter);
+  }
+
+  /**
+   * Query transaction status from anchor with exponential backoff retry for
+   * transient errors (network failures and 5xx responses). 404 is treated as
+   * "not found" and returned immediately without retrying. 4xx client errors
+   * (other than 429) are also not retried.
    */
   private async queryTransactionStatus(
     sepServerUrl: string,
-    transactionId: string
+    transactionId: string,
+    maxRetries = 3
   ): Promise<Sep24TransactionStatusResponse | null> {
-    try {
-      const url = `${sepServerUrl}/transaction?id=${transactionId}`;
-      
-      const response: AxiosResponse<Sep24TransactionStatusResponse> = await this.httpClient.get(url, {
-        headers: {
-          'Accept': 'application/json',
-        },
-        timeout: 10000,
-      });
+    const url = `${sepServerUrl}/transaction?id=${transactionId}`;
 
-      return response.data;
-    } catch (error) {
-      if (axios.isAxiosError(error)) {
-        if (error.response?.status === 404) {
-          return null;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const response: AxiosResponse<Sep24TransactionStatusResponse> = await this.httpClient.get(url, {
+          headers: { 'Accept': 'application/json' },
+          timeout: 10000,
+        });
+        return response.data;
+      } catch (error) {
+        if (axios.isAxiosError(error)) {
+          const status = error.response?.status;
+
+          if (status === 404) {
+            return null;
+          }
+
+          // Non-transient 4xx errors (except 429 Too Many Requests) — do not retry
+          if (status && status >= 400 && status < 500 && status !== 429) {
+            console.error(`HTTP ${status} querying transaction ${transactionId}; not retrying`);
+            return null;
+          }
         }
-        console.error(`HTTP error querying transaction status: ${error.response?.status}`);
+
+        if (attempt < maxRetries) {
+          const delay = this.calcBackoff(attempt);
+          console.warn(
+            `Transient error polling transaction ${transactionId} (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms`
+          );
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          console.error(`Failed to query transaction ${transactionId} after ${maxRetries} attempts:`, error);
+        }
       }
-      return null;
     }
+
+    return null;
   }
 
   /**

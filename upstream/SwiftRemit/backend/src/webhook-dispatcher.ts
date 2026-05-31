@@ -45,10 +45,18 @@ export class WebhookDispatcher {
     }
   }
 
+  private validateUrl(url: string): void {
+    if (!url.startsWith('https://')) {
+      throw new Error(`Webhook delivery rejected: URL must use HTTPS (received: ${url})`);
+    }
+  }
+
   private async attemptDelivery(delivery: WebhookDelivery): Promise<void> {
     const nextAttempt = delivery.attempt_count + 1;
 
     try {
+      this.validateUrl(delivery.target_url);
+
       const response = await this.fetchImpl(delivery.target_url, {
         method: 'POST',
         headers: {
