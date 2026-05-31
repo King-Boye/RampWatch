@@ -221,6 +221,10 @@ describe('TransactionStatusTracker', () => {
   });
 
   describe('Polling Functionality', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
     it('starts polling when enablePolling is true', () => {
       const onRefresh = vi.fn().mockResolvedValue(undefined);
 
@@ -490,6 +494,10 @@ describe('TransactionStatusTracker', () => {
   });
 
   describe('Cleanup', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
     it('cleans up polling interval on unmount', () => {
       const onRefresh = vi.fn().mockResolvedValue(undefined);
 
@@ -539,6 +547,10 @@ describe('TransactionStatusTracker', () => {
   });
 
   describe('Polling Interval Configuration', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
     it('uses default polling interval of 5000ms', () => {
       const onRefresh = vi.fn().mockResolvedValue(undefined);
 
@@ -650,4 +662,3 @@ describe('TransactionStatusTracker', () => {
       vi.useFakeTimers();
     });
   });
-});

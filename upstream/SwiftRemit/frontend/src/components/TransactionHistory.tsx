@@ -272,6 +272,11 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
   const hasActiveFilters =
     searchText || filterStatus || filterAsset || filterDateFrom || filterDateTo;
   const hasTransactions = transactions.length > 0;
+  const hasFilteredTransactions = filtered.length > 0;
+  const isEmptyState = !hasFilteredTransactions && !isLoading;
+  const emptyStateMessage = !hasTransactions
+    ? 'No transactions yet.'
+    : 'No transactions match the current filters.';
 
   return (
     <section className="transaction-history" aria-label="Transaction history">
@@ -306,7 +311,7 @@ export const TransactionHistory: React.FC<TransactionHistoryProps> = ({
         </div>
       )}
 
-      {!hasTransactions && !isLoading && <p className="history-empty">No transactions yet.</p>}
+      {isEmptyState && <p className="history-empty">{emptyStateMessage}</p>}
 
       {(!hasTransactions && isLoading) && (
         <div className="history-skeletons" aria-busy="true" aria-live="polite">

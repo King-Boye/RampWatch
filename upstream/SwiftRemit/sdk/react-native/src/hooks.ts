@@ -42,7 +42,7 @@ export function useCreateRemittance(client: SwiftRemitRNClient) {
     [client]
   );
 
-  return { createRemittance, ...state };
+  return { createRemittance, isLoading: state.loading, ...state };
 }
 
 // ── useNetworkToggle ──────────────────────────────────────────────────────────
