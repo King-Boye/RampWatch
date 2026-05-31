@@ -1980,3 +1980,16 @@ pub fn get_min_agent_reputation(env: &Env) -> u32 {
 pub fn set_min_agent_reputation(env: &Env, threshold: u32) {
     env.storage().instance().set(&DataKey::MinAgentReputation, &threshold);
 }
+
+// === Remittance TTL Extension (#624) ===
+
+/// Extends the persistent storage TTL for a remittance record by `ledgers`.
+///
+/// Called when a remittance transitions to Processing so the escrow entry
+/// does not expire before the agent completes the off-chain fiat payout.
+pub fn extend_remittance_ttl(env: &Env, remittance_id: u64, ledgers: u32) {
+    let key = DataKey::Remittance(remittance_id);
+    if env.storage().persistent().has(&key) {
+        env.storage().persistent().extend_ttl(&key, ledgers, ledgers);
+    }
+}

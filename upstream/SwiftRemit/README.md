@@ -142,7 +142,8 @@ Fees are calculated in basis points (bps):
 - `create_remittance(sender, agent, amount)` - Create new remittance (sender auth required)
 - `start_processing(remittance_id)` - Mark remittance as being processed (agent auth required)
 - `confirm_payout(remittance_id, proof)` - Confirm fiat payout with optional commitment proof
-- `mark_failed(remittance_id)` - Mark payout as failed with refund (agent auth required)
+- `confirm_partial_payout(remittance_id, amount)` - Disburse a partial amount to the agent; automatically marks the remittance Completed when the total disbursed reaches the net payout (agent auth required)
+- `mark_failed(remittance_id)` - Mark payout as failed and auto-refund escrow to sender (agent auth required)
 - `cancel_remittance(remittance_id)` - Cancel pending remittance (sender auth required)
 - `process_expired_remittances(remittance_ids)` - Auto-refund expired pending remittances in batches (max 50 IDs)
 
