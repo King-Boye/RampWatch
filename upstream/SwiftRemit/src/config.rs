@@ -4,6 +4,14 @@
 //! and prevent duplicate definitions. All magic numbers should be defined
 //! here with clear documentation.
 
+/// Number of ledgers to extend a remittance's persistent storage TTL when it
+/// transitions from Pending to Processing (#624).
+///
+/// At a 5-second ledger time this equals approximately 7 days, giving agents
+/// a reasonable window to complete the off-chain fiat payout before the
+/// escrow record would otherwise expire.
+pub const PROCESSING_WINDOW_LEDGERS: u32 = 120_960; // ~7 days at 5s/ledger
+
 // ============================================================================
 // Batch Processing Limits
 // ============================================================================

@@ -824,6 +824,14 @@ impl SwiftRemitContract {
         // Transition to Processing state
         crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Processing)?;
 
+        // Extend the remittance TTL when entering Processing so the escrow
+        // does not expire while the agent is completing the off-chain payout (#624).
+        crate::storage::extend_remittance_ttl(
+            &env,
+            remittance_id,
+            crate::config::PROCESSING_WINDOW_LEDGERS,
+        );
+
         // Verify recipient hash before any token transfer (Task 7.2)
         recipient_verification::verify_recipient_hash(
             &env,
@@ -941,8 +949,16 @@ impl SwiftRemitContract {
             return Err(ContractError::InvalidStatus);
         }
 
-        remittance.status = RemittanceStatus::Failed;
-        remittance.failed_at = Some(env.ledger().timestamp());
+        // Auto-refund the escrowed amount to the sender (#621)
+        let token_client = token::Client::new(&env, &remittance.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &remittance.sender,
+            &remittance.amount,
+        );
+
+        remittance.status = RemittanceStatus::Cancelled;
+        remittance.amount = 0;
         set_remittance(&env, remittance_id, &remittance);
 
         let mut stats = crate::storage::get_agent_stats(&env, &remittance.agent);
