@@ -13,6 +13,7 @@ This guide covers every breaking change introduced in 0.1.0 and shows exactly wh
    - [supports_service()](#4-supports_service)
    - [StellarToml struct](#5-stellartoml-struct)
    - [Admin transfer flow](#6-admin-transfer-flow)
+   - [Error type renamed to AnchorKitError](#7-error-type-renamed-to-anchorkiterror)
 2. [New Required Configuration](#new-required-configuration)
 3. [New Methods Reference](#new-methods-reference)
 4. [New Error Codes](#new-error-codes)
@@ -196,6 +197,84 @@ client.accept_admin(); // invoked by new_admin
 ```
 
 Until `accept_admin()` is called, the current admin remains in control. The pending admin address is stored in instance storage and can be overwritten by calling `propose_admin()` again.
+
+---
+
+### 7. Error type renamed to `AnchorKitError`
+
+The top-level error type was renamed from `Error` to `AnchorKitError`. A backward-compatible type alias keeps existing code compiling without changes, but new code should use `AnchorKitError` directly.
+
+**What changed in `src/errors.rs`**
+
+| Before (0.0.1) | After (0.1.0) |
+|----------------|---------------|
+| `pub enum Error { ... }` | `pub struct AnchorKitError { code: ErrorCode, message: String, context: Option<String> }` |
+| Variants were the error kind (e.g. `Error::AlreadyInitialized`) | Error kind is now a separate `ErrorCode` enum; use constructor helpers instead |
+| No stable numeric codes | Every kind has a stable `u32` code via `ErrorCode` |
+
+**Backward-compatible alias (no action required)**
+
+```rust
+// src/errors.rs — still present in 0.1.0
+pub type Error = AnchorKitError;
+```
+
+Code that imports or names `Error` continues to compile unchanged. The alias is intentionally kept for the foreseeable future.
+
+**Recommended migration for new code**
+
+Replace bare `Error` with `AnchorKitError` and switch from enum-variant matching to `ErrorCode` matching:
+
+```rust
+// Before (0.0.1)
+use anchorkit::errors::Error;
+
+fn handle(err: Error) {
+    match err {
+        Error::AlreadyInitialized => { /* ... */ }
+        Error::AttestorNotRegistered => { /* ... */ }
+        _ => { /* ... */ }
+    }
+}
+```
+
+```rust
+// After (0.1.0)
+use anchorkit::errors::{AnchorKitError, ErrorCode};
+
+fn handle(err: AnchorKitError) {
+    match err.code {
+        ErrorCode::AlreadyInitialized => { /* ... */ }
+        ErrorCode::AttestorNotRegistered => { /* ... */ }
+        _ => { /* ... */ }
+    }
+}
+```
+
+**Creating errors**
+
+Use the named constructor helpers instead of constructing the struct directly:
+
+```rust
+// Preferred — named constructors
+let err = AnchorKitError::already_initialized();
+let err = AnchorKitError::attestor_not_registered();
+let err = AnchorKitError::validation_error("missing field: status");
+
+// Also available — build from a code
+let err = AnchorKitError::from_code(ErrorCode::RateLimitExceeded);
+
+// With custom message and context
+let err = AnchorKitError::with_context(
+    ErrorCode::ValidationError,
+    "Schema mismatch",
+    "field: transaction_id",
+);
+```
+
+**no-std / WASM builds**
+
+In WASM (no `std` feature) `AnchorKitError` stores a `&'static str` instead of a heap-allocated `String`. The public API is identical; only the field types differ. The type alias `Error = AnchorKitError` is present in both build modes.
 
 ---
 
