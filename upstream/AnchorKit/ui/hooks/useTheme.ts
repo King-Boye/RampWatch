@@ -10,15 +10,13 @@ import { useEffect, useState } from "react";
  * element to enable CSS custom property theming.
  */
 export function useTheme(override?: boolean): boolean {
-  const [sysDark, setSysDark] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches;
-  });
+  const [sysDark, setSysDark] = useState<boolean>(false);
 
   const isDark = override !== undefined ? override : sysDark;
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    setSysDark(mq.matches);
     const handler = (e: MediaQueryListEvent) => setSysDark(e.matches);
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
