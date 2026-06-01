@@ -52,8 +52,12 @@ const { db, resetDb, seedTransaction, handleQuery, mockPool } = vi.hoisted(() =>
   };
 
   function resetDb() {
-    db.kyc.clear(); db.fx.clear(); db.tx.clear();
-    db.anchorConfigs.clear(); db.fxIdSeq = 1;
+    // Clear in FK-safe order: dependents first, then parents
+    db.fx.clear();          // fx_rates → transactions
+    db.tx.clear();          // transactions → anchor_kyc_configs, user_kyc_status
+    db.kyc.clear();         // user_kyc_status (no dependents)
+    db.anchorConfigs.clear(); // anchor_kyc_configs (no dependents)
+    db.fxIdSeq = 1;
   }
 
   function seedTransaction(row: Partial<TxRow> & { transaction_id: string; kind: string; status: string }) {
@@ -268,8 +272,8 @@ async function sendWebhook(body: object) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  resetDb();
   vi.clearAllMocks();
+  resetDb();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
