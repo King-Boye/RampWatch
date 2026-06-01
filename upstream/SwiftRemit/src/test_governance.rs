@@ -533,6 +533,81 @@ fn test_invalid_quorum_at_migration_rejected() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Task 5.12 — Event emission for all 9 governance event types
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_governance_event_emission_all_types() {
+    // Verifies that all 9 governance event types are emitted at the correct step.
+    let (env, client) = setup_env();
+    let admin = Address::generate(&env);
+    let agent = Address::generate(&env);
+    initialize(&env, &client, &admin);
+    client.migrate_to_governance(&admin, &1u32, &0u64, &604_800u64);
+
+    // (1) propose → emit_proposal_created + emit_fee_update_proposed (events 1 & 8)
+    let pre_propose = env.events().all().len();
+    let pid = client.propose(&admin, &ProposalAction::UpdateFee(200u32));
+    let post_propose = env.events().all().len();
+    assert!(post_propose > pre_propose, "propose must emit proposal_created event");
+
+    // (2) vote → emit_proposal_voted + emit_proposal_approved (events 2 & 3)
+    // quorum=1, so voting immediately approves
+    let pre_vote = env.events().all().len();
+    client.vote(&admin, &pid);
+    let post_vote = env.events().all().len();
+    assert!(post_vote > pre_vote, "vote must emit proposal_voted/proposal_approved events");
+
+    // (3) execute → emit_proposal_executed + emit_fee_updated (event 4)
+    let pre_exec = env.events().all().len();
+    client.execute(&admin, &pid);
+    let post_exec = env.events().all().len();
+    assert!(post_exec > pre_exec, "execute must emit proposal_executed event");
+
+    // (4) RegisterAgent proposal → emit_agent_management_proposed (event 9)
+    let pre_agent_propose = env.events().all().len();
+    let agent_pid = client.propose(&admin, &ProposalAction::RegisterAgent(agent.clone()));
+    let post_agent_propose = env.events().all().len();
+    assert!(post_agent_propose > pre_agent_propose, "RegisterAgent propose must emit agent_management_proposed event");
+
+    // vote + execute to get agent registered (needed for RemoveAgent below)
+    client.vote(&admin, &agent_pid);
+    client.execute(&admin, &agent_pid);
+
+    // (5) RemoveAgent proposal + execute → emit_agent_management_proposed (event 9, remove variant)
+    let rem_pid = client.propose(&admin, &ProposalAction::RemoveAgent(agent.clone()));
+    client.vote(&admin, &rem_pid);
+    client.execute(&admin, &rem_pid);
+
+    // (6) AddAdmin proposal → emit_governance_admin_added (event 6)
+    let new_admin = Address::generate(&env);
+    let add_pid = client.propose(&admin, &ProposalAction::AddAdmin(new_admin.clone()));
+    client.vote(&admin, &add_pid);
+    let pre_add_exec = env.events().all().len();
+    client.execute(&admin, &add_pid);
+    let post_add_exec = env.events().all().len();
+    assert!(post_add_exec > pre_add_exec, "AddAdmin execute must emit governance_admin_added event");
+
+    // (7) RemoveAdmin proposal → emit_governance_admin_removed (event 7)
+    // quorum is still 1, need new_admin to propose removing new_admin
+    // Use admin to propose removing new_admin (count=2, quorum=1, count-1=1 >= quorum=1 OK)
+    let rem_admin_pid = client.propose(&admin, &ProposalAction::RemoveAdmin(new_admin.clone()));
+    client.vote(&admin, &rem_admin_pid);
+    let pre_rem_exec = env.events().all().len();
+    client.execute(&admin, &rem_admin_pid);
+    let post_rem_exec = env.events().all().len();
+    assert!(post_rem_exec > pre_rem_exec, "RemoveAdmin execute must emit governance_admin_removed event");
+
+    // (8) expire_proposal → emit_proposal_expired (event 5)
+    let exp_pid = client.propose(&admin, &ProposalAction::UpdateFee(50u32));
+    advance_time(&env, 604_801); // past TTL of 604_800
+    let pre_expire = env.events().all().len();
+    client.expire_proposal(&exp_pid);
+    let post_expire = env.events().all().len();
+    assert!(post_expire > pre_expire, "expire_proposal must emit proposal_expired event");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Task 5.13 — Backward compatibility: get_admin returns legacy admin
 // ─────────────────────────────────────────────────────────────────────────────
 

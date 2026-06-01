@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { ErrorResponse } from '../types';
 import { Pool } from 'pg';
-import { AdminConfirmationService, HighRiskOperation } from '../../../backend/src/admin-confirmation';
+import { AdminConfirmationService, HighRiskOperation } from '../admin-confirmation';
 
 function timestamp(): string {
   return new Date().toISOString();

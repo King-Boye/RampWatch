@@ -248,7 +248,6 @@ export const AnchorSelector: React.FC<AnchorSelectorProps> = ({
           aria-expanded={isOpen}
           aria-labelledby={`${listboxId}-label`}
           aria-controls={isOpen ? listboxId : undefined}
-          aria-activedescendant={isOpen && focusedIndex >= 0 ? `${listboxId}-option-${focusedIndex}` : undefined}
         >
           {selectedAnchor ? (
             <div className="selected-anchor">

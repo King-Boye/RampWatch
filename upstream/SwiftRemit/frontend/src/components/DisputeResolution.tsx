@@ -75,6 +75,8 @@ export default function DisputeResolution() {
   const [resolving, setResolving] = useState<string | number | null>(null);
   const [confirmOpen, setConfirmOpen] = useState<ConfirmState | null>(null);
   const [resolvedTxHash, setResolvedTxHash] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
 
   useEffect(() => {
     void fetchDisputes(1);
@@ -141,7 +143,7 @@ export default function DisputeResolution() {
       const data = await res.json() as Record<string, unknown>;
       const txHash = typeof data.tx_hash === 'string' ? data.tx_hash : null;
       setResolvedTxHash(txHash);
-      await fetchDisputes();
+      await fetchDisputes(page);
       await fetchAuditLog();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Unknown error');

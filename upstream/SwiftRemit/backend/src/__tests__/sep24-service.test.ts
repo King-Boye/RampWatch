@@ -194,8 +194,10 @@ class MockSep24AnchorServer {
   }
 }
 
-// Pool is unused by Sep24Service (database access is via imported helpers); stub for constructor
-const createMockPool = (): Pool => ({}) as Pool;
+// Pool used by Sep24Service.initialize() to fetch anchor metadata
+const createMockPool = (): Pool => ({
+  query: vi.fn().mockResolvedValue({ rows: [] }),
+}) as unknown as Pool;
 
 describe('Sep24Service', () => {
   let mockServer: MockSep24AnchorServer;
@@ -450,8 +452,9 @@ describe('Timeout Handling', () => {
     process.env.SEP24_ENABLED_ANCHOR_TEST = 'true';
     process.env.SEP24_SERVER_ANCHOR_TEST = serverUrl + '/sep24';
     process.env.SEP24_POLL_INTERVAL_ANCHOR_TEST = '1';
-    // Very short timeout (1 ms) so the hanging server triggers a timeout error
     process.env.SEP24_TIMEOUT_ANCHOR_TEST = '1';
+    // Short HTTP timeout so the hanging mock server triggers timeout quickly
+    process.env.SEP24_HTTP_TIMEOUT_MS = '200';
     resetSep24Rows();
   });
 
@@ -460,6 +463,7 @@ describe('Timeout Handling', () => {
     await mockServer.stop();
     resetSep24Rows();
     vi.clearAllMocks();
+    delete process.env.SEP24_HTTP_TIMEOUT_MS;
   });
 
   it('should reject deposit initiation with a timeout error when the anchor does not respond', async () => {

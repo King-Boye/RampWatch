@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { currencyCodeSchema, countryCodeSchema, validateRequest } from './schemas/requestValidation';
+import { currencyCodeSchema, countryCodeSchema, validateRequest } from '../schemas/requestValidation';
 
 const router = Router();
 

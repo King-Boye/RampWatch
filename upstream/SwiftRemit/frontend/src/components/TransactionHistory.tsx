@@ -28,6 +28,38 @@ interface TransactionHistoryProps {
 
 // ── URL param helpers ────────────────────────────────────────────────────────
 
+function ReceiptDownloadButtons({ tx }: { tx: TransactionHistoryItem }): React.ReactElement {
+  const csvContent = [
+    ['ID', 'Amount', 'Asset', 'Recipient', 'Status', 'Timestamp'],
+    [tx.id, tx.amount, tx.asset, tx.recipient, tx.status, tx.timestamp],
+  ]
+    .map((row) => row.join(','))
+    .join('\n');
+
+  const handleDownload = (format: 'csv' | 'json') => {
+    const content = format === 'csv' ? csvContent : JSON.stringify(tx, null, 2);
+    const mime = format === 'csv' ? 'text/csv' : 'application/json';
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `receipt-${tx.id}.${format}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <span className="receipt-download-buttons">
+      <button type="button" onClick={() => handleDownload('csv')} aria-label="Download CSV receipt">
+        CSV
+      </button>
+      <button type="button" onClick={() => handleDownload('json')} aria-label="Download JSON receipt">
+        JSON
+      </button>
+    </span>
+  );
+}
+
 function getSearchParams(): URLSearchParams {
   return new URLSearchParams(window.location.search);
 }

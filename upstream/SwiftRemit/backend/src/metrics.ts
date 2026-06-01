@@ -19,6 +19,7 @@ export class MetricsService {
     db_pool_available_connections: 0,
     kyc_poller_last_run_timestamp_seconds: 0,
     contract_event_indexer_lag_ledgers: 0,
+    swiftremit_rate_limit_exceeded_total: {} as Record<string, number>,
   };
 
   // FX rate staleness metrics
@@ -143,6 +144,13 @@ export class MetricsService {
     } catch (error) {
       this.logger.error('Failed to update accumulated fees', error);
     }
+  }
+
+  /** Increment rate-limit-exceeded counter for a given path. */
+  incrementRateLimitExceeded(path: string): void {
+    const key = path || 'unknown';
+    this.metrics.swiftremit_rate_limit_exceeded_total[key] =
+      (this.metrics.swiftremit_rate_limit_exceeded_total[key] ?? 0) + 1;
   }
 
   /**

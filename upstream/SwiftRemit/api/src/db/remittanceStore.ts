@@ -23,7 +23,7 @@ export interface Remittance {
 }
 
 type Queryable = {
-  query(text: string, params?: unknown[]): Promise<QueryResult<unknown>>;
+  query(text: string, params?: unknown[]): Promise<QueryResult<Record<string, unknown>>>;
 };
 
 type RemittanceRow = {

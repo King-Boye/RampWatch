@@ -1,4 +1,4 @@
-import { Server, Horizon } from '@stellar/stellar-sdk';
+import { Horizon } from '@stellar/stellar-sdk';
 
 export interface RemittanceCompletedEvent {
   remittanceId: string;
@@ -25,13 +25,13 @@ interface ContractEventValue {
  * Service for fetching Soroban contract events from Horizon
  */
 export class HorizonService {
-  private server: Server;
+  private server: Horizon.Server;
   private contractId: string;
   /** Last successfully fetched fee per remittance ID (fallback cache) */
   private feeCache = new Map<number, string>();
 
   constructor(horizonUrl?: string, contractId?: string) {
-    this.server = new Server(
+    this.server = new Horizon.Server(
       horizonUrl || import.meta.env.VITE_HORIZON_URL || 'https://soroban-testnet.stellar.org'
     );
     this.contractId = contractId || import.meta.env.VITE_CONTRACT_ID || '';

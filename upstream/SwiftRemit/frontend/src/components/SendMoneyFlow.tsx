@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import './SendMoneyFlow.css';
+import * as StellarSdk from '@stellar/stellar-sdk';
+import { signTransaction } from '@stellar/freighter-api';
+import { useTranslation } from 'react-i18next';
 import type { DailyLimitStatus } from '../../../sdk/src/types.js';
 
 type FlowStep = 1 | 2 | 3 | 4 | 5;
@@ -20,12 +23,15 @@ interface CorridorLimits {
 
 interface SendMoneyFlowProps {
   assets?: string[];
+  /** Stellar public key of the sender (for wallet-based submission) */
   senderAddress?: string;
+  /** Stellar public key used for on-chain tx submission (same as senderAddress) */
+  senderPublicKey?: string;
+  /** Network to use for on-chain tx submission */
+  network?: 'TESTNET' | 'PUBLIC';
   onConfirm?: (payload: ConfirmPayload) => Promise<void>;
   /** Optional: fetch daily limit status for the sender/currency/country corridor */
   getDailyLimitStatus?: (currency: string, country: string) => Promise<DailyLimitStatus>;
-  /** Sender address used for limit queries */
-  senderAddress?: string;
   /** ISO 3166-1 alpha-2 destination country (e.g. "NG") */
   destinationCountry?: string;
 }
@@ -120,12 +126,21 @@ async function buildAndSubmitTransaction(
   return result.hash;
 }
 
+const STEPS: Record<FlowStep, string> = {
+  1: 'Amount',
+  2: 'Asset',
+  3: 'Recipient',
+  4: 'Review',
+  5: 'Confirm',
+};
+
 export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
   assets = DEFAULT_ASSETS,
   senderAddress,
+  senderPublicKey,
+  network = 'TESTNET',
   onConfirm,
   getDailyLimitStatus,
-  senderAddress,
   destinationCountry = 'NG',
 }) => {
   const { t } = useTranslation();
@@ -137,12 +152,21 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  const [txHash, setTxHash] = useState<string | null>(null);
   const [limitStatus, setLimitStatus] = useState<DailyLimitStatus | null>(null);
+  const [limitsLoading, setLimitsLoading] = useState(false);
+  const [limitsError, setLimitsError] = useState<string | null>(null);
+  const [limits, setLimits] = useState<CorridorLimits | null>(null);
   const [fxFetchedAt, setFxFetchedAt] = useState<number | null>(null);
   const [fxSecondsLeft, setFxSecondsLeft] = useState<number | null>(null);
   const [fxExpired, setFxExpired] = useState(false);
 
   const parsedAmount = useMemo(() => Number(amount), [amount]);
+
+  const isApproachingLimit = useMemo(() => {
+    if (!limits || !parsedAmount) return false;
+    return parsedAmount >= limits.dailyRemaining * APPROACHING_THRESHOLD;
+  }, [limits, parsedAmount]);
 
   // Fetch daily limit status when asset is selected
   useEffect(() => {
@@ -479,7 +503,6 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
                 className="flow-button primary"
                 onClick={confirmTransfer}
                 disabled={isSubmitting}
-                aria-label="Confirm and submit transaction"
               >
                 {isSubmitting ? t('sendMoney.confirming') : t('sendMoney.confirm')}
               </button>

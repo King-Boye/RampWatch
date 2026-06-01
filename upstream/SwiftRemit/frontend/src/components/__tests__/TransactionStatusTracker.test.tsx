@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe, toHaveNoViolations } from 'jest-axe';
-import { TransactionStatusTracker, TransactionProgressStatus } from '../TransactionStatusTracker';
+import { TransactionStatusTracker } from '../TransactionStatusTracker';
+import type { TransactionProgressStatus } from '../TransactionStatusTracker';
 
 expect.extend(toHaveNoViolations);
 
@@ -183,7 +184,7 @@ describe('TransactionStatusTracker', () => {
 
     it('shows refreshing state during refresh', async () => {
       const user = userEvent.setup({ delay: null });
-      const onRefresh = vi.fn(() => new Promise((resolve) => setTimeout(resolve, 100)));
+      const onRefresh = vi.fn((): Promise<void> => new Promise((resolve) => setTimeout(resolve, 100)));
 
       render(
         <TransactionStatusTracker
