@@ -12,6 +12,7 @@ interface ConfirmPayload {
 
 interface SendMoneyFlowProps {
   assets?: string[];
+  senderAddress?: string;
   onConfirm?: (payload: ConfirmPayload) => Promise<void>;
 }
 
@@ -26,12 +27,16 @@ const STEP_SEQUENCE: FlowStep[] = [1, 2, 3, 4, 5];
 
 const DEFAULT_ASSETS = ['XLM', 'USDC', 'EURC'];
 
-function isValidRecipient(input: string): boolean {
-  return /^G[A-Z2-7]{55}$/.test(input.trim());
+function isValidRecipient(input: string, senderAddress?: string): boolean {
+  const trimmed = input.trim();
+  if (!/^G[A-Z2-7]{55}$/.test(trimmed)) return false;
+  if (senderAddress && trimmed === senderAddress.trim()) return false;
+  return true;
 }
 
 export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
   assets = DEFAULT_ASSETS,
+  senderAddress,
   onConfirm,
 }) => {
   const [step, setStep] = useState<FlowStep>(1);
@@ -57,8 +62,10 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
       return 'Please select an asset.';
     }
 
-    if (step === 3 && !isValidRecipient(recipient)) {
-      return 'Recipient must be a valid Stellar public key.';
+    if (step === 3 && !isValidRecipient(recipient, senderAddress)) {
+      return senderAddress && recipient.trim() === senderAddress.trim()
+        ? 'Recipient cannot be your own address.'
+        : 'Recipient must be a valid Stellar public key.';
     }
 
     return null;
