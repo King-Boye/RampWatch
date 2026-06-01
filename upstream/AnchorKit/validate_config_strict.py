@@ -133,15 +133,15 @@ class ConfigValidator:
                         errors.append(f"Attestor '{attestor_name}': address length must be 54-56 characters, got {addr_len}")
                         self.error_count += 1
                 
-                # Validate endpoint URL
+                # Validate endpoint URL (mirrors validate_anchor_domain rules)
                 if 'endpoint' in attestor:
-                    if not self._is_valid_url(attestor['endpoint']):
-                        errors.append(f"Attestor '{attestor_name}': invalid endpoint URL format")
+                    url_error = self._validate_endpoint_url(attestor['endpoint'])
+                    if url_error:
+                        errors.append(
+                            f"Attestor '{attestor_name}': invalid endpoint URL "
+                            f"'{attestor['endpoint']}' — {url_error}"
+                        )
                         self.error_count += 1
-                    
-                    if not attestor['endpoint'].startswith('https://'):
-                        warnings.append(f"Attestor '{attestor_name}': endpoint should use HTTPS for security")
-                        self.warning_count += 1
                 
                 # Validate role
                 if 'role' in attestor:
@@ -170,12 +170,102 @@ class ConfigValidator:
         
         return errors, warnings
     
-    def _is_valid_url(self, url: str) -> bool:
-        """Validate URL format"""
-        if not url or len(url) < 8 or len(url) > 256:
-            return False
-        pattern = r'^https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(/.*)?$'
-        return bool(re.match(pattern, url))
+    def _validate_endpoint_url(self, url: str) -> str:
+        """Validate endpoint URL using the same rules as validate_anchor_domain.
+
+        Returns an empty string on success, or a human-readable reason on failure.
+        The caller is responsible for embedding the URL in the final error message.
+        """
+        if not url or not url.strip():
+            return "URL must not be empty"
+
+        if len(url) < 10:
+            return "URL too short (minimum 10 characters, e.g. https://a.b)"
+
+        if len(url) > 2048:
+            return "URL too long (maximum 2048 characters)"
+
+        # HTTPS is required — not just a warning, it is an error
+        if not url.startswith("https://"):
+            return "URL must use HTTPS (http:// and other schemes are not allowed)"
+
+        # Control characters and forbidden chars anywhere in the URL
+        if "%00" in url:
+            return "URL must not contain a null byte"
+        for ch in url:
+            if ch < '\x20' or ch == '\x7f' or ch in '<>{}|\\':
+                return f"URL contains forbidden character {ch!r}"
+
+        # Isolate the host (strip scheme, path, query, fragment)
+        after_scheme = url[8:]  # skip "https://"
+        host_part = after_scheme.split('/')[0].split('?')[0].split('#')[0]
+
+        if not host_part:
+            return "URL has no host after scheme"
+
+        if ' ' in host_part:
+            return "URL host must not contain spaces"
+
+        # Optional port
+        domain = host_part
+        if ':' in host_part:
+            colon = host_part.rfind(':')
+            port_str = host_part[colon + 1:]
+            if not port_str:
+                return "URL port is empty after colon"
+            if not port_str.isdigit():
+                return f"URL port '{port_str}' is not numeric"
+            port = int(port_str)
+            if port == 0 or port > 65535:
+                return f"URL port {port} is out of valid range (1-65535)"
+            domain = host_part[:colon]
+
+        if not domain:
+            return "URL has no domain"
+
+        # Reject loopback
+        lower = domain.lower()
+        if (lower == "localhost"
+                or lower.startswith("localhost.")
+                or lower.endswith(".localhost")):
+            return "URL must not use loopback address (localhost)"
+
+        # Must have a TLD (at least one dot, two non-empty labels)
+        if '.' not in domain:
+            return "URL domain must have a TLD (e.g. example.com, not just 'example')"
+
+        if domain.startswith('.') or domain.endswith('.'):
+            return "URL domain must not start or end with a dot"
+
+        if '..' in domain:
+            return "URL domain must not contain consecutive dots"
+
+        labels = domain.split('.')
+        non_empty = [l for l in labels if l]
+        if len(non_empty) < 2:
+            return "URL domain must have at least two labels (e.g. example.com)"
+
+        # Reject raw IPv4 (all-numeric labels)
+        if all(l.isdigit() for l in labels):
+            return "URL must use a domain name, not a raw IP address"
+
+        for label in labels:
+            if not label:
+                return "URL domain contains an empty label"
+            if len(label) > 63:
+                return f"URL domain label '{label}' exceeds 63 characters"
+            if not label[0].isascii() or not label[0].isalnum():
+                return f"URL domain label '{label}' must start with an alphanumeric character"
+            if not label[-1].isascii() or not label[-1].isalnum():
+                return f"URL domain label '{label}' must end with an alphanumeric character"
+            # Reject Punycode (homograph attack vector)
+            if label.lower().startswith("xn--"):
+                return f"URL domain label '{label}' uses Punycode (xn--), which is not allowed"
+            for ch in label:
+                if not (ch.isascii() and (ch.isalnum() or ch == '-')):
+                    return f"URL domain label '{label}' contains invalid character {ch!r}"
+
+        return ""  # valid
 
 def main():
     if len(sys.argv) < 2:
