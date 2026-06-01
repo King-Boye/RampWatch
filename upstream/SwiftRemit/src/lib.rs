@@ -616,6 +616,7 @@ impl SwiftRemitContract {
         set_remittance_counter(&env, remittance_id);
         set_transfer_state(&env, remittance_id, RemittanceStatus::Pending)?;
         storage::record_sender_volume(&env, &sender, amount, env.ledger().timestamp())?;
+        storage::append_sender_remittance(&env, &sender, remittance_id);
 
         Ok(remittance_id)
     }
