@@ -85,7 +85,7 @@ export function createApp(options: AppOptions = {}): Application {
     ? new Pool({ connectionString: process.env.DATABASE_URL, max: 5 })
     : null;
   if (analyticsPool) {
-    app.use('/api/analytics', createAnalyticsRouter(analyticsPool));
+    app.use('/api/analytics', createAnalyticsRouter(analyticsPool, options.anchorAdminApiKey ?? process.env.ANALYTICS_ADMIN_API_KEY));
   }
 
   // API documentation
