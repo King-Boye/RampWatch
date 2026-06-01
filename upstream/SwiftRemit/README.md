@@ -13,7 +13,7 @@ SwiftRemit is an escrow-based remittance system that enables secure cross-border
 - **Escrow-Based Transfers**: Secure USDC deposits held in contract until payout confirmation
 - **Agent Network**: Registered agents handle fiat distribution off-chain
 - **Automated Fee Collection**: Platform fees calculated and accumulated automatically
-- **Lifecycle State Management**: Remittances tracked through 4 states (Pending, Processing, Completed, Cancelled) with enforced transitions via a single canonical `RemittanceStatus` enum
+- **Lifecycle State Management**: Remittances tracked through 6 states (Pending, Processing, Completed, Cancelled, Failed, Disputed) with enforced transitions via a single canonical `RemittanceStatus` enum
 - **Authorization Security**: Role-based access control for all operations
 - **Event Emission**: Comprehensive event logging for off-chain monitoring
 - **Cancellation Support**: Senders can cancel pending remittances with full refund
@@ -142,7 +142,8 @@ Fees are calculated in basis points (bps):
 - `create_remittance(sender, agent, amount)` - Create new remittance (sender auth required)
 - `start_processing(remittance_id)` - Mark remittance as being processed (agent auth required)
 - `confirm_payout(remittance_id, proof)` - Confirm fiat payout with optional commitment proof
-- `mark_failed(remittance_id)` - Mark payout as failed with refund (agent auth required)
+- `confirm_partial_payout(remittance_id, amount)` - Disburse a partial amount to the agent; automatically marks the remittance Completed when the total disbursed reaches the net payout (agent auth required)
+- `mark_failed(remittance_id)` - Mark payout as failed and auto-refund escrow to sender (agent auth required)
 - `cancel_remittance(remittance_id)` - Cancel pending remittance (sender auth required)
 - `process_expired_remittances(remittance_ids)` - Auto-refund expired pending remittances in batches (max 50 IDs)
 
@@ -401,19 +402,22 @@ All remittance lifecycle state is tracked by a single canonical `RemittanceStatu
 │ Pending │  ← initial state (funds locked in escrow)
 └────┬────┘
      │
-     ├──────────────────────┐
-     │                      │
-     ▼                      ▼
-┌────────────┐        ┌───────────┐
-│ Processing │        │ Cancelled │ (Terminal)
-└─────┬──────┘        └───────────┘
-      │                      ▲
-      ├──────────────────────┤
-      │                      │
-      ▼                      │
-┌───────────┐                │
-│ Completed │ (Terminal)     │
-└───────────┘                │
+     ├──────────────────────┬──────────────────────┐
+     │                      │                      │
+     ▼                      ▼                      ▼
+┌────────────┐        ┌───────────┐          ┌────────┐
+│ Processing │        │ Cancelled │(Terminal) │ Failed │
+└─────┬──────┘        └───────────┘          └───┬────┘
+      │                      ▲                   │
+      ├──────────────────────┤                   │
+      │                      │                   ▼
+      ▼                      │            ┌──────────┐
+┌───────────┐                │            │ Disputed │
+│ Completed │(Terminal)      │            └────┬─────┘
+└───────────┘                │                 │
+                             │    Cancelled ◄──┤
+                             │                 │
+                             └──── Completed ◄─┘
 ```
 
 ### Valid Transitions
@@ -421,11 +425,16 @@ All remittance lifecycle state is tracked by a single canonical `RemittanceStatu
 | From       | To         | Trigger                        |
 |------------|------------|--------------------------------|
 | Pending    | Processing | Contract enters processing during `confirm_payout` |
-| Pending    | Cancelled  | Sender calls `cancel_remittance` |
+| Pending    | Cancelled  | Sender calls `cancel_remittance` or expiry processed |
+| Pending    | Failed     | Agent calls `mark_failed` |
 | Processing | Completed  | `confirm_payout` completes successfully and releases USDC |
-| Processing | Cancelled  | Documented internal failure/refund path; no separate public `mark_failed` entrypoint |
+| Processing | Cancelled  | Expiry or internal failure/refund path |
+| Processing | Failed     | Agent calls `mark_failed` |
+| Failed     | Disputed   | Sender calls `raise_dispute` within dispute window |
+| Disputed   | Cancelled  | Admin calls `resolve_dispute` in favour of sender |
+| Disputed   | Completed  | Admin calls `resolve_dispute` in favour of agent |
 
-Terminal states (`Completed`, `Cancelled`) cannot transition further.
+Terminal states (`Completed`, `Cancelled`) cannot transition further. `Failed` and `Disputed` are transient — further transitions are permitted from both.
 
 
 

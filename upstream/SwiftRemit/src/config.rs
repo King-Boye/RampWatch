@@ -4,6 +4,14 @@
 //! and prevent duplicate definitions. All magic numbers should be defined
 //! here with clear documentation.
 
+/// Number of ledgers to extend a remittance's persistent storage TTL when it
+/// transitions from Pending to Processing (#624).
+///
+/// At a 5-second ledger time this equals approximately 7 days, giving agents
+/// a reasonable window to complete the off-chain fiat payout before the
+/// escrow record would otherwise expire.
+pub const PROCESSING_WINDOW_LEDGERS: u32 = 120_960; // ~7 days at 5s/ledger
+
 // ============================================================================
 // Batch Processing Limits
 // ============================================================================
@@ -38,7 +46,19 @@ pub const MAX_NETTING_BATCH_SIZE: u32 = 50;
 /// Caps the Vec size to prevent unbounded growth and O(n²) pruning behavior
 /// during high-activity periods. Timestamps older than the window are pruned
 /// in a single pass using retain-style filtering.
+///
+/// **Constraint**: must always be strictly greater than the largest per-window
+/// request limit (`MAX_QUERIES_PER_WINDOW`). If this invariant is violated the
+/// sliding-window cap would prune entries that are still inside the rate-limit
+/// window, silently lowering the effective limit below its configured value.
+/// The compile-time assertion below enforces this.
 pub const MAX_VEC_SIZE: usize = 1000;
+
+// Ensure the cap never silently reduces the effective rate limit.
+const _: () = assert!(
+    MAX_VEC_SIZE > MAX_QUERIES_PER_WINDOW as usize,
+    "MAX_VEC_SIZE must be strictly greater than MAX_QUERIES_PER_WINDOW to avoid silent data loss in the sliding-window rate limiter",
+);
 
 // ============================================================================
 // Fee Calculation Constants

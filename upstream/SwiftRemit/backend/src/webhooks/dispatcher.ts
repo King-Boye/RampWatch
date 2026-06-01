@@ -145,6 +145,13 @@ export class WebhookDispatcher {
     deliveryRecord?: Partial<WebhookDeliveryRecord>,
     contentType: string = 'application/json'
   ): Promise<boolean> {
+    if (!url.startsWith('https://')) {
+      const msg = `Webhook delivery rejected: URL must use HTTPS (received: ${url})`;
+      this.logger.error(msg);
+      await this.store.updateDeliveryStatus(deliveryId, 'failed', attempt, msg);
+      return false;
+    }
+
     try {
       const isFormEncoded = contentType === 'application/x-www-form-urlencoded';
       const serialized = isFormEncoded

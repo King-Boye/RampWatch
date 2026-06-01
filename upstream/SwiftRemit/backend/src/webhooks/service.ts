@@ -45,6 +45,10 @@ export class WebhookService {
       throw new Error('Webhook URL is required');
     }
 
+    if (!request.url.startsWith('https://')) {
+      throw new Error('Webhook URL must use HTTPS');
+    }
+
     if (!request.events || request.events.length === 0) {
       throw new Error('At least one event must be subscribed');
     }

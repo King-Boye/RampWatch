@@ -16,6 +16,9 @@ interface TransactionStatusTrackerProps {
   onStatusUpdate?: (status: TransactionProgressStatus) => void;
   pollingInterval?: number;
   enablePolling?: boolean;
+  socketUrl?: string;
+  maxReconnectAttempts?: number;
+  initialReconnectDelayMs?: number;
   title?: string;
 }
 
@@ -54,6 +57,9 @@ export const TransactionStatusTracker: React.FC<TransactionStatusTrackerProps> =
   onStatusUpdate,
   pollingInterval = 5000,
   enablePolling = true,
+  socketUrl,
+  maxReconnectAttempts = 5,
+  initialReconnectDelayMs = 1000,
   title = 'Transaction Status',
 }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -61,9 +67,112 @@ export const TransactionStatusTracker: React.FC<TransactionStatusTrackerProps> =
   const [localStatus, setLocalStatus] = useState<TransactionProgressStatus>(currentStatus);
   const [statusAnnouncement, setStatusAnnouncement] = useState<string>('');
   const [previousStatus, setPreviousStatus] = useState<TransactionProgressStatus | null>(null);
-  const [announcementKey, setAnnouncementKey] = useState<number>(0);
   const pollingTimerRef = useRef<number | null>(null);
+  const webSocketRef = useRef<WebSocket | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<number | null>(null);
   const announcedStatusRef = useRef<TransactionProgressStatus | null>(null);
+  const localStatusRef = useRef<TransactionProgressStatus>(currentStatus);
+
+  const getDefaultSocketUrl = (): string | null => {
+    if (!transactionId || typeof window === 'undefined') {
+      return null;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}/ws/transaction-status/${transactionId}`;
+  };
+
+  const closeWebSocket = () => {
+    if (webSocketRef.current) {
+      webSocketRef.current.close();
+      webSocketRef.current = null;
+    }
+
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  };
+
+  const scheduleReconnect = () => {
+    if (isTerminalState(localStatusRef.current) || reconnectAttemptsRef.current >= maxReconnectAttempts) {
+      return;
+    }
+
+    const delay = Math.min(
+      initialReconnectDelayMs * 2 ** reconnectAttemptsRef.current,
+      30000
+    );
+
+    reconnectAttemptsRef.current += 1;
+    reconnectTimerRef.current = window.setTimeout(() => {
+      reconnectTimerRef.current = null;
+      connectWebSocket();
+    }, delay);
+  };
+
+  const handleWebSocketMessage = (event: MessageEvent) => {
+    try {
+      const payload = JSON.parse(event.data) as unknown;
+      if (!payload || typeof payload !== 'object') {
+        return;
+      }
+
+      const message = payload as Record<string, unknown>;
+      const status = message['status'];
+      const id = message['transactionId'] as string | undefined;
+
+      if (typeof status !== 'string') {
+        return;
+      }
+
+      if (transactionId && id && id !== transactionId) {
+        return;
+      }
+
+      const nextStatus = status as TransactionProgressStatus;
+      if (nextStatus !== localStatusRef.current) {
+        setLocalStatus(nextStatus);
+        onStatusUpdate?.(nextStatus);
+      }
+    } catch (error) {
+      console.error('Failed to parse transaction status websocket payload:', error);
+    }
+  };
+
+  const connectWebSocket = () => {
+    const endpoint = socketUrl ?? getDefaultSocketUrl();
+    if (!endpoint || typeof WebSocket === 'undefined') {
+      return;
+    }
+
+    closeWebSocket();
+
+    try {
+      const socket = new WebSocket(endpoint);
+      webSocketRef.current = socket;
+
+      socket.addEventListener('open', () => {
+        reconnectAttemptsRef.current = 0;
+      });
+
+      socket.addEventListener('message', handleWebSocketMessage);
+
+      socket.addEventListener('error', (event) => {
+        console.error('Transaction status websocket error', event);
+      });
+
+      socket.addEventListener('close', () => {
+        if (!isTerminalState(localStatusRef.current)) {
+          scheduleReconnect();
+        }
+      });
+    } catch (error) {
+      console.error('Unable to open transaction status websocket:', error);
+      scheduleReconnect();
+    }
+  };
 
   const activeIndex = useMemo(() => {
     return TRACKER_STEPS.findIndex((step) => step.key === localStatus);
@@ -133,14 +242,28 @@ export const TransactionStatusTracker: React.FC<TransactionStatusTrackerProps> =
     setLocalStatus(currentStatus);
   }, [currentStatus]);
 
+  useEffect(() => {
+    localStatusRef.current = localStatus;
+  }, [localStatus]);
+
+  useEffect(() => {
+    if (!transactionId || isTerminalState(localStatusRef.current)) {
+      closeWebSocket();
+      return;
+    }
+
+    connectWebSocket();
+    return () => {
+      closeWebSocket();
+    };
+  }, [transactionId, socketUrl, localStatus]);
+
   // Announce status changes to screen readers
   // Only announce if status has actually changed
   useEffect(() => {
     if (localStatus !== announcedStatusRef.current) {
       const message = getStatusAnnouncementMessage(localStatus);
       setStatusAnnouncement(message);
-      // Force re-render of aria-live region by changing key
-      setAnnouncementKey(prev => prev + 1);
       announcedStatusRef.current = localStatus;
     }
     setPreviousStatus(localStatus);
@@ -172,7 +295,6 @@ export const TransactionStatusTracker: React.FC<TransactionStatusTrackerProps> =
     <section className="transaction-tracker" aria-label={title}>
       {/* Screen reader announcements - aria-live region */}
       <div 
-        key={announcementKey}
         aria-live="polite" 
         aria-atomic="true" 
         className="sr-only"

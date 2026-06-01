@@ -4,6 +4,7 @@ import {
   nativeToScVal,
   Address,
 } from "@stellar/stellar-sdk";
+import { SwiftRemitError, ErrorCode } from "./errors.js";
 import type {
   Remittance,
   RemittanceStatus,
@@ -21,24 +22,76 @@ import type {
 
 export function parseRemittance(val: xdr.ScVal): Remittance {
   const map = scValToNative(val) as Record<string, unknown>;
+
+  const id = assertDefined<number>(map, "id");
+  const sender = assertDefined<{ toString(): string }>(map, "sender");
+  const agent = assertDefined<{ toString(): string }>(map, "agent");
+  const amount = assertDefined<number>(map, "amount");
+  const fee = assertDefined<number>(map, "fee");
+  const status = assertDefined<Record<string, unknown>>(map, "status");
+  const token = assertDefined<{ toString(): string }>(map, "token");
+  const createdAt = assertDefined<number>(map, "created_at");
+
   return {
-    id: BigInt(map["id"] as number),
-    sender: (map["sender"] as { toString(): string }).toString(),
-    agent: (map["agent"] as { toString(): string }).toString(),
-    amount: BigInt(map["amount"] as number),
-    fee: BigInt(map["fee"] as number),
-    status: parseStatus(map["status"] as Record<string, unknown>),
+    id: BigInt(id),
+    sender: sender.toString(),
+    agent: agent.toString(),
+    amount: BigInt(amount),
+    fee: BigInt(fee),
+    status: parseStatus(status),
     expiry: map["expiry"] != null ? BigInt(map["expiry"] as number) : null,
-    token: (map["token"] as { toString(): string }).toString(),
-    createdAt: BigInt(map["created_at"] as number),
+    token: token.toString(),
+    createdAt: BigInt(createdAt),
     failedAt:
       map["failed_at"] != null ? BigInt(map["failed_at"] as number) : null,
   };
 }
 
+function assertDefined<T>(map: Record<string, unknown>, key: string): T {
+  const value = map[key];
+  if (value === undefined || value === null) {
+    throw new SwiftRemitError(
+      ErrorCode.DataCorruption,
+      `parseRemittance: missing required field "${key}"`
+    );
+  }
+  return value as T;
+}
+
 function parseStatus(raw: Record<string, unknown>): RemittanceStatus {
-  const key = Object.keys(raw)[0] as RemittanceStatus;
-  return key;
+  if (!raw || typeof raw !== "object") {
+    throw new SwiftRemitError(
+      ErrorCode.DataCorruption,
+      "parseRemittance: invalid status value"
+    );
+  }
+
+  const statusKeys = Object.keys(raw);
+  if (statusKeys.length !== 1) {
+    throw new SwiftRemitError(
+      ErrorCode.DataCorruption,
+      "parseRemittance: invalid or missing status field"
+    );
+  }
+
+  const statusKey = statusKeys[0];
+  const validStatuses = [
+    "Pending",
+    "Processing",
+    "Completed",
+    "Cancelled",
+    "Failed",
+    "Disputed",
+  ] as const;
+
+  if (!validStatuses.includes(statusKey as RemittanceStatus)) {
+    throw new SwiftRemitError(
+      ErrorCode.DataCorruption,
+      `parseRemittance: unknown status \"${statusKey}\"`
+    );
+  }
+
+  return statusKey as RemittanceStatus;
 }
 
 export function parseAgentStats(val: xdr.ScVal): AgentStats {

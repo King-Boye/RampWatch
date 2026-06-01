@@ -1585,8 +1585,9 @@ pub fn add_disbursed_amount(env: &Env, remittance_id: u64, amount: i128) -> Resu
 
 // === Per-Agent Daily Withdrawal Cap ===
 
-/// Rolling 24-hour window in seconds.
-pub const AGENT_CAP_WINDOW_SECONDS: u64 = 86_400;
+/// Rolling 24-hour window in seconds. Derives from the shared daily-limit constant
+/// so both limits always use the same window boundary.
+pub const AGENT_CAP_WINDOW_SECONDS: u64 = crate::config::DAILY_LIMIT_WINDOW_SECONDS;
 
 /// Returns the per-agent daily withdrawal cap (0 = no cap).
 pub fn get_agent_daily_cap(env: &Env, agent: &Address) -> i128 {
@@ -1679,24 +1680,27 @@ pub fn get_recipient_hash_record(
 
 // === Sender Remittance Index ===
 
-/// Appends a remittance ID to the sender's list of remittances.
+/// Appends a remittance ID to the sender's persistent remittance index.
 pub fn append_sender_remittance(env: &Env, sender: &Address, remittance_id: u64) {
-    let key = DataKey::UserTransfers(sender.clone());
-    // Reuse UserTransfers key with a separate SenderRemittances key would be cleaner,
-    // but to avoid adding a new DataKey variant we store in a dedicated key.
-    // We use a separate persistent key for sender remittance IDs.
-    let storage_key = DataKey::RemittanceIdempotencyKey(remittance_id); // placeholder
-    // Use a dedicated approach: store Vec<u64> under a new key pattern
-    // Since we can't add DataKey variants easily, use instance storage with a string key
-    // Actually, let's just use a no-op for now since this is a pre-existing issue
-    // and the feature doesn't depend on it.
-    let _ = (env, sender, remittance_id, key, storage_key);
+    let key = DataKey::SenderRemittances(sender.clone());
+    let mut ids: soroban_sdk::Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| soroban_sdk::Vec::new(env));
+    ids.push_back(remittance_id);
+    env.storage().persistent().set(&key, &ids);
 }
 
-/// Returns all remittance IDs for a sender (paginated queries).
+/// Returns all remittance IDs for a sender.
+///
+/// The caller is responsible for applying pagination (offset/limit) to avoid
+/// returning unbounded data in a single call.
 pub fn get_sender_remittances(env: &Env, sender: &Address) -> soroban_sdk::Vec<u64> {
-    let _ = (env, sender);
-    soroban_sdk::Vec::new(env)
+    env.storage()
+        .persistent()
+        .get(&DataKey::SenderRemittances(sender.clone()))
+        .unwrap_or_else(|| soroban_sdk::Vec::new(env))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1910,6 +1914,32 @@ pub fn extend_critical_ttls(env: &Env, extend_by_ledgers: u32) {
                 .extend_ttl(&key, ledgers, ledgers);
         }
     }
+
+    // Bump per-agent persistent keys so agents never lose their registration status.
+    let agents = get_agent_list(env);
+    for i in 0..agents.len() {
+        let agent = agents.get_unchecked(i);
+
+        let key = DataKey::AgentRegistered(agent.clone());
+        if env.storage().persistent().has(&key) {
+            env.storage().persistent().extend_ttl(&key, ledgers, ledgers);
+        }
+
+        let key = DataKey::AgentKycHash(agent.clone());
+        if env.storage().persistent().has(&key) {
+            env.storage().persistent().extend_ttl(&key, ledgers, ledgers);
+        }
+
+        let key = DataKey::AgentStats(agent.clone());
+        if env.storage().persistent().has(&key) {
+            env.storage().persistent().extend_ttl(&key, ledgers, ledgers);
+        }
+
+        let key = DataKey::AgentDailyCap(agent.clone());
+        if env.storage().persistent().has(&key) {
+            env.storage().persistent().extend_ttl(&key, ledgers, ledgers);
+        }
+    }
 }
 
 // === 2-Step Admin Transfer (#365) ===
@@ -1952,4 +1982,17 @@ pub fn get_min_agent_reputation(env: &Env) -> u32 {
 }
 pub fn set_min_agent_reputation(env: &Env, threshold: u32) {
     env.storage().instance().set(&DataKey::MinAgentReputation, &threshold);
+}
+
+// === Remittance TTL Extension (#624) ===
+
+/// Extends the persistent storage TTL for a remittance record by `ledgers`.
+///
+/// Called when a remittance transitions to Processing so the escrow entry
+/// does not expire before the agent completes the off-chain fiat payout.
+pub fn extend_remittance_ttl(env: &Env, remittance_id: u64, ledgers: u32) {
+    let key = DataKey::Remittance(remittance_id);
+    if env.storage().persistent().has(&key) {
+        env.storage().persistent().extend_ttl(&key, ledgers, ledgers);
+    }
 }
