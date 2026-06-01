@@ -6,7 +6,7 @@ use std::time::Instant;
 use regex::Regex;
 
 const MIN_RUST_MAJOR: u32 = 1;
-const MIN_RUST_MINOR: u32 = 56;
+const MIN_RUST_MINOR: u32 = 74;
 
 #[derive(Parser)]
 #[command(name = "anchorkit", about = "AnchorKit CLI for Soroban anchor management")]
