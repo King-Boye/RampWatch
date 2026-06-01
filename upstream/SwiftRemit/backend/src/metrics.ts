@@ -14,6 +14,8 @@ export class MetricsService {
     swiftremit_active_remittances: 0,
     swiftremit_accumulated_fees: 0,
     swiftremit_webhook_dead_letter_count: 0,
+    swiftremit_kyc_poll_runs_total: 0,
+    swiftremit_kyc_poll_failures_total: 0,
     db_pool_available_connections: 0,
     kyc_poller_last_run_timestamp_seconds: 0,
     contract_event_indexer_lag_ledgers: 0,
@@ -155,6 +157,14 @@ export class MetricsService {
    */
   recordKycPollerRun(): void {
     this.metrics.kyc_poller_last_run_timestamp_seconds = Math.floor(Date.now() / 1000);
+    this.metrics.swiftremit_kyc_poll_runs_total += 1;
+  }
+
+  /**
+   * Record a KYC poll failure.
+   */
+  recordKycPollFailure(): void {
+    this.metrics.swiftremit_kyc_poll_failures_total += 1;
   }
 
   /**
@@ -237,6 +247,14 @@ export class MetricsService {
     lines.push('# HELP kyc_poller_last_run_timestamp_seconds Unix timestamp of the last successful KYC poller run');
     lines.push('# TYPE kyc_poller_last_run_timestamp_seconds gauge');
     lines.push(`kyc_poller_last_run_timestamp_seconds ${this.metrics.kyc_poller_last_run_timestamp_seconds}`);
+
+    // KYC poller counters
+    lines.push('# HELP swiftremit_kyc_poll_runs_total Total number of KYC poll cycles executed');
+    lines.push('# TYPE swiftremit_kyc_poll_runs_total counter');
+    lines.push(`swiftremit_kyc_poll_runs_total ${this.metrics.swiftremit_kyc_poll_runs_total}`);
+    lines.push('# HELP swiftremit_kyc_poll_failures_total Total number of KYC poll failures');
+    lines.push('# TYPE swiftremit_kyc_poll_failures_total counter');
+    lines.push(`swiftremit_kyc_poll_failures_total ${this.metrics.swiftremit_kyc_poll_failures_total}`);
 
     // Contract event indexer lag
     lines.push('# HELP contract_event_indexer_lag_ledgers Number of ledgers the event indexer is behind the chain tip');

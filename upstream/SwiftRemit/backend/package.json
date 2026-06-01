@@ -12,6 +12,7 @@
     "test:webhook:manual": "tsx scripts/test-webhook.ts",
     "lint": "eslint src --ext .ts",
     "webhook:example": "tsx examples/send-webhook.ts",
+    "generate:openapi": "node generate-openapi.js",
     "validate:openapi": "swagger-cli validate openapi.yaml",
     "migrate": "tsx src/migrate.ts migrate",
     "migrate:rollback": "tsx src/migrate.ts rollback"
