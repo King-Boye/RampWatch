@@ -74,8 +74,11 @@ export const WalletConnection: React.FC<WalletConnectionProps> = ({
 
       // Check for network mismatch
       if (FreighterService.isNetworkMismatch(connectedNetwork, defaultNetwork)) {
+        localStorage.removeItem('walletSession');
+        setConnected(false);
+        setPublicKey('');
         setNetworkWarning(
-          `Warning: Wallet is connected to ${connectedNetwork}, but ${defaultNetwork} is expected.`
+          `Network mismatch: wallet is on ${connectedNetwork} but ${defaultNetwork} is expected. Please switch networks in Freighter and reconnect.`
         );
       }
     } catch (connectError) {
