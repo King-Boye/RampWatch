@@ -13,7 +13,7 @@ path = "src/bin/anchorkit.rs"
 
 [features]
 default = ["std"]
-std = ["serde", "serde_json", "toml"]
+std = ["serde", "serde_json", "toml", "regex"]
 wasm = []
 mock-only = []
 stress-tests = []
@@ -26,6 +26,7 @@ ed25519-dalek = { version = "2", default-features = false }
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
 toml = { version = "0.8", optional = true }
+regex = { version = "1.10", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 clap = { version = "4.5", features = ["derive"] }
