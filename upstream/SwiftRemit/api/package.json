@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "lint": "eslint src --ext .ts",
+    "generate:openapi": "tsx generate-openapi.ts",
     "validate:openapi": "swagger-cli validate openapi.yaml"
   },
   "dependencies": {

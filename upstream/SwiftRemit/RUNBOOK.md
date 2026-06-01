@@ -335,6 +335,16 @@ Recommended: run a scheduled job (weekly) to bump TTL on all active remittances 
 | P2 | Migration stuck / partial state | 1 hour | 8 hours | On-call engineer → Contract lead |
 | P3 | TTL warnings / non-critical degradation | 4 hours | 24 hours | On-call engineer |
 
+## Prometheus alerting rules
+The repository includes `monitoring/alerts.yml` with the recommended Prometheus alerting rules for SwiftRemit backend health.
+
+- `SwiftRemitWebhookDeliveryFailureRateHigh`: alerts when webhook delivery failures exceed 10% over 10 minutes.
+- `SwiftRemitKycPollFailureRateHigh`: alerts when KYC poll failures exceed 20% of poll cycles over 5 minutes.
+- `SwiftRemitFxCacheMissRateHigh`: alerts when FX cache misses exceed 15% of FX cache lookups over 5 minutes.
+- `SwiftRemitAccumulatedFeesThresholdExceeded`: alerts when accumulated fees exceed the configured operational threshold.
+
+**Note:** These alerts are shipped in `monitoring/alerts.yml` and should be imported into the production Prometheus alertmanager configuration.
+
 **Escalation contacts:**
 
 | Role | Contact |
