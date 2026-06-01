@@ -9,6 +9,8 @@ mod validation;
 
 #[cfg(test)]
 mod config_tests;
+#[cfg(test)]
+mod streaming_flow_tests;
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
