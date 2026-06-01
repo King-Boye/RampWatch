@@ -345,11 +345,17 @@ fn dispatch_action(
             emit_fee_updated(env, *bps);
         }
         ProposalAction::RegisterAgent(agent) => {
+            if is_agent_registered(env, agent) {
+                return Err(ContractError::AgentAlreadyRegistered);
+            }
             storage::set_agent_registered(env, agent, true);
             assign_role(env, agent, &Role::Settler);
             emit_agent_registered(env, agent.clone(), executor.clone(), None);
         }
         ProposalAction::RemoveAgent(agent) => {
+            if !is_agent_registered(env, agent) {
+                return Err(ContractError::AgentNotRegistered);
+            }
             storage::set_agent_registered(env, agent, false);
             remove_role(env, agent, &Role::Settler);
             emit_agent_removed(env, agent.clone(), executor.clone());

@@ -11,23 +11,12 @@ import {
   WebhookDelivery,
 } from './types';
 
-let pool: Pool;
-try {
-  pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
-  });
-} catch (error) {
-  console.error('Failed to initialize PostgreSQL pool:', error);
-  throw error;
-}
+let pool: Pool | undefined;
 
 export async function initDatabase() {
   let client: PoolClient | undefined;
   try {
-    client = await pool.connect();
+    client = await getPool().connect();
     await client.query(`      CREATE TABLE IF NOT EXISTS transactions (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         transaction_id VARCHAR(255) UNIQUE NOT NULL,
@@ -228,7 +217,7 @@ export async function saveAssetVerification(verification: AssetVerification): Pr
       updated_at = NOW()
   `;
 
-  await pool.query(query, [
+  await getPool().query(query, [
     verification.asset_code,
     verification.issuer,
     verification.status,
@@ -250,7 +239,7 @@ export async function getAssetVerification(
     SELECT * FROM verified_assets 
     WHERE asset_code = $1 AND issuer = $2
   `;
-  const result = await pool.query(query, [assetCode, issuer]);
+  const result = await getPool().query(query, [assetCode, issuer]);
   
   if (result.rows.length === 0) {
     return null;
@@ -278,7 +267,7 @@ export async function getStaleAssets(hoursOld: number): Promise<AssetVerificatio
     ORDER BY last_verified ASC
     LIMIT 100
   `;
-  const result = await pool.query(query);
+  const result = await getPool().query(query);
   
   return result.rows.map(row => ({
     asset_code: row.asset_code,
@@ -304,7 +293,7 @@ export async function reportSuspiciousAsset(
         updated_at = NOW()
     WHERE asset_code = $1 AND issuer = $2
   `;
-  await pool.query(query, [assetCode, issuer]);
+  await getPool().query(query, [assetCode, issuer]);
 }
 
 export async function saveAssetReport(
@@ -317,7 +306,7 @@ export async function saveAssetReport(
     INSERT INTO asset_reports (asset_code, issuer, reason, reporter_id)
     VALUES ($1, $2, $3, $4)
   `;
-  await pool.query(query, [assetCode, issuer, reason, reporterId || null]);
+  await getPool().query(query, [assetCode, issuer, reason, reporterId || null]);
 }
 
 export async function getVerifiedAssets(limit: number = 100): Promise<AssetVerification[]> {
@@ -327,7 +316,7 @@ export async function getVerifiedAssets(limit: number = 100): Promise<AssetVerif
     ORDER BY reputation_score DESC, trustline_count DESC
     LIMIT $1
   `;
-  const result = await pool.query(query, [limit]);
+  const result = await getPool().query(query, [limit]);
   
   return result.rows.map(row => ({
     asset_code: row.asset_code,
@@ -351,7 +340,7 @@ export async function saveFxRate(fxRate: FxRate): Promise<void> {
     ON CONFLICT (transaction_id) DO NOTHING
   `;
 
-  await pool.query(query, [
+  await getPool().query(query, [
     fxRate.transaction_id,
     fxRate.rate,
     fxRate.provider,
@@ -366,7 +355,7 @@ export async function getFxRate(transactionId: string): Promise<FxRateRecord | n
     SELECT * FROM fx_rates 
     WHERE transaction_id = $1
   `;
-  const result = await pool.query(query, [transactionId]);
+  const result = await getPool().query(query, [transactionId]);
   
   if (result.rows.length === 0) {
     return null;
@@ -400,7 +389,7 @@ export async function saveAnchorKycConfig(config: AnchorKycConfig): Promise<void
       updated_at = NOW()
   `;
 
-  await pool.query(query, [
+  await getPool().query(query, [
     config.anchor_id,
     config.kyc_server_url,
     config.auth_token,
@@ -411,7 +400,7 @@ export async function saveAnchorKycConfig(config: AnchorKycConfig): Promise<void
 
 export async function getAnchorKycConfigs(): Promise<AnchorKycConfig[]> {
   const query = `SELECT * FROM anchor_kyc_configs WHERE enabled = TRUE`;
-  const result = await pool.query(query);
+  const result = await getPool().query(query);
   
   return result.rows.map(row => ({
     anchor_id: row.anchor_id,
@@ -437,7 +426,7 @@ export async function saveUserKycStatus(kycStatus: DbUserKycStatus): Promise<voi
       updated_at = NOW()
   `;
 
-  await pool.query(query, [
+  await getPool().query(query, [
     kycStatus.user_id,
     kycStatus.anchor_id,
     kycStatus.status,
@@ -453,7 +442,7 @@ export async function getUserKycStatus(userId: string, anchorId: string): Promis
     SELECT * FROM user_kyc_status 
     WHERE user_id = $1 AND anchor_id = $2
   `;
-  const result = await pool.query(query, [userId, anchorId]);
+  const result = await getPool().query(query, [userId, anchorId]);
   
   if (result.rows.length === 0) {
     return null;
@@ -480,7 +469,7 @@ export async function getUsersNeedingKycCheck(anchorId: string, minutesSinceLast
     ORDER BY last_checked ASC
     LIMIT 100
   `;
-  const result = await pool.query(query, [anchorId]);
+  const result = await getPool().query(query, [anchorId]);
   
   return result.rows.map(row => ({
     user_id: row.user_id,
@@ -500,7 +489,7 @@ export async function getApprovedUsers(): Promise<DbUserKycStatus[]> {
       AND (expires_at IS NULL OR expires_at > NOW())
     ORDER BY last_checked DESC
   `;
-  const result = await pool.query(query);
+  const result = await getPool().query(query);
   
   return result.rows.map(row => ({
     user_id: row.user_id,
@@ -572,7 +561,7 @@ export async function saveSep24Transaction(
       updated_at = NOW()
   `;
 
-  await pool.query(query, [
+  await getPool().query(query, [
     record.transaction_id,
     record.anchor_id,
     record.direction,
@@ -604,7 +593,7 @@ export async function getSep24Transaction(
     SELECT * FROM sep24_transactions 
     WHERE transaction_id = $1
   `;
-  const result = await pool.query(query, [transactionId]);
+  const result = await getPool().query(query, [transactionId]);
 
   if (result.rows.length === 0) {
     return null;
@@ -637,7 +626,7 @@ export async function getPendingSep24Transactions(
     ORDER BY created_at ASC
     LIMIT 50
   `;
-  const result = await pool.query(query, [anchorId]);
+  const result = await getPool().query(query, [anchorId]);
 
   return result.rows as Sep24TransactionDbRecord[];
 }
@@ -669,7 +658,7 @@ export async function updateSep24TransactionStatus(
     WHERE transaction_id = $1
   `;
 
-  await pool.query(query, [
+  await getPool().query(query, [
     transactionId,
     status,
     amountIn || null,
@@ -693,7 +682,7 @@ export async function getSep24TransactionsByUser(
     ORDER BY created_at DESC
     LIMIT 100
   `;
-  const result = await pool.query(query, [userId]);
+  const result = await getPool().query(query, [userId]);
 
   return result.rows as Sep24TransactionDbRecord[];
 }
@@ -717,7 +706,7 @@ function mapWebhookDeliveryRow(row: Record<string, unknown>): WebhookDelivery {
 }
 
 export async function getActiveWebhookSubscribers(): Promise<WebhookSubscriber[]> {
-  const result = await pool.query(
+  const result = await getPool().query(
     `SELECT id, url, secret, active, created_at, updated_at
      FROM webhook_subscribers
      WHERE active = true`
@@ -739,7 +728,7 @@ export async function enqueueWebhookDelivery(
   payload: unknown,
   maxAttempts: number
 ): Promise<WebhookDelivery> {
-  const result = await pool.query(
+  const result = await getPool().query(
     `INSERT INTO webhook_deliveries (
        event_type, event_key, subscriber_id, target_url, payload,
        max_attempts, status, attempt_count, next_retry_at
@@ -759,7 +748,7 @@ export async function enqueueWebhookDelivery(
 }
 
 export async function getPendingWebhookDeliveries(limit: number): Promise<WebhookDelivery[]> {
-  const result = await pool.query(
+  const result = await getPool().query(
     `SELECT * FROM webhook_deliveries
      WHERE status = 'pending' AND next_retry_at <= NOW()
      ORDER BY next_retry_at ASC
@@ -770,7 +759,7 @@ export async function getPendingWebhookDeliveries(limit: number): Promise<Webhoo
 }
 
 export async function markWebhookDeliverySuccess(id: string, responseStatus: number): Promise<void> {
-  await pool.query(
+  await getPool().query(
     `UPDATE webhook_deliveries
      SET status = 'success', response_status = $2, delivered_at = NOW(), updated_at = NOW()
      WHERE id = $1`,
@@ -787,7 +776,7 @@ export async function markWebhookDeliveryFailure(
   responseStatus: number | null
 ): Promise<void> {
   const status: WebhookDelivery['status'] = attemptCount >= maxAttempts ? 'failed' : 'pending';
-  await pool.query(
+  await getPool().query(
     `UPDATE webhook_deliveries
      SET attempt_count = $2,
          status = $3,
@@ -800,15 +789,27 @@ export async function markWebhookDeliveryFailure(
   );
 }
 
-export { pool };
-
 export function getPool(): Pool {
+  if (!pool) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error('Missing required environment variable: DATABASE_URL');
+    }
+    pool = new Pool({
+      connectionString,
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000,
+    });
+  }
   return pool;
 }
 
 /** Drain and close the PostgreSQL connection pool. Safe to call multiple times. */
 export async function closePool(): Promise<void> {
-  await pool.end();
+  if (pool) {
+    await pool.end();
+  }
 }
 
 // ── Contract Events ──────────────────────────────────────────────────────────
@@ -837,7 +838,7 @@ export interface ContractEventFilter {
 }
 
 export async function saveContractEvent(event: ContractEvent): Promise<void> {
-  await pool.query(
+  await getPool().query(
     `INSERT INTO contract_events
        (event_type, remittance_id, actor, amount, fee, tx_hash, ledger_sequence, timestamp, raw_data)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -871,7 +872,7 @@ export async function recordWebhookNonce(
   anchorId: string,
   ttlSeconds: number = 86400
 ): Promise<boolean> {
-  const result = await pool.query(
+  const result = await getPool().query(
     `INSERT INTO webhook_processed_nonces (nonce, anchor_id, expires_at)
      VALUES ($1, $2, NOW() + ($3 || ' seconds')::INTERVAL)
      ON CONFLICT (nonce, anchor_id) DO NOTHING
@@ -886,7 +887,7 @@ export async function recordWebhookNonce(
  * Purges expired nonce records. Call this periodically (e.g. from a cron job).
  */
 export async function purgeExpiredWebhookNonces(): Promise<void> {
-  await pool.query(
+  await getPool().query(
     `DELETE FROM webhook_processed_nonces WHERE expires_at < NOW()`
   );
 }
@@ -924,11 +925,11 @@ export async function queryContractEvents(
   const offset = filter.offset ?? 0;
 
   const [dataResult, countResult] = await Promise.all([
-    pool.query(
+    getPool().query(
       `SELECT * FROM contract_events ${where} ORDER BY timestamp DESC LIMIT $${idx} OFFSET $${idx + 1}`,
       [...params, limit, offset]
     ),
-    pool.query(`SELECT COUNT(*) FROM contract_events ${where}`, params),
+    getPool().query(`SELECT COUNT(*) FROM contract_events ${where}`, params),
   ]);
 
   return {

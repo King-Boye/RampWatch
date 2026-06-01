@@ -823,6 +823,7 @@ impl SwiftRemitContract {
         
         // Transition to Processing state
         crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Processing)?;
+        storage::add_processing_volume(&env, remittance.amount)?;
 
         // Extend the remittance TTL when entering Processing so the escrow
         // does not expire while the agent is completing the off-chain payout (#624).
@@ -899,7 +900,8 @@ impl SwiftRemitContract {
         // Update accumulated fees with overflow protection and automatic flush
         safe_add_accumulated_fee(&env, remittance.fee)?;
 
-        // Update analytics: add completed volume
+        // Update analytics: move volume from in-flight to completed
+        storage::sub_processing_volume(&env, remittance.amount)?;
         storage::add_completed_volume(&env, remittance.amount)?;
 
         // Update remittance status via validated transition
@@ -957,9 +959,15 @@ impl SwiftRemitContract {
             &remittance.amount,
         );
 
+        let was_processing = remittance.status == RemittanceStatus::Processing;
+        let original_amount = remittance.amount;
         remittance.status = RemittanceStatus::Cancelled;
         remittance.amount = 0;
         set_remittance(&env, remittance_id, &remittance);
+
+        if was_processing {
+            storage::sub_processing_volume(&env, original_amount)?;
+        }
 
         // Clear idempotency key on Failed so the same key can be reused to retry (#610)
         if let Some(idem_key) = storage::take_remittance_idempotency_key(&env, remittance_id) {
@@ -1114,6 +1122,7 @@ impl SwiftRemitContract {
         // Move to Processing on first partial disbursement
         if remittance.status == RemittanceStatus::Pending {
             crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Processing)?;
+            storage::add_processing_volume(&env, remittance.amount)?;
         }
 
         let token_client = token::Client::new(&env, &remittance.token);
@@ -1129,6 +1138,8 @@ impl SwiftRemitContract {
             // Update accumulated fees with overflow protection and automatic flush
             safe_add_accumulated_fee(&env, remittance.fee)?;
 
+            // Move volume from in-flight to completed
+            storage::sub_processing_volume(&env, remittance.amount)?;
             storage::add_completed_volume(&env, remittance.amount)?;
 
             crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Completed)?;
@@ -1484,6 +1495,15 @@ impl SwiftRemitContract {
     /// Returns the cumulative volume of all completed remittances (original amounts).
     pub fn get_total_volume(env: Env) -> i128 {
         storage::get_total_completed_volume(&env)
+    }
+
+    /// Returns the total amount currently held in Processing (in-flight) remittances.
+    ///
+    /// This complements `get_total_volume` (which only counts completed remittances)
+    /// by exposing the volume of remittances that have been claimed by an agent but
+    /// not yet confirmed as paid out to the recipient.
+    pub fn get_in_flight_volume(env: Env) -> i128 {
+        storage::get_total_processing_volume(&env)
     }
 
     /// Checks whether an address currently has admin privileges.
