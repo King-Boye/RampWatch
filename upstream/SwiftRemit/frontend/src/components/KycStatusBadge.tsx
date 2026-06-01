@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import './KycStatusBadge.css';
 
-type KycStatus = 'pending' | 'approved' | 'rejected';
+type KycStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 type KycLevel = 'basic' | 'intermediate' | 'advanced';
 
 interface AnchorKycRecord {
@@ -21,25 +21,43 @@ interface UserKycStatusResponse {
   last_checked: string;
 }
 
+const TERMINAL_STATUSES: KycStatus[] = ['approved', 'rejected'];
+
 interface KycStatusBadgeProps {
   userId: string;
   apiUrl?: string;
   showDetails?: boolean;
+  pollingIntervalMs?: number;
 }
 
 export const KycStatusBadge: React.FC<KycStatusBadgeProps> = ({
   userId,
   apiUrl = 'http://localhost:3000',
   showDetails = true,
+  pollingIntervalMs = 30_000,
 }) => {
   const [status, setStatus] = useState<UserKycStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [polling, setPolling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
     fetchKycStatus();
   }, [apiUrl, userId]);
+
+  // Auto-poll while status is pending
+  useEffect(() => {
+    if (!status || TERMINAL_STATUSES.includes(status.overall_status) || pollingIntervalMs <= 0) return;
+
+    const id = setInterval(async () => {
+      setPolling(true);
+      await fetchKycStatus();
+      setPolling(false);
+    }, pollingIntervalMs);
+
+    return () => clearInterval(id);
+  }, [status?.overall_status, pollingIntervalMs]);
 
   const fetchKycStatus = async () => {
     try {
@@ -67,8 +85,15 @@ export const KycStatusBadge: React.FC<KycStatusBadgeProps> = ({
   };
 
   const badgeClass = status ? `kyc-badge-${status.overall_status}` : 'kyc-badge-pending';
-  const badgeText = status ? status.overall_status.toUpperCase() : 'PENDING';
-  const badgeIcon = status?.overall_status === 'approved' ? '✓' : status?.overall_status === 'rejected' ? '✕' : '⏳';
+  const badgeText = status
+    ? status.overall_status === 'expired'
+      ? 'KYC EXPIRED — Renew Now'
+      : status.overall_status.toUpperCase()
+    : 'PENDING';
+  const badgeIcon =
+    status?.overall_status === 'approved' ? '✓' :
+    status?.overall_status === 'rejected' ? '✕' :
+    status?.overall_status === 'expired' ? '⚠' : '⏳';
 
   const handleClick = () => {
     if (showDetails && status) {
@@ -95,6 +120,7 @@ export const KycStatusBadge: React.FC<KycStatusBadgeProps> = ({
       >
         <span className="kyc-badge-icon">{badgeIcon}</span>
         <span className="kyc-badge-text">{badgeText}</span>
+        {polling && <span className="kyc-badge-checking" aria-live="polite">Checking...</span>}
       </div>
 
       {showModal && (
