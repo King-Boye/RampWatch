@@ -111,6 +111,13 @@ fn test_batch_attestor_registration_stress() {
 
 /// Test rate comparison under stress with many quotes.
 /// Validates the contract handles high-volume quote submissions across 20 anchors.
+///
+/// This test uses `stop_recording_auth()` to prevent the Soroban test framework
+/// from recording the full auth trace, which would produce an 800+ KB snapshot file.
+/// Instead, we use targeted assertions to validate the specific values being tested:
+/// - Total quote count matches expected
+/// - Quote IDs are monotonically increasing
+/// - Final quote counter matches expected value
 #[test]
 fn test_rate_comparison_stress() {
     let env = make_env();
@@ -119,6 +126,7 @@ fn test_rate_comparison_stress() {
 
     const ANCHOR_COUNT: usize = 20;
     const QUOTES_PER_ANCHOR: usize = 50;
+    const EXPECTED_TOTAL_QUOTES: u64 = (ANCHOR_COUNT * QUOTES_PER_ANCHOR) as u64;
 
     let base_asset = String::from_str(&env, "USDC");
     let quote_asset = String::from_str(&env, "USD");
@@ -136,7 +144,12 @@ fn test_rate_comparison_stress() {
         anchors.push_back(anchor);
     }
 
+    // Stop recording auth to prevent the snapshot from growing to 800+ KB.
+    // The stress test validates quote submission logic, not auth recording.
+    env.stop_recording_auth();
+
     let mut total_quotes = 0usize;
+    let mut prev_quote_id = 0u64;
     for anchor_idx in 0..anchors.len() {
         let anchor = anchors.get(anchor_idx).unwrap();
         for q_idx in 0..QUOTES_PER_ANCHOR {
@@ -153,12 +166,20 @@ fn test_rate_comparison_stress() {
                 &100000u64,
                 &valid_until,
             );
-            assert!(quote_id > 0);
+            // Validate quote ID is positive and monotonically increasing
+            assert!(quote_id > 0, "Quote ID must be positive");
+            assert!(quote_id > prev_quote_id, "Quote IDs must be monotonically increasing");
+            prev_quote_id = quote_id;
             total_quotes += 1;
         }
     }
 
-    assert_eq!(total_quotes, ANCHOR_COUNT * QUOTES_PER_ANCHOR);
+    // Targeted assertions instead of full-state snapshot
+    assert_eq!(total_quotes, EXPECTED_TOTAL_QUOTES as usize, 
+        "Total quote count should match expected");
+    assert_eq!(prev_quote_id, EXPECTED_TOTAL_QUOTES,
+        "Final quote ID should equal total count");
+    
     println!("Successfully processed {} quote submissions under stress", total_quotes);
 }
 
