@@ -502,6 +502,20 @@ export async function getApprovedUsers(): Promise<DbUserKycStatus[]> {
   }));
 }
 
+export interface AnchorPollFailureRecord {
+  anchor_id: string;
+  error_message: string;
+  failed_at?: Date;
+}
+
+export async function saveAnchorPollFailure(failure: AnchorPollFailureRecord): Promise<void> {
+  await pool.query(
+    `INSERT INTO anchor_poll_failures (anchor_id, error_message, failed_at)
+     VALUES ($1, $2, $3)`,
+    [failure.anchor_id, failure.error_message, failure.failed_at ?? new Date()]
+  );
+}
+
 // ========== SEP-24 Transaction Functions ==========
 
 /**

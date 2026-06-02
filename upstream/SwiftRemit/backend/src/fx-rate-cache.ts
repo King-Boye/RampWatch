@@ -33,6 +33,7 @@ export class FxRateCache {
   private externalApiKey: string;
   private staleAgeWarningThresholdSeconds: number;
   private refreshTimers: Map<string, NodeJS.Timeout>;
+  private inflight: Map<string, Promise<FxRateResponse>>;
 
   constructor(options: FxRateCacheOptions = {}) {
     this.ttlSeconds = options.ttlSeconds || 60;
@@ -41,6 +42,7 @@ export class FxRateCache {
     this.externalApiKey = options.externalApiKey || process.env.FX_API_KEY || '';
     this.refreshTimers = new Map();
     this.staleCache = new Map();
+    this.inflight = new Map();
 
     this.cache = new NodeCache({
       stdTTL: this.ttlSeconds,
@@ -73,17 +75,21 @@ export class FxRateCache {
       return { ...cached, cached: true };
     }
 
-    // Cache miss - fetch from external API
+    // Cache miss - deduplicate concurrent requests for the same pair
+    if (!this.inflight.has(cacheKey)) {
+      const fetch = this.fetchFromExternalApi(fromUpper, toUpper).then(rate => {
+        this.cache.set(cacheKey, rate);
+        this.staleCache.set(cacheKey, rate);
+        this.scheduleBackgroundRefresh(cacheKey, fromUpper, toUpper);
+        return rate;
+      }).finally(() => {
+        this.inflight.delete(cacheKey);
+      });
+      this.inflight.set(cacheKey, fetch);
+    }
+
     try {
-      const rate = await this.fetchFromExternalApi(fromUpper, toUpper);
-
-      // Store in both live cache and stale fallback
-      this.cache.set(cacheKey, rate);
-      this.staleCache.set(cacheKey, rate);
-
-      // Schedule background refresh
-      this.scheduleBackgroundRefresh(cacheKey, fromUpper, toUpper);
-
+      const rate = await this.inflight.get(cacheKey)!;
       return { ...rate, cached: false };
     } catch (error) {
       // On 429, serve stale rate if available
@@ -238,6 +244,7 @@ export class FxRateCache {
     this.staleCache.clear();
     this.refreshTimers.forEach(timer => clearTimeout(timer));
     this.refreshTimers.clear();
+    this.inflight.clear();
   }
 
   /**

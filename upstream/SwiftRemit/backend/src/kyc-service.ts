@@ -1,6 +1,6 @@
 import axios, { AxiosResponse } from 'axios';
 import { KycStatus, DbUserKycStatus, AnchorKycConfig } from './types';
-import { getAnchorKycConfigs, getUsersNeedingKycCheck, saveUserKycStatus, getApprovedUsers, getPool } from './database';
+import { getAnchorKycConfigs, getUsersNeedingKycCheck, saveUserKycStatus, getApprovedUsers, getPool, saveAnchorPollFailure } from './database';
 import { getMetricsService } from './metrics';
 import { updateKycStatusOnChain } from './stellar';
 
@@ -52,7 +52,9 @@ export class KycService {
         await this.pollAnchorKycStatus(anchorId, config);
       } catch (error) {
         this.metricsService.recordKycPollFailure();
+        const errorMessage = error instanceof Error ? error.message : String(error);
         console.error(`Failed to poll KYC status for anchor ${anchorId}:`, error);
+        await saveAnchorPollFailure({ anchor_id: anchorId, error_message: errorMessage }).catch(() => {});
       }
     }
   }
