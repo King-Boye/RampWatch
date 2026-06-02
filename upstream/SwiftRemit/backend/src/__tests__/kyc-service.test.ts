@@ -70,6 +70,7 @@ describe('KycService', () => {
 
       expect(getUsersNeedingKycCheck).toHaveBeenCalledWith('anchor-1', 60);
     });
+
   });
 
   describe('queryAnchorKycStatus', () => {

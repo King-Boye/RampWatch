@@ -24,6 +24,7 @@ export class WebhookHandler {
   private stateManager: TransactionStateManager;
   private kycUpsertService: KycUpsertService;
   private sep24Service: Sep24Service;
+  private sep24Initialized = false;
   private dispatcher: WebhookDispatcher;
 
   constructor(private pool: Pool) {
@@ -400,6 +401,10 @@ export class WebhookHandler {
    * Handle SEP-24 deposit/withdrawal update webhook
    */
   private async handleSep24Update(payload: any): Promise<void> {
+    if (!this.sep24Initialized) {
+      await this.sep24Service.initialize();
+      this.sep24Initialized = true;
+    }
     await this.sep24Service.handleWebhookNotification({
       transaction_id: payload.transaction_id,
       status: payload.status,

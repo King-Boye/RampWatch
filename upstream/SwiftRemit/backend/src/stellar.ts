@@ -13,6 +13,13 @@ import { getStellarRuntimeConfig } from './stellar-network';
 const { rpcUrl, networkPassphrase } = getStellarRuntimeConfig();
 const server = new SorobanRpc.Server(rpcUrl);
 
+export async function getBaseFee(): Promise<string> {
+  const envFee = process.env.STELLAR_BASE_FEE;
+  if (envFee) return envFee;
+  const baseFee = await server.fetchBaseFee();
+  return String(baseFee);
+}
+
 export async function storeVerificationOnChain(
   verification: AssetVerification
 ): Promise<void> {
@@ -47,7 +54,7 @@ export async function storeVerificationOnChain(
 
   // Build transaction
   const tx = new TransactionBuilder(account, {
-    fee: '1000',
+    fee: await getBaseFee(),
     networkPassphrase,
   })
     .addOperation(
@@ -174,7 +181,7 @@ export async function cancelRemittanceOnChain(remittanceId: number): Promise<voi
   const account = await server.getAccount(adminKeypair.publicKey());
 
   const tx = new TransactionBuilder(account, {
-    fee: '1000',
+    fee: await getBaseFee(),
     networkPassphrase,
   })
     .addOperation(
@@ -234,7 +241,7 @@ export async function updateKycStatusOnChain(
 
   // Build transaction
   const tx = new TransactionBuilder(account, {
-    fee: '1000',
+    fee: await getBaseFee(),
     networkPassphrase,
   })
     .addOperation(
