@@ -1,181 +1,196 @@
-#![cfg(test)]
-
+/// Polling-based state update flow tests.
+///
+/// Soroban contracts are synchronous — there is no streaming API. Clients
+/// observe state changes by polling contract storage after each transaction.
+/// These tests verify that multi-step anchor flows produce the expected
+/// on-chain state at each polling point.
+#[cfg(test)]
 mod streaming_flow_tests {
-    use soroban_sdk::{
-        testutils::{Address as _, Ledger, LedgerInfo},
-        Address, Bytes, Env, String,
-    };
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Address, Bytes, BytesN, Env, String, Vec};
 
-    use ed25519_dalek::SigningKey;
-    use rand::rngs::OsRng;
+    fn setup(env: &Env) -> (AnchorKitContractClient<'_>, Address, Address) {
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let anchor = Address::generate(env);
+        client.initialize(&admin);
+        client.register_attestor(&anchor);
+        (client, admin, anchor)
+    }
 
-    use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
-
-    fn make_env() -> Env {
+    /// Poll 1: session created → operation_count == 0
+    /// Poll 2: after register_attestor_with_session → operation_count == 1
+    /// Poll 3: after revoke_attestor_with_session → operation_count == 2
+    #[test]
+    fn test_session_operation_count_increments_on_each_step() {
         let env = Env::default();
         env.mock_all_auths();
-        env
+        let (client, _admin, _anchor) = setup(&env);
+
+        let initiator = Address::generate(&env);
+        let session_id = client.create_session(&initiator);
+
+        // Poll 1: no operations yet
+        assert_eq!(client.get_session_operation_count(&session_id), 0);
+
+        let new_attestor = Address::generate(&env);
+        client.register_attestor_with_session(&session_id, &new_attestor);
+
+        // Poll 2: one operation logged
+        assert_eq!(client.get_session_operation_count(&session_id), 1);
+
+        client.revoke_attestor_with_session(&session_id, &new_attestor);
+
+        // Poll 3: two operations logged
+        assert_eq!(client.get_session_operation_count(&session_id), 2);
     }
 
-    fn set_ts(env: &Env, ts: u64) {
-        env.ledger().set(LedgerInfo {
-            timestamp: ts,
-            protocol_version: 21,
-            sequence_number: 0,
-            network_id: Default::default(),
-            base_reserve: 0,
-            min_persistent_entry_ttl: 4096,
-            min_temp_entry_ttl: 16,
-            max_entry_ttl: 6312000,
-        });
-    }
-
+    /// Verifies that audit log entries reflect the correct actor and status
+    /// for a successful attestation submitted within a session.
     #[test]
-    fn test_streaming_flow_pending_to_awaiting_user_to_completed() {
-        let env = make_env();
-        set_ts(&env, 0);
-        let contract_id = env.register_contract(None, AnchorKitContract);
-        let client = AnchorKitContractClient::new(&env, &contract_id);
+    fn test_audit_log_reflects_attestation_state() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, anchor) = setup(&env);
 
-        let admin = Address::generate(&env);
-        let anchor = Address::generate(&env);
-        let user = Address::generate(&env);
-
-        client.initialize(&admin, &100_u64, &None);
-        let sk = SigningKey::generate(&mut OsRng);
-        register_attestor_with_sep10(&env, &client, &anchor, &anchor, &sk);
-
-        let mut services = soroban_sdk::Vec::new(&env);
-        services.push_back(1u32);
-        services.push_back(3u32);
-        services.push_back(4u32);
+        let mut services = Vec::new(&env);
+        services.push_back(ServiceType::Deposits);
         client.configure_services(&anchor, &services);
 
-        let session_id = client.create_session(&user);
-        assert_eq!(session_id, 0);
+        let session_id = client.create_session(&anchor);
 
-        let quote_id = client.submit_quote(
-            &anchor,
-            &String::from_str(&env, "USD"),
-            &String::from_str(&env, "USDC"),
-            &10000u64,
-            &25u32,
-            &100u64,
-            &100000u64,
-            &3600u64,
-        );
-        assert_eq!(quote_id, 1);
-
-        let quote = client.receive_quote(&user, &anchor, &quote_id);
-        assert_eq!(quote.quote_id, 1);
-        assert_eq!(quote.base_asset, String::from_str(&env, "USD"));
-        assert_eq!(quote.fee_percentage, 25);
-    }
-
-    #[test]
-    fn test_multi_step_async_stream_with_attestation() {
-        let env = make_env();
-        set_ts(&env, 1_000_000);
-        let contract_id = env.register_contract(None, AnchorKitContract);
-        let client = AnchorKitContractClient::new(&env, &contract_id);
-
-        let admin = Address::generate(&env);
-        let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        let user = Address::generate(&env);
+        let payload_hash = BytesN::from_array(&env, &[1u8; 32]);
+        let signature = Bytes::from_array(&env, &[0u8; 64]);
+        let timestamp = env.ledger().timestamp() + 1;
 
-        client.initialize(&admin, &100_u64, &None);
-        let sk = SigningKey::generate(&mut OsRng);
-        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
-
-        let mut services = soroban_sdk::Vec::new(&env);
-        services.push_back(1u32);
-        services.push_back(3u32);
-        services.push_back(4u32);
-        client.configure_services(&attestor, &services);
-
-        let session_id = client.create_session(&attestor);
-        assert_eq!(session_id, 0);
-
-        let mut payload = Bytes::new(&env);
-        for _ in 0..32 { payload.push_back(0x01); }
-        let sig = sign_payload(&env, &sk, &payload);
-
-        let attest_id = client.submit_attestation_with_session(
+        client.submit_attestation_with_session(
             &session_id,
-            &attestor,
+            &anchor,
             &subject,
-            &1_000_001u64,
-            &payload,
-            &sig,
+            &timestamp,
+            &payload_hash,
+            &signature,
         );
-        assert_eq!(attest_id, 0);
 
-        let op_count = client.get_session_operation_count(&session_id);
-        assert_eq!(op_count, 1);
-
-        let log = client.get_audit_log(&0u64);
-        assert_eq!(log.session_id, 0);
+        // Poll: audit log entry 1 should record a successful attestation
+        let log = client.get_audit_log(&1);
+        assert_eq!(log.session_id, session_id);
         assert_eq!(log.operation.operation_type, String::from_str(&env, "attest"));
         assert_eq!(log.operation.status, String::from_str(&env, "success"));
+        assert_eq!(log.actor, anchor);
     }
 
+    /// Verifies that a failed operation (replay attack) is recorded in the
+    /// audit log with status "failed" before the error propagates.
     #[test]
-    fn test_concurrent_streaming_flows() {
-        let env = make_env();
-        set_ts(&env, 0);
-        let contract_id = env.register_contract(None, AnchorKitContract);
-        let client = AnchorKitContractClient::new(&env, &contract_id);
+    fn test_audit_log_records_failed_operation() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, anchor) = setup(&env);
 
-        let admin = Address::generate(&env);
-        let anchor = Address::generate(&env);
-        let user1 = Address::generate(&env);
-        let user2 = Address::generate(&env);
-
-        client.initialize(&admin, &100_u64, &None);
-        let sk = SigningKey::generate(&mut OsRng);
-        register_attestor_with_sep10(&env, &client, &anchor, &anchor, &sk);
-
-        let mut services = soroban_sdk::Vec::new(&env);
-        services.push_back(1u32);
-        services.push_back(3u32);
-        services.push_back(4u32);
+        let mut services = Vec::new(&env);
+        services.push_back(ServiceType::Deposits);
         client.configure_services(&anchor, &services);
 
-        // Two concurrent sessions
-        let s1 = client.create_session(&user1);
-        let s2 = client.create_session(&user2);
-        assert_eq!(s1, 0);
-        assert_eq!(s2, 1);
+        let session_id = client.create_session(&anchor);
 
-        // Two concurrent quotes
-        let q1 = client.submit_quote(
+        let subject = Address::generate(&env);
+        let payload_hash = BytesN::from_array(&env, &[2u8; 32]);
+        let signature = Bytes::from_array(&env, &[0u8; 64]);
+        let timestamp = env.ledger().timestamp() + 1;
+
+        // First submission succeeds
+        client.submit_attestation_with_session(
+            &session_id,
             &anchor,
-            &String::from_str(&env, "USD"),
-            &String::from_str(&env, "USDC"),
-            &10000u64, &25u32, &100u64, &100000u64, &3600u64,
+            &subject,
+            &timestamp,
+            &payload_hash,
+            &signature,
         );
-        let q2 = client.submit_quote(
+
+        // Second submission with same hash is a replay — should fail
+        let result = client.try_submit_attestation_with_session(
+            &session_id,
             &anchor,
-            &String::from_str(&env, "EUR"),
-            &String::from_str(&env, "EURC"),
-            &10050u64, &30u32, &200u64, &50000u64, &3600u64,
+            &subject,
+            &timestamp,
+            &payload_hash,
+            &signature,
         );
-        assert_eq!(q1, 1);
-        assert_eq!(q2, 2);
+        assert!(result.is_err());
 
-        // Each user receives their own quote independently
-        let r1 = client.receive_quote(&user1, &anchor, &q1);
-        let r2 = client.receive_quote(&user2, &anchor, &q2);
+        // Poll: operation count reflects both attempts (success + failure)
+        assert_eq!(client.get_session_operation_count(&session_id), 2);
 
-        assert_eq!(r1.base_asset, String::from_str(&env, "USD"));
-        assert_eq!(r2.base_asset, String::from_str(&env, "EUR"));
+        // The second audit log entry should be "failed"
+        let failed_log = client.get_audit_log(&2);
+        assert_eq!(failed_log.operation.status, String::from_str(&env, "failed"));
+    }
 
-        // Sessions are isolated
-        let sess1 = client.get_session(&s1);
-        let sess2 = client.get_session(&s2);
-        assert_eq!(sess1.initiator, user1);
-        assert_eq!(sess2.initiator, user2);
+    /// Simulates a client polling session state across a full deposit flow:
+    /// create session → submit quote → build intent → verify final state.
+    #[test]
+    fn test_full_deposit_flow_state_visible_via_polling() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, anchor) = setup(&env);
+
+        let mut services = Vec::new(&env);
+        services.push_back(ServiceType::Deposits);
+        services.push_back(ServiceType::Quotes);
+        client.configure_services(&anchor, &services);
+
+        let initiator = Address::generate(&env);
+        let session_id = client.create_session(&initiator);
+
+        // Poll: session exists with zero operations
+        let session = client.get_session(&session_id);
+        assert_eq!(session.session_id, session_id);
+        assert_eq!(session.operation_count, 0);
+
+        // Step 1: anchor submits a quote
+        let base = String::from_str(&env, "USD");
+        let quote_asset_str = String::from_str(&env, "USDC");
+        let valid_until = env.ledger().timestamp() + 600;
+        let quote_id = client.submit_quote(
+            &anchor,
+            &base,
+            &quote_asset_str,
+            &10000u64,
+            &25u32,
+            &100_000000u64,
+            &10_000_000000u64,
+            &valid_until,
+        );
+
+        // Poll: quote is readable on-chain
+        let quote = client.get_quote(&anchor, &quote_id);
+        assert_eq!(quote.rate, 10000u64);
+
+        // Step 2: build a transaction intent tied to the session and quote
+        let request = QuoteRequest {
+            base_asset: base.clone(),
+            quote_asset: quote_asset_str.clone(),
+            amount: 500_000000u64,
+            operation_type: ServiceType::Deposits,
+        };
+        let builder = TransactionIntentBuilder::new(&env, anchor.clone(), request)
+            .with_quote_id(quote_id)
+            .with_session(session_id)
+            .with_ttl(300);
+
+        let intent = client.build_transaction_intent(&builder);
+
+        // Poll: intent reflects the quote and session
+        assert_eq!(intent.session_id, session_id);
+        assert_eq!(intent.quote_id, quote_id);
+        assert!(intent.has_quote);
+        assert_eq!(intent.rate, 10000u64);
+
+        // Poll: session now has one logged operation (the intent)
+        assert_eq!(client.get_session_operation_count(&session_id), 1);
     }
 }
