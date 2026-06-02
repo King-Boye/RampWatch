@@ -169,14 +169,14 @@ mod attestation_pagination_tests {
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
-        // Submit 60 attestations
-        for i in 0..60 {
+        // Submit 51 attestations (minimum to exceed the 50-item cap)
+        for i in 0..51 {
             let p = payload(&env, i as u8);
             let s = sign_payload(&env, &sk, &p);
             client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &p, &s);
         }
 
-        // Request 100, should get only 50
+        // Request 100, should get only 50 (capped)
         let results = client.list_attestations(&subject, &0, &100);
         assert_eq!(results.len(), 50);
     }
