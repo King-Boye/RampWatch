@@ -383,6 +383,72 @@ comfortable buffer before the next scheduled execution.
 
 ---
 
+## Production Environment Variables
+
+All required environment variables are documented in the `.env.example` files for each service.
+Copy the relevant example file and fill in production values before deploying.
+
+### Backend Service (`backend/.env.example`)
+
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | ✅ | PostgreSQL connection string, e.g. `postgresql://user:pass@host:5432/swiftremit` |
+| `STELLAR_NETWORK` | ✅ | Stellar network to connect to: `testnet` or `mainnet` |
+| `HORIZON_URL` | ✅ | Horizon API endpoint, e.g. `https://horizon.stellar.org` |
+| `SOROBAN_RPC_URL` | ✅ | Soroban RPC endpoint, e.g. `https://soroban-rpc.mainnet.stellar.gateway.fm` |
+| `NETWORK_PASSPHRASE` | ✅ | Stellar network passphrase (e.g. `Public Global Stellar Network ; September 2015`) |
+| `CONTRACT_ID` | ✅ | Deployed SwiftRemit contract address |
+| `ADMIN_SECRET_KEY` | ✅ | Stellar secret key for the admin account (keep secret) |
+| `PORT` | ✅ | Port the backend HTTP server listens on (default: `3000`) |
+| `NODE_ENV` | ✅ | Runtime environment: `production` |
+| `RATE_LIMIT_WINDOW_MS` | ❌ | Rate-limit window in milliseconds (default: `900000`) |
+| `RATE_LIMIT_MAX_REQUESTS` | ❌ | Max requests per window per IP (default: `100`) |
+| `VERIFICATION_INTERVAL_HOURS` | ❌ | How often to re-verify assets in hours (default: `24`) |
+| `MIN_TRUSTLINE_COUNT` | ❌ | Minimum trustline count for asset verification (default: `10`) |
+| `MIN_REPUTATION_SCORE` | ❌ | Minimum reputation score for asset verification (default: `50`) |
+| `ANCHOR_TIMEOUT_HOURS` | ❌ | Hours before a pending anchor transaction is marked as error (default: `24`) |
+| `ANCHOR_TIMEOUT_WEBHOOK_URL` | ❌ | Webhook URL notified when a transaction times out in `pending_anchor` status |
+
+See [`backend/.env.example`](backend/.env.example) for the full list with inline comments.
+
+### API Service (`api/.env.example`)
+
+| Variable | Required | Description |
+|---|---|---|
+| `PORT` | ✅ | Port the API HTTP server listens on (default: `3000`) |
+| `NODE_ENV` | ✅ | Runtime environment: `production` |
+| `DATABASE_URL` | ✅ | PostgreSQL connection string |
+| `CONTRACT_RPC_URL` | ✅ | Soroban RPC URL used by the API to read contract state |
+| `ANCHORS_ADMIN_API_KEY` | ✅ | Admin API key for anchor management endpoints |
+| `RATE_LIMIT_WINDOW_MS` | ❌ | Rate-limit window in milliseconds (default: `900000`) |
+| `RATE_LIMIT_MAX_REQUESTS` | ❌ | Max requests per window per IP (default: `100`) |
+| `CURRENCY_CONFIG_PATH` | ❌ | Path to the currency configuration JSON file (default: `./config/currencies.json`) |
+| `CURRENCY_CONFIG_ENV_OVERRIDE` | ❌ | Set to `true` to allow env-variable overrides of currency config (default: `false`) |
+| `CURRENCY_OVERRIDES` | ❌ | JSON array of currency overrides, e.g. `[{"code":"USD","symbol":"$","decimal_precision":2}]` |
+
+See [`api/.env.example`](api/.env.example) for the full list with inline comments.
+
+### Frontend (`frontend/.env.example`)
+
+| Variable | Required | Description |
+|---|---|---|
+| `VITE_NETWORK` | ✅ | Stellar network: `testnet` or `mainnet` |
+| `VITE_HORIZON_URL` | ✅ | Horizon API endpoint |
+| `VITE_SOROBAN_RPC_URL` | ✅ | Soroban RPC endpoint |
+| `VITE_CONTRACT_ID` | ✅ | Deployed SwiftRemit contract address |
+| `VITE_USDC_ISSUER` | ✅ | USDC issuer public key on the target network |
+| `VITE_EURC_ISSUER` | ❌ | EURC issuer public key (optional, for EURC support) |
+| `VITE_USDC_TOKEN_ID` | ✅ | USDC token contract ID on Soroban |
+
+See [`frontend/.env.example`](frontend/.env.example) for the full list with inline comments.
+
+> **Security note:** Never commit `.env` files to version control. Use your deployment
+> platform's secret management (e.g. Vercel environment variables, AWS Secrets Manager,
+> or Docker secrets) for all production values, especially `ADMIN_SECRET_KEY` and
+> `ANCHORS_ADMIN_API_KEY`.
+
+---
+
 ## Support
 
 - **Documentation**: See README.md files in each directory
