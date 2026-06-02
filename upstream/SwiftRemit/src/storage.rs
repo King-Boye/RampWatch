@@ -184,6 +184,7 @@ enum DataKey {
     // === Analytics ===
     TotalRemittanceCount,
     TotalCompletedVolume,
+    TotalProcessingVolume,
     MaxExpiredBatchSize,
     // === Governance ===
     GovernanceInitialized,
@@ -1540,6 +1541,34 @@ pub fn add_completed_volume(env: &Env, amount: i128) -> Result<(), ContractError
     env.storage()
         .instance()
         .set(&DataKey::TotalCompletedVolume, &next);
+    Ok(())
+}
+
+/// Returns the total amount currently held in Processing (in-flight) remittances.
+pub fn get_total_processing_volume(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::TotalProcessingVolume)
+        .unwrap_or(0)
+}
+
+/// Adds `amount` to the in-flight processing volume when a remittance enters Processing.
+pub fn add_processing_volume(env: &Env, amount: i128) -> Result<(), ContractError> {
+    let current = get_total_processing_volume(env);
+    let next = current.checked_add(amount).ok_or(ContractError::Overflow)?;
+    env.storage()
+        .instance()
+        .set(&DataKey::TotalProcessingVolume, &next);
+    Ok(())
+}
+
+/// Subtracts `amount` from the in-flight processing volume when a remittance leaves Processing.
+pub fn sub_processing_volume(env: &Env, amount: i128) -> Result<(), ContractError> {
+    let current = get_total_processing_volume(env);
+    let next = current.saturating_sub(amount);
+    env.storage()
+        .instance()
+        .set(&DataKey::TotalProcessingVolume, &next);
     Ok(())
 }
 
