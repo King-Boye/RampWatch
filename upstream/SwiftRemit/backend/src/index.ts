@@ -5,6 +5,7 @@ import { startBackgroundJobs } from './scheduler';
 import { WebhookHandler } from './webhook-handler';
 import { KycService } from './kyc-service';
 import { createWebhookVerificationMiddleware } from './webhook-middleware';
+import { getAdminConfirmationService } from './admin-confirmation';
 
 dotenv.config();
 
@@ -16,14 +17,18 @@ async function start() {
     await initDatabase();
     console.log('Database initialized');
 
+    // Initialize admin confirmation table
+    const pool = getPool();
+    const adminConfirmationService = getAdminConfirmationService(pool);
+    await adminConfirmationService.initTable();
+    console.log('Admin confirmation service initialized');
+
     // Initialize KYC service
     const kycService = new KycService();
     await kycService.initialize();
     console.log('KYC service initialized');
 
     // Setup webhook handler
-    const pool = getPool();
-    
     // Apply HMAC verification middleware to all /webhooks routes
     const webhookVerification = createWebhookVerificationMiddleware({
       timestampWindowSeconds: 300, // 5 minutes
