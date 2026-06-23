@@ -51,6 +51,8 @@ pub enum StorageKey {
     AnchorMeta(Address),
     /// Stellar.toml cache for an anchor (temporary).
     TomlCache(Address),
+    /// Running count of registered attestors (instance storage via key_attestor_count).
+    AttestorCount,
     // --- Instance-storage counters (stored as Vec<Symbol> keys) ---
     // These are kept as plain symbol_short! vecs because instance storage
     // requires a Vec<Symbol> key; they are defined as named constants below.
@@ -86,4 +88,7 @@ pub fn key_health_threshold(env: &Env) -> Vec<Symbol> {
 }
 pub fn key_replay_window(env: &Env) -> Vec<Symbol> {
     soroban_sdk::vec![env, symbol_short!("RPWINDOW")]
+}
+pub fn key_attestor_count(env: &Env) -> Vec<Symbol> {
+    soroban_sdk::vec![env, symbol_short!("ATTCNT")]
 }

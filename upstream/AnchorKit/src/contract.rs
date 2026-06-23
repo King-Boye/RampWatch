@@ -10,6 +10,7 @@ use crate::storage::{
     StorageKey,
     key_admin, key_counter, key_session_counter, key_quote_counter,
     key_audit_counter, key_anchor_list, key_health_threshold, key_replay_window,
+    key_attestor_count,
 };
 
 // ---------------------------------------------------------------------------
@@ -100,6 +101,16 @@ pub const SERVICE_DEPOSITS: u32 = 1;
 pub const SERVICE_WITHDRAWALS: u32 = 2;
 pub const SERVICE_QUOTES: u32 = 3;
 pub const SERVICE_KYC: u32 = 4;
+
+/// One attestation payload within a batch submission.
+#[contracttype]
+#[derive(Clone)]
+pub struct AttestationInput {
+    pub subject: Address,
+    pub timestamp: u64,
+    pub payload_hash: Bytes,
+    pub signature: Bytes,
+}
 
 /// Typed representation of a service capability an anchor can support.
 ///
@@ -364,6 +375,9 @@ const SPAN_TTL: u32 = 17_280;
 const INSTANCE_TTL: u32 = 518_400;
 const MIN_TEMP_TTL: u32 = 15;
 
+/// Maximum number of attestors that can be registered simultaneously.
+pub const MAX_ATTESTORS: u64 = 100;
+
 fn pending_admin_key(env: &Env) -> soroban_sdk::Vec<soroban_sdk::Symbol> {
     soroban_sdk::vec![env, symbol_short!("PADMIN")]
 }
@@ -592,6 +606,14 @@ impl AnchorKitContract {
         if env.storage().persistent().has(&key) {
             panic_with_error!(&env, ErrorCode::AttestorAlreadyRegistered);
         }
+        let inst = env.storage().instance();
+        let cnt_key = key_attestor_count(&env);
+        let count: u64 = inst.get(&cnt_key).unwrap_or(0u64);
+        if count >= MAX_ATTESTORS {
+            panic_with_error!(&env, ErrorCode::AttestorCapExceeded);
+        }
+        inst.set(&cnt_key, &(count + 1));
+        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
         env.storage().persistent().set(&key, &true);
         env.storage()
             .persistent()
@@ -609,6 +631,11 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::AttestorNotRegistered);
         }
         env.storage().persistent().remove(&key);
+        let inst = env.storage().instance();
+        let cnt_key = key_attestor_count(&env);
+        let count: u64 = inst.get(&cnt_key).unwrap_or(0u64);
+        inst.set(&cnt_key, &count.saturating_sub(1));
+        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
         env.events().publish(
             (symbol_short!("attestor"), symbol_short!("revoked")),
             AttestorRevoked(attestor),
@@ -750,6 +777,54 @@ impl AnchorKitContract {
     // -----------------------------------------------------------------------
     // Attestation submission with request ID + tracing span
     // -----------------------------------------------------------------------
+
+    /// Submit multiple attestations in a single call.
+    ///
+    /// The `issuer` must be a registered attestor. Each item in `inputs` is
+    /// validated and stored exactly as `submit_attestation` would do it.
+    /// Returns the IDs assigned to each attestation in the same order as
+    /// `inputs`. Panics on the first invalid entry — no partial commits.
+    pub fn submit_attestation_batch(
+        env: Env,
+        issuer: Address,
+        inputs: Vec<AttestationInput>,
+    ) -> Vec<u64> {
+        issuer.require_auth();
+        Self::check_attestor(&env, &issuer);
+
+        let mut ids = Vec::new(&env);
+        for i in 0..inputs.len() {
+            let input = inputs.get(i).unwrap();
+            Self::check_timestamp(&env, input.timestamp);
+
+            let used_key = StorageKey::Used(input.payload_hash.clone());
+            if env.storage().persistent().has(&used_key) {
+                panic_with_error!(&env, ErrorCode::ReplayAttack);
+            }
+
+            let id = Self::next_attestation_id(&env);
+            Self::store_attestation(
+                &env,
+                id,
+                issuer.clone(),
+                input.subject.clone(),
+                input.timestamp,
+                input.payload_hash.clone(),
+                input.signature,
+            );
+
+            env.storage().persistent().set(&used_key, &true);
+            env.storage().persistent().extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
+
+            env.events().publish(
+                (symbol_short!("attest"), symbol_short!("recorded"), id, input.subject),
+                AttestEvent { payload_hash: input.payload_hash, timestamp: input.timestamp },
+            );
+
+            ids.push_back(id);
+        }
+        ids
+    }
 
     pub fn submit_with_request_id(
         env: Env,
@@ -1130,6 +1205,14 @@ impl AnchorKitContract {
         if env.storage().persistent().has(&key) {
             panic_with_error!(&env, ErrorCode::AttestorAlreadyRegistered);
         }
+        let inst = env.storage().instance();
+        let cnt_key = key_attestor_count(&env);
+        let count: u64 = inst.get(&cnt_key).unwrap_or(0u64);
+        if count >= MAX_ATTESTORS {
+            panic_with_error!(&env, ErrorCode::AttestorCapExceeded);
+        }
+        inst.set(&cnt_key, &(count + 1));
+        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
         env.storage().persistent().set(&key, &true);
         env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
 
@@ -1186,6 +1269,11 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::AttestorNotRegistered);
         }
         env.storage().persistent().remove(&key);
+        let inst = env.storage().instance();
+        let cnt_key = key_attestor_count(&env);
+        let count: u64 = inst.get(&cnt_key).unwrap_or(0u64);
+        inst.set(&cnt_key, &count.saturating_sub(1));
+        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
 
         let sopcnt_key = StorageKey::SessionOpCount(session_id);
         let op_index: u64 = env.storage().persistent().get(&sopcnt_key).unwrap_or(0u64);

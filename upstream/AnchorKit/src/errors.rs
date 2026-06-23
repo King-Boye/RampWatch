@@ -49,6 +49,7 @@ pub enum ErrorCode {
 StorageCorrupted = 19,
     CacheNotFound = 49,
     AuditLogMaxSizeInvalid = 51,
+    AttestorCapExceeded = 52,
 }
 
 impl ErrorCode {
@@ -78,6 +79,7 @@ impl ErrorCode {
             ErrorCode::CacheExpired => "Cache entry has expired",
             ErrorCode::CacheNotFound => "Cache entry not found",
             ErrorCode::AuditLogMaxSizeInvalid => "max_audit_log_size must be at least 1",
+            ErrorCode::AttestorCapExceeded => "Maximum number of attestors has been reached",
         }
     }
 
