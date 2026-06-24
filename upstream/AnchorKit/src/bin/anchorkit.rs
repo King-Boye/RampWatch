@@ -107,6 +107,21 @@ enum Commands {
         #[arg(long, short)]
         output: String,
     },
+    /// Manage AnchorKit configuration
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigCommands {
+    /// Validate configuration files using validate_config.py
+    Validate {
+        /// Path to a JSON config file or directory (defaults to configs/)
+        #[arg(default_value = "configs")]
+        path: String,
+    },
 }
 
 fn main() {
@@ -129,6 +144,9 @@ fn main() {
         }
         Commands::Test { pattern, verbose } => run_test(pattern.as_deref(), verbose),
         Commands::ExportAudit { format, output } => run_export_audit(&format, &output),
+        Commands::Config { command } => match command {
+            ConfigCommands::Validate { path } => run_config_validate(&path),
+        },
     }
 }
 
@@ -1008,6 +1026,92 @@ fn validate_endpoint_url(url: &str) -> Option<String> {
     }
     
     None
+}
+
+// ── config ────────────────────────────────────────────────────────────────────
+
+fn run_config_validate(path: &str) {
+    // Resolve the script path relative to the binary's location so it works
+    // regardless of where the user invokes the CLI from.
+    let script_path = {
+        let mut p = std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|d| d.to_path_buf()))
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        p.push("validate_config.py");
+        if !p.exists() {
+            // Fall back to the repo root (development layout: target/…/anchorkit)
+            p = std::env::current_exe()
+                .ok()
+                .and_then(|e| {
+                    // Walk up until we find validate_config.py (handles
+                    // target/debug/ and target/release/ layouts)
+                    let mut dir = e.parent()?.to_path_buf();
+                    for _ in 0..5 {
+                        let candidate = dir.join("validate_config.py");
+                        if candidate.exists() {
+                            return Some(candidate);
+                        }
+                        dir = dir.parent()?.to_path_buf();
+                    }
+                    None
+                })
+                .unwrap_or_else(|| std::path::PathBuf::from("validate_config.py"));
+        }
+        p
+    };
+
+    if !script_path.exists() {
+        eprintln!(
+            "❌ validate_config.py not found (looked in: {})",
+            script_path.display()
+        );
+        eprintln!("   Make sure validate_config.py is present in the project root.");
+        std::process::exit(1);
+    }
+
+    // Require python3
+    let python = if Command::new("python3").arg("--version").output().is_ok() {
+        "python3"
+    } else if Command::new("python").arg("--version").output().is_ok() {
+        "python"
+    } else {
+        eprintln!("❌ Python 3 is required but was not found in PATH.");
+        eprintln!("   Install Python 3.7+ from https://www.python.org/downloads/");
+        std::process::exit(1)
+    };
+
+    println!("🔍 Running config validation on: {}", path);
+
+    // validate_config.py scans configs/ by default (no CLI args).
+    // When the caller passes a custom path we set ANCHORKIT_CONFIG_PATH so
+    // the script can honour it without breaking backward-compat.
+    let mut cmd = Command::new(python);
+    cmd.arg(script_path.as_os_str());
+
+    // Pass the path as an env var; validate_config.py picks it up when set.
+    // This keeps the Python script's own __main__ block intact.
+    cmd.env("ANCHORKIT_CONFIG_PATH", path);
+
+    match cmd.output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !stdout.is_empty() {
+                print!("{}", stdout);
+            }
+            if !stderr.is_empty() {
+                eprint!("{}", stderr);
+            }
+            if !output.status.success() {
+                std::process::exit(output.status.code().unwrap_or(1));
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to execute validate_config.py: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 // ── register ─────────────────────────────────────────────────────────────────

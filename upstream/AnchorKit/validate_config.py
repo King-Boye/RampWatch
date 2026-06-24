@@ -135,22 +135,39 @@ def validate_json_config(file_path: Path) -> None:
     print(f"✓ {file_path.name} is valid")
 
 def main():
-    # Use pathlib for cross-platform path handling
+    # Allow the caller (e.g. `anchorkit config validate <path>`) to override
+    # the default configs/ directory via an environment variable.
+    import os
+    env_path = os.environ.get("ANCHORKIT_CONFIG_PATH")
+
     script_dir = Path(__file__).resolve().parent
-    config_dir = script_dir.joinpath("configs")
-    
-    if not config_dir.exists():
-        print(f"Error: configs directory not found at {config_dir}")
+
+    if env_path:
+        target = Path(env_path)
+        # Relative paths are resolved against the CWD of the caller.
+        if not target.is_absolute():
+            target = Path.cwd() / target
+    else:
+        target = script_dir / "configs"
+
+    if target.is_file():
+        # Single file mode
+        json_files = [target] if target.suffix == ".json" else []
+        if not json_files:
+            print(f"Error: {target} is not a JSON file")
+            sys.exit(1)
+    elif target.is_dir():
+        json_files = list(target.glob("*.json"))
+    else:
+        print(f"Error: path not found: {target}")
         sys.exit(1)
-    
-    json_files = list(config_dir.glob("*.json"))
-    
+
     if not json_files:
         print("No JSON config files found")
         sys.exit(1)
-    
+
     errors = []
-    
+
     for config_file in json_files:
         try:
             validate_json_config(config_file)
@@ -158,14 +175,14 @@ def main():
             errors.append(f"{config_file.name}: {e}")
         except Exception as e:
             errors.append(f"{config_file.name}: Unexpected error - {e}")
-    
+
     if errors:
         print("\n❌ Validation failed:\n")
         for error in errors:
             print(f"  • {error}")
         sys.exit(1)
-    
-    print(f"\n✅ All {len(json_files)} configuration files are valid")
+
+    print(f"\n✅ All {len(json_files)} configuration file(s) are valid")
 
 if __name__ == "__main__":
     main()
