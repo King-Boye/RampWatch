@@ -1,6 +1,19 @@
 # AnchorKit UI Components
 
+[![npm version](https://img.shields.io/npm/v/@anchorkit/ui-components)](https://www.npmjs.com/package/@anchorkit/ui-components)
+
 Reusable React components for building AnchorKit applications.
+
+## Installation
+
+```bash
+npm install @anchorkit/ui-components
+```
+
+```bash
+yarn add @anchorkit/ui-components
+```
+
 
 ## Components
 
