@@ -54,6 +54,9 @@ enum Commands {
         /// Attestor endpoint URL
         #[arg(long)]
         endpoint: Option<String>,
+        /// Output format: json, text, or table
+        #[arg(long, default_value = "text")]
+        output: String,
     },
     /// Submit attestation
     Attest {
@@ -72,7 +75,7 @@ enum Commands {
         /// Transaction ID to query
         #[arg(long)]
         transaction_id: String,
-        /// Output format: json or text
+        /// Output format: json, text, or table
         #[arg(long, default_value = "text")]
         output: String,
     },
@@ -87,6 +90,9 @@ enum Commands {
         /// Interval in seconds for watch mode
         #[arg(long, default_value = "60")]
         interval: u64,
+        /// Output format: json, text, or table
+        #[arg(long, default_value = "text")]
+        output: String,
     },
     /// Run contract tests
     Test {
@@ -134,15 +140,15 @@ fn main() {
         Commands::Init { admin } => run_init(&admin),
         Commands::Doctor => run_doctor(),
         Commands::Validate { path } => run_validate(&path),
-        Commands::Register { address, services, endpoint } => {
-            run_register(&address, services.as_deref(), endpoint.as_deref())
+        Commands::Register { address, services, endpoint, output } => {
+            run_register(&address, services.as_deref(), endpoint.as_deref(), &output)
         }
         Commands::Attest { subject, payload_hash, session } => {
             run_attest(&subject, &payload_hash, session.as_deref())
         }
         Commands::Query { transaction_id, output } => run_query(&transaction_id, &output),
-        Commands::Health { attestor, watch, interval } => {
-            run_health(attestor.as_deref(), watch, interval)
+        Commands::Health { attestor, watch, interval, output } => {
+            run_health(attestor.as_deref(), watch, interval, &output)
         }
         Commands::Test { pattern, verbose } => run_test(pattern.as_deref(), verbose),
         Commands::ExportAudit { format, output } => run_export_audit(&format, &output),
@@ -278,58 +284,207 @@ fn run_attest(subject: &str, payload_hash: &str, session: Option<&str>) {
     println!("💡 Note: Replace <CONTRACT_ID> and <ATTESTOR_ACCOUNT> with actual values");
 }
 
+// ── ascii table renderer ─────────────────────────────────────────────────────
+
+/// Renders a simple ASCII table from headers and rows.
+///
+/// Each inner `Vec<String>` is one row; the number of elements must match
+/// `headers.len()`.  Column widths are computed automatically.
+fn print_ascii_table(headers: &[&str], rows: &[Vec<String>]) {
+    // Compute column widths: max of header width and all cell widths.
+    let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
+    for row in rows {
+        for (i, cell) in row.iter().enumerate() {
+            if i < widths.len() {
+                widths[i] = widths[i].max(cell.len());
+            }
+        }
+    }
+
+    let separator = {
+        let parts: Vec<String> = widths.iter().map(|w| "-".repeat(w + 2)).collect();
+        format!("+{}+", parts.join("+"))
+    };
+
+    // Header row
+    println!("{}", separator);
+    let header_row: Vec<String> = headers
+        .iter()
+        .zip(widths.iter())
+        .map(|(h, w)| format!(" {:w$} ", h, w = w))
+        .collect();
+    println!("|{}|", header_row.join("|"));
+    println!("{}", separator);
+
+    // Data rows
+    for row in rows {
+        let cells: Vec<String> = row
+            .iter()
+            .zip(widths.iter())
+            .map(|(c, w)| format!(" {:w$} ", c, w = w))
+            .collect();
+        println!("|{}|", cells.join("|"));
+    }
+    println!("{}", separator);
+}
+
+// ── output format validation ──────────────────────────────────────────────────
+
+/// Returns `true` if the format string is one of the three accepted values.
+/// Prints an error and exits on invalid input.
+fn validate_output_format(output: &str) {
+    if !matches!(output, "json" | "text" | "table") {
+        eprintln!("❌ Invalid output format '{}'. Use 'json', 'text', or 'table'", output);
+        std::process::exit(1);
+    }
+}
+
 // ── query ───────────────────────────────────────────────────────────────────
 
 fn run_query(transaction_id: &str, output: &str) {
-    println!("🔍 Querying attestation: {}", transaction_id);
-    
-    if output != "json" && output != "text" {
-        eprintln!("❌ Invalid output format. Use 'json' or 'text'");
-        std::process::exit(1);
+    validate_output_format(output);
+
+    // Simulated attestation record (in a real implementation this would come
+    // from an on-chain query via the soroban RPC).
+    let record = [
+        ("Transaction ID", transaction_id),
+        ("Status",         "pending_external"),
+        ("Subject",        "G…<subject>"),
+        ("Issuer",         "G…<issuer>"),
+        ("Payload Hash",   "abc123…"),
+        ("Timestamp",      "2024-01-15T10:30:00Z"),
+    ];
+
+    match output {
+        "json" => {
+            let obj = serde_json::json!({
+                "transaction_id": transaction_id,
+                "status": "pending_external",
+                "subject": "G…<subject>",
+                "issuer": "G…<issuer>",
+                "payload_hash": "abc123…",
+                "timestamp": "2024-01-15T10:30:00Z",
+                "note": "Replace placeholders with real soroban RPC query results"
+            });
+            println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+        }
+        "table" => {
+            println!("🔍 Attestation query: {}\n", transaction_id);
+            let headers = &["Field", "Value"];
+            let rows: Vec<Vec<String>> = record
+                .iter()
+                .map(|(k, v)| vec![k.to_string(), v.to_string()])
+                .collect();
+            print_ascii_table(headers, &rows);
+            println!("\n💡 Fetch live data:");
+            println!(
+                "   soroban contract invoke --id <CONTRACT_ID> --source <ACCOUNT> \
+                 --network testnet -- get_attestation --attestation-id {}",
+                transaction_id
+            );
+        }
+        _ => {
+            // "text" (default)
+            println!("🔍 Querying attestation: {}\n", transaction_id);
+            for (k, v) in &record {
+                println!("  {:<16} {}", format!("{}:", k), v);
+            }
+            println!("\n📋 Fetch live data with soroban CLI:");
+            println!("  soroban contract invoke \\");
+            println!("    --id <CONTRACT_ID> \\");
+            println!("    --source <ACCOUNT> \\");
+            println!("    --network testnet \\");
+            println!("    -- \\");
+            println!("    get_attestation \\");
+            println!("    --attestation-id {}", transaction_id);
+        }
     }
-    
-    println!("📋 Query steps:");
-    println!("  Use soroban CLI to query:");
-    println!("  soroban contract invoke \\");
-    println!("    --id <CONTRACT_ID> \\");
-    println!("    --source <ACCOUNT> \\");
-    println!("    --network testnet \\");
-    println!("    -- \\");
-    println!("    get_attestation \\");
-    println!("    --attestation-id {}", transaction_id);
-    println!();
-    println!("💡 Output format: {}", output);
 }
 
 // ── health ──────────────────────────────────────────────────────────────────
 
-fn run_health(attestor: Option<&str>, watch: bool, interval: u64) {
-    if let Some(addr) = attestor {
-        println!("🏥 Checking health for attestor: {}", addr);
+fn run_health(attestor: Option<&str>, watch: bool, interval: u64, output: &str) {
+    validate_output_format(output);
+
+    // Simulated health records.  In a real implementation these come from
+    // on-chain queries; the shape maps 1-to-1 with HealthStatus in types.rs.
+    let records: Vec<[&str; 4]> = if let Some(addr) = attestor {
+        vec![[addr, "18", "0", "99"]]
     } else {
-        println!("🏥 Checking health for all attestors...");
-    }
-    
+        vec![
+            ["G…attestor-1", "18",  "0", "99"],
+            ["G…attestor-2", "42",  "1", "97"],
+            ["G…attestor-3", "120", "3", "92"],
+        ]
+    };
+
     if watch {
-        println!("👀 Watch mode enabled (interval: {}s)", interval);
-        println!("   Press Ctrl+C to stop monitoring");
+        eprintln!("👀 Watch mode enabled (interval: {}s) — press Ctrl+C to stop", interval);
     }
-    
-    println!("📋 Health check steps:");
-    println!("  Use soroban CLI to check health:");
-    println!("  soroban contract invoke \\");
-    println!("    --id <CONTRACT_ID> \\");
-    println!("    --source <ACCOUNT> \\");
-    println!("    --network testnet \\");
-    println!("    -- \\");
-    if let Some(addr) = attestor {
-        println!("    get_anchor_health_score \\");
-        println!("    --anchor {}", addr);
-    } else {
-        println!("    get_all_attestors");
+
+    match output {
+        "json" => {
+            let json_records: Vec<serde_json::Value> = records
+                .iter()
+                .map(|r| serde_json::json!({
+                    "anchor":               r[0],
+                    "latency_ms":           r[1].parse::<u64>().unwrap_or(0),
+                    "failure_count":        r[2].parse::<u32>().unwrap_or(0),
+                    "availability_percent": r[3].parse::<u32>().unwrap_or(0),
+                }))
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&json_records).unwrap());
+        }
+        "table" => {
+            println!("🏥 Health status\n");
+            let headers = &["Anchor", "Latency (ms)", "Failures", "Availability (%)"];
+            let rows: Vec<Vec<String>> = records
+                .iter()
+                .map(|r| r.iter().map(|c| c.to_string()).collect())
+                .collect();
+            print_ascii_table(headers, &rows);
+            println!("\n💡 Fetch live data:");
+            if let Some(addr) = attestor {
+                println!(
+                    "   soroban contract invoke --id <CONTRACT_ID> --source <ACCOUNT> \
+                     --network testnet -- get_anchor_health_score --anchor {}",
+                    addr
+                );
+            } else {
+                println!(
+                    "   soroban contract invoke --id <CONTRACT_ID> --source <ACCOUNT> \
+                     --network testnet -- get_all_attestors"
+                );
+            }
+        }
+        _ => {
+            // "text" (default)
+            if let Some(addr) = attestor {
+                println!("🏥 Health for attestor: {}", addr);
+            } else {
+                println!("🏥 Health for all attestors:");
+            }
+            for r in &records {
+                println!(
+                    "  anchor={} latency={}ms failures={} availability={}%",
+                    r[0], r[1], r[2], r[3]
+                );
+            }
+            println!("\n📋 Fetch live data:");
+            println!("  soroban contract invoke \\");
+            println!("    --id <CONTRACT_ID> \\");
+            println!("    --source <ACCOUNT> \\");
+            println!("    --network testnet \\");
+            println!("    -- \\");
+            if let Some(addr) = attestor {
+                println!("    get_anchor_health_score \\");
+                println!("    --anchor {}", addr);
+            } else {
+                println!("    get_all_attestors");
+            }
+            println!("\n💡 Note: Health monitoring requires active contract deployment");
+        }
     }
-    println!();
-    println!("💡 Note: Health monitoring requires active contract deployment");
 }
 
 // ── test ────────────────────────────────────────────────────────────────────
@@ -915,6 +1070,49 @@ fn validate_sessions_section(sessions: &serde_json::Value, errors: &mut Vec<Stri
     }
 }
 
+fn validate_deployment_section(deployment: &serde_json::Value, errors: &mut Vec<String>, warnings: &mut Vec<String>) {
+    let obj = match deployment.as_object() {
+        Some(o) => o,
+        None => {
+            errors.push("field 'deployment' must be an object".to_string());
+            return;
+        }
+    };
+
+    // admin_key — required, must look like a Stellar public key
+    match obj.get("admin_key").and_then(|v| v.as_str()) {
+        Some(k) if k.starts_with('G') && k.len() == 56 => {}
+        Some(k) => errors.push(format!(
+            "field 'deployment.admin_key' must be a 56-char Stellar public key starting with 'G', got '{}'", k
+        )),
+        None => errors.push("field 'deployment.admin_key' is required".to_string()),
+    }
+
+    // rpc_endpoint — required, must be HTTPS
+    match obj.get("rpc_endpoint").and_then(|v| v.as_str()) {
+        Some(url) => {
+            if let Some(err) = validate_endpoint_url(url) {
+                errors.push(format!("field 'deployment.rpc_endpoint': {}", err));
+            }
+        }
+        None => errors.push("field 'deployment.rpc_endpoint' is required".to_string()),
+    }
+
+    // network — required
+    if !obj.contains_key("network") || obj.get("network").and_then(|v| v.as_str()).is_none() {
+        errors.push("field 'deployment.network' is required".to_string());
+    }
+
+    // contract_id — optional, but if present must look like a Soroban contract address
+    if let Some(id) = obj.get("contract_id").and_then(|v| v.as_str()) {
+        if !(id.starts_with('C') && id.len() == 56) {
+            warnings.push(format!(
+                "field 'deployment.contract_id' should be a 56-char Soroban contract address starting with 'C', got '{}'", id
+            ));
+        }
+    }
+}
+
 fn validate_endpoint_url(url: &str) -> Option<String> {
     if url.is_empty() || url.trim().is_empty() {
         return Some("URL must not be empty".to_string());
@@ -1129,7 +1327,9 @@ fn run_config_validate(path: &str) {
 /// The complete set of valid service names for anchorkit register --services.
 const VALID_SERVICES: &[&str] = &["deposits", "withdrawals", "quotes", "kyc"];
 
-fn run_register(address: &str, services: Option<&str>, endpoint: Option<&str>) {
+fn run_register(address: &str, services: Option<&str>, endpoint: Option<&str>, output: &str) {
+    validate_output_format(output);
+
     // Validate service names before doing anything else
     if let Some(svc_str) = services {
         let invalid: Vec<&str> = svc_str
@@ -1154,46 +1354,81 @@ fn run_register(address: &str, services: Option<&str>, endpoint: Option<&str>) {
         std::process::exit(1);
     }
 
-    println!("📝 Registering attestor: {}", address);
-    if let Some(s) = services { println!("  Services: {}", s); }
-    if let Some(e) = endpoint { println!("  Endpoint: {}", e); }
-    
-    println!("\n📋 Registration steps:");
-    println!("  1. Use soroban CLI to register attestor:");
-    println!("     soroban contract invoke \\");
-    println!("       --id <CONTRACT_ID> \\");
-    println!("       --source <ADMIN_ACCOUNT> \\");
-    println!("       --network testnet \\");
-    println!("       -- \\");
-    println!("       register_attestor \\");
-    println!("       --attestor {}", address);
-    
-    if let Some(s) = services {
-        println!("\n  2. Configure services:");
-        println!("     soroban contract invoke \\");
-        println!("       --id <CONTRACT_ID> \\");
-        println!("       --source <ADMIN_ACCOUNT> \\");
-        println!("       --network testnet \\");
-        println!("       -- \\");
-        println!("       configure_services \\");
-        println!("       --attestor {} \\", address);
-        println!("       --services \"{}\"", s);
+    let services_str = services.unwrap_or("(none)");
+    let endpoint_str = endpoint.unwrap_or("(none)");
+    let status = "pending on-chain confirmation";
+
+    match output {
+        "json" => {
+            let obj = serde_json::json!({
+                "address":  address,
+                "services": services_str,
+                "endpoint": endpoint_str,
+                "status":   status,
+            });
+            println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+        }
+        "table" => {
+            println!("📝 Attestor registration\n");
+            let headers = &["Field", "Value"];
+            let rows = vec![
+                vec!["Address".to_string(),  address.to_string()],
+                vec!["Services".to_string(), services_str.to_string()],
+                vec!["Endpoint".to_string(), endpoint_str.to_string()],
+                vec!["Status".to_string(),   status.to_string()],
+            ];
+            print_ascii_table(headers, &rows);
+            println!("\n💡 Execute with soroban CLI:");
+            println!(
+                "   soroban contract invoke --id <CONTRACT_ID> --source <ADMIN_ACCOUNT> \
+                 --network testnet -- register_attestor --attestor {}",
+                address
+            );
+        }
+        _ => {
+            // "text" (default) — preserve original behaviour
+            println!("📝 Registering attestor: {}", address);
+            if let Some(s) = services { println!("  Services: {}", s); }
+            if let Some(e) = endpoint { println!("  Endpoint: {}", e); }
+
+            println!("\n📋 Registration steps:");
+            println!("  1. Use soroban CLI to register attestor:");
+            println!("     soroban contract invoke \\");
+            println!("       --id <CONTRACT_ID> \\");
+            println!("       --source <ADMIN_ACCOUNT> \\");
+            println!("       --network testnet \\");
+            println!("       -- \\");
+            println!("       register_attestor \\");
+            println!("       --attestor {}", address);
+
+            if let Some(s) = services {
+                println!("\n  2. Configure services:");
+                println!("     soroban contract invoke \\");
+                println!("       --id <CONTRACT_ID> \\");
+                println!("       --source <ADMIN_ACCOUNT> \\");
+                println!("       --network testnet \\");
+                println!("       -- \\");
+                println!("       configure_services \\");
+                println!("       --attestor {} \\", address);
+                println!("       --services \"{}\"", s);
+            }
+
+            if let Some(e) = endpoint {
+                println!("\n  3. Set endpoint:");
+                println!("     soroban contract invoke \\");
+                println!("       --id <CONTRACT_ID> \\");
+                println!("       --source <ADMIN_ACCOUNT> \\");
+                println!("       --network testnet \\");
+                println!("       -- \\");
+                println!("       set_attestor_endpoint \\");
+                println!("       --attestor {} \\", address);
+                println!("       --endpoint \"{}\"", e);
+            }
+
+            println!("\n💡 Note: Replace <CONTRACT_ID> and <ADMIN_ACCOUNT> with actual values");
+            println!("🔗 This will create actual on-chain transactions when executed with soroban CLI");
+        }
     }
-    
-    if let Some(e) = endpoint {
-        println!("\n  3. Set endpoint:");
-        println!("     soroban contract invoke \\");
-        println!("       --id <CONTRACT_ID> \\");
-        println!("       --source <ADMIN_ACCOUNT> \\");
-        println!("       --network testnet \\");
-        println!("       -- \\");
-        println!("       set_attestor_endpoint \\");
-        println!("       --attestor {} \\", address);
-        println!("       --endpoint \"{}\"", e);
-    }
-    
-    println!("\n💡 Note: Replace <CONTRACT_ID> and <ADMIN_ACCOUNT> with actual values");
-    println!("🔗 This will create actual on-chain transactions when executed with soroban CLI");
 }
 
 // ── export-audit ─────────────────────────────────────────────────────────────

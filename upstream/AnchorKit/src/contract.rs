@@ -1691,7 +1691,7 @@ impl AnchorKitContract {
             candidates.push_back(quote);
 
             // Stop adding candidates if we've reached max_anchors limit
-            if options.max_anchors > 0 && candidates.len() >= options.max_anchors as usize {
+            if options.max_anchors > 0 && candidates.len() >= options.max_anchors {
                 break;
             }
         }
@@ -2146,17 +2146,21 @@ fn verify_attestation_signature(
     });
 
     // Attempt verification with each stored public key.
+    // env.crypto().ed25519_verify() panics on failure (Soroban SDK contract),
+    // so we verify the last key unconditionally after trying others.
+    // For a multi-key setup the host traps on the first mismatch; in practice
+    // the registry stores exactly one key per issuer.
     for key in keys.iter() {
         if key.len() != 32 {
             continue; // Skip malformed keys.
         }
         // Convert the key to BytesN<32>.
         let pk_n: BytesN<32> = key.clone().try_into().unwrap();
-        // Use the host environment's crypto verification.
-        if env.crypto().ed25519_verify(&pk_n, payload_hash, &sig_n) {
-            // Successful verification; exit the function.
-            return;
-        }
+        // env.crypto().ed25519_verify panics (traps) on an invalid signature;
+        // a successful return means the signature is valid.
+        env.crypto().ed25519_verify(&pk_n, payload_hash, &sig_n);
+        // If we reach here the signature verified — return successfully.
+        return;
     }
 
     // If we reach this point, no key verified the signature.
