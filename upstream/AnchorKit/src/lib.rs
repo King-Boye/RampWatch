@@ -1,8 +1,8 @@
 #![no_std]
 extern crate alloc;
 
-mod deterministic_hash;
-mod domain_validator;
+pub mod deterministic_hash;
+pub mod domain_validator;
 mod errors;
 mod events;
 mod storage;
