@@ -707,14 +707,33 @@ impl AnchorKitContract {
     // -----------------------------------------------------------------------
 
     pub fn get_attestation(env: Env, id: u64) -> Option<Attestation> {
+        let key = StorageKey::Attest(id);
         let mut attestation = env.storage()
             .persistent()
-            .get::<_, Attestation>(&StorageKey::Attest(id))?;
+            .get::<_, Attestation>(&key)?;
+        // Bump TTL on read so actively-queried attestations don't expire (#630).
+        env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
         // Reflect current revocation status without rewriting every stored attestation.
         if env.storage().persistent().has(&StorageKey::AttestorRevoked(attestation.issuer.clone())) {
             attestation.issuer_revoked = true;
         }
         Some(attestation)
+    }
+
+    /// Convenience check combining revocation, expiry, and attestor status (#627).
+    ///
+    /// Returns `true` only when the attestation exists (i.e. its storage entry
+    /// has not expired), its issuer has not been revoked, and the issuer is
+    /// still a registered attestor.
+    pub fn is_attestation_valid(env: Env, id: u64) -> bool {
+        let attestation = match Self::get_attestation(env.clone(), id) {
+            Some(a) => a,
+            None => return false,
+        };
+        if attestation.issuer_revoked {
+            return false;
+        }
+        env.storage().persistent().has(&StorageKey::Attestor(attestation.issuer))
     }
 
     pub fn list_attestations(env: Env, subject: Address, offset: u64, limit: u32) -> Vec<Attestation> {
