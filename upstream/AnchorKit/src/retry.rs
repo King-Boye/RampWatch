@@ -80,15 +80,12 @@ impl RetryConfig {
 /// next request.
 pub fn is_retryable(code: u32) -> bool {
     use crate::errors::ErrorCode;
-    match code {
-        ErrorCode::ServicesNotConfigured as u32
-            | ErrorCode::AttestationNotFound as u32
-            | ErrorCode::StaleQuote as u32
-            | ErrorCode::NoQuotesAvailable as u32
-            | ErrorCode::CacheExpired as u32
-            | ErrorCode::CacheNotFound as u32 => true,
-        _ => false,
-    }
+    code == ErrorCode::ServicesNotConfigured as u32
+        || code == ErrorCode::AttestationNotFound as u32
+        || code == ErrorCode::StaleQuote as u32
+        || code == ErrorCode::NoQuotesAvailable as u32
+        || code == ErrorCode::CacheExpired as u32
+        || code == ErrorCode::CacheNotFound as u32
 }
 
 /// Execute `f` with exponential backoff retry.

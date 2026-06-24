@@ -99,6 +99,10 @@ pub enum ErrorCode {
     SessionNotFound = 55,
     SessionExpired = 56,
     MissingSigningKey = 57,
+    NotInitialized = 26,
+    PathTraversalDetected = 58,
+    InvalidStrategy = 59,
+    AttestationLimitReached = 60,
 }
 
 impl ErrorCode {
@@ -134,6 +138,9 @@ impl ErrorCode {
             ErrorCode::SessionNotFound => "Session not found",
             ErrorCode::SessionExpired => "Session has expired",
             ErrorCode::MissingSigningKey => "Anchor TOML does not publish a signing key",
+            ErrorCode::PathTraversalDetected => "URL contains a path traversal sequence",
+            ErrorCode::InvalidStrategy => "Routing strategy symbol is not recognized",
+            ErrorCode::AttestationLimitReached => "Attestation ID counter has reached its maximum value",
         }
     }
 
@@ -223,6 +230,7 @@ impl AnchorKitError {
     pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
     pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
     pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
+    pub fn path_traversal_detected() -> Self { Self::from_code(ErrorCode::PathTraversalDetected) }
 
     pub fn validation_error(context: &str) -> Self {
         Self::with_context(ErrorCode::ValidationError, ErrorCode::ValidationError.default_message(), context)
@@ -243,8 +251,15 @@ impl core::fmt::Display for AnchorKitError {
 // no-std / WASM implementation — zero heap allocation
 // ---------------------------------------------------------------------------
 
-    pub fn cache_not_found() -> Self {
-        Self::from_code(ErrorCode::CacheNotFound)
+#[cfg(not(feature = "std"))]
+impl AnchorKitError {
+    /// Create an error using the default message for the given code.
+    pub fn from_code(code: ErrorCode) -> Self {
+        AnchorKitError {
+            code,
+            message: code.default_message(),
+            context: None,
+        }
     }
 
     pub fn already_initialized() -> Self { Self::from_code(ErrorCode::AlreadyInitialized) }
@@ -269,6 +284,7 @@ impl core::fmt::Display for AnchorKitError {
     pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
     pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
     pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
+    pub fn path_traversal_detected() -> Self { Self::from_code(ErrorCode::PathTraversalDetected) }
     pub fn validation_error(_context: &str) -> Self { Self::from_code(ErrorCode::ValidationError) }
 }
 

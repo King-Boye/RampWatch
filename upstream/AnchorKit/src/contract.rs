@@ -117,17 +117,26 @@ impl AnchorKitContract {
     /// `[now - window, now + window]` are rejected.
     ///
     /// Defaults to **300 seconds** (5 minutes) when `None` is supplied.
-    pub fn initialize(env: Env, admin: Address, max_audit_log_size: u64, replay_window_seconds: Option<u64>) {
+    ///
+    /// Returns `Err(ErrorCode::AlreadyInitialized)` instead of panicking when
+    /// called a second time, so callers can handle re-initialization
+    /// attempts gracefully (#628).
+    pub fn initialize(
+        env: Env,
+        admin: Address,
+        max_audit_log_size: u64,
+        replay_window_seconds: Option<u64>,
+    ) -> Result<(), ErrorCode> {
         admin.require_auth();
         if admin == env.current_contract_address() {
-            panic_with_error!(&env, ErrorCode::ValidationError);
+            return Err(ErrorCode::ValidationError);
         }
         if max_audit_log_size == 0 {
-            panic_with_error!(&env, ErrorCode::AuditLogMaxSizeInvalid);
+            return Err(ErrorCode::AuditLogMaxSizeInvalid);
         }
         let inst = env.storage().instance();
         if inst.has(&key_admin(&env)) {
-            panic_with_error!(&env, ErrorCode::AlreadyInitialized);
+            return Err(ErrorCode::AlreadyInitialized);
         }
         inst.set(&key_admin(&env), &admin);
         inst.set(&StorageKey::AuditLogMaxSize, &max_audit_log_size);
@@ -136,6 +145,7 @@ impl AnchorKitContract {
         let window = replay_window_seconds.unwrap_or(300u64);
         inst.set(&key_replay_window(&env), &window);
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+        Ok(())
     }
 
     /// Propose new admin (current admin only). Sets pending_admin in instance storage.
@@ -1247,7 +1257,8 @@ impl AnchorKitContract {
     pub fn get_cache_age_seconds(env: Env, anchor: Address) -> Result<u64, ErrorCode> {
         let key = StorageKey::MetadataCache(anchor);
         let entry: MetadataCache = env.storage().persistent().get(&key)
-            .or_else(|| env.storage().temporary().get(&key))?;
+            .or_else(|| env.storage().temporary().get(&key))
+            .ok_or(ErrorCode::CacheNotFound)?;
         let now = env.ledger().timestamp();
         Ok(now.saturating_sub(entry.cached_at))
     }
@@ -1690,7 +1701,7 @@ impl AnchorKitContract {
             candidates.push_back(quote);
 
             // Stop adding candidates if we've reached max_anchors limit
-            if options.max_anchors > 0 && candidates.len() >= options.max_anchors as usize {
+            if options.max_anchors > 0 && candidates.len() >= options.max_anchors {
                 break;
             }
         }
@@ -2132,6 +2143,8 @@ fn verify_attestation_signature(
     payload_hash: &Bytes,
     signature: &Bytes,
 ) {
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
     // Retrieve the list of registered public keys for the issuer.
     let keys: Vec<Bytes> = env
         .storage()
@@ -2139,22 +2152,32 @@ fn verify_attestation_signature(
         .get(&StorageKey::Sep10Key(issuer.clone()))
         .unwrap_or_else(|| panic_with_error!(env, ErrorCode::UnauthorizedAttestor));
 
-    // Convert signature to the fixed-size BytesN<64> expected by env.crypto().ed25519_verify.
-    let sig_n: BytesN<64> = signature.clone().try_into().unwrap_or_else(|_| {
-        panic_with_error!(env, ErrorCode::UnauthorizedAttestor)
-    });
+    if signature.len() != 64 {
+        panic_with_error!(env, ErrorCode::UnauthorizedAttestor);
+    }
+    let mut sig_arr = [0u8; 64];
+    signature.copy_into_slice(&mut sig_arr);
+    let dalek_sig = Signature::from_bytes(&sig_arr);
 
-    // Attempt verification with each stored public key.
+    let mut msg = alloc::vec::Vec::with_capacity(payload_hash.len() as usize);
+    msg.resize(payload_hash.len() as usize, 0u8);
+    payload_hash.copy_into_slice(&mut msg);
+
+    // Attempt verification with each stored public key. Using ed25519-dalek
+    // directly (rather than env.crypto().ed25519_verify, which traps the
+    // whole invocation on a mismatch) lets us fall through to the next
+    // candidate key instead of aborting on the first non-matching one.
     for key in keys.iter() {
         if key.len() != 32 {
             continue; // Skip malformed keys.
         }
-        // Convert the key to BytesN<32>.
-        let pk_n: BytesN<32> = key.clone().try_into().unwrap();
-        // Use the host environment's crypto verification.
-        if env.crypto().ed25519_verify(&pk_n, payload_hash, &sig_n) {
-            // Successful verification; exit the function.
-            return;
+        let mut pk_arr = [0u8; 32];
+        key.copy_into_slice(&mut pk_arr);
+        if let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) {
+            if vk.verify(&msg, &dalek_sig).is_ok() {
+                // Successful verification; exit the function.
+                return;
+            }
         }
     }
 
@@ -2178,3 +2201,11 @@ pub fn get_admin(env: Env) -> Address {
 pub fn get_attestation_count(env: Env) -> u64 {
     AnchorKitContract::get_attestation_count(env)
 }
+
+#[cfg(test)]
+#[path = "attestation_validation_tests.rs"]
+mod attestation_validation_tests;
+
+#[cfg(test)]
+#[path = "attestor_event_tests.rs"]
+mod attestor_event_tests;
