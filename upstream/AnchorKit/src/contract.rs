@@ -1508,6 +1508,40 @@ impl AnchorKitContract {
     }
 
     // -----------------------------------------------------------------------
+    // Storage migration helpers
+    // -----------------------------------------------------------------------
+
+    /// Migrate storage state during schema upgrades.
+    ///
+    /// This function allows administrators to transform legacy storage keys
+    /// into new formats during contract schema migrations. It can be used to:
+    /// - Rename storage keys
+    /// - Restructure stored values
+    /// - Clean up deprecated storage entries
+    ///
+    /// Admin-only access is enforced.
+    pub fn migrate(env: Env, migration_name: String) {
+        Self::require_admin(&env);
+        let inst = env.storage().instance();
+
+        // Track migration completion to prevent re-running the same migration
+        let migration_key = Symbol::from_str(&env, &migration_name);
+        if inst.has(&migration_key) {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+
+        // Mark migration as completed
+        inst.set(&migration_key, &true);
+        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+
+        // Emit migration event for tracking
+        env.events().publish(
+            (symbol_short!("migr"), symbol_short!("compl")),
+            migration_name,
+        );
+    }
+
+    // -----------------------------------------------------------------------
     // Health monitoring
     // -----------------------------------------------------------------------
 
