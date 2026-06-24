@@ -66,6 +66,30 @@ pub enum StorageKey {
     // requires a Vec<Symbol> key; they are defined as named constants below.
 }
 
+/// Module-specific storage key variants for Sessions module.
+#[contracttype]
+#[derive(Clone)]
+pub enum SessionModuleKey {
+    /// Session counter for generating unique session IDs.
+    Counter,
+}
+
+/// Module-specific storage key variants for Attestations module.
+#[contracttype]
+#[derive(Clone)]
+pub enum AttestationModuleKey {
+    /// Attestation counter for generating unique attestation IDs.
+    Counter,
+}
+
+/// Module-specific storage key variants for RateLimiter module.
+#[contracttype]
+#[derive(Clone)]
+pub enum RateLimiterModuleKey {
+    /// Rate limiter configuration key.
+    Config,
+}
+
 // Instance-storage counter keys (Vec<Symbol>).
 // Defined as functions returning the canonical key to avoid repetition.
 use soroban_sdk::{symbol_short, Env, Symbol, Vec};
@@ -74,26 +98,26 @@ pub fn key_admin(env: &Env) -> Vec<Symbol> {
     soroban_sdk::vec![env, symbol_short!("ADMIN")]
 }
 pub fn key_counter(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("COUNTER")]
+    soroban_sdk::vec![env, symbol_short!("ATST_CNT")]
 }
 pub fn key_session_counter(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("SCNT")]
+    soroban_sdk::vec![env, symbol_short!("SESS_CNT")]
 }
 pub fn key_quote_counter(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("QCNT")]
+    soroban_sdk::vec![env, symbol_short!("QUOT_CNT")]
 }
 pub fn key_audit_counter(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("ACNT")]
+    soroban_sdk::vec![env, symbol_short!("AUD_CNT")]
 }
 pub fn key_audit_log_offset(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("AOFF")]
+    soroban_sdk::vec![env, symbol_short!("AUD_OFF")]
 }
 pub fn key_anchor_list(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("ANCHLIST")]
+    soroban_sdk::vec![env, symbol_short!("ANCHORS")]
 }
 pub fn key_health_threshold(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("HTHRESH")]
+    soroban_sdk::vec![env, symbol_short!("HLTH_TR")]
 }
 pub fn key_replay_window(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("RPWINDOW")]
+    soroban_sdk::vec![env, symbol_short!("REPL_WIN")]
 }
