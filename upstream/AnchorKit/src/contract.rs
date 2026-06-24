@@ -2090,6 +2090,17 @@ impl AnchorKitContract {
         }
     }
 
+    /// Storage placement evaluation (#629): per-attestation records (`Attest`,
+    /// `SubjectAttestation`, `SubjectCount`) intentionally remain in
+    /// *persistent* storage rather than moving to instance storage. Instance
+    /// storage is a single shared entry per contract with a footprint limit;
+    /// attestation volume is unbounded and grows per submission, so packing
+    /// it into instance storage would blow past that limit and inflate the
+    /// rent paid by every contract call, not just attestation reads. The
+    /// already-hot, bounded-size counters (`TOTALCNT`, the attestation-id
+    /// counter) are kept on instance storage, which is the correct trade-off:
+    /// O(1) bounded data on instance, O(n) per-entry data on persistent with
+    /// TTL bumped on access (see `get_attestation`, #630).
     fn store_attestation(
         env: &Env,
         id: u64,
