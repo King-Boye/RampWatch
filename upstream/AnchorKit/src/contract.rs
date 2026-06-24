@@ -28,7 +28,7 @@ const MIN_TEMP_TTL: u32 = 15; // min_temp_entry_ttl - 1
 const LEDGER_PERIOD_SECS: u64 = 5; // approximate seconds per ledger
 
 use crate::events::{
-    AdminTransferred, AnchorDeactivated, AttestEvent, AuditLogEvent, AuditLogPruned,
+    AdminTransferred, AnchorDeactivated, AttestationRevoked, AttestEvent, AuditLogEvent, AuditLogPruned,
     ContractPaused, ContractUnpaused, EndpointUpdated,
     QuoteReceivedEvent, QuoteSubmitEvent, SessionCreatedEvent,
 };
@@ -457,6 +457,28 @@ impl AnchorKitContract {
             .persistent()
             .get::<_, bool>(&StorageKey::Attestor(attestor))
             .unwrap_or(false)
+    }
+
+    /// Revoke an individual attestation by ID (admin only).
+    /// Emits an AttestationRevoked event for off-chain tracking.
+    pub fn revoke_attestation(env: Env, attestation_id: u64) {
+        Self::require_admin(&env);
+        let att_key = StorageKey::Attest(attestation_id);
+        let attestation: Attestation = env.storage()
+            .persistent()
+            .get(&att_key)
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound));
+
+        env.storage().persistent().remove(&att_key);
+        let timestamp = env.ledger().timestamp();
+        env.events().publish(
+            (symbol_short!("attest"), symbol_short!("revoked")),
+            AttestationRevoked {
+                attestation_id,
+                issuer: attestation.issuer,
+                timestamp,
+            },
+        );
     }
 
     // -----------------------------------------------------------------------
