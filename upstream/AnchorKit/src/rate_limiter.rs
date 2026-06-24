@@ -14,8 +14,11 @@ use crate::storage::StorageKey;
 pub struct RateLimitConfig {
     /// Maximum number of submissions allowed per window
     pub max_submissions: u32,
-    /// Length of the rate limit window in ledgers
+    /// Length of the rate limit window in ledgers. Can be set per-attestor via update_config or set_attestor_config.
     pub window_length: u32,
+    /// One-time burst allowance: extra submissions permitted in the first window only.
+    /// Set to 0 to disable burst tolerance.
+    pub burst: u32,
 }
 
 /// Per-attestor rate limit state stored in contract storage
@@ -100,12 +103,14 @@ impl RateLimiter {
 
         if state.submission_count >= config.max_submissions {
             env.storage().persistent().set(&state_key, &state);
+            env.storage().persistent().extend_ttl(&state_key, config.window_length, config.window_length);
             return Err(ErrorCode::RateLimitExceeded);
         }
 
         state.submission_count += 1;
         state.total_requests += 1;
         env.storage().persistent().set(&state_key, &state);
+        env.storage().persistent().extend_ttl(&state_key, config.window_length, config.window_length);
 
         Ok(())
     }
@@ -124,10 +129,12 @@ impl RateLimiter {
             Some(addr) => {
                 let key = StorageKey::RateLimitOverride(addr.clone());
                 env.storage().persistent().set(&key, &config);
+                env.storage().persistent().extend_ttl(&key, config.window_length, config.window_length);
             }
             None => {
                 let key = Self::get_config_key(env);
                 env.storage().persistent().set(&key, &config);
+                env.storage().persistent().extend_ttl(&key, config.window_length, config.window_length);
             }
         }
         Ok(())
@@ -138,6 +145,19 @@ impl RateLimiter {
         let key = StorageKey::RateLimitOverride(attestor.clone());
         env.storage().persistent().get::<_, RateLimitConfig>(&key)
             .unwrap_or_else(|| Self::get_config(env.clone()))
+    }
+
+    /// Configure rate limits for a specific attestor, including their window duration.
+    /// High-volume attestors can have shorter windows; low-volume ones can have longer windows.
+    pub fn set_attestor_config(
+        env: &Env,
+        attestor: &Address,
+        config: RateLimitConfig,
+    ) -> Result<(), ErrorCode> {
+        let key = StorageKey::RateLimitOverride(attestor.clone());
+        env.storage().persistent().set(&key, &config);
+        env.storage().persistent().extend_ttl(&key, config.window_length, config.window_length);
+        Ok(())
     }
 
     /// Returns true if rate limiting has been explicitly configured — either via
@@ -172,6 +192,8 @@ impl RateLimiter {
         };
 
         env.storage().persistent().set(&state_key, &reset_state);
+        let window = Self::get_effective_config(env.clone(), attestor.clone()).window_length;
+        env.storage().persistent().extend_ttl(&state_key, window, window);
 
         env.events().publish(
             (symbol_short!("rate"), symbol_short!("reset")),
