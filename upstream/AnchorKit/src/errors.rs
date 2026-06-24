@@ -99,6 +99,9 @@ pub enum ErrorCode {
     SessionNotFound = 55,
     SessionExpired = 56,
     MissingSigningKey = 57,
+    AttestationExpired = 121,
+    ContractPaused = 122,
+    AdminTransferPending = 123,
 }
 
 impl ErrorCode {
@@ -134,6 +137,9 @@ impl ErrorCode {
             ErrorCode::SessionNotFound => "Session not found",
             ErrorCode::SessionExpired => "Session has expired",
             ErrorCode::MissingSigningKey => "Anchor TOML does not publish a signing key",
+            ErrorCode::AttestationExpired => "Attestation has expired",
+            ErrorCode::ContractPaused => "Contract is paused",
+            ErrorCode::AdminTransferPending => "Admin transfer is already pending",
         }
     }
 
@@ -223,6 +229,9 @@ impl AnchorKitError {
     pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
     pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
     pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
+    pub fn attestation_expired() -> Self { Self::from_code(ErrorCode::AttestationExpired) }
+    pub fn contract_paused() -> Self { Self::from_code(ErrorCode::ContractPaused) }
+    pub fn admin_transfer_pending() -> Self { Self::from_code(ErrorCode::AdminTransferPending) }
 
     pub fn validation_error(context: &str) -> Self {
         Self::with_context(ErrorCode::ValidationError, ErrorCode::ValidationError.default_message(), context)
@@ -269,6 +278,9 @@ impl core::fmt::Display for AnchorKitError {
     pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
     pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
     pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
+    pub fn attestation_expired() -> Self { Self::from_code(ErrorCode::AttestationExpired) }
+    pub fn contract_paused() -> Self { Self::from_code(ErrorCode::ContractPaused) }
+    pub fn admin_transfer_pending() -> Self { Self::from_code(ErrorCode::AdminTransferPending) }
     pub fn validation_error(_context: &str) -> Self { Self::from_code(ErrorCode::ValidationError) }
 }
 
