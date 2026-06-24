@@ -28,7 +28,8 @@ const MIN_TEMP_TTL: u32 = 15; // min_temp_entry_ttl - 1
 const LEDGER_PERIOD_SECS: u64 = 5; // approximate seconds per ledger
 
 use crate::events::{
-    AnchorDeactivated, AttestEvent, AuditLogEvent, AuditLogPruned, EndpointUpdated,
+    AdminTransferred, AnchorDeactivated, AttestEvent, AuditLogEvent, AuditLogPruned,
+    ContractPaused, ContractUnpaused, EndpointUpdated,
     QuoteReceivedEvent, QuoteSubmitEvent, SessionCreatedEvent,
 };
 
@@ -47,13 +48,6 @@ struct SessionExpired {
 #[derive(Clone)]
 struct AdminTransferProposed {
     current_admin: Address,
-    new_admin: Address,
-}
-
-#[contracttype]
-#[derive(Clone)]
-struct AdminTransferred {
-    old_admin: Address,
     new_admin: Address,
 }
 
@@ -168,6 +162,7 @@ impl AnchorKitContract {
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NoPendingAdmin));
         pending.require_auth();
         let old_admin = Self::get_admin(env.clone());
+        let timestamp = env.ledger().timestamp();
         inst.set(&key_admin(&env), &pending);
         inst.remove(&pending_admin_key(&env));
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
@@ -176,6 +171,7 @@ impl AnchorKitContract {
             AdminTransferred {
                 old_admin,
                 new_admin: pending,
+                timestamp,
             },
         );
     }
@@ -207,10 +203,46 @@ impl AnchorKitContract {
         );
     }
 
+    /// Pause the contract (admin only).
+    pub fn pause_contract(env: Env) {
+        Self::require_admin(&env);
+        let inst = env.storage().instance();
+        inst.set(&StorageKey::IsPaused, &true);
+        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+        let admin = Self::get_admin(env.clone());
+        let timestamp = env.ledger().timestamp();
+        env.events().publish(
+            (symbol_short!("contract"), symbol_short!("paused")),
+            ContractPaused { admin, timestamp },
+        );
+    }
+
+    /// Unpause the contract (admin only).
+    pub fn unpause_contract(env: Env) {
+        Self::require_admin(&env);
+        let inst = env.storage().instance();
+        inst.set(&StorageKey::IsPaused, &false);
+        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+        let admin = Self::get_admin(env.clone());
+        let timestamp = env.ledger().timestamp();
+        env.events().publish(
+            (symbol_short!("contract"), symbol_short!("unpaused")),
+            ContractUnpaused { admin, timestamp },
+        );
+    }
+
     /// Returns `true` if the contract has been initialized, `false` otherwise.
     /// Safe to call at any time — never panics.
     pub fn is_initialized(env: Env) -> bool {
         env.storage().instance().has(&key_admin(&env))
+    }
+
+    /// Returns `true` if the contract is paused, `false` otherwise.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get::<_, bool>(&StorageKey::IsPaused)
+            .unwrap_or(false)
     }
 
     // -----------------------------------------------------------------------

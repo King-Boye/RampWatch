@@ -61,6 +61,8 @@ pub enum StorageKey {
     RateLimitState(Address),
     /// Per-attestor rate-limit configuration override (persistent).
     RateLimitOverride(Address),
+    /// Contract pause state (instance storage).
+    IsPaused,
     // --- Instance-storage counters (stored as Vec<Symbol> keys) ---
     // These are kept as plain symbol_short! vecs because instance storage
     // requires a Vec<Symbol> key; they are defined as named constants below.
