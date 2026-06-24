@@ -7,7 +7,12 @@ mod errors;
 mod events;
 mod storage;
 mod types;
-mod validation;
+mod contract;
+mod rate_limiter;
+mod response_validator;
+mod retry;
+mod sep6;
+mod sep10_jwt;
 
 #[cfg(test)]
 mod config_tests;
@@ -16,15 +21,10 @@ mod streaming_flow_tests;
 
 use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
 
-pub use config::{AttestorConfig, ContractConfig, SessionConfig};
 pub use errors::Error;
-pub use rate_limiter::{RateLimiter, RateLimitConfig, RateLimitState};
-pub use response_validator::{
-    validate_anchor_info_response, validate_deposit_response, validate_quote_response,
-    validate_withdraw_response, AnchorInfoResponse, QuoteResponse,
-};
 pub use retry::{retry_with_backoff, is_retryable, RetryConfig};
 pub use deterministic_hash::{compute_payload_hash, verify_payload_hash};
+pub use domain_validator::validate_anchor_domain;
 
 #[cfg(test)]
 mod transaction_state_tracker_tests;
@@ -45,9 +45,6 @@ mod tracing_span_tests;
 
 #[cfg(test)]
 mod metadata_cache_tests;
-
-#[cfg(test)]
-mod streaming_flow_tests;
 
 #[cfg(test)]
 mod webhook_middleware_tests;

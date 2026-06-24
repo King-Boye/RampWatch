@@ -122,6 +122,8 @@ enum ConfigCommands {
         #[arg(default_value = "configs")]
         path: String,
     },
+    /// Interactively create a new validated AnchorKit config file
+    Init,
 }
 
 fn main() {
@@ -146,6 +148,7 @@ fn main() {
         Commands::ExportAudit { format, output } => run_export_audit(&format, &output),
         Commands::Config { command } => match command {
             ConfigCommands::Validate { path } => run_config_validate(&path),
+            ConfigCommands::Init => run_config_init(),
         },
     }
 }
@@ -1277,4 +1280,296 @@ fn fetch_audit_entries() -> Vec<AuditEntry> {
 fn fetch_page(page: u64, page_size: u64) -> Vec<AuditEntry> {
     let _ = (page, page_size);
     vec![]
+}
+
+// ── config init ───────────────────────────────────────────────────────────────
+
+/// Reads a line from stdin, trimming whitespace. Returns `None` on EOF or error.
+fn read_input(prompt: &str) -> Option<String> {
+    use std::io::Write;
+    print!("{}", prompt);
+    std::io::stdout().flush().ok()?;
+    let mut buf = String::new();
+    match std::io::stdin().read_line(&mut buf) {
+        Ok(0) => None, // EOF
+        Ok(_) => Some(buf.trim().to_string()),
+        Err(_) => None,
+    }
+}
+
+/// Like `read_input` but re-prompts until the value passes `validate`.
+/// `validate` returns `Ok(T)` on success or `Err(hint)` with a human-readable
+/// reason on failure.
+fn prompt_until_valid<T, F>(prompt: &str, validate: F) -> T
+where
+    F: Fn(&str) -> Result<T, String>,
+{
+    loop {
+        match read_input(prompt) {
+            None => {
+                eprintln!("\n❌ Unexpected end of input. Aborting.");
+                std::process::exit(1);
+            }
+            Some(raw) => match validate(&raw) {
+                Ok(v) => return v,
+                Err(hint) => eprintln!("  ✖ {}", hint),
+            },
+        }
+    }
+}
+
+/// Validate a Stellar public key (admin / contract-id format).
+fn validate_stellar_address(s: &str) -> Result<String, String> {
+    // Match the same regex used by validate_attestors_section so a key
+    // that passes here will also pass config validation.
+    let re = Regex::new(r"^G[A-Z0-9]{55}$").unwrap();
+    if re.is_match(s) {
+        Ok(s.to_string())
+    } else {
+        Err(format!(
+            "Invalid Stellar public key — must start with 'G' followed by 55 uppercase alphanumeric characters (56 chars total), got '{}'",
+            s
+        ))
+    }
+}
+
+/// Validate the network choice; returns the canonical `stellar-*` value.
+fn validate_network(s: &str) -> Result<String, String> {
+    match s.trim().to_lowercase().as_str() {
+        "testnet" | "stellar-testnet" | "1" => Ok("stellar-testnet".to_string()),
+        "mainnet" | "stellar-mainnet" | "2" => Ok("stellar-mainnet".to_string()),
+        "futurenet" | "stellar-futurenet" | "3" => Ok("stellar-futurenet".to_string()),
+        _ => Err(format!(
+            "Unknown network '{}'. Enter 1/testnet, 2/mainnet, or 3/futurenet",
+            s
+        )),
+    }
+}
+
+/// Validate an HTTPS RPC endpoint URL using the same rules as the config
+/// validator so there are no surprises later.
+fn validate_rpc_url(s: &str) -> Result<String, String> {
+    if let Some(err) = validate_endpoint_url(s) {
+        Err(err)
+    } else {
+        Ok(s.to_string())
+    }
+}
+
+/// Validate a Soroban contract ID.
+/// Contract IDs on Stellar are the same format as Stellar account addresses:
+/// a 56-character strkey starting with 'C'.
+fn validate_contract_id(s: &str) -> Result<String, String> {
+    let re = Regex::new(r"^C[A-Z2-7]{55}$").unwrap();
+    if re.is_match(s) {
+        Ok(s.to_string())
+    } else {
+        Err(format!(
+            "Invalid contract ID — must start with 'C' and be exactly 56 uppercase base-32 characters, got '{}'",
+            s
+        ))
+    }
+}
+
+/// Derive a safe output filename from the anchor name the user will supply.
+fn config_output_path(anchor_name: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(format!("configs/{}.json", anchor_name))
+}
+
+fn run_config_init() {
+    println!("🛠  AnchorKit config init");
+    println!("   Answer each prompt to generate a validated config file.");
+    println!("   Press Ctrl+C at any time to abort.\n");
+
+    // ── 1. Anchor / contract name ──────────────────────────────────────────
+    let anchor_name: String = prompt_until_valid(
+        "Anchor name (lowercase, hyphens only, e.g. my-anchor): ",
+        |s| {
+            let re = Regex::new(r"^[a-z0-9-]+$").unwrap();
+            if s.is_empty() {
+                return Err("Name must not be empty".to_string());
+            }
+            if s.len() > 64 {
+                return Err(format!("Name is too long ({} chars, max 64)", s.len()));
+            }
+            if !re.is_match(s) {
+                return Err("Name must contain only lowercase letters, digits, and hyphens".to_string());
+            }
+            Ok(s.to_string())
+        },
+    );
+
+    // ── 2. Network ─────────────────────────────────────────────────────────
+    println!("\nNetwork options:");
+    println!("  1  testnet   (stellar-testnet)");
+    println!("  2  mainnet   (stellar-mainnet)");
+    println!("  3  futurenet (stellar-futurenet)");
+    let network: String = prompt_until_valid("Network [1/testnet]: ", |s| {
+        // Allow empty → default to testnet
+        let input = if s.is_empty() { "testnet" } else { s };
+        validate_network(input)
+    });
+
+    // ── 3. Admin public key ────────────────────────────────────────────────
+    println!();
+    let admin_key: String = prompt_until_valid(
+        "Admin Stellar public key (starts with G, 56 chars): ",
+        |s| validate_stellar_address(s),
+    );
+
+    // ── 4. RPC endpoint ────────────────────────────────────────────────────
+    let default_rpc = match network.as_str() {
+        "stellar-testnet" => "https://soroban-testnet.stellar.org",
+        "stellar-mainnet" => "https://mainnet.sorobanrpc.com",
+        _ => "https://rpc-futurenet.stellar.org",
+    };
+    println!();
+    println!("  Default RPC for {}: {}", network, default_rpc);
+    let rpc_endpoint: String = prompt_until_valid(
+        &format!("RPC endpoint URL [{}]: ", default_rpc),
+        |s| {
+            let url = if s.is_empty() { default_rpc } else { s };
+            validate_rpc_url(url)
+        },
+    );
+
+    // ── 5. Contract ID ─────────────────────────────────────────────────────
+    println!();
+    println!("  Contract ID is the deployed Soroban contract address (starts with C, 56 chars).");
+    println!("  Leave blank to skip — you can add it later after deployment.");
+    let contract_id: Option<String> = {
+        loop {
+            match read_input("Contract ID (optional, press Enter to skip): ") {
+                None => {
+                    eprintln!("\n❌ Unexpected end of input. Aborting.");
+                    std::process::exit(1);
+                }
+                Some(ref s) if s.is_empty() => break None,
+                Some(ref s) => match validate_contract_id(s) {
+                    Ok(id) => break Some(id),
+                    Err(hint) => eprintln!("  ✖ {}", hint),
+                },
+            }
+        }
+    };
+
+    // ── Build the config JSON ──────────────────────────────────────────────
+    // The config schema requires contract/attestors/sessions.
+    // We embed the admin key and rpc_endpoint as metadata in the contract
+    // section (description field) and store the contract_id there too if
+    // provided, because the schema's "contract" object only allows the
+    // known fields (name, version, description, network).
+    // The rpc/admin/contract_id are written as top-level extra fields under
+    // "deployment" — stored outside the schema-validated sections so that
+    // `anchorkit validate` stays happy while the values are preserved for
+    // tooling.
+    let config = build_init_config(&anchor_name, &network, &admin_key, &rpc_endpoint, contract_id.as_deref());
+
+    // ── Write to disk ──────────────────────────────────────────────────────
+    let out_path = config_output_path(&anchor_name);
+
+    // Warn if file already exists
+    if out_path.exists() {
+        println!();
+        print!(
+            "⚠  '{}' already exists. Overwrite? [y/N]: ",
+            out_path.display()
+        );
+        use std::io::Write as _;
+        std::io::stdout().flush().ok();
+        let mut answer = String::new();
+        let _ = std::io::stdin().read_line(&mut answer);
+        if !matches!(answer.trim().to_lowercase().as_str(), "y" | "yes") {
+            println!("Aborted. No changes written.");
+            std::process::exit(0);
+        }
+    }
+
+    // Ensure configs/ directory exists
+    if let Err(e) = std::fs::create_dir_all("configs") {
+        eprintln!("❌ Failed to create configs/ directory: {}", e);
+        std::process::exit(1);
+    }
+
+    let json_str = serde_json::to_string_pretty(&config)
+        .expect("serialization cannot fail for a known-good Value");
+
+    if let Err(e) = std::fs::write(&out_path, &json_str) {
+        eprintln!("❌ Failed to write {}: {}", out_path.display(), e);
+        std::process::exit(1);
+    }
+
+    // ── Validate the file we just wrote ───────────────────────────────────
+    println!();
+    println!("✅ Config written to {}", out_path.display());
+    println!();
+    println!("🔍 Validating generated config…");
+    let valid = validate_file(&out_path);
+
+    if valid {
+        println!();
+        println!("🎉 Your config is ready. Next steps:");
+        println!("   1. Review and customise {}", out_path.display());
+        println!("      • Add real attestor address(es) under attestors.registry");
+        println!("      • Adjust session settings if needed");
+        if contract_id.is_none() {
+            println!("   2. Deploy the contract and add its ID to the config");
+            println!("      • anchorkit deploy --network {}", network.replace("stellar-", ""));
+        }
+        println!("   3. Run `anchorkit doctor` to verify your environment");
+    } else {
+        eprintln!();
+        eprintln!("⚠  The generated file failed validation — this is a bug in anchorkit.");
+        eprintln!("   Please open an issue and include the file contents above.");
+        std::process::exit(1);
+    }
+}
+
+/// Construct the full config `serde_json::Value` from the gathered inputs.
+fn build_init_config(
+    anchor_name: &str,
+    network: &str,
+    admin_key: &str,
+    rpc_endpoint: &str,
+    contract_id: Option<&str>,
+) -> serde_json::Value {
+    use serde_json::json;
+
+    let mut config = json!({
+        "contract": {
+            "name": anchor_name,
+            "version": "1.0.0",
+            "description": format!("AnchorKit config for {}", anchor_name),
+            "network": network
+        },
+        "attestors": {
+            "registry": [
+                {
+                    "name": "primary-attestor",
+                    "address": admin_key,
+                    "description": "Replace with your real attestor address",
+                    "endpoint": "https://attestor.example.com/verify",
+                    "role": "attestor",
+                    "enabled": true
+                }
+            ]
+        },
+        "sessions": {
+            "enable_session_tracking": true,
+            "session_timeout_seconds": 3600,
+            "operations_per_session": 100,
+            "audit_log_retention_days": 30
+        },
+        "deployment": {
+            "admin_key": admin_key,
+            "rpc_endpoint": rpc_endpoint,
+            "network": network
+        }
+    });
+
+    if let Some(id) = contract_id {
+        config["deployment"]["contract_id"] = serde_json::Value::String(id.to_string());
+    }
+
+    config
 }

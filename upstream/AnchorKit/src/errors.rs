@@ -99,6 +99,10 @@ pub enum ErrorCode {
     SessionNotFound = 55,
     SessionExpired = 56,
     MissingSigningKey = 57,
+    NotInitialized = 58,
+    InvalidStrategy = 59,
+    UnauthorizedProposeAdmin = 60,
+    AttestationLimitReached = 61,
 }
 
 impl ErrorCode {
@@ -121,7 +125,6 @@ impl ErrorCode {
             ErrorCode::ServicesNotConfigured => "Services are not configured",
             ErrorCode::ValidationError => "Response schema validation failed",
             ErrorCode::RateLimitExceeded => "Rate limit exceeded",
-            ErrorCode::NotInitialized => "Contract is not initialized",
             ErrorCode::AttestationNotFound => "Attestation not found",
             ErrorCode::InvalidSep10Token => "SEP-10 JWT is missing, expired, or invalid",
             ErrorCode::StorageCorrupted => "On-chain storage entry is corrupted or unreadable",
@@ -134,6 +137,10 @@ impl ErrorCode {
             ErrorCode::SessionNotFound => "Session not found",
             ErrorCode::SessionExpired => "Session has expired",
             ErrorCode::MissingSigningKey => "Anchor TOML does not publish a signing key",
+            ErrorCode::NotInitialized => "Contract is not initialized",
+            ErrorCode::InvalidStrategy => "Routing strategy is invalid",
+            ErrorCode::UnauthorizedProposeAdmin => "Caller is not authorized to propose an admin",
+            ErrorCode::AttestationLimitReached => "Attestation limit reached for this subject",
         }
     }
 
@@ -227,6 +234,14 @@ impl AnchorKitError {
     pub fn validation_error(context: &str) -> Self {
         Self::with_context(ErrorCode::ValidationError, ErrorCode::ValidationError.default_message(), context)
     }
+
+    pub fn audit_log_max_size_invalid() -> Self { Self::from_code(ErrorCode::AuditLogMaxSizeInvalid) }
+    pub fn unauthorized_propose_admin() -> Self { Self::from_code(ErrorCode::UnauthorizedProposeAdmin) }
+    pub fn no_pending_admin() -> Self { Self::from_code(ErrorCode::NoPendingAdmin) }
+    pub fn not_pending_admin() -> Self { Self::from_code(ErrorCode::NotPendingAdmin) }
+    pub fn path_traversal_detected() -> Self {
+        Self::with_context(ErrorCode::ValidationError, "Path traversal detected in URL", "endpoint URL contains path traversal sequence")
+    }
 }
 
 #[cfg(feature = "std")]
@@ -242,35 +257,6 @@ impl core::fmt::Display for AnchorKitError {
 // ---------------------------------------------------------------------------
 // no-std / WASM implementation — zero heap allocation
 // ---------------------------------------------------------------------------
-
-    pub fn cache_not_found() -> Self {
-        Self::from_code(ErrorCode::CacheNotFound)
-    }
-
-    pub fn already_initialized() -> Self { Self::from_code(ErrorCode::AlreadyInitialized) }
-    pub fn attestor_already_registered() -> Self { Self::from_code(ErrorCode::AttestorAlreadyRegistered) }
-    pub fn attestor_not_registered() -> Self { Self::from_code(ErrorCode::AttestorNotRegistered) }
-    pub fn unauthorized_attestor() -> Self { Self::from_code(ErrorCode::UnauthorizedAttestor) }
-    pub fn invalid_timestamp() -> Self { Self::from_code(ErrorCode::InvalidTimestamp) }
-    pub fn replay_attack() -> Self { Self::from_code(ErrorCode::ReplayAttack) }
-    pub fn invalid_quote() -> Self { Self::from_code(ErrorCode::InvalidQuote) }
-    pub fn invalid_service_type() -> Self { Self::from_code(ErrorCode::InvalidServiceType) }
-    pub fn invalid_transaction_intent() -> Self { Self::from_code(ErrorCode::InvalidTransactionIntent) }
-    pub fn stale_quote() -> Self { Self::from_code(ErrorCode::StaleQuote) }
-    pub fn compliance_not_met() -> Self { Self::from_code(ErrorCode::ComplianceNotMet) }
-    pub fn invalid_endpoint_format() -> Self { Self::from_code(ErrorCode::InvalidEndpointFormat) }
-    pub fn no_quotes_available() -> Self { Self::from_code(ErrorCode::NoQuotesAvailable) }
-    pub fn services_not_configured() -> Self { Self::from_code(ErrorCode::ServicesNotConfigured) }
-    pub fn not_initialized() -> Self { Self::from_code(ErrorCode::NotInitialized) }
-    pub fn attestation_not_found() -> Self { Self::from_code(ErrorCode::AttestationNotFound) }
-    pub fn invalid_sep10_token() -> Self { Self::from_code(ErrorCode::InvalidSep10Token) }
-    pub fn rate_limit_exceeded() -> Self { Self::from_code(ErrorCode::RateLimitExceeded) }
-    pub fn storage_corrupted() -> Self { Self::from_code(ErrorCode::StorageCorrupted) }
-    pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
-    pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
-    pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
-    pub fn validation_error(_context: &str) -> Self { Self::from_code(ErrorCode::ValidationError) }
-}
 
 #[cfg(not(feature = "std"))]
 impl core::fmt::Display for AnchorKitError {
