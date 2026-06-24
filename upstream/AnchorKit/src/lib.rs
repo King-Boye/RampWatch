@@ -102,3 +102,6 @@ mod anchor_health_score_tests;
 
 #[cfg(test)]
 mod compute_payload_hash_tests;
+
+#[cfg(test)]
+mod new_features_tests;

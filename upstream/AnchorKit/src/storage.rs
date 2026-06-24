@@ -61,6 +61,10 @@ pub enum StorageKey {
     RateLimitState(Address),
     /// Per-attestor rate-limit configuration override (persistent).
     RateLimitOverride(Address),
+    /// Per-attestor attestation count (persistent).
+    AttestorCount(Address),
+    /// Revocation marker for an individual attestation (persistent).
+    AttestationRevoked(u64),
     // --- Instance-storage counters (stored as Vec<Symbol> keys) ---
     // These are kept as plain symbol_short! vecs because instance storage
     // requires a Vec<Symbol> key; they are defined as named constants below.

@@ -103,8 +103,15 @@ pub struct AnchorKitContract;
 #[contractimpl]
 #[allow(clippy::too_many_arguments)]
 impl AnchorKitContract {
-    pub fn get_attestation_count(env: Env) -> u64 {
-        env.storage().instance().get(&symbol_short!("TOTALCNT")).unwrap_or(0)
+    pub fn get_version(env: Env) -> String {
+        String::from_str(&env, env!("CARGO_PKG_VERSION"))
+    }
+
+    pub fn get_attestation_count(env: Env, attestor: Address) -> u64 {
+        env.storage()
+            .persistent()
+            .get::<_, u64>(&StorageKey::AttestorCount(attestor))
+            .unwrap_or(0)
     }
     // -----------------------------------------------------------------------
     // Initialization
@@ -420,6 +427,28 @@ impl AnchorKitContract {
         );
     }
 
+    /// Revoke a single attestation by its ID. Only the issuing attestor may
+    /// revoke their own attestation.
+    pub fn revoke_attestation(env: Env, attestor: Address, attestation_id: u64) {
+        attestor.require_auth();
+        let attest_key = StorageKey::Attest(attestation_id);
+        let attestation: Attestation = env
+            .storage()
+            .persistent()
+            .get(&attest_key)
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound));
+        if attestation.issuer != attestor {
+            panic_with_error!(&env, ErrorCode::UnauthorizedAttestor);
+        }
+        let revoked_key = StorageKey::AttestationRevoked(attestation_id);
+        env.storage().persistent().set(&revoked_key, &true);
+        env.storage().persistent().extend_ttl(&revoked_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        env.events().publish(
+            (symbol_short!("attest"), symbol_short!("revoked"), attestation_id),
+            attestor,
+        );
+    }
+
     pub fn is_attestor(env: Env, attestor: Address) -> bool {
         env.storage()
             .persistent()
@@ -568,7 +597,7 @@ impl AnchorKitContract {
         }
 
         let id = Self::next_attestation_id(&env);
-        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature);
+        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature, None);
 
         env.storage().persistent().set(&used_key, &true);
         env.storage().persistent().extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
@@ -608,7 +637,7 @@ impl AnchorKitContract {
         }
 
         let id = Self::next_attestation_id(&env);
-        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature);
+        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature, None);
 
         env.storage().persistent().set(&used_key, &true);
         env.storage().persistent().extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
@@ -703,6 +732,14 @@ impl AnchorKitContract {
         // Reflect current revocation status without rewriting every stored attestation.
         if env.storage().persistent().has(&StorageKey::AttestorRevoked(attestation.issuer.clone())) {
             attestation.issuer_revoked = true;
+        }
+        if env.storage().persistent().has(&StorageKey::AttestationRevoked(id)) {
+            panic_with_error!(&env, ErrorCode::AttestationRevoked);
+        }
+        if let Some(expires_at) = attestation.expires_at {
+            if env.ledger().timestamp() > expires_at {
+                panic_with_error!(&env, ErrorCode::AttestationExpired);
+            }
         }
         Some(attestation)
     }
@@ -951,7 +988,7 @@ impl AnchorKitContract {
         }
 
         let id = Self::next_attestation_id(&env);
-        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature);
+        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature, None);
 
         env.storage().persistent().set(&used_key, &true);
         env.storage().persistent().extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
@@ -2068,19 +2105,27 @@ impl AnchorKitContract {
         timestamp: u64,
         payload_hash: Bytes,
         signature: Bytes,
+        expires_at: Option<u64>,
     ) {
         let attestation = Attestation {
             id,
-            issuer,
+            issuer: issuer.clone(),
             subject: subject.clone(),
             timestamp,
             payload_hash,
             signature,
             issuer_revoked: false,
+            expires_at,
         };
         let key = StorageKey::Attest(id);
         env.storage().persistent().set(&key, &attestation);
         env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+
+        // Per-attestor count
+        let attestor_count_key = StorageKey::AttestorCount(issuer);
+        let attestor_count: u64 = env.storage().persistent().get(&attestor_count_key).unwrap_or(0);
+        env.storage().persistent().set(&attestor_count_key, &(attestor_count + 1));
+        env.storage().persistent().extend_ttl(&attestor_count_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         // Subject-specific index for pagination support (#215)
         // Store only the ID to save storage space (O(1) extra space)
@@ -2175,6 +2220,6 @@ pub fn get_admin(env: Env) -> Address {
     AnchorKitContract::get_admin(env)
 }
 
-pub fn get_attestation_count(env: Env) -> u64 {
-    AnchorKitContract::get_attestation_count(env)
+pub fn get_attestation_count(env: Env, attestor: Address) -> u64 {
+    AnchorKitContract::get_attestation_count(env, attestor)
 }

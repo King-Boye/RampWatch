@@ -211,6 +211,9 @@ pub struct Attestation {
     /// audit purposes; callers should treat `issuer_revoked = true` as a
     /// signal that the issuer's authority has been withdrawn.
     pub issuer_revoked: bool,
+    /// Optional Unix timestamp (seconds) after which this attestation is
+    /// considered expired. `None` means no expiry.
+    pub expires_at: Option<u64>,
 }
 
 #[contracttype]

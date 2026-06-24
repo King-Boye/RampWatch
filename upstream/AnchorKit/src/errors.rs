@@ -99,6 +99,9 @@ pub enum ErrorCode {
     SessionNotFound = 55,
     SessionExpired = 56,
     MissingSigningKey = 57,
+    AttestationExpired = 58,
+    AttestationRevoked = 59,
+    AttestationLimitReached = 60,
 }
 
 impl ErrorCode {
@@ -134,6 +137,9 @@ impl ErrorCode {
             ErrorCode::SessionNotFound => "Session not found",
             ErrorCode::SessionExpired => "Session has expired",
             ErrorCode::MissingSigningKey => "Anchor TOML does not publish a signing key",
+            ErrorCode::AttestationExpired => "Attestation has expired",
+            ErrorCode::AttestationRevoked => "Attestation has been revoked",
+            ErrorCode::AttestationLimitReached => "Attestation ID limit reached",
         }
     }
 
