@@ -574,8 +574,8 @@ impl AnchorKitContract {
         env.storage().persistent().extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         env.events().publish(
-            (symbol_short!("attest"), symbol_short!("recorded"), id, subject),
-            AttestEvent { payload_hash, timestamp },
+            (symbol_short!("attest"), symbol_short!("recorded"), id, subject.clone()),
+            AttestEvent { subject, payload_hash, timestamp },
         );
 
         id
@@ -617,8 +617,8 @@ impl AnchorKitContract {
         Self::store_span(&env, &request_id, String::from_str(&env, "submit_attestation"), issuer.clone(), now, String::from_str(&env, "success"));
 
         env.events().publish(
-            (symbol_short!("attest"), symbol_short!("recorded"), id, subject),
-            AttestEvent { payload_hash, timestamp },
+            (symbol_short!("attest"), symbol_short!("recorded"), id, subject.clone()),
+            AttestEvent { subject, payload_hash, timestamp },
         );
 
         id
@@ -988,8 +988,8 @@ impl AnchorKitContract {
         env.storage().persistent().extend_ttl(&audit_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         env.events().publish(
-            (symbol_short!("attest"), symbol_short!("recorded"), id, subject),
-            AttestEvent { payload_hash, timestamp },
+            (symbol_short!("attest"), symbol_short!("recorded"), id, subject.clone()),
+            AttestEvent { subject, payload_hash, timestamp },
         );
         env.events().publish(
             (symbol_short!("audit"), symbol_short!("logged"), log_id),
