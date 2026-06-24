@@ -30,8 +30,10 @@ pub use deterministic_hash::{compute_payload_hash, verify_payload_hash};
 mod transaction_state_tracker_tests;
 pub use sep6::{
     fetch_transaction_status, initiate_deposit, initiate_withdrawal,
+    deposit_exchange, validate_amount, get_fee_estimate, get_transactions,
     RawDepositResponse, RawTransactionResponse, RawWithdrawalResponse, TransactionKind,
-    TransactionStatusResponse,
+    TransactionStatusResponse, RawDepositExchangeRequest, DepositExchangeResponse,
+    AssetLimits, AnchorFeeData, FeeEstimate, FeeOperation, TransactionFilters,
 };
 pub use types::{DepositResponse, WithdrawalResponse, TransactionStatus};
 pub use contract::{AnchorKitContract, get_admin, get_endpoint, set_endpoint, get_attestation_count};

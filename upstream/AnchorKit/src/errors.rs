@@ -99,6 +99,7 @@ pub enum ErrorCode {
     SessionNotFound = 55,
     SessionExpired = 56,
     MissingSigningKey = 57,
+    InvalidAmount = 58,
 }
 
 impl ErrorCode {
@@ -134,6 +135,7 @@ impl ErrorCode {
             ErrorCode::SessionNotFound => "Session not found",
             ErrorCode::SessionExpired => "Session has expired",
             ErrorCode::MissingSigningKey => "Anchor TOML does not publish a signing key",
+            ErrorCode::InvalidAmount => "Amount is outside the allowed min/max range for this asset",
         }
     }
 
@@ -224,6 +226,8 @@ impl AnchorKitError {
     pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
     pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
 
+    pub fn invalid_amount() -> Self { Self::from_code(ErrorCode::InvalidAmount) }
+
     pub fn validation_error(context: &str) -> Self {
         Self::with_context(ErrorCode::ValidationError, ErrorCode::ValidationError.default_message(), context)
     }
@@ -269,6 +273,7 @@ impl core::fmt::Display for AnchorKitError {
     pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
     pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
     pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
+    pub fn invalid_amount() -> Self { Self::from_code(ErrorCode::InvalidAmount) }
     pub fn validation_error(_context: &str) -> Self { Self::from_code(ErrorCode::ValidationError) }
 }
 
