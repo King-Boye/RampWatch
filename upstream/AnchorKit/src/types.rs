@@ -116,6 +116,7 @@ pub const SERVICE_DEPOSITS: u32 = 1;
 pub const SERVICE_WITHDRAWALS: u32 = 2;
 pub const SERVICE_QUOTES: u32 = 3;
 pub const SERVICE_KYC: u32 = 4;
+pub const SERVICE_EXCHANGE_QUOTES: u32 = 5;
 
 /// Typed representation of a service capability an anchor can support.
 ///
@@ -127,6 +128,7 @@ pub enum ServiceType {
     Withdrawals,
     Quotes,
     KYC,
+    ExchangeQuotes,
 }
 
 impl ServiceType {
@@ -136,6 +138,7 @@ impl ServiceType {
             ServiceType::Withdrawals => SERVICE_WITHDRAWALS,
             ServiceType::Quotes => SERVICE_QUOTES,
             ServiceType::KYC => SERVICE_KYC,
+            ServiceType::ExchangeQuotes => SERVICE_EXCHANGE_QUOTES,
         }
     }
 }

@@ -21,7 +21,7 @@ pub use crate::types::{
     AnchorMetadata, AnchorServices, AssetInfo, Attestation, AuditLog, CapabilitiesCache,
     CachedToml, FiatCurrency, HealthStatus, MetadataCache, OperationContext, Quote, RequestId,
     RoutingOptions, RoutingRequest, Session, StellarToml, TracingSpan,
-    SERVICE_DEPOSITS, SERVICE_WITHDRAWALS, SERVICE_QUOTES, SERVICE_KYC, ServiceType,
+    SERVICE_DEPOSITS, SERVICE_WITHDRAWALS, SERVICE_QUOTES, SERVICE_KYC, SERVICE_EXCHANGE_QUOTES, ServiceType,
 };
 
 const MIN_TEMP_TTL: u32 = 15; // min_temp_entry_ttl - 1
@@ -500,11 +500,12 @@ impl AnchorKitContract {
         }
         let mut seen = Vec::new(&env);
         for s in services.iter() {
-            // Reject any value that is not one of the four known service constants.
+            // Reject any value that is not one of the known service constants.
             if s != SERVICE_DEPOSITS
                 && s != SERVICE_WITHDRAWALS
                 && s != SERVICE_QUOTES
                 && s != SERVICE_KYC
+                && s != SERVICE_EXCHANGE_QUOTES
             {
                 panic_with_error!(&env, ErrorCode::InvalidServiceType);
             }
