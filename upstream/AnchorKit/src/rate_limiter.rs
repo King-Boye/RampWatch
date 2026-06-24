@@ -28,6 +28,8 @@ pub struct RateLimitState {
     pub window_start_ledger: u32,
     /// Cumulative total requests across all windows (never reset)
     pub total_requests: u64,
+    /// Whether the one-time burst allowance has been consumed.
+    pub burst_used: bool,
 }
 
 /// Rate limiter utility — plain Rust struct, no Soroban contract boundary.
