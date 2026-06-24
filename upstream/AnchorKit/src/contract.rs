@@ -10,7 +10,7 @@ use crate::storage::{
     StorageKey,
     key_admin, key_counter, key_session_counter, key_quote_counter,
     key_audit_counter, key_anchor_list, key_health_threshold, key_replay_window,
-    key_audit_log_offset,
+    key_audit_log_offset, key_attestor_list,
 };
 
 // ---------------------------------------------------------------------------
@@ -397,6 +397,15 @@ impl AnchorKitContract {
         env.storage()
             .persistent()
             .extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+
+        let list_key = key_attestor_list(&env);
+        let mut attestors: Vec<Address> = env.storage().persistent()
+            .get::<_, Vec<Address>>(&list_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        attestors.push_back(attestor.clone());
+        env.storage().persistent().set(&list_key, &attestors);
+        env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
+
         env.events().publish(
 (symbol_short!("attestor"), symbol_short!("reg")),
             AttestorRegistered(attestor),
@@ -410,6 +419,20 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::AttestorNotRegistered);
         }
         env.storage().persistent().remove(&key);
+
+        let list_key = key_attestor_list(&env);
+        let mut attestors: Vec<Address> = env.storage().persistent()
+            .get::<_, Vec<Address>>(&list_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let mut new_list = Vec::new(&env);
+        for stored_attestor in attestors.iter() {
+            if stored_attestor != attestor {
+                new_list.push_back(stored_attestor);
+            }
+        }
+        env.storage().persistent().set(&list_key, &new_list);
+        env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
+
         // Mark the attestor as revoked so historical attestations surface issuer_revoked=true.
         let revoked_key = StorageKey::AttestorRevoked(attestor.clone());
         env.storage().persistent().set(&revoked_key, &true);
@@ -425,6 +448,36 @@ impl AnchorKitContract {
             .persistent()
             .get::<_, bool>(&StorageKey::Attestor(attestor))
             .unwrap_or(false)
+    }
+
+    /// Retrieve all registered attestors with pagination support.
+    ///
+    /// Returns a page of attestor addresses starting at the given offset
+    /// with a maximum of `limit` entries per page.
+    ///
+    /// Arguments:
+    /// - `offset`: Starting index for pagination (0-based)
+    /// - `limit`: Maximum number of attestors to return per page
+    ///
+    /// Returns a vector of attestor addresses for the requested page.
+    pub fn get_all_attestors(env: Env, offset: u64, limit: u32) -> Vec<Address> {
+        let list_key = key_attestor_list(&env);
+        let attestors: Vec<Address> = env.storage().persistent()
+            .get::<_, Vec<Address>>(&list_key)
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let start = offset as usize;
+        let limit = limit as usize;
+        let mut result = Vec::new(&env);
+
+        if start < attestors.len() {
+            let end = std::cmp::min(start + limit, attestors.len());
+            for i in start..end {
+                result.push_back(attestors.get(i as u32).unwrap());
+            }
+        }
+
+        result
     }
 
     // -----------------------------------------------------------------------
@@ -1016,6 +1069,14 @@ impl AnchorKitContract {
         env.storage().persistent().set(&key, &true);
         env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
 
+        let list_key = key_attestor_list(&env);
+        let mut attestors: Vec<Address> = env.storage().persistent()
+            .get::<_, Vec<Address>>(&list_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        attestors.push_back(attestor.clone());
+        env.storage().persistent().set(&list_key, &attestors);
+        env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
+
         let sopcnt_key = StorageKey::SessionOpCount(session_id);
         let op_index: u64 = env.storage().persistent().get(&sopcnt_key).unwrap_or(0u64);
         env.storage().persistent().set(&sopcnt_key, &(op_index + 1));
@@ -1070,6 +1131,20 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::AttestorNotRegistered);
         }
         env.storage().persistent().remove(&key);
+
+        let list_key = key_attestor_list(&env);
+        let mut attestors: Vec<Address> = env.storage().persistent()
+            .get::<_, Vec<Address>>(&list_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let mut new_list = Vec::new(&env);
+        for stored_attestor in attestors.iter() {
+            if stored_attestor != attestor {
+                new_list.push_back(stored_attestor);
+            }
+        }
+        env.storage().persistent().set(&list_key, &new_list);
+        env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
+
         // Mark the attestor as revoked so historical attestations surface issuer_revoked=true.
         let revoked_key = StorageKey::AttestorRevoked(attestor.clone());
         env.storage().persistent().set(&revoked_key, &true);
