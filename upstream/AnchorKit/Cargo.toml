@@ -17,6 +17,7 @@ std = ["serde", "serde_json", "toml", "regex"]
 wasm = []
 mock-only = []
 stress-tests = []
+testnet-integration = []
 
 [dependencies]
 soroban-sdk = "21.7.0"
