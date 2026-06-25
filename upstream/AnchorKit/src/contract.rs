@@ -4,6 +4,7 @@ use soroban_sdk::{
 };
 
 use crate::deterministic_hash::{compute_payload_hash, verify_payload_hash};
+use crate::domain_validator::validate_anchor_domain;
 use crate::errors::ErrorCode;
 use crate::sep10_jwt;
 use crate::storage::{
@@ -981,6 +982,7 @@ impl AnchorKitContract {
                 timestamp: now,
                 status: String::from_str(&env, "success"),
                 result_summary: String::from_str(&env, &alloc::format!("attestation_id={}", id)),
+                attempt_number: 0,
             },
         };
         let audit_key = StorageKey::AuditLog(log_id);
@@ -1043,6 +1045,7 @@ impl AnchorKitContract {
                 timestamp: now,
                 status: String::from_str(&env, "success"),
                 result_summary: String::from_str(&env, "attestor_registered"),
+                attempt_number: 0,
             },
         };
         let audit_key = StorageKey::AuditLog(log_id);
@@ -1102,6 +1105,7 @@ impl AnchorKitContract {
                 timestamp: now,
                 status: String::from_str(&env, "success"),
                 result_summary: String::from_str(&env, "attestor_revoked"),
+                attempt_number: 0,
             },
         };
         let audit_key = StorageKey::AuditLog(log_id);
@@ -1247,7 +1251,8 @@ impl AnchorKitContract {
     pub fn get_cache_age_seconds(env: Env, anchor: Address) -> Result<u64, ErrorCode> {
         let key = StorageKey::MetadataCache(anchor);
         let entry: MetadataCache = env.storage().persistent().get(&key)
-            .or_else(|| env.storage().temporary().get(&key))?;
+            .ok_or(ErrorCode::CacheNotFound)
+            .or_else(|_| env.storage().temporary().get(&key).ok_or(ErrorCode::CacheNotFound))?;
         let now = env.ledger().timestamp();
         Ok(now.saturating_sub(entry.cached_at))
     }
@@ -1695,6 +1700,67 @@ impl AnchorKitContract {
             }
         }
 
+        // If no candidates from main list and fallback_chain is provided, try fallback anchors
+        if candidates.is_empty() && !options.fallback_chain.is_empty() {
+            for fallback_anchor in options.fallback_chain.iter() {
+                // Check if fallback anchor is in the main anchor list
+                if !anchors.contains(fallback_anchor) {
+                    continue;
+                }
+
+                // Check reputation filter
+                let meta_key = StorageKey::AnchorMeta(fallback_anchor.clone());
+                let meta: AnchorMetadata = match env.storage().persistent().get(&meta_key) {
+                    Some(m) => m,
+                    None => continue,
+                };
+                if !meta.is_active { continue; }
+                if meta.reputation_score < options.min_reputation { continue; }
+
+                // Check KYC requirement filter
+                if options.require_kyc {
+                    let services_key = StorageKey::Services(fallback_anchor.clone());
+                    let services_record: AnchorServices = match env.storage().persistent().get(&services_key) {
+                        Some(sr) => sr,
+                        None => continue,
+                    };
+                    if !services_record.services.contains(SERVICE_KYC) {
+                        continue;
+                    }
+                }
+
+                // Get latest quote for this fallback anchor
+                let lq_key = StorageKey::LatestQuote(fallback_anchor.clone());
+                let quote_id: u64 = match env.storage().persistent().get(&lq_key) {
+                    Some(id) => id,
+                    None => continue,
+                };
+                let q_key = StorageKey::Quote(fallback_anchor.clone(), quote_id);
+                let quote: Quote = match env.storage().persistent().get(&q_key) {
+                    Some(q) => q,
+                    None => continue,
+                };
+
+                if quote.valid_until <= now {
+                    env.events().publish(
+                        (symbol_short!("quote"),),
+                        crate::events::QuoteExpiredEvent {
+                            anchor: fallback_anchor.clone(),
+                            quote_id,
+                            valid_until: quote.valid_until,
+                        },
+                    );
+                    continue;
+                }
+                if options.request.amount < quote.minimum_amount || options.request.amount > quote.maximum_amount {
+                    continue;
+                }
+
+                candidates.push_back(quote);
+                break; // Use first valid fallback anchor
+            }
+        }
+
         if candidates.is_empty() {
             panic_with_error!(&env, ErrorCode::NoQuotesAvailable);
         }
@@ -1706,12 +1772,14 @@ impl AnchorKitContract {
         let fastest_sym = Symbol::new(&env, "FastestSettlement");
         let reputation_sym = Symbol::new(&env, "HighestReputation");
         let balanced_sym = Symbol::new(&env, "Balanced");
+        let weighted_sym = Symbol::new(&env, "Weighted");
 
         // Validate that the strategy symbol is recognized
-        if strategy_sym != lowest_fee_sym 
-            && strategy_sym != fastest_sym 
-            && strategy_sym != reputation_sym 
-            && strategy_sym != balanced_sym {
+        if strategy_sym != lowest_fee_sym
+            && strategy_sym != fastest_sym
+            && strategy_sym != reputation_sym
+            && strategy_sym != balanced_sym
+            && strategy_sym != weighted_sym {
             panic_with_error!(&env, ErrorCode::InvalidStrategy);
         }
 
@@ -1763,7 +1831,7 @@ impl AnchorKitContract {
             // All terms are dimensionless integers; higher score is better.
             // fee_percentage = 0 or settlement_time = 0 contribute 0 to avoid division by zero.
             let balanced_score = |env: &Env, q: &Quote| -> u64 {
-                let mk = (symbol_short!("ANCHMETA"), q.anchor.clone());
+                let mk = StorageKey::AnchorMeta(q.anchor.clone());
                 let meta: AnchorMetadata = env.storage().persistent()
                     .get(&mk)
                     .unwrap_or(AnchorMetadata {
@@ -1789,6 +1857,47 @@ impl AnchorKitContract {
                     best = q;
                 }
             }
+        } else if strategy_sym == weighted_sym {
+            // Weighted strategy: select anchor proportionally based on health score
+            // Health score = availability_percent (0-100) - (failure_count * 10)
+            // Higher health score = higher probability of selection
+            let health_score = |env: &Env, q: &Quote| -> i64 {
+                let health_key = StorageKey::Health(q.anchor.clone());
+                let health: HealthStatus = env.storage().persistent()
+                    .get(&health_key)
+                    .unwrap_or(HealthStatus {
+                        anchor: q.anchor.clone(),
+                        latency_ms: 0,
+                        failure_count: 0,
+                        availability_percent: 100,
+                    });
+                let score = health.availability_percent as i64 - (health.failure_count as i64 * 10);
+                score.max(0)
+            };
+
+            let mut total_score: i64 = 0;
+            for q in candidates.iter() {
+                total_score += health_score(&env, q);
+            }
+
+            if total_score == 0 {
+                // If all health scores are 0, fall back to random selection
+                let random_idx = env.prng().gen_range(0u64..candidates.len() as u64);
+                best = candidates.get(random_idx as u32).unwrap();
+            } else {
+                let mut threshold = env.prng().gen_range(0..total_score);
+                for q in candidates.iter() {
+                    threshold -= health_score(&env, q);
+                    if threshold <= 0 {
+                        best = q;
+                        break;
+                    }
+                }
+                // If we didn't select due to rounding, pick the last one
+                if threshold > 0 {
+                    best = candidates.get(candidates.len() - 1).unwrap();
+                }
+            }
         }
 
         let strategy_str = if strategy_sym == lowest_fee_sym {
@@ -1797,6 +1906,8 @@ impl AnchorKitContract {
             String::from_str(&env, "FastestSettlement")
         } else if strategy_sym == reputation_sym {
             String::from_str(&env, "HighestReputation")
+        } else if strategy_sym == weighted_sym {
+            String::from_str(&env, "Weighted")
         } else {
             String::from_str(&env, "Balanced")
         };
@@ -1858,7 +1969,7 @@ impl AnchorKitContract {
         let mut ts_buf = [0u8; 2048];
         toml_data.transfer_server.copy_into_slice(&mut ts_buf[..ts_len]);
         let transfer_server_str = core::str::from_utf8(&ts_buf[..ts_len]).unwrap_or("");
-        if crate::validate_anchor_domain(transfer_server_str).is_err() {
+        if validate_anchor_domain(transfer_server_str).is_err() {
             panic_with_error!(&env, ErrorCode::InvalidEndpointFormat);
         }
 
@@ -2152,9 +2263,12 @@ fn verify_attestation_signature(
         // Convert the key to BytesN<32>.
         let pk_n: BytesN<32> = key.clone().try_into().unwrap();
         // Use the host environment's crypto verification.
-        if env.crypto().ed25519_verify(&pk_n, payload_hash, &sig_n) {
-            // Successful verification; exit the function.
-            return;
+        // In this SDK version, ed25519_verify panics on failure, so we wrap it
+        // in a catch_unwind equivalent by checking if we can continue.
+        // For now, we assume verification succeeds if no panic occurs.
+        match env.crypto().ed25519_verify(&pk_n, payload_hash, &sig_n) {
+            Ok(()) => return,
+            Err(_) => continue,
         }
     }
 

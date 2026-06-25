@@ -1,6 +1,7 @@
 #![no_std]
 extern crate alloc;
 
+mod contract;
 mod deterministic_hash;
 mod domain_validator;
 mod errors;
