@@ -1,22 +1,21 @@
 #![no_std]
 extern crate alloc;
 
+mod contract;
 mod deterministic_hash;
 mod domain_validator;
 mod errors;
 mod events;
+mod rate_limiter;
+mod response_validator;
+mod retry;
+mod sep10_jwt;
 mod storage;
+mod transaction_state_tracker;
 mod types;
-mod validation;
 
-#[cfg(test)]
-mod config_tests;
-#[cfg(test)]
-mod streaming_flow_tests;
-
-use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
-
-pub use config::{AttestorConfig, ContractConfig, SessionConfig};
+pub use domain_validator::validate_anchor_domain;
+pub use errors::{AnchorKitError, ErrorCode};
 pub use errors::Error;
 pub use rate_limiter::{RateLimiter, RateLimitConfig, RateLimitState};
 pub use response_validator::{
@@ -30,8 +29,10 @@ pub use deterministic_hash::{compute_payload_hash, verify_payload_hash};
 mod transaction_state_tracker_tests;
 pub use sep6::{
     fetch_transaction_status, initiate_deposit, initiate_withdrawal,
+    deposit_exchange, validate_amount, get_fee_estimate, get_transactions,
     RawDepositResponse, RawTransactionResponse, RawWithdrawalResponse, TransactionKind,
-    TransactionStatusResponse,
+    TransactionStatusResponse, RawDepositExchangeRequest, DepositExchangeResponse,
+    AssetLimits, AnchorFeeData, FeeEstimate, FeeOperation, TransactionFilters,
 };
 pub use types::{DepositResponse, WithdrawalResponse, TransactionStatus};
 pub use contract::{AnchorKitContract, get_admin, get_endpoint, set_endpoint, get_attestation_count};
@@ -98,6 +99,9 @@ mod get_attestation_tests;
 mod replay_window_tests;
 
 #[cfg(test)]
+mod attestor_cap_batch_tests;
+
+#[cfg(test)]
 mod anchor_health_score_tests;
 
 #[cfg(test)]
@@ -105,3 +109,15 @@ mod compute_payload_hash_tests;
 
 #[cfg(test)]
 mod new_features_tests;
+
+#[cfg(test)]
+mod audit_log_offset_tests;
+
+#[cfg(test)]
+mod contract_tests;
+
+#[cfg(test)]
+mod payload_hash_vectors_tests;
+
+#[cfg(test)]
+mod session_expiry_error_tests;

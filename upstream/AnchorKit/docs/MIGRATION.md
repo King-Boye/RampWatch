@@ -1,3 +1,155 @@
+# Migration Guide
+
+---
+
+## Upgrading from 0.x to 1.0
+
+This section covers all breaking changes introduced in 1.0 and the steps required to upgrade from any 0.x release.
+
+### Table of Contents (0.x → 1.0)
+
+1. [Storage migration](#1-storage-migration)
+2. [API changes](#2-api-changes)
+3. [Removed methods](#3-removed-methods)
+4. [Error code renumbering](#4-error-code-renumbering)
+5. [New required configuration](#5-new-required-configuration-10)
+
+---
+
+### 1. Storage Migration
+
+1.0 introduces a fully contiguous storage key layout. Existing persistent entries written by 0.x contracts **cannot be read by a 1.0 contract** because the `StorageKey` enum discriminants were renumbered.
+
+**Action required:** Re-deploy a fresh contract and re-populate data (attestors, sessions, metadata) from your off-chain records. There is no automatic on-chain migration path — Soroban contracts cannot iterate over all storage keys.
+
+**Recommended upgrade procedure**
+
+1. Export all data from your 0.x deployment (attestor list, audit logs, metadata) using your indexer or event log.
+2. Deploy the 1.0 contract to a new contract ID.
+3. Call `initialize` on the new contract.
+4. Re-register attestors with `register_attestor` (SEP-10 JWT now required — see [API changes](#2-api-changes)).
+5. Re-populate metadata and TOML caches with `cache_metadata` and `fetch_anchor_info`.
+6. Update your client code to point to the new contract ID.
+
+---
+
+### 2. API Changes
+
+#### `initialize` — new parameters
+
+```rust
+// 0.x
+client.initialize(&admin);
+
+// 1.0
+client.initialize(&admin, &max_audit_log_size, &replay_window_seconds);
+// Example:
+client.initialize(&admin, &1000u64, &Some(300u64));
+```
+
+`max_audit_log_size` caps the number of audit entries retained on-chain. `replay_window_seconds` defaults to `300` when `None`.
+
+#### `register_attestor` — SEP-10 JWT is now mandatory
+
+```rust
+// 0.x
+client.register_attestor(&attestor);
+
+// 1.0
+client.upsert_sep10_verifying_key(&issuer, &ed25519_public_key_bytes); // one-time admin setup
+client.register_attestor(&attestor, &sep10_jwt, &issuer);
+```
+
+#### `configure_services` / `supports_service` — parameter type changed to `u32`
+
+```rust
+// 0.x
+services.push_back(ServiceType::Deposits);
+
+// 1.0
+use anchorkit::contract::SERVICE_DEPOSITS; // = 1u32
+services.push_back(SERVICE_DEPOSITS);
+```
+
+#### Admin transfer — two-step flow replaces single-step
+
+```rust
+// 0.x  (no longer available)
+client.transfer_admin(&new_admin);
+
+// 1.0
+client.propose_admin(&new_admin);  // current admin
+client.accept_admin();             // called by new_admin
+```
+
+#### `StellarToml` struct — field changes
+
+| Field | 0.x | 1.0 |
+|-------|-----|-----|
+| `signing_key` | `String` | `Option<String>` |
+| `fiat_currencies` | *(absent)* | `Vec<FiatCurrency>` (required) |
+
+```rust
+// 1.0
+let toml = StellarToml {
+    signing_key: Some(String::from_str(&env, "GABCDE...")), // now Option
+    fiat_currencies: Vec::new(&env),                        // new required field
+    // ... other fields unchanged
+};
+```
+
+---
+
+### 3. Removed Methods
+
+The following methods were present in 0.x and have been **removed** in 1.0:
+
+| Removed method | 1.0 replacement |
+|----------------|-----------------|
+| `transfer_admin(new_admin)` | `propose_admin` + `accept_admin` |
+| `set_sep10_jwt_verifying_key` | `upsert_sep10_verifying_key` (alias kept for one release) |
+| `add_sep10_verifying_key` | `upsert_sep10_verifying_key` |
+
+---
+
+### 4. Error Code Renumbering
+
+Error codes were renumbered to a contiguous range. Update any code that matches on raw numeric values:
+
+| Old code | New code | Name |
+|----------|----------|------|
+| 48 | 20* | `CacheExpired` |
+| 49 | 21* | `CacheNotFound` |
+| 51 | 22* | `AuditLogMaxSizeInvalid` |
+| 52 | 23* | `UnauthorizedProposeAdmin` |
+| 53 | 24* | `NoPendingAdmin` |
+| 54 | 25* | `NotPendingAdmin` |
+| 101 | 26* | `NotInitialized` |
+
+> \* The current `src/errors.rs` retains the original discriminant values (48, 49, 51–54) in the `ErrorCode` enum for on-chain compatibility. The table above reflects the logical renaming; numeric codes in the on-chain ABI are unchanged unless you compiled against the renumbered intermediate build. Always match on `ErrorCode` variants, never on raw integers.
+
+Use `AnchorKitError::from_code(ErrorCode::CacheExpired)` and match on `err.code` instead of raw numbers.
+
+---
+
+### 5. New Required Configuration (1.0)
+
+Before registering any attestors you must set a SEP-10 verifying key:
+
+```rust
+client.upsert_sep10_verifying_key(&issuer_address, &public_key_bytes);
+```
+
+For health-based auto-deactivation, set the failure threshold:
+
+```rust
+client.set_health_failure_threshold(&5u32);
+```
+
+---
+
+---
+
 # Migration Guide: 0.0.1 → 0.1.0
 
 This guide covers every breaking change introduced in 0.1.0 and shows exactly what you need to update in your integration.

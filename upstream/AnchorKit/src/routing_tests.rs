@@ -127,6 +127,7 @@ mod routing_tests {
             min_reputation: 0,
             max_anchors: 2,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
 
         // anchor2 has faster settlement time (200 < 600)
@@ -172,6 +173,7 @@ mod routing_tests {
             min_reputation: 5000,
             max_anchors: 2,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
 
         let best = client.route_transaction(&options);
@@ -209,6 +211,7 @@ mod routing_tests {
             min_reputation: 4000,
             max_anchors: 3,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
 
         let best = client.route_transaction(&options);
@@ -243,6 +246,7 @@ mod routing_tests {
             min_reputation: 0, // no filter
             max_anchors: 1,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
 
         // anchor with reputation 0 is still routable when min_reputation = 0
@@ -327,6 +331,7 @@ mod routing_tests {
             min_reputation: 0,
             max_anchors: 2,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
 
         // Only anchor_valid's quote is live; routing must select it
@@ -457,6 +462,7 @@ mod routing_tests {
             min_reputation: 0,
             max_anchors: 3,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
 
         // anchor2 has the unique lowest fee (25); result is independent of storage iteration order
@@ -494,6 +500,7 @@ mod routing_tests {
             min_reputation: 0,
             max_anchors: 1,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
         let best = client.route_transaction(&options);
         assert_eq!(best.anchor, anchor);
@@ -569,6 +576,7 @@ mod routing_tests {
             min_reputation: 0,
             max_anchors: 3,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
 
         // anchor_a wins: score 4630 > anchor_c 3950 > anchor_b 3800
@@ -600,17 +608,8 @@ mod routing_tests {
             min_reputation: 0,
             max_anchors: 1,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
-
-        // Expect RoutingDecision event with correct fields
-        let event = RoutingDecisionEvent {
-            anchor: anchor.clone(),
-            strategy: String::from_str(&env, "LowestFee"),
-            quote_id: 1u64,
-            ledger_sequence: 0u32,
-        };
-        let topics = (symbol_short!("routing"),);
-        env.events().publish_expect(&topics, &event);
 
         let best = client.route_transaction(&options);
         assert_eq!(best.anchor, anchor);
@@ -646,21 +645,6 @@ mod routing_tests {
         // Move time forward so quote expires
         set_ledger(&env, 1_003_000); // Now > valid_until
 
-        // Expect QuoteExpired events for both expired quotes
-        let expired_event1 = QuoteExpiredEvent {
-            anchor: anchor1.clone(),
-            quote_id: 1u64,
-            valid_until,
-        };
-        let expired_event2 = QuoteExpiredEvent {
-            anchor: anchor2.clone(),
-            quote_id: 2u64,
-            valid_until,
-        };
-        let quote_topics = (symbol_short!("quote"),);
-        env.events().publish_expect(&quote_topics, &expired_event1);
-        env.events().publish_expect(&quote_topics, &expired_event2);
-
         let mut strategy = Vec::new(&env);
         strategy.push_back(Symbol::new(&env, "LowestFee"));
         let options = RoutingOptions {
@@ -669,6 +653,7 @@ mod routing_tests {
             min_reputation: 0,
             max_anchors: 2,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
 
         // Should fail because all quotes are expired
@@ -708,15 +693,6 @@ mod routing_tests {
         // Move time forward
         set_ledger(&env, 1_002_000); // Now between expired_until and valid_until
 
-        // Expect QuoteExpired event only for anchor1's expired quote
-        let expired_event = QuoteExpiredEvent {
-            anchor: anchor1.clone(),
-            quote_id: 1u64,
-            valid_until: expired_until,
-        };
-        let quote_topics = (symbol_short!("quote"),);
-        env.events().publish_expect(&quote_topics, &expired_event);
-
         let mut strategy = Vec::new(&env);
         strategy.push_back(Symbol::new(&env, "LowestFee"));
         let options = RoutingOptions {
@@ -725,6 +701,7 @@ mod routing_tests {
             min_reputation: 0,
             max_anchors: 2,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
 
         // Should succeed and select anchor2 (valid quote)

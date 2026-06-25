@@ -116,6 +116,7 @@ pub const SERVICE_DEPOSITS: u32 = 1;
 pub const SERVICE_WITHDRAWALS: u32 = 2;
 pub const SERVICE_QUOTES: u32 = 3;
 pub const SERVICE_KYC: u32 = 4;
+pub const SERVICE_EXCHANGE_QUOTES: u32 = 5;
 
 /// Typed representation of a service capability an anchor can support.
 ///
@@ -127,6 +128,7 @@ pub enum ServiceType {
     Withdrawals,
     Quotes,
     KYC,
+    ExchangeQuotes,
 }
 
 impl ServiceType {
@@ -136,6 +138,7 @@ impl ServiceType {
             ServiceType::Withdrawals => SERVICE_WITHDRAWALS,
             ServiceType::Quotes => SERVICE_QUOTES,
             ServiceType::KYC => SERVICE_KYC,
+            ServiceType::ExchangeQuotes => SERVICE_EXCHANGE_QUOTES,
         }
     }
 }
@@ -179,6 +182,8 @@ pub struct OperationContext {
     pub status: String,
     /// Human-readable outcome, e.g. `"attestation_id=42"`.
     pub result_summary: String,
+    /// Number of retry attempts before success (0 for first attempt success).
+    pub attempt_number: u32,
 }
 
 #[contracttype]
@@ -260,6 +265,7 @@ pub struct RoutingRequest {
 /// | `"FastestSettlement"` | Selects the anchor with the lowest `average_settlement_time`. |
 /// | `"HighestReputation"` | Selects the anchor with the highest `reputation_score`.    |
 /// | `"Balanced"`          | Composite scoring: (40_000/fee) + (30_000/time) + (reputation*3000/10000). |
+/// | `"Weighted"`          | Selects anchors proportionally based on health score.     |
 ///
 /// **Validation:** `strategy` is required and must contain exactly one symbol.
 /// - Passing an empty `Vec` causes the call to panic with `NoQuotesAvailable`.
@@ -273,6 +279,8 @@ pub struct RoutingRequest {
 ///   of their reputation score.
 /// - `max_anchors` / `require_kyc` — reserved for future filtering; not yet
 ///   enforced by the current implementation.
+/// - `fallback_chain` — ordered list of anchor addresses to try in sequence if
+///   the primary selection fails. When empty, no fallback is used.
 #[contracttype]
 #[derive(Clone)]
 pub struct RoutingOptions {
@@ -281,6 +289,7 @@ pub struct RoutingOptions {
     pub min_reputation: u32,
     pub max_anchors: u32,
     pub require_kyc: bool,
+    pub fallback_chain: Vec<Address>,
 }
 
 // ---------------------------------------------------------------------------
