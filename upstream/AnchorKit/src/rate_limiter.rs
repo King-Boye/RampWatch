@@ -45,6 +45,7 @@ impl RateLimiter {
                 submission_count: 0,
                 window_start_ledger: env.ledger().sequence(),
                 total_requests: 0,
+                burst_used: false,
             })
     }
 
@@ -63,6 +64,7 @@ impl RateLimiter {
             .unwrap_or(RateLimitConfig {
                 max_submissions: 10,
                 window_length: 100,
+                burst: 0,
             })
     }
 
@@ -87,11 +89,13 @@ impl RateLimiter {
                 submission_count: 0,
                 window_start_ledger: current_ledger,
                 total_requests: 0,
+                burst_used: false,
             });
 
         if Self::is_window_expired(current_ledger, state.window_start_ledger, config.window_length) {
             state.submission_count = 0;
             state.window_start_ledger = current_ledger;
+            state.burst_used = false;  // reset burst for new window
             env.events().publish(
                 (symbol_short!("rate"), symbol_short!("win_reset")),
                 RateLimitWindowReset {
@@ -101,7 +105,12 @@ impl RateLimiter {
             );
         }
 
-        if state.submission_count >= config.max_submissions {
+        let effective_limit = if !state.burst_used && config.burst > 0 {
+            config.max_submissions + config.burst
+        } else {
+            config.max_submissions
+        };
+        if state.submission_count >= effective_limit {
             env.storage().persistent().set(&state_key, &state);
             env.storage().persistent().extend_ttl(&state_key, config.window_length, config.window_length);
             return Err(ErrorCode::RateLimitExceeded);
@@ -109,6 +118,9 @@ impl RateLimiter {
 
         state.submission_count += 1;
         state.total_requests += 1;
+        if !state.burst_used && config.burst > 0 && state.submission_count > config.max_submissions {
+            state.burst_used = true;
+        }
         env.storage().persistent().set(&state_key, &state);
         env.storage().persistent().extend_ttl(&state_key, config.window_length, config.window_length);
 
@@ -183,12 +195,14 @@ impl RateLimiter {
                 submission_count: 0,
                 window_start_ledger: env.ledger().sequence(),
                 total_requests: 0,
+                burst_used: false,
             });
 
         let reset_state = RateLimitState {
             submission_count: 0,
             window_start_ledger: env.ledger().sequence(),
             total_requests: current_state.total_requests,
+            burst_used: false,
         };
 
         env.storage().persistent().set(&state_key, &reset_state);
@@ -229,7 +243,7 @@ mod tests {
         let env = Env::default();
         let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
-        RateLimiter::update_config(&env, &attestor, RateLimitConfig { max_submissions: 10, window_length: 100 }, None).unwrap();
+        RateLimiter::update_config(&env, &attestor, RateLimitConfig { max_submissions: 10, window_length: 100, burst: 0 }, None).unwrap();
 
         assert!(RateLimiter::check_and_increment(&env, &attestor).is_ok());
 
@@ -242,7 +256,7 @@ mod tests {
         let env = Env::default();
         let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
-        RateLimiter::update_config(&env, &attestor, RateLimitConfig { max_submissions: 2, window_length: 100 }, None).unwrap();
+        RateLimiter::update_config(&env, &attestor, RateLimitConfig { max_submissions: 2, window_length: 100, burst: 0 }, None).unwrap();
 
         assert!(RateLimiter::check_and_increment(&env, &attestor).is_ok());
         assert!(RateLimiter::check_and_increment(&env, &attestor).is_ok());
@@ -256,7 +270,7 @@ mod tests {
         let env = Env::default();
         let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
-        RateLimiter::update_config(&env, &attestor, RateLimitConfig { max_submissions: 1, window_length: 100 }, None).unwrap();
+        RateLimiter::update_config(&env, &attestor, RateLimitConfig { max_submissions: 1, window_length: 100, burst: 0 }, None).unwrap();
 
         assert!(RateLimiter::check_and_increment(&env, &attestor).is_ok());
         let result = RateLimiter::check_and_increment(&env, &attestor);
@@ -269,7 +283,7 @@ mod tests {
         let env = Env::default();
         let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
-        RateLimiter::update_config(&env, &attestor, RateLimitConfig { max_submissions: 1, window_length: 10 }, None).unwrap();
+        RateLimiter::update_config(&env, &attestor, RateLimitConfig { max_submissions: 1, window_length: 10, burst: 0 }, None).unwrap();
 
         assert!(RateLimiter::check_and_increment(&env, &attestor).is_ok());
         assert!(RateLimiter::check_and_increment(&env, &attestor).is_err());
@@ -305,7 +319,7 @@ mod tests {
     fn test_rate_limit_config_update() {
         let env = Env::default();
         let admin = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
-        let new_config = RateLimitConfig { max_submissions: 20, window_length: 200 };
+        let new_config = RateLimitConfig { max_submissions: 20, window_length: 200, burst: 0 };
 
         assert!(RateLimiter::update_config(&env, &admin, new_config.clone(), None).is_ok());
 
@@ -327,8 +341,8 @@ mod tests {
         let env = Env::default();
         let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
-        RateLimiter::update_config(&env, &attestor, RateLimitConfig { max_submissions: 1, window_length: 100 }, None).unwrap();
-        RateLimiter::update_config(&env, &attestor, RateLimitConfig { max_submissions: 5, window_length: 100 }, Some(&attestor)).unwrap();
+        RateLimiter::update_config(&env, &attestor, RateLimitConfig { max_submissions: 1, window_length: 100, burst: 0 }, None).unwrap();
+        RateLimiter::update_config(&env, &attestor, RateLimitConfig { max_submissions: 5, window_length: 100, burst: 0 }, Some(&attestor)).unwrap();
 
         for _ in 0..5 {
             assert!(RateLimiter::check_and_increment(&env, &attestor).is_ok());
@@ -341,7 +355,7 @@ mod tests {
         let env = Env::default();
         let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
-        RateLimiter::update_config(&env, &attestor, RateLimitConfig { max_submissions: 2, window_length: 100 }, None).unwrap();
+        RateLimiter::update_config(&env, &attestor, RateLimitConfig { max_submissions: 2, window_length: 100, burst: 0 }, None).unwrap();
 
         assert!(RateLimiter::check_and_increment(&env, &attestor).is_ok());
         assert!(RateLimiter::check_and_increment(&env, &attestor).is_ok());
@@ -354,8 +368,8 @@ mod tests {
         let high_volume = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
         let normal = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
-        RateLimiter::update_config(&env, &high_volume, RateLimitConfig { max_submissions: 1, window_length: 100 }, None).unwrap();
-        RateLimiter::update_config(&env, &high_volume, RateLimitConfig { max_submissions: 10, window_length: 100 }, Some(&high_volume)).unwrap();
+        RateLimiter::update_config(&env, &high_volume, RateLimitConfig { max_submissions: 1, window_length: 100, burst: 0 }, None).unwrap();
+        RateLimiter::update_config(&env, &high_volume, RateLimitConfig { max_submissions: 10, window_length: 100, burst: 0 }, Some(&high_volume)).unwrap();
 
         for _ in 0..10 {
             assert!(RateLimiter::check_and_increment(&env, &high_volume).is_ok());
@@ -372,7 +386,7 @@ mod tests {
         let admin = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
         let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
-        RateLimiter::update_config(&env, &admin, RateLimitConfig { max_submissions: 1, window_length: 100 }, None).unwrap();
+        RateLimiter::update_config(&env, &admin, RateLimitConfig { max_submissions: 1, window_length: 100, burst: 0 }, None).unwrap();
 
         assert!(RateLimiter::check_and_increment(&env, &attestor).is_ok());
         assert_eq!(RateLimiter::get_state(env.clone(), attestor.clone()).submission_count, 1);
@@ -393,7 +407,7 @@ mod tests {
         let admin = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
         let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
-        RateLimiter::update_config(&env, &admin, RateLimitConfig { max_submissions: 1, window_length: 100 }, None).unwrap();
+        RateLimiter::update_config(&env, &admin, RateLimitConfig { max_submissions: 1, window_length: 100, burst: 0 }, None).unwrap();
 
         RateLimiter::check_and_increment(&env, &attestor).unwrap();
         let _ = RateLimiter::check_and_increment(&env, &attestor);
@@ -413,7 +427,7 @@ mod tests {
         let admin = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
         let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
-        RateLimiter::update_config(&env, &admin, RateLimitConfig { max_submissions: 1, window_length: 100 }, None).unwrap();
+        RateLimiter::update_config(&env, &admin, RateLimitConfig { max_submissions: 1, window_length: 100, burst: 0 }, None).unwrap();
 
         RateLimiter::check_and_increment(&env, &attestor).unwrap();
         let _ = RateLimiter::check_and_increment(&env, &attestor);
@@ -430,7 +444,7 @@ mod tests {
         let attestor1 = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
         let attestor2 = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
-        RateLimiter::update_config(&env, &admin, RateLimitConfig { max_submissions: 1, window_length: 100 }, None).unwrap();
+        RateLimiter::update_config(&env, &admin, RateLimitConfig { max_submissions: 1, window_length: 100, burst: 0 }, None).unwrap();
 
         RateLimiter::check_and_increment(&env, &attestor1).unwrap();
         let _ = RateLimiter::check_and_increment(&env, &attestor1);
@@ -451,7 +465,7 @@ mod tests {
         let admin = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
         let attestor = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
-        RateLimiter::update_config(&env, &admin, RateLimitConfig { max_submissions: 2, window_length: 100 }, None).unwrap();
+        RateLimiter::update_config(&env, &admin, RateLimitConfig { max_submissions: 2, window_length: 100, burst: 0 }, None).unwrap();
 
         RateLimiter::check_and_increment(&env, &attestor).unwrap();
         let state_before = RateLimiter::get_state(env.clone(), attestor.clone());
