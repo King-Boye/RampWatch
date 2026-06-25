@@ -57,6 +57,8 @@ pub enum StorageKey {
     AnchorMeta(Address),
     /// Stellar.toml cache for an anchor (temporary).
     TomlCache(Address),
+    /// Running count of registered attestors (instance storage via key_attestor_count).
+    AttestorCount,
     /// Per-attestor rate-limit state — submission count + window start (persistent).
     RateLimitState(Address),
     /// Per-attestor rate-limit configuration override (persistent).
@@ -122,4 +124,10 @@ pub fn key_health_threshold(env: &Env) -> Vec<Symbol> {
 }
 pub fn key_replay_window(env: &Env) -> Vec<Symbol> {
     soroban_sdk::vec![env, symbol_short!("REPL_WIN")]
+}
+pub fn key_attestor_count(env: &Env) -> Vec<Symbol> {
+    soroban_sdk::vec![env, symbol_short!("ATTCNT")]
+}
+pub fn key_attestor_list(env: &Env) -> Vec<Symbol> {
+    soroban_sdk::vec![env, symbol_short!("ATTESTLIST")]
 }

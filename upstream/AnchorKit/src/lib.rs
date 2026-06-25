@@ -1,6 +1,7 @@
 #![no_std]
 extern crate alloc;
 
+mod contract;
 mod deterministic_hash;
 mod domain_validator;
 mod errors;
@@ -96,6 +97,9 @@ mod get_attestation_tests;
 
 #[cfg(test)]
 mod replay_window_tests;
+
+#[cfg(test)]
+mod attestor_cap_batch_tests;
 
 #[cfg(test)]
 mod anchor_health_score_tests;

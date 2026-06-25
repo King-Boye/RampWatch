@@ -40,6 +40,7 @@ pub struct AuditLogEvent {
 #[contracttype]
 #[derive(Clone)]
 pub struct AttestEvent {
+    pub subject: Address,
     pub payload_hash: Bytes,
     pub timestamp: u64,
 }
