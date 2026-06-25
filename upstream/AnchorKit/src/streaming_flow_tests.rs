@@ -1,187 +1,204 @@
-#![cfg(test)]
-
-use crate::{AnchorKitContract, AnchorKitContractClient, ServiceType};
-use soroban_sdk::{
-    testutils::{Address as _, Ledger},
-    Address, Bytes, BytesN, Env, String, Vec,
-};
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum FlowState {
-    Pending,
-    AwaitingUser,
-    Completed,
-}
-
-struct StreamingFlow {
-    flow_id: u64,
-    session_id: u64,
-    state: FlowState,
-    anchor: Address,
-}
-
-fn create_contract(env: &Env) -> AnchorKitContractClient<'_> {
-    let contract_id = env.register_contract(None, AnchorKitContract);
-    AnchorKitContractClient::new(env, &contract_id)
-}
-
-fn setup_anchor(env: &Env, client: &AnchorKitContractClient, admin: &Address, anchor: &Address) {
-    client.register_attestor(anchor);
-
-    let mut services = Vec::new(env);
-    services.push_back(ServiceType::Deposits);
-    services.push_back(ServiceType::Quotes);
-    services.push_back(ServiceType::KYC);
-    client.configure_services(anchor, &services);
-}
-
-#[test]
-fn test_streaming_flow_pending_to_awaiting_user_to_completed() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let user = Address::generate(&env);
-    let anchor = Address::generate(&env);
-
-    let client = create_contract(&env);
-    client.initialize(&admin);
-    setup_anchor(&env, &client, &admin, &anchor);
-
-    // PENDING: Create session
-    let session_id = client.create_session(&user);
-    let mut flow = StreamingFlow {
-        flow_id: 1,
-        session_id,
-        state: FlowState::Pending,
-        anchor: anchor.clone(),
+/// Polling-based state update flow tests.
+///
+/// Soroban contracts are synchronous — there is no streaming API. Clients
+/// observe state changes by polling contract storage after each transaction.
+/// These tests verify that multi-step anchor flows produce the expected
+/// on-chain state at each polling point.
+#[cfg(test)]
+mod streaming_flow_tests {
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger, LedgerInfo},
+        Address, Bytes, Env, String, Vec,
     };
 
-    assert_eq!(flow.state, FlowState::Pending);
+    use ed25519_dalek::SigningKey;
+    use rand::rngs::OsRng;
 
-    // AWAITING_USER: Submit quote
-    let quote_id = client.submit_quote(
-        &anchor,
-        &String::from_str(&env, "USD"),
-        &String::from_str(&env, "USDC"),
-        &10000u64,
-        &25u32,
-        &100u64,
-        &100000u64,
-        &(env.ledger().timestamp() + 3600),
-    );
+    use crate::contract::{AnchorKitContract, AnchorKitContractClient};
+    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
 
-    flow.state = FlowState::AwaitingUser;
-    assert_eq!(flow.state, FlowState::AwaitingUser);
+    fn make_env() -> Env {
+        let env = Env::default();
+        env.mock_all_auths();
+        env
+    }
 
-    // COMPLETED: Receive quote
-    let quote = client.receive_quote(&user, &anchor, &quote_id);
-    assert_eq!(quote.quote_id, quote_id);
+    fn setup_ledger(env: &Env) {
+        env.ledger().set(LedgerInfo {
+            timestamp: 1_700_000_000,
+            protocol_version: 21,
+            sequence_number: 0,
+            network_id: Default::default(),
+            base_reserve: 0,
+            min_persistent_entry_ttl: 4096,
+            min_temp_entry_ttl: 16,
+            max_entry_ttl: 6312000,
+        });
+    }
 
-    flow.state = FlowState::Completed;
-    assert_eq!(flow.state, FlowState::Completed);
-}
+    fn payload(env: &Env, byte: u8) -> Bytes {
+        let mut b = Bytes::new(env);
+        for _ in 0..32 {
+            b.push_back(byte);
+        }
+        b
+    }
 
-#[test]
-fn test_multi_step_async_stream_with_attestation() {
-    let env = Env::default();
-    env.mock_all_auths();
-    env.ledger().with_mut(|li| li.timestamp = 1000000);
+    fn register_with_session(
+        env: &Env,
+        client: &AnchorKitContractClient,
+        session_id: u64,
+        attestor: &Address,
+        sk: &SigningKey,
+    ) {
+        use crate::sep10_test_util::build_sep10_jwt;
 
-    let admin = Address::generate(&env);
-    let user = Address::generate(&env);
-    let anchor = Address::generate(&env);
-    let subject = Address::generate(&env);
+        let issuer = attestor.clone();
+        let pk = Bytes::from_slice(env, sk.verifying_key().as_bytes());
+        client.set_sep10_jwt_verifying_key(&issuer, &pk);
 
-    let client = create_contract(&env);
-    client.initialize(&admin);
-    setup_anchor(&env, &client, &admin, &anchor);
+        let sub = attestor.to_string();
+        let mut buf = [0u8; 128];
+        let len = sub.len() as usize;
+        let final_len = if len > 128 { 128 } else { len };
+        sub.copy_into_slice(&mut buf[..final_len]);
+        let sub_str = core::str::from_utf8(&buf[..final_len]).unwrap_or("");
+        let exp = env.ledger().timestamp().saturating_add(86_400);
+        let jwt = build_sep10_jwt(sk, sub_str, exp);
+        let token = String::from_str(env, jwt.as_str());
+        client.register_attestor_with_session(&session_id, attestor, &token, &issuer);
+    }
 
-    // PENDING
-    let session_id = client.create_session(&user);
-    let mut state = FlowState::Pending;
+    fn setup(env: &Env) -> (AnchorKitContractClient<'_>, Address, Address, SigningKey) {
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let anchor = Address::generate(env);
+        client.initialize(&admin, &100_u64, &None);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(env, &client, &anchor, &anchor, &sk);
+        (client, admin, anchor, sk)
+    }
 
-    // AWAITING_USER
-    let payload_hash = BytesN::from_array(&env, &[1; 32]);
-    let signature = Bytes::from_slice(&env, &[10, 11, 12]);
+    #[test]
+    fn test_session_operation_count_increments_on_each_step() {
+        let env = make_env();
+        setup_ledger(&env);
+        let (client, _admin, _anchor, _sk) = setup(&env);
 
-    let attestation_id = client.submit_attestation_with_session(
-        &session_id,
-        &anchor,
-        &subject,
-        &1000001u64,
-        &payload_hash,
-        &signature,
-    );
+        let initiator = Address::generate(&env);
+        let session_id = client.create_session(&initiator);
 
-    state = FlowState::AwaitingUser;
-    assert_eq!(state, FlowState::AwaitingUser);
-    assert!(attestation_id >= 0);
+        assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 0);
 
-    // COMPLETED
-    let session = client.get_session(&session_id);
-    assert_eq!(session.session_id, session_id);
+        let new_attestor = Address::generate(&env);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_with_session(&env, &client, session_id, &new_attestor, &sk);
 
-    state = FlowState::Completed;
-    assert_eq!(state, FlowState::Completed);
-}
+        assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 1);
 
-#[test]
-fn test_concurrent_streaming_flows() {
-    let env = Env::default();
-    env.mock_all_auths();
+        client.revoke_attestor_with_session(&session_id, &new_attestor);
 
-    let admin = Address::generate(&env);
-    let user1 = Address::generate(&env);
-    let user2 = Address::generate(&env);
-    let anchor = Address::generate(&env);
+        assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 2);
+    }
 
-    let client = create_contract(&env);
-    client.initialize(&admin);
-    setup_anchor(&env, &client, &admin, &anchor);
+    #[test]
+    fn test_audit_log_reflects_attestation_state() {
+        let env = make_env();
+        setup_ledger(&env);
+        let (client, _admin, anchor, sk) = setup(&env);
 
-    // Flow 1: PENDING
-    let session1 = client.create_session(&user1);
-    let mut flow1_state = FlowState::Pending;
+        let mut services = Vec::new(&env);
+        services.push_back(1u32);
+        client.configure_services(&anchor, &services);
 
-    // Flow 2: PENDING
-    let session2 = client.create_session(&user2);
-    let mut flow2_state = FlowState::Pending;
+        let session_id = client.create_session(&anchor);
 
-    // Flow 1: AWAITING_USER
-    let quote1 = client.submit_quote(
-        &anchor,
-        &String::from_str(&env, "USD"),
-        &String::from_str(&env, "USDC"),
-        &10000u64,
-        &25u32,
-        &100u64,
-        &100000u64,
-        &(env.ledger().timestamp() + 3600),
-    );
-    flow1_state = FlowState::AwaitingUser;
+        let subject = Address::generate(&env);
+        let p = payload(&env, 1);
+        client.submit_attestation_with_session(
+            &session_id,
+            &anchor,
+            &subject,
+            &(env.ledger().timestamp()),
+            &p,
+            &sign_payload(&env, &sk, &p),
+        );
 
-    // Flow 2: AWAITING_USER
-    let quote2 = client.submit_quote(
-        &anchor,
-        &String::from_str(&env, "EUR"),
-        &String::from_str(&env, "EURC"),
-        &10050u64,
-        &30u32,
-        &200u64,
-        &50000u64,
-        &(env.ledger().timestamp() + 3600),
-    );
-    flow2_state = FlowState::AwaitingUser;
+        let log = client.get_audit_log(&0);
+        assert_eq!(log.session_id, session_id);
+        assert_eq!(log.operation.operation_type, String::from_str(&env, "attest"));
+        assert_eq!(log.operation.status, String::from_str(&env, "success"));
+        assert_eq!(log.actor, anchor);
+    }
 
-    // Flow 1: COMPLETED
-    let _ = client.receive_quote(&user1, &anchor, &quote1);
-    flow1_state = FlowState::Completed;
+    #[test]
+    fn test_audit_log_records_failed_operation() {
+        let env = make_env();
+        setup_ledger(&env);
+        let (client, _admin, anchor, sk) = setup(&env);
 
-    // Flow 2: COMPLETED
-    let _ = client.receive_quote(&user2, &anchor, &quote2);
-    flow2_state = FlowState::Completed;
+        let mut services = Vec::new(&env);
+        services.push_back(1u32);
+        client.configure_services(&anchor, &services);
 
-    assert_eq!(flow1_state, FlowState::Completed);
-    assert_eq!(flow2_state, FlowState::Completed);
+        let session_id = client.create_session(&anchor);
+
+        let subject = Address::generate(&env);
+        let p = payload(&env, 2);
+        let sig = sign_payload(&env, &sk, &p);
+        let ts = env.ledger().timestamp();
+
+        client.submit_attestation_with_session(&session_id, &anchor, &subject, &ts, &p, &sig);
+
+        let result = client.try_submit_attestation_with_session(
+            &session_id,
+            &anchor,
+            &subject,
+            &ts,
+            &p,
+            &sig,
+        );
+        assert!(result.is_err());
+
+        // Only the successful submission increments the session operation count.
+        assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 1);
+    }
+
+    #[test]
+    fn test_full_deposit_flow_state_visible_via_polling() {
+        let env = make_env();
+        setup_ledger(&env);
+        let (client, _admin, anchor, _sk) = setup(&env);
+
+        let mut services = Vec::new(&env);
+        services.push_back(1u32);
+        services.push_back(3u32);
+        client.configure_services(&anchor, &services);
+
+        let initiator = Address::generate(&env);
+        let session_id = client.create_session(&initiator);
+
+        let session = client.get_session(&session_id);
+        assert_eq!(session.session_id, session_id);
+        assert_eq!(session.operation_count, 0);
+
+        let base = String::from_str(&env, "USD");
+        let quote_asset_str = String::from_str(&env, "USDC");
+        let valid_until = env.ledger().timestamp() + 600;
+        let quote_id = client.submit_quote(
+            &anchor,
+            &base,
+            &quote_asset_str,
+            &10000u64,
+            &25u32,
+            &100_000000u64,
+            &10_000_000000u64,
+            &valid_until,
+        );
+
+        let quote = client.get_quote(&anchor, &quote_id).unwrap();
+        assert_eq!(quote.rate, 10000u64);
+        assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 0);
+    }
 }

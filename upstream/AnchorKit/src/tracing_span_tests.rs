@@ -1,83 +1,72 @@
-#[cfg(test)]
-mod tracing_span_tests {
-    use crate::{AnchorKitContract, AnchorKitContractClient};
-    use soroban_sdk::{testutils::Address as _, Address, Bytes, BytesN, Env};
+#![cfg(test)]
 
-    #[test]
-    fn test_span_emits_request_id() {
+mod tracing_span_tests {
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger, LedgerInfo},
+        Address, Bytes, Env, String,
+    };
+
+    use ed25519_dalek::SigningKey;
+    use rand::rngs::OsRng;
+
+    use crate::contract::{AnchorKitContract, AnchorKitContractClient};
+    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
+
+    fn make_env() -> Env {
         let env = Env::default();
         env.mock_all_auths();
-        let contract_id = env.register_contract(None, AnchorKitContract);
-        let client = AnchorKitContractClient::new(&env, &contract_id);
-
-        let admin = Address::generate(&env);
-        let attestor = Address::generate(&env);
-        let subject = Address::generate(&env);
-
-        client.initialize(&admin);
-        client.register_attestor(&attestor);
-
-        let request_id = client.generate_request_id();
-        let payload_hash = BytesN::from_array(&env, &[1u8; 32]);
-        let signature = Bytes::new(&env);
-
-        client.submit_with_request_id(&request_id, &attestor, &subject, &1000, &payload_hash, &signature);
-
-        let span = client.get_tracing_span(&request_id.id).unwrap();
-        assert_eq!(span.request_id.id, request_id.id);
+        env
     }
 
-    #[test]
-    fn test_span_emits_operation_metadata() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let contract_id = env.register_contract(None, AnchorKitContract);
-        let client = AnchorKitContractClient::new(&env, &contract_id);
-
-        let admin = Address::generate(&env);
-        let attestor = Address::generate(&env);
-        let subject = Address::generate(&env);
-
-        client.initialize(&admin);
-        client.register_attestor(&attestor);
-
-        let request_id = client.generate_request_id();
-        let payload_hash = BytesN::from_array(&env, &[1u8; 32]);
-        let signature = Bytes::new(&env);
-
-        client.submit_with_request_id(&request_id, &attestor, &subject, &1000, &payload_hash, &signature);
-
-        let span = client.get_tracing_span(&request_id.id).unwrap();
-        assert_eq!(span.actor, attestor);
-        assert!(span.started_at > 0);
-        assert!(span.completed_at >= span.started_at);
+    fn payload(env: &Env, byte: u8) -> Bytes {
+        let mut b = Bytes::new(env);
+        for _ in 0..32 {
+            b.push_back(byte);
+        }
+        b
     }
 
     #[test]
     fn test_span_propagates_across_operations() {
-        let env = Env::default();
-        env.mock_all_auths();
+        let env = make_env();
+        env.ledger().set(LedgerInfo {
+            timestamp: 1_000,
+            protocol_version: 21,
+            sequence_number: 0,
+            network_id: Default::default(),
+            base_reserve: 0,
+            min_persistent_entry_ttl: 4096,
+            min_temp_entry_ttl: 16,
+            max_entry_ttl: 6312000,
+        });
         let contract_id = env.register_contract(None, AnchorKitContract);
         let client = AnchorKitContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
 
-        client.initialize(&admin);
-        
-        let request_id = client.generate_request_id();
-        let original_id = request_id.id.clone();
+        client.initialize(&admin, &100_u64, &None);
+        let req_id = client.generate_request_id();
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
-        client.register_attestor(&attestor);
-
-        let span = client.get_tracing_span(&original_id);
-        assert!(span.is_some() || original_id.len() == 16);
+        let span = client.get_tracing_span(&req_id.id);
+        assert!(span.is_none());
     }
 
     #[test]
-    fn test_structured_log_format() {
-        let env = Env::default();
-        env.mock_all_auths();
+    fn test_span_emits_request_id() {
+        let env = make_env();
+        env.ledger().set(LedgerInfo {
+            timestamp: 1_000,
+            protocol_version: 21,
+            sequence_number: 0,
+            network_id: Default::default(),
+            base_reserve: 0,
+            min_persistent_entry_ttl: 4096,
+            min_temp_entry_ttl: 16,
+            max_entry_ttl: 6312000,
+        });
         let contract_id = env.register_contract(None, AnchorKitContract);
         let client = AnchorKitContractClient::new(&env, &contract_id);
 
@@ -85,17 +74,108 @@ mod tracing_span_tests {
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin);
-        client.register_attestor(&attestor);
+        client.initialize(&admin, &100_u64, &None);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
-        let request_id = client.generate_request_id();
-        let payload_hash = BytesN::from_array(&env, &[1u8; 32]);
-        let signature = Bytes::new(&env);
+        let req_id = client.generate_request_id();
+        let p = payload(&env, 0x01);
+        client.submit_with_request_id(
+            &req_id,
+            &attestor,
+            &subject,
+            &env.ledger().timestamp(),
+            &p,
+            &sign_payload(&env, &sk, &p),
+        );
 
-        client.submit_with_request_id(&request_id, &attestor, &subject, &1000, &payload_hash, &signature);
+        let span = client.get_tracing_span(&req_id.id).unwrap();
+        assert_eq!(span.request_id.id, req_id.id);
+        assert_eq!(span.request_id.created_at, req_id.created_at);
+    }
 
-        let span = client.get_tracing_span(&request_id.id).unwrap();
-        assert!(span.status.len() > 0);
-        assert!(span.operation.len() > 0);
+    #[test]
+    fn test_span_emits_operation_metadata() {
+        let env = make_env();
+        env.ledger().set(LedgerInfo {
+            timestamp: 1000,
+            protocol_version: 21,
+            sequence_number: 0,
+            network_id: Default::default(),
+            base_reserve: 0,
+            min_persistent_entry_ttl: 4096,
+            min_temp_entry_ttl: 16,
+            max_entry_ttl: 6312000,
+        });
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let attestor = Address::generate(&env);
+        let subject = Address::generate(&env);
+
+        client.initialize(&admin, &100_u64, &None);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
+
+        let req_id = client.generate_request_id();
+        let p = payload(&env, 0x01);
+        client.submit_with_request_id(
+            &req_id,
+            &attestor,
+            &subject,
+            &1000u64,
+            &p,
+            &sign_payload(&env, &sk, &p),
+        );
+
+        let span = client.get_tracing_span(&req_id.id).unwrap();
+        assert_eq!(span.operation, String::from_str(&env, "submit_attestation"));
+        assert_eq!(span.actor, attestor);
+        assert_eq!(span.started_at, 1000);
+        assert_eq!(span.completed_at, 1000);
+        assert_eq!(span.status, String::from_str(&env, "success"));
+    }
+
+    #[test]
+    fn test_structured_log_format() {
+        let env = make_env();
+        env.ledger().set(LedgerInfo {
+            timestamp: 1_000,
+            protocol_version: 21,
+            sequence_number: 0,
+            network_id: Default::default(),
+            base_reserve: 0,
+            min_persistent_entry_ttl: 4096,
+            min_temp_entry_ttl: 16,
+            max_entry_ttl: 6312000,
+        });
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let attestor = Address::generate(&env);
+        let subject = Address::generate(&env);
+
+        client.initialize(&admin, &100_u64, &None);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
+
+        let req_id = client.generate_request_id();
+        let p = payload(&env, 0x01);
+        client.submit_with_request_id(
+            &req_id,
+            &attestor,
+            &subject,
+            &env.ledger().timestamp(),
+            &p,
+            &sign_payload(&env, &sk, &p),
+        );
+
+        let span = client.get_tracing_span(&req_id.id).unwrap();
+        assert_eq!(span.request_id.id, req_id.id);
+        assert_eq!(span.operation, String::from_str(&env, "submit_attestation"));
+        assert_eq!(span.actor, attestor);
+        assert_eq!(span.status, String::from_str(&env, "success"));
     }
 }
