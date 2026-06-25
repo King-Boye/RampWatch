@@ -179,6 +179,8 @@ pub struct OperationContext {
     pub status: String,
     /// Human-readable outcome, e.g. `"attestation_id=42"`.
     pub result_summary: String,
+    /// Error code captured for failed operations; `None` on success.
+    pub error_code: Option<u32>,
 }
 
 #[contracttype]

@@ -175,6 +175,20 @@ pub struct RawWithdrawalResponse {
     pub status: Option<String>,
 }
 
+/// Raw fields from an anchor's `/withdraw-exchange` response.
+pub struct RawWithdrawExchangeResponse {
+    pub transaction_id: String,
+    pub account_id: String,
+    pub dest_account_id: Option<String>,
+    pub memo: Option<String>,
+    pub memo_type: Option<String>,
+    pub min_amount: Option<u64>,
+    pub max_amount: Option<u64>,
+    pub fee_fixed: Option<u64>,
+    pub fee_percent: Option<u32>,
+    pub status: Option<String>,
+}
+
 /// Raw fields from an anchor's `/transaction` response.
 #[derive(Clone)]
 pub struct RawTransactionResponse {
@@ -338,6 +352,52 @@ pub fn initiate_withdrawal(raw: RawWithdrawalResponse, asset_code: &str) -> Resu
         return Err(Error::invalid_transaction_intent());
     }
 
+    Ok(WithdrawalResponse {
+        transaction_id: raw.transaction_id,
+        account_id: Some(raw.account_id),
+        dest_account_id: raw.dest_account_id,
+        memo: raw.memo,
+        memo_type: raw.memo_type,
+        min_amount: raw.min_amount,
+        max_amount: raw.max_amount,
+        fee_fixed: raw.fee_fixed,
+        fee_percent: raw.fee_percent,
+        estimated_completion: None,
+        status: raw
+            .status
+            .as_deref()
+            .map(TransactionStatus::from_str)
+            .unwrap_or(TransactionStatus::Pending),
+    })
+}
+
+/// Normalize a raw anchor cross-asset withdrawal response into a canonical [`WithdrawalResponse`].
+///
+/// Follows the same normalization rules as [`initiate_withdrawal`].
+/// Returns `Err(Error::invalid_transaction_intent())` if required fields are missing.
+/// Returns `Err(Error::ValidationError)` if `source_asset` or `destination_asset` is invalid.
+pub fn withdraw_exchange(
+    raw: RawWithdrawExchangeResponse,
+    source_asset: &str,
+    destination_asset: &str,
+) -> Result<WithdrawalResponse, Error> {
+    if !is_valid_asset_code(source_asset) {
+        return Err(Error::with_context(
+            ErrorCode::ValidationError,
+            "Invalid source asset code format",
+            source_asset,
+        ));
+    }
+    if !is_valid_asset_code(destination_asset) {
+        return Err(Error::with_context(
+            ErrorCode::ValidationError,
+            "Invalid destination asset code format",
+            destination_asset,
+        ));
+    }
+    if raw.transaction_id.is_empty() || raw.account_id.is_empty() {
+        return Err(Error::invalid_transaction_intent());
+    }
     Ok(WithdrawalResponse {
         transaction_id: raw.transaction_id,
         account_id: Some(raw.account_id),
@@ -714,7 +774,7 @@ mod tests {
     fn test_initiate_deposit_fee_percent_propagated() {
         let mut raw = raw_deposit();
         raw.fee_percent = Some(150);
-        let resp = initiate_deposit(raw).unwrap();
+        let resp = initiate_deposit(raw, "USDC").unwrap();
         assert_eq!(resp.fee_percent, Some(150));
     }
 
@@ -722,7 +782,7 @@ mod tests {
     fn test_initiate_withdrawal_fee_percent_propagated() {
         let mut raw = raw_withdrawal();
         raw.fee_percent = Some(50);
-        let resp = initiate_withdrawal(raw).unwrap();
+        let resp = initiate_withdrawal(raw, "USDC").unwrap();
         assert_eq!(resp.fee_percent, Some(50));
     }
 
@@ -922,5 +982,60 @@ mod tests {
         let result = fetch_transaction_status_with_retry(raw, None, |_| {});
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code, ErrorCode::InvalidTransactionIntent);
+    }
+
+    // ── withdraw_exchange tests ──────────────────────────────────────────────
+
+    fn raw_withdraw_exchange() -> RawWithdrawExchangeResponse {
+        RawWithdrawExchangeResponse {
+            transaction_id: "txn-003".to_string(),
+            account_id: "GABC456".to_string(),
+            dest_account_id: Some("bank-789".to_string()),
+            memo: Some("99".to_string()),
+            memo_type: Some("id".to_string()),
+            min_amount: Some(10),
+            max_amount: Some(1_000),
+            fee_fixed: Some(3),
+            fee_percent: Some(100),
+            status: Some("pending_external".to_string()),
+        }
+    }
+
+    #[test]
+    fn test_withdraw_exchange_normalizes_response() {
+        let resp = withdraw_exchange(raw_withdraw_exchange(), "USDC", "BTC").unwrap();
+        assert_eq!(resp.transaction_id, "txn-003");
+        assert_eq!(resp.status, TransactionStatus::PendingExternal);
+        assert_eq!(resp.fee_fixed, Some(3));
+        assert_eq!(resp.fee_percent, Some(100));
+        assert_eq!(resp.memo_type, Some("id".to_string()));
+    }
+
+    #[test]
+    fn test_withdraw_exchange_invalid_source_asset_returns_error() {
+        let err = withdraw_exchange(raw_withdraw_exchange(), "", "BTC").unwrap_err();
+        assert_eq!(err.code, ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn test_withdraw_exchange_invalid_destination_asset_returns_error() {
+        let err = withdraw_exchange(raw_withdraw_exchange(), "USDC", "").unwrap_err();
+        assert_eq!(err.code, ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn test_withdraw_exchange_missing_account_id_returns_error() {
+        let mut raw = raw_withdraw_exchange();
+        raw.account_id = "".to_string();
+        let err = withdraw_exchange(raw, "USDC", "BTC").unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidTransactionIntent);
+    }
+
+    #[test]
+    fn test_withdraw_exchange_defaults_status_to_pending() {
+        let mut raw = raw_withdraw_exchange();
+        raw.status = None;
+        let resp = withdraw_exchange(raw, "USDC", "BTC").unwrap();
+        assert_eq!(resp.status, TransactionStatus::Pending);
     }
 }

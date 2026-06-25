@@ -389,6 +389,7 @@ impl AnchorKitContract {
     pub fn register_attestor(env: Env, attestor: Address, sep10_token: String, sep10_issuer: Address) {
         Self::require_admin(&env);
         Self::verify_sep10_token_matches_attestor(&env, &sep10_token, &sep10_issuer, &attestor);
+        Self::validate_stellar_address(&env, &attestor);
         let key = StorageKey::Attestor(attestor.clone());
         if env.storage().persistent().has(&key) {
             panic_with_error!(&env, ErrorCode::AttestorAlreadyRegistered);
@@ -981,6 +982,7 @@ impl AnchorKitContract {
                 timestamp: now,
                 status: String::from_str(&env, "success"),
                 result_summary: String::from_str(&env, &alloc::format!("attestation_id={}", id)),
+                error_code: None,
             },
         };
         let audit_key = StorageKey::AuditLog(log_id);
@@ -1009,6 +1011,7 @@ impl AnchorKitContract {
         Self::check_session_expiry(&env, session_id);
         Self::require_admin(&env);
         Self::verify_sep10_token_matches_attestor(&env, &sep10_token, &sep10_issuer, &attestor);
+        Self::validate_stellar_address(&env, &attestor);
         let key = StorageKey::Attestor(attestor.clone());
         if env.storage().persistent().has(&key) {
             panic_with_error!(&env, ErrorCode::AttestorAlreadyRegistered);
@@ -1043,6 +1046,7 @@ impl AnchorKitContract {
                 timestamp: now,
                 status: String::from_str(&env, "success"),
                 result_summary: String::from_str(&env, "attestor_registered"),
+                error_code: None,
             },
         };
         let audit_key = StorageKey::AuditLog(log_id);
@@ -1102,6 +1106,7 @@ impl AnchorKitContract {
                 timestamp: now,
                 status: String::from_str(&env, "success"),
                 result_summary: String::from_str(&env, "attestor_revoked"),
+                error_code: None,
             },
         };
         let audit_key = StorageKey::AuditLog(log_id);
@@ -1993,6 +1998,21 @@ impl AnchorKitContract {
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
+
+    /// Validate that `address` is a valid Stellar account (G... or C..., 56 chars).
+    fn validate_stellar_address(env: &Env, address: &Address) {
+        let s = address.to_string();
+        let len = s.len() as usize;
+        if len > 56 {
+            panic_with_error!(env, ErrorCode::ValidationError);
+        }
+        let mut buf = [0u8; 56];
+        s.copy_into_slice(&mut buf[..len]);
+        let first = buf[0];
+        if len != 56 || (first != b'G' && first != b'C') {
+            panic_with_error!(env, ErrorCode::ValidationError);
+        }
+    }
 
     fn require_admin(env: &Env) {
         let admin: Address = env

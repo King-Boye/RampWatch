@@ -29,9 +29,9 @@ pub use deterministic_hash::{compute_payload_hash, verify_payload_hash};
 #[cfg(test)]
 mod transaction_state_tracker_tests;
 pub use sep6::{
-    fetch_transaction_status, initiate_deposit, initiate_withdrawal,
-    RawDepositResponse, RawTransactionResponse, RawWithdrawalResponse, TransactionKind,
-    TransactionStatusResponse,
+    fetch_transaction_status, initiate_deposit, initiate_withdrawal, withdraw_exchange,
+    RawDepositResponse, RawTransactionResponse, RawWithdrawalResponse, RawWithdrawExchangeResponse,
+    TransactionKind, TransactionStatusResponse,
 };
 pub use types::{DepositResponse, WithdrawalResponse, TransactionStatus};
 pub use contract::{AnchorKitContract, get_admin, get_endpoint, set_endpoint, get_attestation_count};
