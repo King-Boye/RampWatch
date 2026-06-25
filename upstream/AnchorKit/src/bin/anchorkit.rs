@@ -5,6 +5,9 @@ use std::process::Command;
 use std::time::Instant;
 use regex::Regex;
 
+mod soroban_rpc;
+use soroban_rpc::*;
+
 const MIN_RUST_MAJOR: u32 = 1;
 const MIN_RUST_MINOR: u32 = 74;
 
@@ -112,6 +115,18 @@ enum Commands {
         #[command(subcommand)]
         command: ConfigCommands,
     },
+    /// Fetch and display audit log entries
+    #[command(name = "audit")]
+    Audit {
+        #[command(subcommand)]
+        action: AuditAction,
+    },
+    /// Manage interaction sessions
+    #[command(name = "session")]
+    Session {
+        #[command(subcommand)]
+        action: SessionAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -121,6 +136,62 @@ enum ConfigCommands {
         /// Path to a JSON config file or directory (defaults to configs/)
         #[arg(default_value = "configs")]
         path: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum AuditAction {
+    /// Fetch and display a single audit log entry by ID
+    Get {
+        /// Audit log entry ID
+        #[arg(value_name = "LOG_ID")]
+        log_id: u64,
+    },
+    /// List audit log entries for a session
+    List {
+        /// Session ID to filter by
+        #[arg(long)]
+        session: u64,
+        /// Start from this log ID (defaults to 0)
+        #[arg(long)]
+        from: Option<u64>,
+        /// End at this log ID (defaults to latest)
+        #[arg(long)]
+        to: Option<u64>,
+        /// Output format: text (default), json, or csv
+        #[arg(long, default_value = "text")]
+        format: String,
+        /// Pretty-print JSON (only for json format)
+        #[arg(long)]
+        pretty: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SessionAction {
+    /// Create a new interaction session
+    Create {
+        /// Stellar address of the session initiator (optional, uses STELLAR_SECRET_KEY if not provided)
+        #[arg(long)]
+        initiator: Option<String>,
+    },
+    /// Retrieve session details by ID
+    Get {
+        /// Session ID to retrieve
+        #[arg(value_name = "SESSION_ID")]
+        session_id: u64,
+    },
+    /// List all active sessions
+    List {
+        /// Output format: text (default), json, or csv
+        #[arg(long, default_value = "text")]
+        format: String,
+        /// Pretty-print JSON (only for json format)
+        #[arg(long)]
+        pretty: bool,
+        /// Maximum number of sessions to retrieve (defaults to 100)
+        #[arg(long)]
+        limit: Option<u64>,
     },
 }
 
@@ -146,6 +217,19 @@ fn main() {
         Commands::ExportAudit { format, output } => run_export_audit(&format, &output),
         Commands::Config { command } => match command {
             ConfigCommands::Validate { path } => run_config_validate(&path),
+        },
+        Commands::Audit { action } => match action {
+            AuditAction::Get { log_id } => run_audit_get(log_id),
+            AuditAction::List { session, from, to, format, pretty } => {
+                run_audit_list(session, from, to, &format, pretty)
+            }
+        },
+        Commands::Session { action } => match action {
+            SessionAction::Create { initiator } => run_session_create(initiator),
+            SessionAction::Get { session_id } => run_session_get(session_id),
+            SessionAction::List { format, pretty, limit } => {
+                run_session_list(&format, pretty, limit)
+            }
         },
     }
 }
@@ -1278,3 +1362,385 @@ fn fetch_page(page: u64, page_size: u64) -> Vec<AuditEntry> {
     let _ = (page, page_size);
     vec![]
 }
+
+// ── audit get ───────────────────────────────────────────────────────────────
+
+fn run_audit_get(log_id: u64) {
+    println!("◈ Fetching audit log entry {}", log_id);
+    println!();
+
+    match fetch_audit_log_entry(log_id) {
+        Some(entry) => {
+            print_audit_entry(&entry);
+            println!();
+            println!("✔ Entry retrieved successfully");
+        }
+        None => {
+            eprintln!("✖ Audit log entry {} not found", log_id);
+            std::process::exit(1);
+        }
+    }
+}
+
+// ── audit list ──────────────────────────────────────────────────────────────
+
+fn run_audit_list(session: u64, from: Option<u64>, to: Option<u64>, format: &str, pretty: bool) {
+    println!("◈ Fetching audit logs for session {}", session);
+    
+    // Validate format
+    if !["text", "json", "csv"].contains(&format) {
+        eprintln!("error: unsupported format '{}'. Use 'text', 'json', or 'csv'", format);
+        std::process::exit(1);
+    }
+
+    let entries = fetch_audit_logs_by_session(session, from, to);
+    
+    if entries.is_empty() {
+        println!("\n✗ No audit log entries found for session {}", session);
+        return;
+    }
+
+    println!();
+    
+    match format {
+        "text" => {
+            println!("┌─ Audit Log Entries (Session {}) ──────────────────────────────", session);
+            for (idx, entry) in entries.iter().enumerate() {
+                if idx > 0 {
+                    println!("├───────────────────────────────────────────────────────────");
+                }
+                print_audit_entry_compact(entry);
+            }
+            println!("└───────────────────────────────────────────────────────────────");
+            println!();
+            println!("✔ Retrieved {} audit log entr{}", 
+                     entries.len(), 
+                     if entries.len() == 1 { "y" } else { "ies" });
+        }
+        "json" => {
+            let json_output = if pretty {
+                serde_json::to_string_pretty(&entries)
+                    .unwrap_or_else(|_| "[]".to_string())
+            } else {
+                serde_json::to_string(&entries)
+                    .unwrap_or_else(|_| "[]".to_string())
+            };
+            println!("{}", json_output);
+        }
+        "csv" => {
+            println!("log_id,session_id,actor,operation_type,operation_index,timestamp,status,result");
+            for entry in &entries {
+                println!(
+                    "{},{},{},{},{},{},{},\"{}\"",
+                    entry.log_id,
+                    entry.session_id,
+                    entry.actor,
+                    entry.operation_type,
+                    entry.operation_index,
+                    entry.timestamp,
+                    entry.status,
+                    entry.result.replace("\"", "\\\"")
+                );
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+// ── Data structures for audit logging ─────────────────────────────────────────
+
+#[derive(serde::Serialize, Clone)]
+struct AuditLogEntry {
+    log_id: u64,
+    session_id: u64,
+    actor: String,
+    operation_type: String,
+    operation_index: u64,
+    timestamp: u64,
+    status: String,
+    result: String,
+}
+
+// ── Pretty-printing helpers ──────────────────────────────────────────────────
+
+fn print_audit_entry(entry: &AuditLogEntry) {
+    println!("  Log ID:          {}", entry.log_id);
+    println!("  Session ID:      {}", entry.session_id);
+    println!("  Actor:           {}", entry.actor);
+    println!("  Operation:       {} (index: {})", entry.operation_type, entry.operation_index);
+    println!("  Timestamp:       {} ({})", 
+             entry.timestamp, 
+             format_timestamp(entry.timestamp));
+    println!("  Status:          {}", entry.status);
+    println!("  Result:          {}", entry.result);
+}
+
+fn print_audit_entry_compact(entry: &AuditLogEntry) {
+    println!("  │ Log ID:     {} │ Op: {} │ Status: {}", 
+             entry.log_id,
+             entry.operation_type,
+             entry.status);
+    println!("  │ Session:    {} │ Actor: {}", 
+             entry.session_id,
+             &entry.actor[..entry.actor.len().min(24)]);
+    println!("  │ Timestamp:  {} (op_index: {})", 
+             format_timestamp(entry.timestamp),
+             entry.operation_index);
+    println!("  │ Result:     {}", 
+             &entry.result[..entry.result.len().min(50)]);
+}
+
+fn format_timestamp(ts: u64) -> String {
+    // ts is Unix timestamp in seconds
+    let secs_per_day = 86400;
+    let secs_per_hour = 3600;
+    let secs_per_minute = 60;
+    
+    let days = ts / secs_per_day;
+    let hours = (ts % secs_per_day) / secs_per_hour;
+    let minutes = (ts % secs_per_hour) / secs_per_minute;
+    let seconds = ts % secs_per_minute;
+    
+    format!("{}d {:02}h {:02}m {:02}s", days, hours, minutes, seconds)
+}
+
+// ── On-chain data fetching ───────────────────────────────────────────────────
+
+/// Fetch a single audit log entry from on-chain storage.
+/// In production, this would query the Soroban contract via RPC.
+/// For now, this is a placeholder that would connect to the on-chain contract.
+fn fetch_audit_log_entry(log_id: u64) -> Option<AuditLogEntry> {
+    // TODO: Implement actual on-chain fetching via Soroban RPC
+    // This would invoke contract method: get_audit_log(log_id)
+    // and parse the returned AuditLog structure.
+    //
+    // Example RPC call structure:
+    //   POST {RPC_URL}
+    //   {
+    //     "jsonrpc": "2.0",
+    //     "id": 1,
+    //     "method": "simulateTransaction",
+    //     "params": {
+    //       "transaction": "{encoded_contract_invoke}",
+    //       "resourceLeeway": 15
+    //     }
+    //   }
+    //
+    // Implementation strategy:
+    // 1. Get RPC URL from ANCHORKIT_RPC_URL or SOROBAN_RPC_URL env var
+    // 2. Build contract invocation for get_audit_log(log_id)
+    // 3. Sign transaction with wallet from STELLAR_SECRET_KEY or Soroban identity
+    // 4. Submit via /simulateTransaction endpoint
+    // 5. Parse result and extract AuditLog structure
+    // 6. Map to AuditLogEntry with actor address and operation context
+    
+    let _ = log_id;
+    // Placeholder: return None (no entries fetched)
+    None
+}
+
+/// Fetch audit logs filtered by session ID.
+/// Returns entries with optional range filtering [from_id, to_id].
+fn fetch_audit_logs_by_session(session_id: u64, from: Option<u64>, to: Option<u64>) -> Vec<AuditLogEntry> {
+    // TODO: Implement actual on-chain fetching via Soroban RPC
+    // This would invoke contract method: get_audit_log_range(from_id, to_id)
+    // and filter results where session_id matches.
+    //
+    // The contract's get_audit_log_range() is capped at 100 entries per call,
+    // so pagination may be needed for large result sets.
+    //
+    // Implementation strategy:
+    // 1. Determine range: if from/to not provided, fetch latest 100 entries
+    // 2. Loop: call get_audit_log_range(from, min(from+100, to))
+    // 3. Filter: keep only entries where entry.session_id == session_id
+    // 4. Continue: if result set full, fetch next batch
+    // 5. Accumulate until complete or limit reached
+    // 6. Map AuditLog results to AuditLogEntry with formatted timestamps
+    
+    let _ = (session_id, from, to);
+    // Placeholder: return empty vec (no entries fetched)
+    vec![]
+}
+
+// ── Session data structures ──────────────────────────────────────────────────
+
+/// CLI representation of a session
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SessionRecord {
+    session_id: u64,
+    initiator: String,
+    created_at: u64,
+    nonce: u64,
+    operation_count: u64,
+    expires_at: u64,
+}
+
+// ── Session management commands ──────────────────────────────────────────────
+
+fn run_session_create(initiator: Option<String>) {
+    println!("◈ Creating new session");
+    println!();
+
+    match initiator {
+        Some(addr) => {
+            println!("  Initiator: {}", addr);
+        }
+        None => {
+            println!("  Initiator: using STELLAR_SECRET_KEY");
+        }
+    }
+
+    match create_session_on_chain(initiator) {
+        Ok(session_id) => {
+            println!();
+            println!("✔ Session created successfully");
+            println!("  Session ID: {}", session_id);
+            println!();
+            println!("Use this session ID for subsequent operations:");
+            println!("  anchorkit session get {}", session_id);
+        }
+        Err(e) => {
+            eprintln!("✖ Failed to create session: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run_session_get(session_id: u64) {
+    println!("◈ Fetching session {}", session_id);
+    println!();
+
+    match fetch_session_from_chain(session_id) {
+        Some(session) => {
+            print_session(&session);
+            println!();
+            println!("✔ Session retrieved successfully");
+        }
+        None => {
+            eprintln!("✖ Session {} not found", session_id);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run_session_list(format: &str, pretty: bool, limit: Option<u64>) {
+    let limit = limit.unwrap_or(100);
+    println!("◈ Fetching sessions (limit: {})", limit);
+
+    // Validate format
+    if !["text", "json", "csv"].contains(&format) {
+        eprintln!("error: unsupported format '{}'. Use 'text', 'json', or 'csv'", format);
+        std::process::exit(1);
+    }
+
+    let sessions = fetch_sessions_from_chain(limit);
+
+    if sessions.is_empty() {
+        println!("\n✗ No sessions found");
+        return;
+    }
+
+    println!();
+
+    match format {
+        "text" => {
+            println!("┌─ Active Sessions ──────────────────────────────────────────────");
+            for (idx, session) in sessions.iter().enumerate() {
+                if idx > 0 {
+                    println!("├───────────────────────────────────────────────────────────────");
+                }
+                print_session_compact(&session);
+            }
+            println!("└───────────────────────────────────────────────────────────────────");
+            println!();
+            println!("✔ Retrieved {} session{}", 
+                     sessions.len(), 
+                     if sessions.len() == 1 { "" } else { "s" });
+        }
+        "json" => {
+            let json_output = if pretty {
+                serde_json::to_string_pretty(&sessions)
+                    .unwrap_or_else(|_| "[]".to_string())
+            } else {
+                serde_json::to_string(&sessions)
+                    .unwrap_or_else(|_| "[]".to_string())
+            };
+            println!("{}", json_output);
+        }
+        "csv" => {
+            println!("session_id,initiator,created_at,operation_count,expires_at");
+            for session in &sessions {
+                println!(
+                    "{},{},{},{},{}",
+                    session.session_id,
+                    session.initiator,
+                    session.created_at,
+                    session.operation_count,
+                    session.expires_at,
+                );
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+// ── Session helper functions ─────────────────────────────────────────────────
+
+fn print_session(session: &SessionRecord) {
+    println!("  Session ID:       {}", session.session_id);
+    println!("  Initiator:        {}", session.initiator);
+    println!("  Created At:       {} ({})", 
+             session.created_at, 
+             format_timestamp(session.created_at));
+    println!("  Nonce:            {}", session.nonce);
+    println!("  Operation Count:  {}", session.operation_count);
+    println!("  Expires At:       {} ({})", 
+             session.expires_at,
+             format_timestamp(session.expires_at));
+}
+
+fn print_session_compact(session: &SessionRecord) {
+    println!("│ Session: {}  Initiator: {}...", 
+             session.session_id,
+             &session.initiator.chars().take(16).collect::<String>());
+    println!("│ Created: {}  Operations: {}  Expires: {}", 
+             session.created_at,
+             session.operation_count,
+             session.expires_at);
+}
+
+fn create_session_on_chain(initiator: Option<String>) -> Result<u64, String> {
+    create_session_rpc(initiator)
+}
+
+fn fetch_session_from_chain(session_id: u64) -> Option<SessionRecord> {
+    match get_session_rpc(session_id) {
+        Ok(session_data) => Some(SessionRecord {
+            session_id: session_data.session_id,
+            initiator: session_data.initiator,
+            created_at: session_data.created_at,
+            nonce: session_data.nonce,
+            operation_count: session_data.operation_count,
+            expires_at: session_data.expires_at,
+        }),
+        Err(_) => None,
+    }
+}
+
+fn fetch_sessions_from_chain(limit: u64) -> Vec<SessionRecord> {
+    match list_sessions_rpc(limit) {
+        Ok(sessions) => sessions
+            .into_iter()
+            .map(|s| SessionRecord {
+                session_id: s.session_id,
+                initiator: s.initiator,
+                created_at: s.created_at,
+                nonce: s.nonce,
+                operation_count: s.operation_count,
+                expires_at: s.expires_at,
+            })
+            .collect(),
+        Err(_) => vec![],
+    }
+}
+
