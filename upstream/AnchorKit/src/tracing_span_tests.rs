@@ -30,7 +30,7 @@ mod tracing_span_tests {
     fn test_span_propagates_across_operations() {
         let env = make_env();
         env.ledger().set(LedgerInfo {
-            timestamp: 0,
+            timestamp: 1_000,
             protocol_version: 21,
             sequence_number: 0,
             network_id: Default::default(),
@@ -58,7 +58,7 @@ mod tracing_span_tests {
     fn test_span_emits_request_id() {
         let env = make_env();
         env.ledger().set(LedgerInfo {
-            timestamp: 0,
+            timestamp: 1_000,
             protocol_version: 21,
             sequence_number: 0,
             network_id: Default::default(),
@@ -84,7 +84,7 @@ mod tracing_span_tests {
             &req_id,
             &attestor,
             &subject,
-            &1u64,
+            &env.ledger().timestamp(),
             &p,
             &sign_payload(&env, &sk, &p),
         );
@@ -141,7 +141,7 @@ mod tracing_span_tests {
     fn test_structured_log_format() {
         let env = make_env();
         env.ledger().set(LedgerInfo {
-            timestamp: 0,
+            timestamp: 1_000,
             protocol_version: 21,
             sequence_number: 0,
             network_id: Default::default(),
@@ -167,7 +167,7 @@ mod tracing_span_tests {
             &req_id,
             &attestor,
             &subject,
-            &1u64,
+            &env.ledger().timestamp(),
             &p,
             &sign_payload(&env, &sk, &p),
         );
