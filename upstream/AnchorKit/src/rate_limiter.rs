@@ -33,6 +33,8 @@ pub struct RateLimitState {
     pub total_requests: u64,
     /// Whether the one-time burst allowance has been consumed.
     pub burst_used: bool,
+    /// Cumulative total rejected submissions (never reset).
+    pub total_rejections: u64,
 }
 
 /// Rate limiter utility — plain Rust struct, no Soroban contract boundary.
@@ -48,7 +50,13 @@ impl RateLimiter {
                 window_start_ledger: env.ledger().sequence(),
                 total_requests: 0,
                 burst_used: false,
+                total_rejections: 0,
             })
+    }
+
+    /// Returns the total number of rejected submissions for an attestor.
+    pub fn get_rate_limit_rejections(env: Env, attestor: Address) -> u64 {
+        Self::get_state(env, attestor).total_rejections
     }
 
     /// Get the current global rate limit configuration.
@@ -92,6 +100,7 @@ impl RateLimiter {
                 window_start_ledger: current_ledger,
                 total_requests: 0,
                 burst_used: false,
+                total_rejections: 0,
             });
 
         if Self::is_window_expired(current_ledger, state.window_start_ledger, config.window_length) {
@@ -113,6 +122,7 @@ impl RateLimiter {
             config.max_submissions
         };
         if state.submission_count >= effective_limit {
+            state.total_rejections += 1;
             env.storage().persistent().set(&state_key, &state);
             env.storage().persistent().extend_ttl(&state_key, config.window_length, config.window_length);
             return Err(ErrorCode::RateLimitExceeded);
@@ -198,6 +208,7 @@ impl RateLimiter {
                 window_start_ledger: env.ledger().sequence(),
                 total_requests: 0,
                 burst_used: false,
+                total_rejections: 0,
             });
 
         let reset_state = RateLimitState {
@@ -205,6 +216,7 @@ impl RateLimiter {
             window_start_ledger: env.ledger().sequence(),
             total_requests: current_state.total_requests,
             burst_used: false,
+            total_rejections: current_state.total_rejections,
         };
 
         env.storage().persistent().set(&state_key, &reset_state);
