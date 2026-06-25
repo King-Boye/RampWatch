@@ -4,7 +4,7 @@ import './themes.css';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type TxStatus = "initiated" | "pending" | "processing" | "completed" | "failed";
+export type TxStatus = "initiated" | "awaiting_user" | "pending" | "processing" | "completed" | "failed" | "refunded";
 export type TxType   = "deposit" | "withdrawal";
 
 export interface TxEvent {
@@ -31,7 +31,7 @@ export interface TransactionTimelineProps {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STATUS_ORDER: TxStatus[] = ["initiated", "pending", "processing", "completed"];
+const STATUS_ORDER: TxStatus[] = ["initiated", "awaiting_user", "pending", "processing", "completed"];
 
 const STATUS_META: Record<TxStatus, { label: string; color: string; bg: string; border: string; icon: string }> = {
   initiated:  { label: "Initiated",  color: "var(--ak-status-initiated-color)",  bg: "var(--ak-status-initiated-bg)",  border: "var(--ak-status-initiated-border)",  icon: "◎"  },
@@ -42,17 +42,20 @@ const STATUS_META: Record<TxStatus, { label: string; color: string; bg: string; 
 };
 
 const DEFAULT_DESCRIPTIONS: Record<TxStatus, Record<TxType, string>> = {
-  initiated:  { deposit: "Deposit request received by anchor.",        withdrawal: "Withdrawal request received by anchor."        },
-  pending:    { deposit: "Awaiting your funds on the external rail.",  withdrawal: "Awaiting Stellar transaction confirmation."    },
-  processing: { deposit: "Funds received — minting assets on-chain.", withdrawal: "Processing payment to your bank account."     },
-  completed:  { deposit: "Assets delivered to your Stellar account.", withdrawal: "Funds sent to your destination account."      },
-  failed:     { deposit: "Deposit could not be completed.",           withdrawal: "Withdrawal could not be completed."           },
+  initiated:     { deposit: "Deposit request received by anchor.",                withdrawal: "Withdrawal request received by anchor."               },
+  awaiting_user: { deposit: "Please initiate your transfer to the anchor.",       withdrawal: "Your confirmation is required to continue."           },
+  pending:       { deposit: "Awaiting your funds on the external rail.",          withdrawal: "Awaiting Stellar transaction confirmation."           },
+  processing:    { deposit: "Funds received — minting assets on-chain.",          withdrawal: "Processing payment to your bank account."            },
+  completed:     { deposit: "Assets delivered to your Stellar account.",          withdrawal: "Funds sent to your destination account."             },
+  failed:        { deposit: "Deposit could not be completed.",                    withdrawal: "Withdrawal could not be completed."                  },
+  refunded:      { deposit: "Deposit could not be processed — funds refunded.",   withdrawal: "Withdrawal reversed — funds returned to your wallet." },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isFailed(status: TxStatus): boolean { return status === "failed"; }
 function isCompleted(status: TxStatus): boolean { return status === "completed"; }
+function isRefunded(status: TxStatus): boolean { return status === "refunded"; }
 function getOrderIndex(s: TxStatus): number { return STATUS_ORDER.indexOf(s); }
 
 function truncateHash(h: string): string {
@@ -171,6 +174,7 @@ export function TransactionTimeline({
 }: TransactionTimelineProps) {
   const failed = isFailed(currentStatus);
   const completed = isCompleted(currentStatus);
+  const refunded = isRefunded(currentStatus);
   const currentIndex = getOrderIndex(currentStatus);
 
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
@@ -265,7 +269,7 @@ export function TransactionTimeline({
             width: 8, height: 8, borderRadius: "50%",
             background: statusMeta.color,
             boxShadow: `0 0 0 2px ${statusMeta.bg}`,
-            animation: (!failed && !completed) ? "txs-ping-slow 2.5s ease-in-out infinite" : "none",
+            animation: (!failed && !completed && !refunded) ? "txs-ping-slow 2.5s ease-in-out infinite" : "none",
             flexShrink: 0,
           }} />
           <span style={{ ...mono, fontSize: 11, fontWeight: 600, color: statusMeta.color, letterSpacing: "0.1em", textTransform: "uppercase" }}>
@@ -403,6 +407,35 @@ export function TransactionTimeline({
                 {events.find(e => e.status === "failed")?.timestamp && (
                   <span style={{ ...mono, fontSize: 10, color: "var(--ak-status-failed-color)", marginTop: 4, display: "block" }}>
                     {formatTs(events.find(e => e.status === "failed")!.timestamp)}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Refunded node — appended after steps; distinct from failed (funds are returning) */}
+          {refunded && (
+            <div style={{ display: "flex", gap: 16, position: "relative" }}>
+              <div style={{ position: "relative", width: 40, height: 40, flexShrink: 0 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: "50%",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: `2px solid #7c3aed`,
+                  background: "#f5f3ff",
+                  boxShadow: "0 0 0 4px #f5f3ff, 0 2px 12px rgba(124,58,237,0.2)",
+                  fontSize: 16, color: "#7c3aed", fontWeight: 700, zIndex: 1, position: "relative",
+                }}>↩</div>
+              </div>
+              <div style={{ flex: 1, paddingTop: 8 }}>
+                <div style={{ ...sans, fontSize: 13, fontWeight: 600, color: "#5b21b6", marginBottom: 4 }}>
+                  {events.find(e => e.status === "refunded")?.label ?? "Transaction Refunded"}
+                </div>
+                <p style={{ ...sans, fontSize: 12, color: "#7c3aed", lineHeight: 1.55, margin: 0 }}>
+                  {events.find(e => e.status === "refunded")?.description ?? DEFAULT_DESCRIPTIONS.refunded[type]}
+                </p>
+                {events.find(e => e.status === "refunded")?.timestamp && (
+                  <span style={{ ...mono, fontSize: 10, color: "#a78bfa", marginTop: 4, display: "block" }}>
+                    {formatTs(events.find(e => e.status === "refunded")!.timestamp)}
                   </span>
                 )}
               </div>

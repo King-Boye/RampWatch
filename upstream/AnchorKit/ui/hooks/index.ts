@@ -13,6 +13,18 @@ export {
   type CopyToClipboardResult,
 } from './useCopyToClipboard';
 export { useTheme } from './useTheme';
+export {
+  useRateLimitStatus,
+  clearRateLimitCache,
+  type RateLimitStatus,
+  type UseRateLimitStatusResult,
+  type UseRateLimitStatusOptions,
+} from './useRateLimitStatus';
+export { type RateLimitStatusRaw, ContractError } from './contractClient';
+export { useSep10Auth } from './useSep10Auth';
+export type { Sep10AuthAdapters, UseSep10AuthResult } from './useSep10Auth';
+export { useAnchorHealth, isValidAttestor } from './useAnchorHealth';
+export type { GetHealthScoreFn, UseAnchorHealthResult } from './useAnchorHealth';
 export { useTransactionStatus } from './useTransactionStatus';
 export type {
   UseTransactionStatusOptions,

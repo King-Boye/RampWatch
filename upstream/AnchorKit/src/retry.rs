@@ -104,7 +104,6 @@ pub fn is_retryable(code: u32) -> bool {
             | ErrorCode::NoQuotesAvailable as u32
             | ErrorCode::CacheExpired as u32
             | ErrorCode::CacheNotFound as u32 => true,
-        // Explicitly non-retryable errors
         ErrorCode::UnauthorizedAttestor as u32
             | ErrorCode::ValidationError as u32
             | ErrorCode::InvalidQuote as u32
@@ -166,6 +165,7 @@ where
 #[cfg(test)]
 mod retry_tests {
     use super::*;
+    use alloc::vec::Vec;
 
     #[derive(Debug, PartialEq)]
     enum TestError {
