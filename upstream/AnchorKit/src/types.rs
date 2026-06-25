@@ -117,6 +117,7 @@ pub const SERVICE_DEPOSITS: u32 = 1;
 pub const SERVICE_WITHDRAWALS: u32 = 2;
 pub const SERVICE_QUOTES: u32 = 3;
 pub const SERVICE_KYC: u32 = 4;
+pub const SERVICE_EXCHANGE_QUOTES: u32 = 5;
 
 /// Typed representation of a service capability an anchor can support.
 ///
@@ -128,6 +129,7 @@ pub enum ServiceType {
     Withdrawals,
     Quotes,
     KYC,
+    ExchangeQuotes,
 }
 
 impl ServiceType {
@@ -137,6 +139,7 @@ impl ServiceType {
             ServiceType::Withdrawals => SERVICE_WITHDRAWALS,
             ServiceType::Quotes => SERVICE_QUOTES,
             ServiceType::KYC => SERVICE_KYC,
+            ServiceType::ExchangeQuotes => SERVICE_EXCHANGE_QUOTES,
         }
     }
 }
@@ -180,6 +183,8 @@ pub struct OperationContext {
     pub status: String,
     /// Human-readable outcome, e.g. `"attestation_id=42"`.
     pub result_summary: String,
+    /// Number of retry attempts before success (0 for first attempt success).
+    pub attempt_number: u32,
 }
 
 #[contracttype]
@@ -212,6 +217,9 @@ pub struct Attestation {
     /// audit purposes; callers should treat `issuer_revoked = true` as a
     /// signal that the issuer's authority has been withdrawn.
     pub issuer_revoked: bool,
+    /// Optional Unix timestamp (seconds) after which this attestation is
+    /// considered expired. `None` means no expiry.
+    pub expires_at: Option<u64>,
 }
 
 #[contracttype]
@@ -258,6 +266,7 @@ pub struct RoutingRequest {
 /// | `"FastestSettlement"` | Selects the anchor with the lowest `average_settlement_time`. |
 /// | `"HighestReputation"` | Selects the anchor with the highest `reputation_score`.    |
 /// | `"Balanced"`          | Composite scoring: (40_000/fee) + (30_000/time) + (reputation*3000/10000). |
+/// | `"Weighted"`          | Selects anchors proportionally based on health score.     |
 ///
 /// **Validation:** `strategy` is required and must contain exactly one symbol.
 /// - Passing an empty `Vec` causes the call to panic with `NoQuotesAvailable`.
@@ -276,6 +285,8 @@ pub struct RoutingRequest {
 /// - `jurisdiction` — when `Some`, only anchors registered in that region
 ///   (via `set_anchor_jurisdiction`) are eligible. `None` disables geographic
 ///   filtering.
+/// - `fallback_chain` — ordered list of anchor addresses to try in sequence if
+///   the primary selection fails. When empty, no fallback is used.
 #[contracttype]
 #[derive(Clone)]
 pub struct RoutingOptions {
@@ -285,6 +296,7 @@ pub struct RoutingOptions {
     pub max_anchors: u32,
     pub require_kyc: bool,
     pub jurisdiction: Option<String>,
+    pub fallback_chain: Vec<Address>,
 }
 
 /// Returns whether an anchor is eligible under the requested jurisdiction filter.
