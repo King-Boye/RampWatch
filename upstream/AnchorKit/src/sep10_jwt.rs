@@ -360,6 +360,124 @@ pub fn verify_sep10_jwt(
     Ok(())
 }
 
+/// Verify a SEP-10 JWT signed by multiple signers (M-of-N multi-signature).
+///
+/// `signatures` contains one JWS compact token per signer — each signs the same
+/// header.payload with their own key. All tokens must have the same header+payload;
+/// at least `threshold` of the provided `keys` must produce a valid signature.
+///
+/// Returns `Ok(())` if the signature threshold is met and the payload is valid
+/// (non-expired, correct `sub` if supplied). Returns `Err(())` otherwise.
+pub fn verify_sep10_jwt_multisig(
+    env: &Env,
+    tokens: &soroban_sdk::Vec<soroban_sdk::String>,
+    keys: &soroban_sdk::Vec<Bytes>,
+    threshold: u32,
+    expected_sub: Option<&soroban_sdk::String>,
+    clock_skew_seconds: u64,
+) -> Result<(), ()> {
+    if threshold == 0 || threshold > keys.len() {
+        return Err(());
+    }
+    if tokens.len() < threshold {
+        return Err(());
+    }
+
+    // Extract the canonical signing input (header.payload) from the first token.
+    // All tokens must share the same header.payload.
+    let first = tokens.get(0).ok_or(())?;
+    let first_n = first.len() as usize;
+    if first_n == 0 || first_n > MAX_JWT_LEN as usize {
+        return Err(());
+    }
+    let mut first_buf = [0u8; MAX_JWT_LEN as usize];
+    first.copy_into_slice(&mut first_buf[..first_n]);
+
+    // Find the two dots in the first token.
+    let mut dots: [usize; 2] = [0; 2];
+    let mut dot_count = 0usize;
+    for (i, &byte) in first_buf[..first_n].iter().enumerate() {
+        if byte == b'.' {
+            if dot_count < 2 { dots[dot_count] = i; dot_count += 1; } else { return Err(()); }
+        }
+    }
+    if dot_count != 2 { return Err(()); }
+    let d0 = dots[0];
+    let d1 = dots[1];
+    if d0 == 0 || d1 <= d0 + 1 || d1 + 1 >= first_n { return Err(()); }
+
+    // Validate alg and payload (exp, sub) using the first token's payload.
+    let header_b64 = &first_buf[..d0];
+    let payload_b64 = &first_buf[d0 + 1..d1];
+    let header_dec = base64url_decode(header_b64).map_err(|_| ())?;
+    let alg = parse_json_alg(&header_dec)?;
+    if alg != b"EdDSA" { return Err(()); }
+    let payload_dec = base64url_decode(payload_b64).map_err(|_| ())?;
+    let exp = parse_json_exp(&payload_dec)?;
+    let now = env.ledger().timestamp();
+    if exp.saturating_add(clock_skew_seconds) <= now { return Err(()); }
+    let sub = parse_json_sub(env, &payload_dec)?;
+    if let Some(expected) = expected_sub {
+        if sub != *expected { return Err(()); }
+    }
+
+    // Count how many distinct keys produce a valid signature across all tokens.
+    let signing_input = &first_buf[..d1]; // header.payload
+    let mut valid_sig_count: u32 = 0;
+    let mut used_key_indices: [bool; 10] = [false; 10]; // up to 10 keys (MAX_VERIFYING_KEYS=3 in practice)
+
+    for t_idx in 0..tokens.len() {
+        let token = tokens.get(t_idx).ok_or(())?;
+        let tn = token.len() as usize;
+        if tn == 0 || tn > MAX_JWT_LEN as usize { continue; }
+        let mut tbuf = [0u8; MAX_JWT_LEN as usize];
+        token.copy_into_slice(&mut tbuf[..tn]);
+
+        // Extract signature from this token.
+        let mut tdots: [usize; 2] = [0; 2];
+        let mut tdc = 0usize;
+        for (i, &byte) in tbuf[..tn].iter().enumerate() {
+            if byte == b'.' {
+                if tdc < 2 { tdots[tdc] = i; tdc += 1; } else { break; }
+            }
+        }
+        if tdc != 2 { continue; }
+        let td1 = tdots[1];
+        if td1 + 1 >= tn { continue; }
+
+        // Ensure this token's signing input matches the canonical one.
+        if &tbuf[..td1] != signing_input { continue; }
+
+        let sig_b64 = &tbuf[td1 + 1..tn];
+        let sig_dec = match base64url_decode(sig_b64) { Ok(s) => s, Err(_) => continue };
+        if sig_dec.len() != 64 { continue; }
+        let sig_arr: [u8; 64] = match sig_dec.as_slice().try_into() { Ok(a) => a, Err(_) => continue };
+        let dalek_sig = Signature::from_bytes(&sig_arr);
+
+        for k_idx in 0..keys.len() {
+            let k_idx_usize = k_idx as usize;
+            if k_idx_usize < 10 && used_key_indices[k_idx_usize] { continue; }
+            let key = keys.get(k_idx).unwrap();
+            if key.len() != 32 { continue; }
+            let mut pk_arr = [0u8; 32];
+            key.copy_into_slice(&mut pk_arr);
+            if let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) {
+                if vk.verify(signing_input, &dalek_sig).is_ok() {
+                    if k_idx_usize < 10 { used_key_indices[k_idx_usize] = true; }
+                    valid_sig_count += 1;
+                    break;
+                }
+            }
+        }
+
+        if valid_sig_count >= threshold {
+            return Ok(());
+        }
+    }
+
+    if valid_sig_count >= threshold { Ok(()) } else { Err(()) }
+}
+
 #[cfg(test)]
 mod tests {
     extern crate std;
