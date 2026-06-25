@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 export interface CopyToClipboardOptions {
   /**
@@ -63,29 +63,58 @@ export function useCopyToClipboard(
 
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reset isCopied after successDuration whenever it becomes true
+  useEffect(() => {
+    if (!isCopied) return;
+    timerRef.current = setTimeout(() => {
+      setIsCopied(false);
+    }, successDuration);
+    return () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [isCopied, successDuration]);
 
   const copy = useCallback(
     async (text: string): Promise<boolean> => {
-      // Check if clipboard API is available
-      if (!navigator?.clipboard) {
-        const error = new Error('Clipboard API not available');
-        console.error('Copy failed:', error);
-        onError?.(error);
-        return false;
-      }
-
       try {
-        await navigator.clipboard.writeText(text);
-        setCopiedText(text);
-        setIsCopied(true);
-        onSuccess?.();
-
-        // Reset copied state after duration
-        setTimeout(() => {
-          setIsCopied(false);
-        }, successDuration);
-
-        return true;
+        // Try modern clipboard API first
+        if (navigator?.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          setCopiedText(text);
+          setIsCopied(true);
+          onSuccess?.();
+          return true;
+        }
+        
+        // Fallback to execCommand for older browsers or non-secure contexts
+        if (document.execCommand) {
+          const textArea = document.createElement('textarea');
+          textArea.value = text;
+          textArea.style.position = 'fixed';
+          textArea.style.left = '-999999px';
+          textArea.style.top = '-999999px';
+          document.body.appendChild(textArea);
+          textArea.focus();
+          textArea.select();
+          
+          const successful = document.execCommand('copy');
+          document.body.removeChild(textArea);
+          
+          if (successful) {
+            setCopiedText(text);
+            setIsCopied(true);
+            onSuccess?.();
+            return true;
+          }
+        }
+        
+        // If both methods fail
+        throw new Error('Clipboard API and execCommand are not available');
       } catch (err) {
         const error = err instanceof Error ? err : new Error('Failed to copy');
         console.error('Copy failed:', error);
@@ -93,7 +122,7 @@ export function useCopyToClipboard(
         return false;
       }
     },
-    [successDuration, onSuccess, onError]
+    [onSuccess, onError]
   );
 
   const reset = useCallback(() => {

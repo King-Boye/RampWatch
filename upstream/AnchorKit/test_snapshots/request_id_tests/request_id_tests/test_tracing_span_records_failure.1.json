@@ -15,7 +15,11 @@
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                }
+                },
+                {
+                  "u64": 100
+                },
+                "void"
               ]
             }
           },
@@ -30,7 +34,7 @@
   "ledger": {
     "protocol_version": 21,
     "sequence_number": 0,
-    "timestamp": 0,
+    "timestamp": 1000,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
     "min_persistent_entry_ttl": 4096,
@@ -70,6 +74,30 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "AuditLogMaxSize"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 100
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "RPWINDOW"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 300
                         }
                       }
                     ]
@@ -158,7 +186,15 @@
               }
             ],
             "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u64": 100
+                },
+                "void"
+              ]
             }
           }
         }
@@ -232,7 +268,7 @@
                     "symbol": "created_at"
                   },
                   "val": {
-                    "u64": 0
+                    "u64": 1000
                   }
                 },
                 {
@@ -240,7 +276,7 @@
                     "symbol": "id"
                   },
                   "val": {
-                    "bytes": "15ec7bf0b50732b49f8228e07d243653"
+                    "bytes": "1dbf595975a7597010512dc1a625a467"
                   }
                 }
               ]
@@ -277,7 +313,7 @@
                         "symbol": "created_at"
                       },
                       "val": {
-                        "u64": 0
+                        "u64": 1000
                       }
                     },
                     {
@@ -285,7 +321,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "bytes": "15ec7bf0b50732b49f8228e07d243653"
+                        "bytes": "1dbf595975a7597010512dc1a625a467"
                       }
                     }
                   ]
@@ -321,16 +357,23 @@
           "v0": {
             "topics": [
               {
-                "symbol": "fn_return"
+                "symbol": "error"
               },
               {
-                "symbol": "submit_with_request_id"
+                "error": {
+                  "contract": 3
+                }
               }
             ],
             "data": {
-              "error": {
-                "contract": 3
-              }
+              "vec": [
+                {
+                  "string": "failing with contract error"
+                },
+                {
+                  "u32": 3
+                }
+              ]
             }
           }
         }
@@ -355,7 +398,32 @@
               }
             ],
             "data": {
-              "string": "escalating Ok(ScErrorType::Contract) frame-exit to Err"
+              "string": "escalating error to panic"
+            }
+          }
+        }
+      },
+      "failed_call": true
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "error"
+              },
+              {
+                "error": {
+                  "contract": 3
+                }
+              }
+            ],
+            "data": {
+              "string": "caught error from function"
             }
           }
         }
@@ -396,7 +464,7 @@
                             "symbol": "created_at"
                           },
                           "val": {
-                            "u64": 0
+                            "u64": 1000
                           }
                         },
                         {
@@ -404,7 +472,7 @@
                             "symbol": "id"
                           },
                           "val": {
-                            "bytes": "15ec7bf0b50732b49f8228e07d243653"
+                            "bytes": "1dbf595975a7597010512dc1a625a467"
                           }
                         }
                       ]
@@ -452,7 +520,7 @@
               }
             ],
             "data": {
-              "bytes": "15ec7bf0b50732b49f8228e07d243653"
+              "bytes": "1dbf595975a7597010512dc1a625a467"
             }
           }
         }
