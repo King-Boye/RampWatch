@@ -458,6 +458,165 @@ pub fn list_transactions(
     Ok(results)
 }
 
+// ── #650 deposit_exchange ─────────────────────────────────────────────────────
+
+/// Raw fields for a deposit-exchange (buy/convert) request.
+pub struct RawDepositExchangeRequest {
+    /// Asset the user is sending (e.g. `"USD"`).
+    pub source_asset: String,
+    /// Asset the user wants to receive (e.g. `"USDC"`).
+    pub destination_asset: String,
+    /// Amount of `source_asset` to exchange (in asset units).
+    pub amount: u64,
+}
+
+/// Normalized response for a deposit-exchange initiation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DepositExchangeResponse {
+    pub transaction_id: String,
+    pub how: String,
+    pub extra_info: Option<String>,
+    pub fee_fixed: Option<u64>,
+    pub fee_percent: Option<u32>,
+    pub status: TransactionStatus,
+}
+
+/// Initiate a deposit-exchange flow (buy crypto / convert one asset to another).
+///
+/// Returns `Err(ValidationError)` if asset codes are invalid.
+/// Returns `Err(InvalidAmount)` if amount is zero.
+/// Returns `Err(InvalidTransactionIntent)` if required response fields are missing.
+pub fn deposit_exchange(
+    req: RawDepositExchangeRequest,
+    raw: RawDepositResponse,
+) -> Result<DepositExchangeResponse, Error> {
+    if !is_valid_asset_code(&req.source_asset) {
+        return Err(Error::with_context(
+            ErrorCode::ValidationError,
+            "Invalid source_asset code",
+            &req.source_asset,
+        ));
+    }
+    if !is_valid_asset_code(&req.destination_asset) {
+        return Err(Error::with_context(
+            ErrorCode::ValidationError,
+            "Invalid destination_asset code",
+            &req.destination_asset,
+        ));
+    }
+    if req.amount == 0 {
+        return Err(Error::invalid_amount());
+    }
+    if raw.transaction_id.is_empty() || raw.how.is_empty() {
+        return Err(Error::invalid_transaction_intent());
+    }
+    Ok(DepositExchangeResponse {
+        transaction_id: raw.transaction_id,
+        how: raw.how,
+        extra_info: raw.extra_info,
+        fee_fixed: raw.fee_fixed,
+        fee_percent: raw.fee_percent,
+        status: raw.status.as_deref().map(TransactionStatus::from_str).unwrap_or(TransactionStatus::Pending),
+    })
+}
+
+// ── #651 validate_amount ──────────────────────────────────────────────────────
+
+/// Asset limit info used by `validate_amount`.
+pub struct AssetLimits {
+    pub min_amount: u64,
+    pub max_amount: u64,
+}
+
+/// Validate that `amount` falls within the anchor's limits for the given asset.
+///
+/// Returns `Err(InvalidAmount)` if amount is zero, below min, or above max.
+pub fn validate_amount(amount: u64, limits: &AssetLimits) -> Result<(), Error> {
+    if amount == 0 || amount < limits.min_amount || amount > limits.max_amount {
+        Err(Error::invalid_amount())
+    } else {
+        Ok(())
+    }
+}
+
+// ── #652 get_fee_estimate ─────────────────────────────────────────────────────
+
+/// Operation type for fee estimation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FeeOperation {
+    Deposit,
+    Withdrawal,
+}
+
+/// Anchor fee data used by `get_fee_estimate`.
+pub struct AnchorFeeData {
+    pub fee_fixed: u64,
+    /// Fee percentage in basis points (e.g. `150` = 1.50%).
+    pub fee_percent_bps: u32,
+}
+
+/// Estimated fee for a given asset, amount, and operation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeEstimate {
+    pub total_fee: u64,
+    pub fee_fixed: u64,
+    pub fee_percent_bps: u32,
+}
+
+/// Calculate the expected anchor fee for a deposit or withdrawal.
+///
+/// Returns `Err(ValidationError)` for invalid asset code.
+/// Returns `Err(InvalidAmount)` if amount is zero.
+pub fn get_fee_estimate(
+    asset_code: &str,
+    amount: u64,
+    operation: FeeOperation,
+    fee_data: &AnchorFeeData,
+) -> Result<FeeEstimate, Error> {
+    if !is_valid_asset_code(asset_code) {
+        return Err(Error::with_context(ErrorCode::ValidationError, "Invalid asset code", asset_code));
+    }
+    if amount == 0 {
+        return Err(Error::invalid_amount());
+    }
+    let _ = operation;
+    let percent_fee = (amount as u128 * fee_data.fee_percent_bps as u128 / 10_000) as u64;
+    let total_fee = fee_data.fee_fixed.saturating_add(percent_fee);
+    Ok(FeeEstimate { total_fee, fee_fixed: fee_data.fee_fixed, fee_percent_bps: fee_data.fee_percent_bps })
+}
+
+// ── #653 get_transactions ─────────────────────────────────────────────────────
+
+/// Filters for the SEP-6 `/transactions` endpoint.
+pub struct TransactionFilters {
+    pub account: String,
+    pub asset_code: String,
+    pub status: Option<TransactionStatus>,
+    pub limit: u32,
+    pub cursor: Option<String>,
+}
+
+/// Fetch and normalize a list of transactions matching the given filters.
+///
+/// Maps to the SEP-6 `/transactions` endpoint. Returns `Err(ValidationError)`
+/// for invalid account or empty asset_code.
+pub fn get_transactions(
+    filters: TransactionFilters,
+    raw_items: Vec<RawTransactionResponse>,
+) -> Result<Vec<TransactionStatusResponse>, Error> {
+    let req = RawTransactionListRequest {
+        account: filters.account,
+        asset_code: filters.asset_code,
+        limit: filters.limit,
+        cursor: filters.cursor,
+    };
+    let mut results = list_transactions(req, raw_items)?;
+    if let Some(status_filter) = filters.status {
+        results.retain(|tx| tx.status == status_filter);
+    }
+    Ok(results)
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -922,5 +1081,183 @@ mod tests {
         let result = fetch_transaction_status_with_retry(raw, None, |_| {});
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code, ErrorCode::InvalidTransactionIntent);
+    }
+
+    // ── deposit_exchange tests (#650) ────────────────────────────────────────
+
+    fn exchange_req() -> RawDepositExchangeRequest {
+        RawDepositExchangeRequest {
+            source_asset: "USD".to_string(),
+            destination_asset: "USDC".to_string(),
+            amount: 100,
+        }
+    }
+
+    #[test]
+    fn test_deposit_exchange_success() {
+        let resp = deposit_exchange(exchange_req(), raw_deposit()).unwrap();
+        assert_eq!(resp.transaction_id, "txn-001");
+        assert_eq!(resp.status, TransactionStatus::PendingExternal);
+    }
+
+    #[test]
+    fn test_deposit_exchange_invalid_source_asset() {
+        let mut req = exchange_req();
+        req.source_asset = "".to_string();
+        assert_eq!(deposit_exchange(req, raw_deposit()).unwrap_err().code, ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn test_deposit_exchange_invalid_destination_asset() {
+        let mut req = exchange_req();
+        req.destination_asset = "toolongassetcode".to_string();
+        assert_eq!(deposit_exchange(req, raw_deposit()).unwrap_err().code, ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn test_deposit_exchange_zero_amount_returns_invalid_amount() {
+        let mut req = exchange_req();
+        req.amount = 0;
+        assert_eq!(deposit_exchange(req, raw_deposit()).unwrap_err().code, ErrorCode::InvalidAmount);
+    }
+
+    #[test]
+    fn test_deposit_exchange_missing_transaction_id() {
+        let mut raw = raw_deposit();
+        raw.transaction_id = "".to_string();
+        assert_eq!(deposit_exchange(exchange_req(), raw).unwrap_err().code, ErrorCode::InvalidTransactionIntent);
+    }
+
+    // ── validate_amount tests (#651) ─────────────────────────────────────────
+
+    #[test]
+    fn test_validate_amount_within_limits() {
+        let limits = AssetLimits { min_amount: 10, max_amount: 1000 };
+        assert!(validate_amount(100, &limits).is_ok());
+    }
+
+    #[test]
+    fn test_validate_amount_at_min() {
+        let limits = AssetLimits { min_amount: 10, max_amount: 1000 };
+        assert!(validate_amount(10, &limits).is_ok());
+    }
+
+    #[test]
+    fn test_validate_amount_at_max() {
+        let limits = AssetLimits { min_amount: 10, max_amount: 1000 };
+        assert!(validate_amount(1000, &limits).is_ok());
+    }
+
+    #[test]
+    fn test_validate_amount_below_min() {
+        let limits = AssetLimits { min_amount: 10, max_amount: 1000 };
+        assert_eq!(validate_amount(5, &limits).unwrap_err().code, ErrorCode::InvalidAmount);
+    }
+
+    #[test]
+    fn test_validate_amount_above_max() {
+        let limits = AssetLimits { min_amount: 10, max_amount: 1000 };
+        assert_eq!(validate_amount(2000, &limits).unwrap_err().code, ErrorCode::InvalidAmount);
+    }
+
+    #[test]
+    fn test_validate_amount_zero() {
+        let limits = AssetLimits { min_amount: 10, max_amount: 1000 };
+        assert_eq!(validate_amount(0, &limits).unwrap_err().code, ErrorCode::InvalidAmount);
+    }
+
+    // ── get_fee_estimate tests (#652) ────────────────────────────────────────
+
+    fn fee_data() -> AnchorFeeData {
+        AnchorFeeData { fee_fixed: 5, fee_percent_bps: 100 } // 1%
+    }
+
+    #[test]
+    fn test_get_fee_estimate_deposit() {
+        let est = get_fee_estimate("USDC", 1000, FeeOperation::Deposit, &fee_data()).unwrap();
+        // fixed=5, percent=1000*100/10000=10 => total=15
+        assert_eq!(est.fee_fixed, 5);
+        assert_eq!(est.total_fee, 15);
+    }
+
+    #[test]
+    fn test_get_fee_estimate_withdrawal() {
+        let est = get_fee_estimate("USDC", 500, FeeOperation::Withdrawal, &fee_data()).unwrap();
+        assert_eq!(est.total_fee, 5 + 5); // 5 fixed + 5 percent
+    }
+
+    #[test]
+    fn test_get_fee_estimate_zero_amount() {
+        assert_eq!(
+            get_fee_estimate("USDC", 0, FeeOperation::Deposit, &fee_data()).unwrap_err().code,
+            ErrorCode::InvalidAmount
+        );
+    }
+
+    #[test]
+    fn test_get_fee_estimate_invalid_asset_code() {
+        assert_eq!(
+            get_fee_estimate("", 100, FeeOperation::Deposit, &fee_data()).unwrap_err().code,
+            ErrorCode::ValidationError
+        );
+    }
+
+    // ── get_transactions tests (#653) ────────────────────────────────────────
+
+    fn tx_filters() -> TransactionFilters {
+        TransactionFilters {
+            account: VALID_ACCOUNT.to_string(),
+            asset_code: "USDC".to_string(),
+            status: None,
+            limit: 10,
+            cursor: None,
+        }
+    }
+
+    #[test]
+    fn test_get_transactions_returns_all() {
+        let items = alloc::vec![make_raw_tx("t1", "completed"), make_raw_tx("t2", "pending")];
+        let result = get_transactions(tx_filters(), items).unwrap();
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_get_transactions_status_filter() {
+        let items = alloc::vec![
+            make_raw_tx("t1", "completed"),
+            make_raw_tx("t2", "pending"),
+            make_raw_tx("t3", "completed"),
+        ];
+        let mut f = tx_filters();
+        f.status = Some(TransactionStatus::Completed);
+        let result = get_transactions(f, items).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|tx| tx.status == TransactionStatus::Completed));
+    }
+
+    #[test]
+    fn test_get_transactions_invalid_account() {
+        let f = TransactionFilters {
+            account: "bad".to_string(),
+            asset_code: "USDC".to_string(),
+            status: None,
+            limit: 10,
+            cursor: None,
+        };
+        assert_eq!(get_transactions(f, alloc::vec![]).unwrap_err().code, ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn test_get_transactions_cursor_pagination() {
+        let items = alloc::vec![
+            make_raw_tx("t1", "completed"),
+            make_raw_tx("t2", "completed"),
+            make_raw_tx("t3", "completed"),
+        ];
+        let mut f = tx_filters();
+        f.cursor = Some("t1".to_string());
+        let result = get_transactions(f, items).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].transaction_id, "t2");
     }
 }
