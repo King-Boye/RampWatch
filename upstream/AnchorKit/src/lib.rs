@@ -1,28 +1,28 @@
 #![no_std]
 extern crate alloc;
 
+mod contract;
 mod deterministic_hash;
 mod domain_validator;
 mod errors;
-mod sep10_jwt;
-mod rate_limiter;
-mod response_validator;
-mod retry;
-mod transaction_state_tracker;
-pub mod storage;
-pub mod sep6;
-pub mod contract;
+mod events;
+mod storage;
+mod types;
+mod validation;
 
-pub use domain_validator::validate_anchor_domain;
-pub use errors::{AnchorKitError, ErrorCode};
+#[cfg(test)]
+mod config_tests;
+#[cfg(test)]
+mod streaming_flow_tests;
 
-/// Backward-compatible alias. Prefer [`AnchorKitError`] for new code.
+use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, Vec};
+
+pub use config::{AttestorConfig, ContractConfig, SessionConfig};
 pub use errors::Error;
 pub use rate_limiter::{RateLimiter, RateLimitConfig, RateLimitState};
 pub use response_validator::{
     validate_anchor_info_response, validate_deposit_response, validate_quote_response,
-    validate_withdraw_response, AnchorInfoResponse, DepositResponse as ValidatorDepositResponse,
-    QuoteResponse, WithdrawResponse,
+    validate_withdraw_response, AnchorInfoResponse, QuoteResponse,
 };
 pub use retry::{retry_with_backoff, is_retryable, RetryConfig};
 pub use deterministic_hash::{compute_payload_hash, verify_payload_hash};
@@ -30,11 +30,13 @@ pub use deterministic_hash::{compute_payload_hash, verify_payload_hash};
 #[cfg(test)]
 mod transaction_state_tracker_tests;
 pub use sep6::{
-    fetch_transaction_status, initiate_deposit, initiate_withdrawal, DepositResponse,
+    fetch_transaction_status, initiate_deposit, initiate_withdrawal,
     RawDepositResponse, RawTransactionResponse, RawWithdrawalResponse, TransactionKind,
-    TransactionStatus, TransactionStatusResponse, WithdrawalResponse,
+    TransactionStatusResponse,
 };
-pub use contract::{AnchorKitContract, EndpointUpdated, get_admin, get_endpoint, set_endpoint, get_attestation_count};
+pub use types::{DepositResponse, WithdrawalResponse, TransactionStatus};
+pub use contract::{AnchorKitContract, get_admin, get_endpoint, set_endpoint, get_attestation_count};
+pub use events::EndpointUpdated;
 
 #[cfg(test)]
 mod request_id_tests;
@@ -72,6 +74,12 @@ mod deterministic_hash_snapshot_tests {
     // This module exists to satisfy the test_snapshots/deterministic_hash_tests path.
 }
 
+// Snapshot path note: anchor_info_discovery_tests uses an inner module of the
+// same name, so Soroban writes snapshots to
+//   test_snapshots/anchor_info_discovery_tests/anchor_info_discovery_tests/
+// The previously existing test_snapshots/anchor_info_discovery/tests/ directory
+// was generated under an older module layout and has been removed.
+
 #[cfg(test)]
 mod capability_detection_tests;
 
@@ -92,3 +100,9 @@ mod replay_window_tests;
 
 #[cfg(test)]
 mod attestor_cap_batch_tests;
+
+#[cfg(test)]
+mod anchor_health_score_tests;
+
+#[cfg(test)]
+mod compute_payload_hash_tests;

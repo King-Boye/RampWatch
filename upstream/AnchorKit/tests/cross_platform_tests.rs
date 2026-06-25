@@ -5,6 +5,13 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+/// Normalises path separators to forward slashes regardless of OS.
+/// On Windows, `Path` produces backslash-separated strings; callers that store
+/// or compare path strings must normalise them first to get consistent results.
+fn normalize_path_separators(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
 #[test]
 fn test_path_construction_is_platform_agnostic() {
     let base = Path::new("configs");
@@ -271,6 +278,42 @@ fn test_symlink_detection() {
 }
 
 #[test]
+fn test_symlink_creation() {
+    let temp = std::env::temp_dir();
+    let target = temp.join("anchorkit_symlink_target.txt");
+    let link = temp.join("anchorkit_symlink_link.txt");
+
+    fs::write(&target, b"symlink target").expect("Failed to write target file");
+
+    // Attempt symlink creation; on Windows this requires elevated privileges.
+    #[cfg(windows)]
+    let result = std::os::windows::fs::symlink_file(&target, &link);
+
+    #[cfg(not(windows))]
+    let result = std::os::unix::fs::symlink(&target, &link);
+
+    match result {
+        Ok(()) => {
+            let metadata = fs::symlink_metadata(&link).expect("Failed to get symlink metadata");
+            assert!(metadata.file_type().is_symlink(), "Expected a symlink");
+            fs::remove_file(&link).ok();
+        }
+        Err(e) => {
+            // On Windows without SeCreateSymbolicLinkPrivilege this is expected.
+            #[cfg(windows)]
+            {
+                eprintln!("SKIP test_symlink_creation: symlink creation requires elevated privileges on this system ({e})");
+                // Not a test failure — privilege is unavailable.
+            }
+            #[cfg(not(windows))]
+            panic!("Symlink creation failed on Unix: {e}");
+        }
+    }
+
+    fs::remove_file(&target).ok();
+}
+
+#[test]
 fn test_config_schema_path() {
     let schema = Path::new("config_schema.json");
     assert_eq!(
@@ -292,4 +335,86 @@ fn test_config_directory_path() {
 fn test_validator_script_path() {
     let validator = Path::new("validate_config_strict.py");
     assert_eq!(validator.extension().and_then(|s| s.to_str()), Some("py"));
+}
+
+// ── Windows path-separator tests ─────────────────────────────────────────────
+// The tests below exercise explicit backslash separators so that path
+// normalisation logic is verified even when CI runs on Linux/macOS.
+
+#[test]
+fn test_windows_backslash_path_is_normalized() {
+    let windows_path = "configs\\subdir\\file.json";
+    let normalized = normalize_path_separators(windows_path);
+    assert_eq!(normalized, "configs/subdir/file.json");
+}
+
+#[test]
+fn test_mixed_separators_are_normalized() {
+    let mixed = "configs/subdir\\file.json";
+    let normalized = normalize_path_separators(mixed);
+    assert_eq!(normalized, "configs/subdir/file.json");
+}
+
+#[test]
+fn test_windows_path_splits_into_correct_components() {
+    let windows_path = "test_snapshots\\capability_detection_tests\\test_file.json";
+    let normalized = normalize_path_separators(windows_path);
+    let parts: Vec<&str> = normalized.split('/').collect();
+
+    assert_eq!(parts.len(), 3);
+    assert_eq!(parts[0], "test_snapshots");
+    assert_eq!(parts[1], "capability_detection_tests");
+    assert_eq!(parts[2], "test_file.json");
+}
+
+#[test]
+fn test_normalize_unix_path_is_unchanged() {
+    let unix_path = "configs/subdir/file.json";
+    let normalized = normalize_path_separators(unix_path);
+    assert_eq!(normalized, unix_path);
+}
+
+#[test]
+fn test_windows_unc_path_normalization() {
+    // UNC paths (\\server\share) must also normalise without panicking.
+    let unc_path = "\\\\server\\share\\file.json";
+    let normalized = normalize_path_separators(unc_path);
+    assert_eq!(normalized, "//server/share/file.json");
+}
+
+#[test]
+fn test_native_path_separator_and_normalize() {
+    // Build a path with std::path::PathBuf (uses the native separator) then
+    // verify that normalize_path_separators produces a forward-slash string.
+    let path = PathBuf::from("configs").join("subdir").join("file.json");
+    let display = path.to_string_lossy().to_string();
+
+    let normalized = normalize_path_separators(&display);
+
+    // After normalization there must be no backslashes.
+    assert!(!normalized.contains('\\'), "normalized path still contains backslash: {normalized}");
+    assert_eq!(normalized, "configs/subdir/file.json");
+
+    // On Windows the original string should have contained backslashes;
+    // on Unix it should already have forward slashes.
+    #[cfg(target_os = "windows")]
+    assert!(display.contains('\\'), "expected native backslash on Windows");
+
+    #[cfg(not(target_os = "windows"))]
+    assert!(display.contains('/'), "expected forward slash on Unix");
+}
+
+#[test]
+fn test_trailing_backslash_normalization() {
+    let path_with_trailing = "configs\\subdir\\";
+    let normalized = normalize_path_separators(path_with_trailing);
+    assert_eq!(normalized, "configs/subdir/");
+    assert!(!normalized.contains('\\'));
+}
+
+#[test]
+fn test_single_backslash_component() {
+    let single = "file\\name.json";
+    let normalized = normalize_path_separators(single);
+    assert_eq!(normalized, "file/name.json");
 }

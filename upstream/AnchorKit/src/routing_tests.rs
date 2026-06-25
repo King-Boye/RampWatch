@@ -3,7 +3,7 @@
 mod routing_tests {
     use soroban_sdk::{
         testutils::{Address as _, Ledger, LedgerInfo},
-        Address, Env, String, Symbol, Vec,
+        Address, Env, String, Symbol, Vec, symbol_short,
     };
 
     use ed25519_dalek::SigningKey;
@@ -12,6 +12,7 @@ mod routing_tests {
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
     use crate::types::{RoutingOptions, RoutingRequest};
     use crate::sep10_test_util::register_attestor_with_sep10;
+    use crate::events::{RoutingDecisionEvent, QuoteExpiredEvent};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -36,7 +37,7 @@ mod routing_tests {
         let contract_id = env.register_contract(None, AnchorKitContract);
         let client = AnchorKitContractClient::new(env, &contract_id);
         let admin = Address::generate(env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
         (client, admin)
     }
 
@@ -82,8 +83,8 @@ mod routing_tests {
             &10000u64, &20u32, &100u64, &100000u64, &1_003_600u64,
         );
 
-        let q1 = client.get_quote(&anchor1, &1u64);
-        let q2 = client.get_quote(&anchor2, &2u64);
+        let q1 = client.get_quote(&anchor1, &1u64).unwrap();
+        let q2 = client.get_quote(&anchor2, &2u64).unwrap();
 
         assert_eq!(q1.fee_percentage, 50);
         assert_eq!(q2.fee_percentage, 20);
@@ -126,6 +127,7 @@ mod routing_tests {
             min_reputation: 0,
             max_anchors: 2,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
 
         // anchor2 has faster settlement time (200 < 600)
@@ -171,6 +173,7 @@ mod routing_tests {
             min_reputation: 5000,
             max_anchors: 2,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
 
         let best = client.route_transaction(&options);
@@ -208,6 +211,7 @@ mod routing_tests {
             min_reputation: 4000,
             max_anchors: 3,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
 
         let best = client.route_transaction(&options);
@@ -242,6 +246,7 @@ mod routing_tests {
             min_reputation: 0, // no filter
             max_anchors: 1,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
 
         // anchor with reputation 0 is still routable when min_reputation = 0
@@ -273,8 +278,8 @@ mod routing_tests {
             &10000u64, &25u32, &100u64, &100000u64, &1_003_600u64,
         );
 
-        let q1 = client.get_quote(&anchor1, &1u64);
-        let q2 = client.get_quote(&anchor1, &2u64);
+        let q1 = client.get_quote(&anchor1, &1u64).unwrap();
+        let q2 = client.get_quote(&anchor1, &2u64).unwrap();
 
         assert_eq!(q1.valid_until, 1_000_100);
         assert_eq!(q2.valid_until, 1_003_600);
@@ -282,6 +287,56 @@ mod routing_tests {
         // At t=1_000_200, q1 would be expired
         assert!(q1.valid_until < 1_000_200);
         assert!(q2.valid_until > 1_000_200);
+    }
+
+    #[test]
+    fn test_expired_quotes_partial_expiry() {
+        // Mixed scenario: one anchor's quote is expired, one is still valid.
+        // Routing must return only the valid anchor's quote.
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let anchor_expired = Address::generate(&env);
+        let anchor_valid = Address::generate(&env);
+        register_anchor(&env, &client, &anchor_expired);
+        register_anchor(&env, &client, &anchor_valid);
+
+        client.set_anchor_metadata(&anchor_expired, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor_valid, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+
+        // anchor_expired: quote valid_until = 1_000_050 (expires before routing)
+        client.submit_quote(
+            &anchor_expired,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &10u32, &100u64, &100000u64, &1_000_050u64,
+        );
+        // anchor_valid: quote valid_until = 1_003_600 (still valid)
+        client.submit_quote(
+            &anchor_valid,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &30u32, &100u64, &100000u64, &1_003_600u64,
+        );
+
+        // Advance time past anchor_expired's expiry — now exactly one valid quote remains
+        set_ledger(&env, 1_000_100);
+
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy,
+            min_reputation: 0,
+            max_anchors: 2,
+            require_kyc: false,
+            fallback_chain: Vec::new(&env),
+        };
+
+        // Only anchor_valid's quote is live; routing must select it
+        let best = client.route_transaction(&options);
+        assert_eq!(best.anchor, anchor_valid);
     }
 
     #[test]
@@ -295,7 +350,7 @@ mod routing_tests {
 
         // No quotes submitted
         let result = client.try_get_quote(&anchor1, &1u64);
-        assert!(result.is_err());
+        assert_eq!(result, Ok(None));
     }
 
     #[test]
@@ -324,12 +379,12 @@ mod routing_tests {
             &10050u64, &30u32, &100u64, &100000u64, &1_003_600u64,
         );
 
-        let q1 = client.get_quote(&anchor1, &1u64);
-        let q2 = client.get_quote(&anchor2, &2u64);
+        let q1 = client.get_quote(&anchor1, &1u64).unwrap();
+        let q2 = client.get_quote(&anchor2, &2u64).unwrap();
 
         // anchor3 has no quote
         let result = client.try_get_quote(&anchor3, &3u64);
-        assert!(result.is_err());
+        assert_eq!(result, Ok(None));
 
         assert_eq!(q1.fee_percentage, 25);
         assert_eq!(q2.fee_percentage, 30);
@@ -351,7 +406,7 @@ mod routing_tests {
             &10000u64, &25u32, &100u64, &100000u64, &1_003_600u64,
         );
 
-        let q = client.get_quote(&anchor1, &1u64);
+        let q = client.get_quote(&anchor1, &1u64).unwrap();
         assert_eq!(q.minimum_amount, 100);
         assert_eq!(q.maximum_amount, 100000);
 
@@ -374,6 +429,12 @@ mod routing_tests {
         register_anchor(&env, &client, &anchor2);
         register_anchor(&env, &client, &anchor3);
 
+        // Explicit metadata so all three anchors participate in routing
+        client.set_anchor_metadata(&anchor1, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor2, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor3, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+
+        // Fees: anchor1=50, anchor2=25, anchor3=30 — all distinct, so winner is deterministic
         client.submit_quote(
             &anchor1,
             &String::from_str(&env, "USD"),
@@ -393,17 +454,19 @@ mod routing_tests {
             &10050u64, &30u32, &100u64, &100000u64, &1_003_600u64,
         );
 
-        let q1 = client.get_quote(&anchor1, &1u64);
-        let q2 = client.get_quote(&anchor2, &2u64);
-        let q3 = client.get_quote(&anchor3, &3u64);
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy,
+            min_reputation: 0,
+            max_anchors: 3,
+            require_kyc: false,
+            fallback_chain: Vec::new(&env),
+        };
 
-        // anchor2 has lowest fee
-        let mut best = &q1;
-        for q in [&q2, &q3] {
-            if q.fee_percentage < best.fee_percentage {
-                best = q;
-            }
-        }
+        // anchor2 has the unique lowest fee (25); result is independent of storage iteration order
+        let best = client.route_transaction(&options);
         assert_eq!(best.anchor, anchor2);
         assert_eq!(best.fee_percentage, 25);
     }
@@ -437,6 +500,7 @@ mod routing_tests {
             min_reputation: 0,
             max_anchors: 1,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
         let best = client.route_transaction(&options);
         assert_eq!(best.anchor, anchor);
@@ -512,10 +576,137 @@ mod routing_tests {
             min_reputation: 0,
             max_anchors: 3,
             require_kyc: false,
+            fallback_chain: Vec::new(&env),
         };
 
         // anchor_a wins: score 4630 > anchor_c 3950 > anchor_b 3800
         let best = client.route_transaction(&options);
         assert_eq!(best.anchor, anchor_a);
+    }
+
+    #[test]
+    fn test_route_transaction_emits_routing_decision_event() {
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let anchor = Address::generate(&env);
+        register_anchor(&env, &client, &anchor);
+
+        client.submit_quote(
+            &anchor,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &25u32, &100u64, &100000u64, &1_003_600u64,
+        );
+
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy: strategy.clone(),
+            min_reputation: 0,
+            max_anchors: 1,
+            require_kyc: false,
+            fallback_chain: Vec::new(&env),
+        };
+
+        let best = client.route_transaction(&options);
+        assert_eq!(best.anchor, anchor);
+        assert_eq!(best.quote_id, 1u64);
+    }
+
+    #[test]
+    fn test_expired_quote_emits_quote_expired_event() {
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let anchor1 = Address::generate(&env);
+        let anchor2 = Address::generate(&env);
+        register_anchor(&env, &client, &anchor1);
+        register_anchor(&env, &client, &anchor2);
+
+        // Submit quotes with the same expiration
+        let valid_until = 1_002_000u64;
+        client.submit_quote(
+            &anchor1,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &25u32, &100u64, &100000u64, &valid_until,
+        );
+        client.submit_quote(
+            &anchor2,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &30u32, &100u64, &100000u64, &valid_until,
+        );
+
+        // Move time forward so quote expires
+        set_ledger(&env, 1_003_000); // Now > valid_until
+
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy,
+            min_reputation: 0,
+            max_anchors: 2,
+            require_kyc: false,
+            fallback_chain: Vec::new(&env),
+        };
+
+        // Should fail because all quotes are expired
+        let result = client.try_route_transaction(&options);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mixed_valid_and_expired_quotes() {
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let anchor1 = Address::generate(&env);
+        let anchor2 = Address::generate(&env);
+        register_anchor(&env, &client, &anchor1);
+        register_anchor(&env, &client, &anchor2);
+
+        // anchor1 has a quote that will expire
+        let expired_until = 1_001_000u64;
+        client.submit_quote(
+            &anchor1,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &50u32, &100u64, &100000u64, &expired_until,
+        );
+
+        // anchor2 has a valid quote
+        let valid_until = 1_003_000u64;
+        client.submit_quote(
+            &anchor2,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64, &25u32, &100u64, &100000u64, &valid_until,
+        );
+
+        // Move time forward
+        set_ledger(&env, 1_002_000); // Now between expired_until and valid_until
+
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy,
+            min_reputation: 0,
+            max_anchors: 2,
+            require_kyc: false,
+            fallback_chain: Vec::new(&env),
+        };
+
+        // Should succeed and select anchor2 (valid quote)
+        let best = client.route_transaction(&options);
+        assert_eq!(best.anchor, anchor2);
+        assert_eq!(best.quote_id, 2u64);
     }
 }

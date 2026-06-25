@@ -13,6 +13,7 @@ AnchorKit is a Soroban-native toolkit for anchoring off-chain attestations to St
 - Service capability discovery (deposits, withdrawals, quotes, KYC)
 - **Anchor Info Discovery** (fetch and parse stellar.toml, cache assets/fees/limits)
 - **Health monitoring** (latency, failures, availability)
+- **Anchor Health Score** (0-100 composite score from uptime, reputation, and settlement speed)
 - **Metadata caching** (TTL-based with manual refresh)
 - **Request ID propagation** (UUID per flow with tracing)
 - Event emission for all state changes
@@ -60,6 +61,16 @@ let payload_hash = contract.compute_payload_hash_public(&env, subject, timestamp
 // Use same inputs on-chain to verify attestation matches expected hash
 let expected_hash = deterministic_hash::compute_payload_hash(&env, &subject, timestamp, &payload_data);
 assert_eq!(payload_hash, expected_hash);
+
+// NEW: Get anchor health score (0-100)
+let health_score = contract.get_anchor_health_score(&env, &anchor);
+if health_score >= 80 {
+    // High-quality anchor - proceed with confidence
+} else if health_score >= 60 {
+    // Acceptable anchor - monitor performance
+} else {
+    // Consider alternative anchors
+}
 ```
 
 ## CLI Example
@@ -72,6 +83,18 @@ See complete deposit/withdraw workflow:
 
 # Or run Rust example
 cargo run --example cli_example
+```
+
+Credential management examples:
+
+```bash
+# Linux/macOS
+./examples/credential_management.sh
+```
+
+```powershell
+# Windows
+.\examples\credential_management.ps1
 ```
 
 Use the new CLI binary for machine-friendly command output:
@@ -109,26 +132,21 @@ AnchorKit now includes comprehensive session management and operation tracing to
 
 ### Quick Example
 
-```javascript
-// Create a session
-const sessionId = await contract.create_session(userAddress);
+Use Soroban transactions to invoke contract methods. For example, with the CLI:
 
-// Perform operations within the session
-const attestationId = await contract.submit_attestation_with_session(
-    sessionId,
-    issuer,
-    subject,
-    timestamp,
-    payloadHash,
-    signature
-);
-
-// Verify session completeness
-const operationCount = await contract.get_session_operation_count(sessionId);
-
-// Retrieve audit logs
-const auditLog = await contract.get_audit_log(0);
+```bash
+soroban contract invoke \
+    --id <CONTRACT_ID> \
+    --source <ADMIN_ACCOUNT> \
+    --network testnet \
+    -- \
+    register_attestor \
+    --attestor <ATTESTOR_ADDRESS> \
+    --sep10-token <JWT> \
+    --sep10-issuer <ISSUER_ADDRESS>
 ```
+
+If you prefer the Stellar JavaScript SDK, use its contract invocation API instead of direct async session helpers.
 
 ## Documentation
 
@@ -150,10 +168,10 @@ const auditLog = await contract.get_audit_log(0);
 - **[docs/features/WEBHOOK_MIDDLEWARE.md](./docs/features/WEBHOOK_MIDDLEWARE.md)** - Webhook middleware
 - **[docs/features/WEBHOOK_MONITOR.md](./docs/features/WEBHOOK_MONITOR.md)** - Webhook monitoring
 - **[docs/features/TRANSACTION_STATE_TRACKER.md](./docs/features/TRANSACTION_STATE_TRACKER.md)** - Transaction state tracking
-- **[docs/features/SEP10_AUTH.md](./docs/features/SEP10_AUTH.md)** - SEP-10 authentication
 - **[docs/features/SDK_CONFIG.md](./docs/features/SDK_CONFIG.md)** - SDK configuration
 - **[docs/features/STATUS_MONITOR.md](./docs/features/STATUS_MONITOR.md)** - Status monitoring
 - **[docs/features/ROUTING_STRATEGY.md](./docs/features/ROUTING_STRATEGY.md)** - Routing strategy selection (`route_transaction`)
+- **[docs/features/SEP10_AUTH.md](./docs/features/SEP10_AUTH.md)** - SEP-10 authentication; this is the canonical copy for the topic
 
 ### Guides
 - **[docs/guides/DOCTOR_COMMAND.md](./docs/guides/DOCTOR_COMMAND.md)** - CLI doctor command and environment diagnostics
@@ -397,11 +415,19 @@ All existing methods remain unchanged. Session features are opt-in, allowing gra
 
 AnchorKit consists of:
 
-- **Core Contract** (`src/lib.rs`) - Main contract logic
+- **Module Declarations** (`src/lib.rs`) - Declares and re-exports all public modules; contains no business logic or tests
+- **Core Contract** (`src/contract.rs`) - Main contract entry points and on-chain validation logic
 - **Storage Layer** (`src/storage.rs`) - Persistent data management
 - **Event System** (`src/events.rs`) - Event definitions and publishing
 - **Type System** (`src/types.rs`) - Data structures
 - **Error Handling** (`src/errors.rs`) - Error codes and definitions
+- **SEP-6** (`src/sep6.rs`) - Normalized deposit/withdrawal service layer
+- **Rate Limiter** (`src/rate_limiter.rs`) - Per-attestor submission throttling
+- **Retry** (`src/retry.rs`) - Configurable exponential-backoff retry for off-chain requests
+- **Domain Validator** (`src/domain_validator.rs`) - HTTPS-only anchor domain URL validation
+- **Response Validator** (`src/response_validator.rs`) - Schema validation for anchor API responses
+- **Transaction State Tracker** (`src/transaction_state_tracker.rs`) - Tracks deposit/withdrawal lifecycle states
+- **SEP-10 JWT** (`src/sep10_jwt.rs`) - Ed25519 JWT verification for SEP-10 authentication
 
 ## Security
 
@@ -433,5 +459,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 For questions or issues:
 1. Check the documentation files
 2. Review the API specification
-3. Examine the test cases in `src/lib.rs`
+3. Examine the test cases in the dedicated test files — `src/lib.rs` only declares modules, the actual tests live in files such as `src/contract_tests.rs`, `src/session_tests.rs`, `src/anchor_info_discovery_tests.rs`, `src/anchor_health_score_tests.rs`, and other `src/*_tests.rs` files
 

@@ -15,7 +15,11 @@
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                }
+                },
+                {
+                  "u64": 100
+                },
+                "void"
               ]
             }
           },
@@ -39,7 +43,11 @@
                   "string": "https://anchor.example/.well-known/stellar.toml"
                 },
                 {
-                  "string": "{\"deposits\":true}"
+                  "vec": [
+                    {
+                      "u32": 1
+                    }
+                  ]
                 },
                 {
                   "u64": 5
@@ -70,7 +78,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "CAPCACHE"
+                  "symbol": "CapabilitiesCache"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -90,7 +98,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "CAPCACHE"
+                      "symbol": "CapabilitiesCache"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -113,7 +121,11 @@
                         "symbol": "capabilities"
                       },
                       "val": {
-                        "string": "{\"deposits\":true}"
+                        "vec": [
+                          {
+                            "u32": 1
+                          }
+                        ]
                       }
                     },
                     {
@@ -174,6 +186,30 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "AuditLogMaxSize"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 100
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "RPWINDOW"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 300
                         }
                       }
                     ]
@@ -295,7 +331,15 @@
               }
             ],
             "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u64": 100
+                },
+                "void"
+              ]
             }
           }
         }
@@ -350,7 +394,11 @@
                   "string": "https://anchor.example/.well-known/stellar.toml"
                 },
                 {
-                  "string": "{\"deposits\":true}"
+                  "vec": [
+                    {
+                      "u32": 1
+                    }
+                  ]
                 },
                 {
                   "u64": 5

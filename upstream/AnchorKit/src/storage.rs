@@ -4,15 +4,21 @@ use soroban_sdk::{contracttype, Address, Bytes};
 ///
 /// Using an enum prevents typos in raw string literals and makes every
 /// storage access site self-documenting.
+///
+/// Note: the admin address is stored under the `key_admin(env)` Vec<Symbol>
+/// key in instance storage (see the helper below). There is no `Admin` variant
+/// here to avoid having two representations for the same logical key.
 #[contracttype]
 #[derive(Clone)]
 pub enum StorageKey {
-    /// Contract administrator address (instance storage).
-    Admin,
     /// SEP-10 JWT verifying key for an attestor (persistent).
     Sep10Key(Address),
     /// Whether an address is a registered attestor (persistent).
     Attestor(Address),
+    /// Revocation marker for an attestor — present when the attestor has been
+    /// revoked. Used by `get_attestation` to populate `issuer_revoked` without
+    /// rewriting every stored attestation (persistent).
+    AttestorRevoked(Address),
     /// HTTPS endpoint URL for an attestor (persistent).
     Endpoint(Address),
     /// Supported services record for an anchor (persistent).
@@ -29,14 +35,14 @@ pub enum StorageKey {
     Span(Bytes),
     /// Session record by session ID (persistent).
     Session(u64),
-    /// Session nonce by session ID (persistent).
-    SessionNonce(u64),
     /// Session operation count by session ID (persistent).
     SessionOpCount(u64),
     /// Audit log entry by log ID (persistent).
     AuditLog(u64),
     /// Maximum number of audit log entries to retain (instance storage).
     AuditLogMaxSize,
+    /// Maximum page size allowed when listing attestations (instance storage).
+    MaxPageSize,
     /// Quote record keyed by anchor + quote ID (persistent).
     Quote(Address, u64),
     /// Latest quote ID for an anchor (persistent).
@@ -53,6 +59,10 @@ pub enum StorageKey {
     TomlCache(Address),
     /// Running count of registered attestors (instance storage via key_attestor_count).
     AttestorCount,
+    /// Per-attestor rate-limit state — submission count + window start (persistent).
+    RateLimitState(Address),
+    /// Per-attestor rate-limit configuration override (persistent).
+    RateLimitOverride(Address),
     // --- Instance-storage counters (stored as Vec<Symbol> keys) ---
     // These are kept as plain symbol_short! vecs because instance storage
     // requires a Vec<Symbol> key; they are defined as named constants below.
@@ -91,4 +101,7 @@ pub fn key_replay_window(env: &Env) -> Vec<Symbol> {
 }
 pub fn key_attestor_count(env: &Env) -> Vec<Symbol> {
     soroban_sdk::vec![env, symbol_short!("ATTCNT")]
+}
+pub fn key_attestor_list(env: &Env) -> Vec<Symbol> {
+    soroban_sdk::vec![env, symbol_short!("ATTESTLIST")]
 }
