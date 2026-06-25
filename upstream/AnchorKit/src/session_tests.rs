@@ -20,7 +20,7 @@ mod session_tests {
 
     fn setup_ledger(env: &Env) {
         env.ledger().set(LedgerInfo {
-            timestamp: 0,
+            timestamp: 1_000_000,
             protocol_version: 21,
             sequence_number: 0,
             network_id: Default::default(),
@@ -200,7 +200,7 @@ mod session_tests {
             &session_id,
             &attestor,
             &subject,
-            &1u64,
+            &env.ledger().timestamp(),
             &p,
             &sign_payload(&env, &sk, &p),
         );
@@ -234,7 +234,7 @@ mod session_tests {
             &session_id,
             &user_a,
             &subject,
-            &1700000001u64,
+            &env.ledger().timestamp(),
             &payload(&env, 0x01),
             &sig(&env, &[0x0a]),
         );
@@ -363,7 +363,7 @@ mod session_tests {
             &session_id,
             &attestor,
             &subject,
-            &1u64,
+            &env.ledger().timestamp(),
             &p,
             &sign_payload(&env, &sk, &p),
         );
@@ -409,7 +409,7 @@ mod session_tests {
             &session_id,
             &attestor,
             &subject,
-            &1u64,
+            &env.ledger().timestamp(),
             &p0,
             &sign_payload(&env, &sk, &p0),
         );
@@ -417,7 +417,7 @@ mod session_tests {
             &session_id,
             &attestor,
             &subject,
-            &2u64,
+            &env.ledger().timestamp(),
             &p1,
             &sign_payload(&env, &sk, &p1),
         );
@@ -477,7 +477,7 @@ mod session_tests {
         let ph = payload(&env, 0xAB);
         let s = sign_payload(&env, &signing_key, &ph);
         client.submit_attestation_with_session(
-            &session_id, &attestor, &attestor, &1u64, &ph, &s,
+            &session_id, &attestor, &attestor, &env.ledger().timestamp(), &ph, &s,
         );
 
         // log_id=2 must be accessible.
@@ -511,7 +511,7 @@ mod session_tests {
         let ph = payload(&env, 0xCD);
         let s = sign_payload(&env, &signing_key, &ph);
         client.submit_attestation_with_session(
-            &session_id, &attestor, &attestor, &1u64, &ph, &s,
+            &session_id, &attestor, &attestor, &env.ledger().timestamp(), &ph, &s,
         );
 
         // Accessing pruned entry must panic.

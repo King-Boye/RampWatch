@@ -52,6 +52,25 @@ export interface SupportedAsset {
   networks?: string[]; // e.g. "ACH", "SEPA", "SWIFT"
 }
 
+/** Per-service health status for the capability card */
+export type ServiceHealth = "healthy" | "degraded" | "unavailable";
+
+/** Which on-chain services the anchor exposes */
+export interface AnchorServices {
+  deposits?: boolean;
+  withdrawals?: boolean;
+  quotes?: boolean;
+  kyc?: boolean;
+}
+
+/** Optional health status per service */
+export interface AnchorHealthStatus {
+  deposits?: ServiceHealth;
+  withdrawals?: ServiceHealth;
+  quotes?: ServiceHealth;
+  kyc?: ServiceHealth;
+}
+
 export interface AnchorCapabilityCardProps {
   anchorName: string;
   domain: string;
@@ -59,6 +78,14 @@ export interface AnchorCapabilityCardProps {
   accentColor?: string;
   description?: string;
   assets: SupportedAsset[];
+  /** Shows a skeleton loader in the tab content area */
+  isLoading?: boolean;
+  /** Renders an error state in the tab content area */
+  error?: string;
+  /** Which services this anchor supports; all enabled when omitted */
+  services?: AnchorServices;
+  /** Optional health status per service for degraded-state display */
+  healthStatus?: AnchorHealthStatus;
 }
 
 import './themes.css';
@@ -1048,6 +1075,29 @@ function KYCPanel({
 
 // ─── Main Card ────────────────────────────────────────────────────────────────
 
+// ─── Service Health Badge ─────────────────────────────────────────────────────
+
+const HEALTH_META: Record<ServiceHealth, { label: string; color: string; bg: string; border: string; icon: string }> = {
+  healthy:     { label: "Healthy",     color: "#22c55e", bg: "#f0fdf4", border: "#bbf7d0", icon: "●" },
+  degraded:    { label: "Degraded",    color: "#f59e0b", bg: "#fffbeb", border: "#fde68a", icon: "◐" },
+  unavailable: { label: "Unavailable", color: "#ef4444", bg: "#fef2f2", border: "#fecaca", icon: "○" },
+};
+
+function ServiceHealthBadge({ service, status }: { service: string; status: ServiceHealth }) {
+  const m = HEALTH_META[status];
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 4,
+      padding: "3px 9px", borderRadius: 20,
+      background: m.bg, border: `1px solid ${m.border}`,
+      fontSize: 10, fontWeight: 600, color: m.color,
+      fontFamily: "'Sora', sans-serif",
+    }}>
+      {m.icon} {service}
+    </span>
+  );
+}
+
 export function AnchorCapabilityCard({
   anchorName,
   domain,
@@ -1055,6 +1105,10 @@ export function AnchorCapabilityCard({
   accentColor = "#3b82f6",
   description,
   assets,
+  isLoading = false,
+  error,
+  services,
+  healthStatus,
 }: AnchorCapabilityCardProps) {
   const [activeTab, setActiveTab] = useState<Tab>("assets");
   const [selectedAssetCode, setSelectedAssetCode] = useState(
@@ -1064,6 +1118,10 @@ export function AnchorCapabilityCard({
   const selectedAsset =
     assets.find((a) => a.code === selectedAssetCode) ?? assets[0];
   const accent = accentColor;
+
+  // Derive whether any service is enabled
+  const hasAnyService = !services ||
+    services.deposits || services.withdrawals || services.quotes || services.kyc;
 
   const handleAssetSelect = (code: string) => {
     setSelectedAssetCode(code);
@@ -1342,22 +1400,95 @@ export function AnchorCapabilityCard({
         }}
         key={activeTab + selectedAssetCode}
       >
-        {activeTab === "assets" && (
-          <AssetsPanel
-            assets={assets}
-            accent={accent}
-            onSelect={handleAssetSelect}
-            selected={selectedAssetCode}
-          />
+        {/* Loading skeleton */}
+        {isLoading && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 0" }}>
+            {[100, 80, 60, 90, 70].map((w, i) => (
+              <div key={i} style={{
+                height: 16, width: `${w}%`, borderRadius: 8,
+                background: "linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%)",
+                backgroundSize: "200% 100%",
+                animation: "cap-shimmer 1.4s ease infinite",
+              }} />
+            ))}
+            <style>{`@keyframes cap-shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }`}</style>
+          </div>
         )}
-        {activeTab === "fees" && selectedAsset && (
-          <FeesPanel asset={selectedAsset} accent={accent} />
+
+        {/* Error state */}
+        {!isLoading && error && (
+          <div style={{
+            display: "flex", flexDirection: "column", alignItems: "center",
+            justifyContent: "center", gap: 12, minHeight: 200, textAlign: "center",
+          }}>
+            <div style={{ fontSize: 36 }}>⚠️</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#ef4444" }}>
+              Failed to load capabilities
+            </div>
+            <div style={{
+              fontSize: 12, color: "#94a3b8", maxWidth: 280, lineHeight: 1.6,
+              background: "#fef2f2", border: "1px solid #fecaca",
+              borderRadius: 10, padding: "10px 14px",
+            }}>
+              {error}
+            </div>
+          </div>
         )}
-        {activeTab === "limits" && selectedAsset && (
-          <LimitsPanel asset={selectedAsset} accent={accent} />
+
+        {/* No-services state */}
+        {!isLoading && !error && !hasAnyService && (
+          <div style={{
+            display: "flex", flexDirection: "column", alignItems: "center",
+            justifyContent: "center", gap: 12, minHeight: 200, textAlign: "center",
+          }}>
+            <div style={{ fontSize: 36 }}>🔌</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>
+              No services available
+            </div>
+            <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+              This anchor has no active services at this time.
+            </div>
+          </div>
         )}
-        {activeTab === "kyc" && selectedAsset && (
-          <KYCPanel asset={selectedAsset} accent={accent} />
+
+        {/* Health status banner (shown when at least one service is degraded/unavailable) */}
+        {!isLoading && !error && hasAnyService && healthStatus && (
+          <div style={{
+            display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16,
+          }}>
+            {(["deposits", "withdrawals", "quotes", "kyc"] as const)
+              .filter((svc) => healthStatus[svc] && healthStatus[svc] !== "healthy")
+              .map((svc) => (
+                <ServiceHealthBadge
+                  key={svc}
+                  service={svc.charAt(0).toUpperCase() + svc.slice(1)}
+                  status={healthStatus[svc]!}
+                />
+              ))}
+          </div>
+        )}
+
+        {/* Normal tab panels */}
+        {!isLoading && !error && hasAnyService && (
+          <>
+            {activeTab === "assets" && (
+              <AssetsPanel
+                assets={assets}
+                accent={accent}
+                onSelect={handleAssetSelect}
+                selected={selectedAssetCode}
+              />
+            )}
+            {activeTab === "fees" && selectedAsset && (
+              <FeesPanel asset={selectedAsset} accent={accent} />
+            )}
+            {activeTab === "limits" && selectedAsset && (
+              <LimitsPanel asset={selectedAsset} accent={accent} />
+            )}
+            {activeTab === "kyc" && selectedAsset && (
+              <KYCPanel asset={selectedAsset} accent={accent} />
+            )}
+          </>
         )}
       </div>
     </div>
