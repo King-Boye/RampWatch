@@ -4,7 +4,7 @@ import './themes.css';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type TxStatus = "initiated" | "pending" | "processing" | "completed" | "failed";
+export type TxStatus = "initiated" | "awaiting_user" | "pending" | "processing" | "completed" | "failed" | "refunded";
 export type TxType   = "deposit" | "withdrawal";
 
 export interface TxEvent {
@@ -31,28 +31,33 @@ export interface TransactionTimelineProps {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STATUS_ORDER: TxStatus[] = ["initiated", "pending", "processing", "completed"];
+const STATUS_ORDER: TxStatus[] = ["initiated", "awaiting_user", "pending", "processing", "completed"];
 
 const STATUS_META: Record<TxStatus, { label: string; color: string; bg: string; border: string; icon: string }> = {
-  initiated:  { label: "Initiated",  color: "var(--ak-status-initiated-color)",  bg: "var(--ak-status-initiated-bg)",  border: "var(--ak-status-initiated-border)",  icon: "◎"  },
-  pending:    { label: "Pending",    color: "var(--ak-status-pending-color)",    bg: "var(--ak-status-pending-bg)",    border: "var(--ak-status-pending-border)",    icon: "◌"  },
-  processing: { label: "Processing", color: "var(--ak-status-processing-color)", bg: "var(--ak-status-processing-bg)", border: "var(--ak-status-processing-border)", icon: "◈"  },
-  completed:  { label: "Completed",  color: "var(--ak-status-completed-color)",  bg: "var(--ak-status-completed-bg)",  border: "var(--ak-status-completed-border)",  icon: "✓"  },
-  failed:     { label: "Failed",     color: "var(--ak-status-failed-color)",     bg: "var(--ak-status-failed-bg)",     border: "var(--ak-status-failed-border)",     icon: "✕"  },
+  initiated:     { label: "Initiated",       color: "#6366f1", bg: "#eef2ff", border: "#c7d2fe", icon: "◎"  },
+  awaiting_user: { label: "Action Required", color: "#ea580c", bg: "#fff7ed", border: "#fed7aa", icon: "⊙"  },
+  pending:       { label: "Pending",         color: "#d97706", bg: "#fffbeb", border: "#fde68a", icon: "◌"  },
+  processing:    { label: "Processing",      color: "#0284c7", bg: "#e0f2fe", border: "#bae6fd", icon: "◈"  },
+  completed:     { label: "Completed",       color: "#059669", bg: "#ecfdf5", border: "#a7f3d0", icon: "✓"  },
+  failed:        { label: "Failed",          color: "#dc2626", bg: "#fef2f2", border: "#fecaca", icon: "✕"  },
+  refunded:      { label: "Refunded",        color: "#7c3aed", bg: "#f5f3ff", border: "#ddd6fe", icon: "↩"  },
 };
 
 const DEFAULT_DESCRIPTIONS: Record<TxStatus, Record<TxType, string>> = {
-  initiated:  { deposit: "Deposit request received by anchor.",        withdrawal: "Withdrawal request received by anchor."        },
-  pending:    { deposit: "Awaiting your funds on the external rail.",  withdrawal: "Awaiting Stellar transaction confirmation."    },
-  processing: { deposit: "Funds received — minting assets on-chain.", withdrawal: "Processing payment to your bank account."     },
-  completed:  { deposit: "Assets delivered to your Stellar account.", withdrawal: "Funds sent to your destination account."      },
-  failed:     { deposit: "Deposit could not be completed.",           withdrawal: "Withdrawal could not be completed."           },
+  initiated:     { deposit: "Deposit request received by anchor.",                withdrawal: "Withdrawal request received by anchor."               },
+  awaiting_user: { deposit: "Please initiate your transfer to the anchor.",       withdrawal: "Your confirmation is required to continue."           },
+  pending:       { deposit: "Awaiting your funds on the external rail.",          withdrawal: "Awaiting Stellar transaction confirmation."           },
+  processing:    { deposit: "Funds received — minting assets on-chain.",          withdrawal: "Processing payment to your bank account."            },
+  completed:     { deposit: "Assets delivered to your Stellar account.",          withdrawal: "Funds sent to your destination account."             },
+  failed:        { deposit: "Deposit could not be completed.",                    withdrawal: "Withdrawal could not be completed."                  },
+  refunded:      { deposit: "Deposit could not be processed — funds refunded.",   withdrawal: "Withdrawal reversed — funds returned to your wallet." },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isFailed(status: TxStatus): boolean { return status === "failed"; }
 function isCompleted(status: TxStatus): boolean { return status === "completed"; }
+function isRefunded(status: TxStatus): boolean { return status === "refunded"; }
 function getOrderIndex(s: TxStatus): number { return STATUS_ORDER.indexOf(s); }
 
 function truncateHash(h: string): string {
@@ -171,6 +176,7 @@ export function TransactionTimeline({
 }: TransactionTimelineProps) {
   const failed = isFailed(currentStatus);
   const completed = isCompleted(currentStatus);
+  const refunded = isRefunded(currentStatus);
   const currentIndex = getOrderIndex(currentStatus);
 
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
@@ -228,8 +234,8 @@ export function TransactionTimeline({
       {/* ── Header ── */}
       <div style={{
         padding: "22px 24px 20px",
-        background: failed ? "var(--ak-status-failed-bg)" : completed ? "var(--ak-status-completed-bg)" : "var(--ak-status-initiated-bg)",
-        borderBottom: `1px solid ${failed ? "var(--ak-status-failed-border)" : completed ? "var(--ak-status-completed-border)" : "var(--ak-status-initiated-border)"}`,
+        background: failed ? "#fef2f2" : refunded ? "#f5f3ff" : completed ? "#ecfdf5" : "#f0f4ff",
+        borderBottom: `1px solid ${failed ? "#fecaca" : refunded ? "#ddd6fe" : completed ? "#a7f3d0" : "#dde5ff"}`,
         display: "flex", flexDirection: "column", gap: 14,
       }}>
         {/* Type pill + ID */}
@@ -253,7 +259,7 @@ export function TransactionTimeline({
 
         {/* Amount */}
         <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span style={{ ...serif, fontSize: 36, fontWeight: 400, color: failed ? "var(--ak-status-failed-color)" : completed ? "var(--ak-status-completed-color)" : "var(--ak-text)", lineHeight: 1 }}>
+          <span style={{ ...serif, fontSize: 36, fontWeight: 400, color: failed ? "#b91c1c" : refunded ? "#5b21b6" : completed ? "#065f46" : "#1e293b", lineHeight: 1 }}>
             {amount}
           </span>
           <span style={{ ...mono, fontSize: 14, color: "var(--ak-text-muted)", fontWeight: 500 }}>{asset}</span>
@@ -265,7 +271,7 @@ export function TransactionTimeline({
             width: 8, height: 8, borderRadius: "50%",
             background: statusMeta.color,
             boxShadow: `0 0 0 2px ${statusMeta.bg}`,
-            animation: (!failed && !completed) ? "txs-ping-slow 2.5s ease-in-out infinite" : "none",
+            animation: (!failed && !completed && !refunded) ? "txs-ping-slow 2.5s ease-in-out infinite" : "none",
             flexShrink: 0,
           }} />
           <span style={{ ...mono, fontSize: 11, fontWeight: 600, color: statusMeta.color, letterSpacing: "0.1em", textTransform: "uppercase" }}>
@@ -403,6 +409,35 @@ export function TransactionTimeline({
                 {events.find(e => e.status === "failed")?.timestamp && (
                   <span style={{ ...mono, fontSize: 10, color: "var(--ak-status-failed-color)", marginTop: 4, display: "block" }}>
                     {formatTs(events.find(e => e.status === "failed")!.timestamp)}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Refunded node — appended after steps; distinct from failed (funds are returning) */}
+          {refunded && (
+            <div style={{ display: "flex", gap: 16, position: "relative" }}>
+              <div style={{ position: "relative", width: 40, height: 40, flexShrink: 0 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: "50%",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: `2px solid #7c3aed`,
+                  background: "#f5f3ff",
+                  boxShadow: "0 0 0 4px #f5f3ff, 0 2px 12px rgba(124,58,237,0.2)",
+                  fontSize: 16, color: "#7c3aed", fontWeight: 700, zIndex: 1, position: "relative",
+                }}>↩</div>
+              </div>
+              <div style={{ flex: 1, paddingTop: 8 }}>
+                <div style={{ ...sans, fontSize: 13, fontWeight: 600, color: "#5b21b6", marginBottom: 4 }}>
+                  {events.find(e => e.status === "refunded")?.label ?? "Transaction Refunded"}
+                </div>
+                <p style={{ ...sans, fontSize: 12, color: "#7c3aed", lineHeight: 1.55, margin: 0 }}>
+                  {events.find(e => e.status === "refunded")?.description ?? DEFAULT_DESCRIPTIONS.refunded[type]}
+                </p>
+                {events.find(e => e.status === "refunded")?.timestamp && (
+                  <span style={{ ...mono, fontSize: 10, color: "#a78bfa", marginTop: 4, display: "block" }}>
+                    {formatTs(events.find(e => e.status === "refunded")!.timestamp)}
                   </span>
                 )}
               </div>

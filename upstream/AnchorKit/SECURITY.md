@@ -2,14 +2,14 @@
 
 ## Supported Versions
 
-The following versions of AnchorKit currently receive security updates:
+The table below shows which versions of AnchorKit currently receive security patches. If your version is not listed as supported, upgrade to the latest release before filing a report.
 
-| Version | Supported          |
-|---------|--------------------|
-| 0.1.x   | ✅ Yes             |
-| < 0.1   | ❌ No              |
+| Version | Supported          | Notes                                      |
+|---------|--------------------|--------------------------------------------|
+| 0.1.x   | ✅ Yes             | Current stable release — actively patched  |
+| < 0.1   | ❌ No              | Pre-release; no further security fixes     |
 
-Only the latest patch release within a supported minor version receives security fixes. We recommend always running the latest published version.
+Only the **latest patch release** within a supported minor version receives security fixes. For example, if `0.1.3` is the latest patch, `0.1.0`–`0.1.2` will not receive backported fixes. We recommend always running the latest published version.
 
 ## Reporting a Vulnerability
 

@@ -151,6 +151,7 @@ mod routing_tests {
             max_anchors: 2,
             require_kyc: false,
             jurisdiction: None,
+            fallback_chain: Vec::new(&env),
         };
 
         // anchor2 has faster settlement time (200 < 600)
@@ -197,6 +198,7 @@ mod routing_tests {
             max_anchors: 2,
             require_kyc: false,
             jurisdiction: None,
+            fallback_chain: Vec::new(&env),
         };
 
         let best = client.route_transaction(&options);
@@ -235,6 +237,7 @@ mod routing_tests {
             max_anchors: 3,
             require_kyc: false,
             jurisdiction: None,
+            fallback_chain: Vec::new(&env),
         };
 
         let best = client.route_transaction(&options);
@@ -270,6 +273,7 @@ mod routing_tests {
             max_anchors: 1,
             require_kyc: false,
             jurisdiction: None,
+            fallback_chain: Vec::new(&env),
         };
 
         // anchor with reputation 0 is still routable when min_reputation = 0
@@ -355,6 +359,7 @@ mod routing_tests {
             max_anchors: 2,
             require_kyc: false,
             jurisdiction: None,
+            fallback_chain: Vec::new(&env),
         };
 
         // Only anchor_valid's quote is live; routing must select it
@@ -486,6 +491,7 @@ mod routing_tests {
             max_anchors: 3,
             require_kyc: false,
             jurisdiction: None,
+            fallback_chain: Vec::new(&env),
         };
 
         // anchor2 has the unique lowest fee (25); result is independent of storage iteration order
@@ -524,6 +530,7 @@ mod routing_tests {
             max_anchors: 1,
             require_kyc: false,
             jurisdiction: None,
+            fallback_chain: Vec::new(&env),
         };
         let best = client.route_transaction(&options);
         assert_eq!(best.anchor, anchor);
@@ -600,6 +607,7 @@ mod routing_tests {
             max_anchors: 3,
             require_kyc: false,
             jurisdiction: None,
+            fallback_chain: Vec::new(&env),
         };
 
         // anchor_a wins: score 4630 > anchor_c 3950 > anchor_b 3800
@@ -644,6 +652,9 @@ mod routing_tests {
         let topics = (symbol_short!("routing"),);
         let _ = (&topics, &event);
 
+            fallback_chain: Vec::new(&env),
+        };
+
         let best = client.route_transaction(&options);
         assert_eq!(best.anchor, anchor);
         assert_eq!(best.quote_id, 1u64);
@@ -687,6 +698,7 @@ mod routing_tests {
             max_anchors: 2,
             require_kyc: false,
             jurisdiction: None,
+            fallback_chain: Vec::new(&env),
         };
 
         // Should fail because all quotes are expired
@@ -768,6 +780,7 @@ mod routing_tests {
             max_anchors: 2,
             require_kyc: false,
             jurisdiction: None,
+            fallback_chain: Vec::new(&env),
         };
 
         let best = client.route_transaction(&options);
