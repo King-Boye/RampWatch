@@ -7,6 +7,7 @@ name = "stablecoin-issuer-anchor"
 version = "1.0.0"
 description = "AnchorKit instance for stablecoin issuance with collateral and reserve attestations"
 network = "stellar-public"
+admin_address = "GBAA5XKQC3KVDPD5OS3CHJJ24SB3BX7GI7XBXKNNCKQVPQVX6S3VT5O"
 
 [attestors]
 # Reserve Auditor
@@ -17,6 +18,7 @@ description = "Independent auditor verifying reserve adequacy"
 endpoint = "https://auditor.example.com/reserves"
 role = "reserve-verifier"
 enabled = true
+contact_email = "audit@example.com"
 
 # Collateral Manager
 [[attestors.registry]]
@@ -26,6 +28,7 @@ description = "Manages collateral positions and liquidations"
 endpoint = "https://collateral-mgmt.example.com/positions"
 role = "collateral-custodian"
 enabled = true
+contact_email = "collateral@example.com"
 
 # Treasury Manager
 [[attestors.registry]]
@@ -34,6 +37,7 @@ address = "GBYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY"
 description = "Authorizes mint, burn, and redeemable operations"
 role = "treasury-operator"
 enabled = true
+contact_email = "treasury@example.com"
 
 # Risk Monitor
 [[attestors.registry]]
@@ -43,6 +47,7 @@ description = "Continuous monitoring of stablecoin risk parameters"
 endpoint = "https://risk-system.example.com/monitor"
 role = "risk-analyst"
 enabled = true
+contact_email = "risk@example.com"
 
 [sessions]
 enable_session_tracking = true

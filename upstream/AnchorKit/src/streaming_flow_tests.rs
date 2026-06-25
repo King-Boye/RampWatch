@@ -1,143 +1,196 @@
-#![cfg(test)]
+/// Polling-based state update flow tests.
+///
+/// Soroban contracts are synchronous — there is no streaming API. Clients
+/// observe state changes by polling contract storage after each transaction.
+/// These tests verify that multi-step anchor flows produce the expected
+/// on-chain state at each polling point.
+#[cfg(test)]
+mod streaming_flow_tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Address, Bytes, BytesN, Env, String, Vec};
 
-use crate::{AnchorKitContract, AnchorKitContractClient, ServiceType};
-use soroban_sdk::{
-    testutils::{Address as _, Ledger},
-    Address, Bytes, BytesN, Env, String, Vec,
-};
+    fn setup(env: &Env) -> (AnchorKitContractClient<'_>, Address, Address) {
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let anchor = Address::generate(env);
+        client.initialize(&admin);
+        client.register_attestor(&anchor);
+        (client, admin, anchor)
+    }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum FlowState {
-    Pending,
-    AwaitingUser,
-    Completed,
-}
+    /// Poll 1: session created → operation_count == 0
+    /// Poll 2: after register_attestor_with_session → operation_count == 1
+    /// Poll 3: after revoke_attestor_with_session → operation_count == 2
+    #[test]
+    fn test_session_operation_count_increments_on_each_step() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, _anchor) = setup(&env);
 
-struct StreamingFlow {
-    flow_id: u64,
-    session_id: u64,
-    state: FlowState,
-    anchor: Address,
-}
+        let initiator = Address::generate(&env);
+        let session_id = client.create_session(&initiator);
 
-fn create_contract(env: &Env) -> AnchorKitContractClient<'_> {
-    let contract_id = env.register_contract(None, AnchorKitContract);
-    AnchorKitContractClient::new(env, &contract_id)
-}
+        // Poll 1: no operations yet
+        assert_eq!(client.get_session_operation_count(&session_id), 0);
 
-fn setup_anchor(env: &Env, client: &AnchorKitContractClient, admin: &Address, anchor: &Address) {
-    client.register_attestor(anchor);
+        let new_attestor = Address::generate(&env);
+        client.register_attestor_with_session(&session_id, &new_attestor);
 
-    let mut services = Vec::new(env);
-    services.push_back(ServiceType::Deposits);
-    services.push_back(ServiceType::Quotes);
-    services.push_back(ServiceType::KYC);
-    client.configure_services(anchor, &services);
-}
+        // Poll 2: one operation logged
+        assert_eq!(client.get_session_operation_count(&session_id), 1);
 
-#[test]
-fn test_streaming_flow_pending_to_awaiting_user_to_completed() {
-    let env = Env::default();
-    env.mock_all_auths();
+        client.revoke_attestor_with_session(&session_id, &new_attestor);
 
-    let admin = Address::generate(&env);
-    let user = Address::generate(&env);
-    let anchor = Address::generate(&env);
+        // Poll 3: two operations logged
+        assert_eq!(client.get_session_operation_count(&session_id), 2);
+    }
 
-    let client = create_contract(&env);
-    client.initialize(&admin);
-    setup_anchor(&env, &client, &admin, &anchor);
+    /// Verifies that audit log entries reflect the correct actor and status
+    /// for a successful attestation submitted within a session.
+    #[test]
+    fn test_audit_log_reflects_attestation_state() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, anchor) = setup(&env);
 
-    // PENDING: Create session
-    let session_id = client.create_session(&user);
-    let mut flow = StreamingFlow {
-        flow_id: 1,
-        session_id,
-        state: FlowState::Pending,
-        anchor: anchor.clone(),
-    };
+        let mut services = Vec::new(&env);
+        services.push_back(ServiceType::Deposits);
+        client.configure_services(&anchor, &services);
 
-    assert_eq!(flow.state, FlowState::Pending);
+        let session_id = client.create_session(&anchor);
 
-    // AWAITING_USER: Submit quote
-    let quote_id = client.submit_quote(
-        &anchor,
-        &String::from_str(&env, "USD"),
-        &String::from_str(&env, "USDC"),
-        &10000u64,
-        &25u32,
-        &100u64,
-        &100000u64,
-        &(env.ledger().timestamp() + 3600),
-    );
+        let subject = Address::generate(&env);
+        let payload_hash = BytesN::from_array(&env, &[1u8; 32]);
+        let signature = Bytes::from_array(&env, &[0u8; 64]);
+        let timestamp = env.ledger().timestamp() + 1;
 
-    flow.state = FlowState::AwaitingUser;
-    assert_eq!(flow.state, FlowState::AwaitingUser);
+        client.submit_attestation_with_session(
+            &session_id,
+            &anchor,
+            &subject,
+            &timestamp,
+            &payload_hash,
+            &signature,
+        );
 
-    // COMPLETED: Receive quote
-    let quote = client.receive_quote(&user, &anchor, &quote_id);
-    assert_eq!(quote.quote_id, quote_id);
+        // Poll: audit log entry 1 should record a successful attestation
+        let log = client.get_audit_log(&1);
+        assert_eq!(log.session_id, session_id);
+        assert_eq!(log.operation.operation_type, String::from_str(&env, "attest"));
+        assert_eq!(log.operation.status, String::from_str(&env, "success"));
+        assert_eq!(log.actor, anchor);
+    }
 
-    flow.state = FlowState::Completed;
-    assert_eq!(flow.state, FlowState::Completed);
-}
+    /// Verifies that a failed operation (replay attack) is recorded in the
+    /// audit log with status "failed" before the error propagates.
+    #[test]
+    fn test_audit_log_records_failed_operation() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, anchor) = setup(&env);
 
-#[test]
-fn test_multi_step_async_stream_with_attestation() {
-    // Skipping - requires proper contract auth context and session setup
-}
+        let mut services = Vec::new(&env);
+        services.push_back(ServiceType::Deposits);
+        client.configure_services(&anchor, &services);
 
-#[test]
-fn test_concurrent_streaming_flows() {
-    let env = Env::default();
-    env.mock_all_auths();
+        let session_id = client.create_session(&anchor);
 
-    let admin = Address::generate(&env);
-    let user1 = Address::generate(&env);
-    let user2 = Address::generate(&env);
-    let anchor = Address::generate(&env);
+        let subject = Address::generate(&env);
+        let payload_hash = BytesN::from_array(&env, &[2u8; 32]);
+        let signature = Bytes::from_array(&env, &[0u8; 64]);
+        let timestamp = env.ledger().timestamp() + 1;
 
-    let client = create_contract(&env);
-    client.initialize(&admin);
-    setup_anchor(&env, &client, &admin, &anchor);
+        // First submission succeeds
+        client.submit_attestation_with_session(
+            &session_id,
+            &anchor,
+            &subject,
+            &timestamp,
+            &payload_hash,
+            &signature,
+        );
 
-    // Flow 1: PENDING
-    let session1 = client.create_session(&user1);
+        // Second submission with same hash is a replay — should fail
+        let result = client.try_submit_attestation_with_session(
+            &session_id,
+            &anchor,
+            &subject,
+            &timestamp,
+            &payload_hash,
+            &signature,
+        );
+        assert!(result.is_err());
 
-    // Flow 2: PENDING
-    let session2 = client.create_session(&user2);
+        // Poll: operation count reflects both attempts (success + failure)
+        assert_eq!(client.get_session_operation_count(&session_id), 2);
 
-    // Flow 1: AWAITING_USER
-    let quote1 = client.submit_quote(
-        &anchor,
-        &String::from_str(&env, "USD"),
-        &String::from_str(&env, "USDC"),
-        &10000u64,
-        &25u32,
-        &100u64,
-        &100000u64,
-        &(env.ledger().timestamp() + 3600),
-    );
+        // The second audit log entry should be "failed"
+        let failed_log = client.get_audit_log(&2);
+        assert_eq!(failed_log.operation.status, String::from_str(&env, "failed"));
+    }
 
-    // Flow 2: AWAITING_USER
-    let quote2 = client.submit_quote(
-        &anchor,
-        &String::from_str(&env, "EUR"),
-        &String::from_str(&env, "EURC"),
-        &10050u64,
-        &30u32,
-        &200u64,
-        &50000u64,
-        &(env.ledger().timestamp() + 3600),
-    );
+    /// Simulates a client polling session state across a full deposit flow:
+    /// create session → submit quote → build intent → verify final state.
+    #[test]
+    fn test_full_deposit_flow_state_visible_via_polling() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _admin, anchor) = setup(&env);
 
-    // Flow 1: COMPLETED
-    let _ = client.receive_quote(&user1, &anchor, &quote1);
+        let mut services = Vec::new(&env);
+        services.push_back(ServiceType::Deposits);
+        services.push_back(ServiceType::Quotes);
+        client.configure_services(&anchor, &services);
 
-    // Flow 2: COMPLETED
-    let _ = client.receive_quote(&user2, &anchor, &quote2);
+        let initiator = Address::generate(&env);
+        let session_id = client.create_session(&initiator);
 
-    // Both flows completed successfully
-    assert!(quote1 > 0);
-    assert!(quote2 > 0);
+        // Poll: session exists with zero operations
+        let session = client.get_session(&session_id);
+        assert_eq!(session.session_id, session_id);
+        assert_eq!(session.operation_count, 0);
+
+        // Step 1: anchor submits a quote
+        let base = String::from_str(&env, "USD");
+        let quote_asset_str = String::from_str(&env, "USDC");
+        let valid_until = env.ledger().timestamp() + 600;
+        let quote_id = client.submit_quote(
+            &anchor,
+            &base,
+            &quote_asset_str,
+            &10000u64,
+            &25u32,
+            &100_000000u64,
+            &10_000_000000u64,
+            &valid_until,
+        );
+
+        // Poll: quote is readable on-chain
+        let quote = client.get_quote(&anchor, &quote_id);
+        assert_eq!(quote.rate, 10000u64);
+
+        // Step 2: build a transaction intent tied to the session and quote
+        let request = QuoteRequest {
+            base_asset: base.clone(),
+            quote_asset: quote_asset_str.clone(),
+            amount: 500_000000u64,
+            operation_type: ServiceType::Deposits,
+        };
+        let builder = TransactionIntentBuilder::new(&env, anchor.clone(), request)
+            .with_quote_id(quote_id)
+            .with_session(session_id)
+            .with_ttl(300);
+
+        let intent = client.build_transaction_intent(&builder);
+
+        // Poll: intent reflects the quote and session
+        assert_eq!(intent.session_id, session_id);
+        assert_eq!(intent.quote_id, quote_id);
+        assert!(intent.has_quote);
+        assert_eq!(intent.rate, 10000u64);
+
+        // Poll: session now has one logged operation (the intent)
+        assert_eq!(client.get_session_operation_count(&session_id), 1);
+    }
 }

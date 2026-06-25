@@ -1,5 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 
+import './themes.css';
+import './AnchorPlayground.responsive.css';
+import { useTheme } from '../hooks/useTheme';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 type HttpMethod = "GET" | "POST" | "PUT";
 
@@ -464,20 +468,18 @@ function highlight(json: string, dark: boolean): string {
         bool: "#8a5000",
         nil: "#888",
       };
-  return json
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(
-      /("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
-      (m) => {
-        let c = colors.num;
-        if (/^"/.test(m)) c = /:$/.test(m) ? colors.key : colors.str;
-        else if (/true|false/.test(m)) c = colors.bool;
-        else if (/null/.test(m)) c = colors.nil;
-        return `<span style="color:${c}">${m}</span>`;
-      },
-    );
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return esc(json).replace(
+    /("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
+    (m) => {
+      let c = colors.num;
+      if (/^"/.test(m)) c = /:$/.test(m) ? colors.key : colors.str;
+      else if (/true|false/.test(m)) c = colors.bool;
+      else if (/null/.test(m)) c = colors.nil;
+      return `<span style="color:${c}">${m}</span>`;
+    },
+  );
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -544,7 +546,8 @@ const SendIcon = () => (
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function AnchorPlayground() {
-  const [dark, setDark] = useState(true);
+  const sysDark = useTheme();
+  const [dark, setDark] = useState(sysDark);
   const [domain, setDomain] = useState("testanchor.stellar.org");
   const [activeSEP, setActiveSEP] = useState<SEPProtocol>(SEP_PROTOCOLS[0]);
   const [activeEp, setActiveEp] = useState<Endpoint>(
@@ -563,6 +566,7 @@ export default function AnchorPlayground() {
   const [tab, setTab] = useState<"response" | "history">("response");
   const [copied, setCopied] = useState(false);
   const [tick, setTick] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const responseRef = useRef<HTMLDivElement>(null);
 
   // Pulsing scan line for dark mode
@@ -671,18 +675,19 @@ export default function AnchorPlayground() {
 
   // ── Derived theme tokens ──
   const D = dark;
-  const bg = D ? "#050810" : "#eef2fa";
-  const surfaceBg = D ? "#080c18" : "#ffffff";
+  const bg = "var(--ak-bg)";
+  const surfaceBg = "var(--ak-surface)";
   const panelBg = D ? "rgba(9,13,26,0.85)" : "rgba(248,250,255,0.9)";
-  const borderCol = D ? "#18243d" : "#ccd4e8";
-  const textCol = D ? "#dde6f5" : "#1e2a45";
-  const mutedCol = D ? "#3a5070" : "#8899bb";
-  const inputBg = D ? "#0a1020" : "#ffffff";
-  const inputBord = D ? "#1c2d4a" : "#c0ccdf";
+  const borderCol = "var(--ak-border-2)";
+  const textCol = "var(--ak-text)";
+  const mutedCol = "var(--ak-text-muted)";
+  const inputBg = "var(--ak-surface)";
+  const inputBord = "var(--ak-border)";
   const codeBg = D ? "#020408" : "#f4f7ff";
 
   return (
     <div
+      data-theme={D ? "dark" : "light"}
       style={{
         fontFamily: "'JetBrains Mono','Fira Code',monospace",
         background: bg,
@@ -696,6 +701,7 @@ export default function AnchorPlayground() {
     >
       {/* ── Grid bg ── */}
       <div
+        data-decorative-fixed="true"
         style={{
           position: "fixed",
           inset: 0,
@@ -830,6 +836,7 @@ export default function AnchorPlayground() {
 
       {/* ═══ HEADER ═══ */}
       <header
+        data-playground-header="true"
         style={{
           position: "relative",
           zIndex: 10,
@@ -844,8 +851,33 @@ export default function AnchorPlayground() {
         }}
       >
         {/* Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div 
+          data-playground-header-left="true"
+          style={{ display: "flex", alignItems: "center", gap: 12 }}
+        >
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            data-playground-sidebar-toggle="true"
+            style={{
+              display: "none",
+              padding: "6px 8px",
+              borderRadius: 6,
+              border: `1px solid ${borderCol}`,
+              background: D ? "rgba(0,0,0,0.3)" : "rgba(240,244,255,0.6)",
+              color: textCol,
+              cursor: "pointer",
+              fontSize: 16,
+              lineHeight: 1,
+              fontFamily: "inherit",
+              transition: "all 0.2s",
+              marginRight: 8,
+            }}
+            title="Toggle sidebar"
+          >
+            ☰
+          </button>
           <div
+            data-logo-icon="true"
             style={{
               position: "relative",
               width: 38,
@@ -888,6 +920,7 @@ export default function AnchorPlayground() {
           </div>
           <div>
             <div
+              data-logo-text="true"
               style={{
                 fontSize: 13,
                 fontWeight: 700,
@@ -901,6 +934,7 @@ export default function AnchorPlayground() {
               Anchor // Playground
             </div>
             <div
+              data-logo-subtext="true"
               style={{
                 fontSize: 9,
                 letterSpacing: "0.22em",
@@ -914,9 +948,13 @@ export default function AnchorPlayground() {
         </div>
 
         {/* Right */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div 
+          data-playground-header-right="true"
+          style={{ display: "flex", alignItems: "center", gap: 10 }}
+        >
           {/* Status pill */}
           <div
+            data-playground-status-pill="true"
             style={{
               display: "flex",
               alignItems: "center",
@@ -951,6 +989,7 @@ export default function AnchorPlayground() {
             </span>
             <span style={{ color: borderCol }}>·</span>
             <span
+              data-status-domain="true"
               style={{
                 maxWidth: 160,
                 overflow: "hidden",
@@ -992,6 +1031,7 @@ export default function AnchorPlayground() {
 
       {/* ═══ BODY ═══ */}
       <div
+        data-playground-container="true"
         style={{
           position: "relative",
           zIndex: 10,
@@ -1002,6 +1042,8 @@ export default function AnchorPlayground() {
       >
         {/* ═══ SIDEBAR ═══ */}
         <aside
+          data-playground-sidebar="true"
+          data-open={sidebarOpen ? "true" : "false"}
           style={{
             width: 300,
             flexShrink: 0,
@@ -1015,12 +1057,14 @@ export default function AnchorPlayground() {
         >
           {/* Domain */}
           <div
+            data-sidebar-section="true"
             style={{
               padding: "16px 16px 14px",
               borderBottom: `1px solid ${borderCol}`,
             }}
           >
             <div
+              data-sidebar-label="true"
               style={{
                 fontSize: 9,
                 fontWeight: 700,
@@ -1043,6 +1087,7 @@ export default function AnchorPlayground() {
               }}
             >
               <span
+                data-domain-prefix="true"
                 style={{
                   padding: "9px 10px",
                   fontSize: 10,
@@ -1076,12 +1121,14 @@ export default function AnchorPlayground() {
 
           {/* JWT */}
           <div
+            data-sidebar-section="true"
             style={{
               padding: "12px 16px 14px",
               borderBottom: `1px solid ${borderCol}`,
             }}
           >
             <div
+              data-sidebar-label="true"
               style={{
                 fontSize: 9,
                 fontWeight: 700,
@@ -1119,12 +1166,14 @@ export default function AnchorPlayground() {
 
           {/* SEP selector */}
           <div
+            data-sidebar-section="true"
             style={{
               padding: "12px 16px 14px",
               borderBottom: `1px solid ${borderCol}`,
             }}
           >
             <div
+              data-sidebar-label="true"
               style={{
                 fontSize: 9,
                 fontWeight: 700,
@@ -1137,6 +1186,7 @@ export default function AnchorPlayground() {
               ◈ SEP Protocol
             </div>
             <div
+              data-sep-grid="true"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(4, 1fr)",
@@ -1149,6 +1199,7 @@ export default function AnchorPlayground() {
                 return (
                   <button
                     key={sep.id}
+                    data-sep-button="true"
                     onClick={() => selectSEP(sep)}
                     style={{
                       position: "relative",
@@ -1226,6 +1277,7 @@ export default function AnchorPlayground() {
 
           {/* Endpoints */}
           <div
+            data-sidebar-section="true"
             style={{
               padding: "12px 16px",
               borderBottom: `1px solid ${borderCol}`,
@@ -1234,6 +1286,7 @@ export default function AnchorPlayground() {
             }}
           >
             <div
+              data-sidebar-label="true"
               style={{
                 fontSize: 9,
                 fontWeight: 700,
@@ -1255,6 +1308,7 @@ export default function AnchorPlayground() {
                 return (
                   <button
                     key={ep.id}
+                    data-endpoint-button="true"
                     onClick={() => selectEp(ep)}
                     style={{
                       position: "relative",
@@ -1362,6 +1416,7 @@ export default function AnchorPlayground() {
           {/* Params */}
           {activeEp.params.length > 0 && (
             <div
+              data-sidebar-section="true"
               style={{
                 padding: "12px 16px",
                 borderBottom: `1px solid ${borderCol}`,
@@ -1370,6 +1425,7 @@ export default function AnchorPlayground() {
               }}
             >
               <div
+                data-sidebar-label="true"
                 style={{
                   fontSize: 9,
                   fontWeight: 700,
@@ -1381,7 +1437,10 @@ export default function AnchorPlayground() {
               >
                 ◈ Parameters
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div 
+                data-params-container="true"
+                style={{ display: "flex", flexDirection: "column", gap: 8 }}
+              >
                 {activeEp.params.map((p) => (
                   <div key={p.key}>
                     <div
@@ -1393,6 +1452,7 @@ export default function AnchorPlayground() {
                       )}
                     </div>
                     <input
+                      data-param-input="true"
                       style={{
                         width: "100%",
                         padding: "7px 10px",
@@ -1432,6 +1492,7 @@ export default function AnchorPlayground() {
           {/* Send btn */}
           <div style={{ padding: 16 }}>
             <button
+              data-send-button="true"
               onClick={sendRequest}
               disabled={loading || !domain}
               style={{
@@ -1530,6 +1591,7 @@ export default function AnchorPlayground() {
 
         {/* ═══ MAIN PANEL ═══ */}
         <main
+          data-playground-main="true"
           style={{
             flex: 1,
             display: "flex",
@@ -1539,6 +1601,8 @@ export default function AnchorPlayground() {
         >
           {/* URL bar */}
           <div
+            data-url-bar="true"
+            data-scrollable="true"
             style={{
               flexShrink: 0,
               padding: "10px 20px",
@@ -1682,6 +1746,7 @@ export default function AnchorPlayground() {
 
           {/* Tabs */}
           <div
+            data-tabs="true"
             style={{
               flexShrink: 0,
               display: "flex",
@@ -1694,6 +1759,7 @@ export default function AnchorPlayground() {
             {(["response", "history"] as const).map((t) => (
               <button
                 key={t}
+                data-tab-button="true"
                 onClick={() => setTab(t)}
                 style={{
                   position: "relative",
@@ -1744,6 +1810,8 @@ export default function AnchorPlayground() {
 
           {/* Content */}
           <div
+            data-response-area="true"
+            data-scrollable="true"
             ref={responseRef}
             style={{ flex: 1, overflowY: "auto", padding: 20 }}
           >
@@ -1815,69 +1883,201 @@ export default function AnchorPlayground() {
                   </div>
                 )}
 
-                {/* Loading state */}
+                {/* Loading state with skeleton loaders */}
                 {loading && (
                   <div
+                    role="status"
+                    aria-busy="true"
+                    aria-label="Loading anchor data"
                     style={{
                       height: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
+                      padding: "20px",
                     }}
                   >
-                    <div style={{ textAlign: "center" }}>
+                    {/* Asset list skeleton */}
+                    <div style={{ marginBottom: 24 }}>
                       <div
                         style={{
-                          position: "relative",
-                          width: 60,
-                          height: 60,
-                          margin: "0 auto 20px",
-                        }}
-                      >
-                        <div
-                          style={{
-                            position: "absolute",
-                            inset: 0,
-                            borderRadius: "50%",
-                            border: `2px solid ${neon}18`,
-                            borderTop: `2px solid ${neon}`,
-                            animation: "spin 0.9s linear infinite",
-                            boxShadow: `0 0 24px ${neon}50`,
-                          }}
-                        />
-                        <div
-                          style={{
-                            position: "absolute",
-                            inset: 10,
-                            borderRadius: "50%",
-                            border: `1px solid ${neon}10`,
-                            borderBottom: `1px solid ${neon}60`,
-                            animation: "spin 0.55s linear infinite reverse",
-                          }}
-                        />
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 11,
+                          fontSize: 9,
+                          fontWeight: 700,
                           letterSpacing: "0.2em",
-                          color: neon,
+                          color: mutedCol,
                           textTransform: "uppercase",
+                          marginBottom: 12,
                         }}
                       >
-                        Transmitting
+                        Loading Assets...
                       </div>
+                      {[1, 2, 3].map((i) => (
+                        <div
+                          key={i}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 12,
+                            padding: "12px 14px",
+                            marginBottom: 8,
+                            borderRadius: 8,
+                            background: D ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: 40,
+                              height: 40,
+                              borderRadius: "50%",
+                              background: `linear-gradient(90deg, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 0%, ${D ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.10)"} 50%, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 100%)`,
+                              backgroundSize: "200% 100%",
+                              animation: "skeleton-shimmer 1.5s ease-in-out infinite",
+                            }}
+                          />
+                          <div style={{ flex: 1 }}>
+                            <div
+                              style={{
+                                width: `${60 + Math.random() * 30}%`,
+                                height: 14,
+                                marginBottom: 6,
+                                borderRadius: 4,
+                                background: `linear-gradient(90deg, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 0%, ${D ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.10)"} 50%, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 100%)`,
+                                backgroundSize: "200% 100%",
+                                animation: "skeleton-shimmer 1.5s ease-in-out infinite",
+                              }}
+                            />
+                            <div
+                              style={{
+                                width: `${40 + Math.random() * 20}%`,
+                                height: 12,
+                                borderRadius: 4,
+                                background: `linear-gradient(90deg, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 0%, ${D ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.10)"} 50%, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 100%)`,
+                                backgroundSize: "200% 100%",
+                                animation: "skeleton-shimmer 1.5s ease-in-out infinite",
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Fee table skeleton */}
+                    <div style={{ marginBottom: 24 }}>
                       <div
                         style={{
-                          fontSize: 10,
+                          fontSize: 9,
+                          fontWeight: 700,
+                          letterSpacing: "0.2em",
                           color: mutedCol,
-                          marginTop: 8,
-                          maxWidth: 360,
-                          wordBreak: "break-all",
+                          textTransform: "uppercase",
+                          marginBottom: 12,
                         }}
                       >
-                        {buildUrl()}
+                        Loading Fees...
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {/* Header */}
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                          {[1, 2, 3].map((i) => (
+                            <div
+                              key={i}
+                              style={{
+                                height: 16,
+                                width: "80%",
+                                borderRadius: 4,
+                                background: `linear-gradient(90deg, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 0%, ${D ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.10)"} 50%, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 100%)`,
+                                backgroundSize: "200% 100%",
+                                animation: "skeleton-shimmer 1.5s ease-in-out infinite",
+                              }}
+                            />
+                          ))}
+                        </div>
+                        {/* Rows */}
+                        {[1, 2, 3].map((i) => (
+                          <div key={i} style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                            {[1, 2, 3].map((j) => (
+                              <div
+                                key={j}
+                                style={{
+                                  height: 14,
+                                  width: `${50 + Math.random() * 40}%`,
+                                  borderRadius: 4,
+                                  background: `linear-gradient(90deg, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 0%, ${D ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.10)"} 50%, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 100%)`,
+                                  backgroundSize: "200% 100%",
+                                  animation: "skeleton-shimmer 1.5s ease-in-out infinite",
+                                }}
+                              />
+                            ))}
+                          </div>
+                        ))}
                       </div>
                     </div>
+
+                    {/* Limits skeleton */}
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          letterSpacing: "0.2em",
+                          color: mutedCol,
+                          textTransform: "uppercase",
+                          marginBottom: 12,
+                        }}
+                      >
+                        Loading Limits...
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                        {[1, 2].map((i) => (
+                          <div key={i} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div
+                              style={{
+                                width: "40%",
+                                height: 14,
+                                borderRadius: 4,
+                                background: `linear-gradient(90deg, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 0%, ${D ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.10)"} 50%, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 100%)`,
+                                backgroundSize: "200% 100%",
+                                animation: "skeleton-shimmer 1.5s ease-in-out infinite",
+                              }}
+                            />
+                            <div
+                              style={{
+                                width: "100%",
+                                height: 8,
+                                borderRadius: 4,
+                                background: `linear-gradient(90deg, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 0%, ${D ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.10)"} 50%, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 100%)`,
+                                backgroundSize: "200% 100%",
+                                animation: "skeleton-shimmer 1.5s ease-in-out infinite",
+                              }}
+                            />
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                              <div
+                                style={{
+                                  width: "30%",
+                                  height: 12,
+                                  borderRadius: 4,
+                                  background: `linear-gradient(90deg, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 0%, ${D ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.10)"} 50%, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 100%)`,
+                                  backgroundSize: "200% 100%",
+                                  animation: "skeleton-shimmer 1.5s ease-in-out infinite",
+                                }}
+                              />
+                              <div
+                                style={{
+                                  width: "30%",
+                                  height: 12,
+                                  borderRadius: 4,
+                                  background: `linear-gradient(90deg, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 0%, ${D ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.10)"} 50%, ${D ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)"} 100%)`,
+                                  backgroundSize: "200% 100%",
+                                  animation: "skeleton-shimmer 1.5s ease-in-out infinite",
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Screen reader text */}
+                    <span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)" }}>
+                      Loading anchor data
+                    </span>
                   </div>
                 )}
 
@@ -1947,6 +2147,7 @@ export default function AnchorPlayground() {
                         )}
                       </div>
                       <button
+                        data-copy-button="true"
                         onClick={copyResponse}
                         style={{
                           display: "flex",
@@ -2042,6 +2243,8 @@ export default function AnchorPlayground() {
                         </div>
                       </div>
                       <pre
+                        data-code-block="true"
+                        data-scrollable="true"
                         style={{
                           margin: 0,
                           padding: "18px 20px",
@@ -2087,6 +2290,7 @@ export default function AnchorPlayground() {
                   </div>
                 ) : (
                   <div
+                    data-history-list="true"
                     style={{ display: "flex", flexDirection: "column", gap: 6 }}
                   >
                     {history.map((entry, i) => {
@@ -2098,6 +2302,7 @@ export default function AnchorPlayground() {
                       return (
                         <div
                           key={entry.id}
+                          data-history-item="true"
                           style={{
                             display: "flex",
                             alignItems: "center",
@@ -2250,6 +2455,10 @@ export default function AnchorPlayground() {
         @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @keyframes skeleton-shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: ${neon}30; border-radius: 2px; }
