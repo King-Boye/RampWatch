@@ -1,0 +1,9 @@
+/* Applied by storybook-dark-mode to <html> in the preview iframe */
+html.dark body {
+  background-color: #0f172a;
+}
+
+html.light body,
+body {
+  background-color: #ffffff;
+}
