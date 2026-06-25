@@ -98,3 +98,33 @@ pub struct QuoteExpiredEvent {
     pub quote_id: u64,
     pub valid_until: u64,
 }
+
+#[contracttype]
+#[derive(Clone)]
+pub struct AttestationRevoked {
+    pub attestation_id: u64,
+    pub issuer: Address,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct AdminTransferred {
+    pub old_admin: Address,
+    pub new_admin: Address,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct ContractPaused {
+    pub admin: Address,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct ContractUnpaused {
+    pub admin: Address,
+    pub timestamp: u64,
+}

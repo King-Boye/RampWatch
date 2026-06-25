@@ -103,6 +103,13 @@ pub enum ErrorCode {
     InvalidStrategy = 59,
     NotInitialized = 26,
     AttestationLimitReached = 60,
+    AttestorCapExceeded = 61,
+    PathTraversalDetected = 62,
+    InvalidAmount = 63,
+    AttestationRevoked = 64,
+    AttestationExpired = 121,
+    ContractPaused = 122,
+    AdminTransferPending = 123,
 }
 
 impl ErrorCode {
@@ -125,7 +132,6 @@ impl ErrorCode {
             ErrorCode::ServicesNotConfigured => "Services are not configured",
             ErrorCode::ValidationError => "Response schema validation failed",
             ErrorCode::RateLimitExceeded => "Rate limit exceeded",
-            ErrorCode::NotInitialized => "Contract is not initialized",
             ErrorCode::AttestationNotFound => "Attestation not found",
             ErrorCode::InvalidSep10Token => "SEP-10 JWT is missing, expired, or invalid",
             ErrorCode::StorageCorrupted => "On-chain storage entry is corrupted or unreadable",
@@ -139,8 +145,15 @@ impl ErrorCode {
             ErrorCode::SessionNotFound => "Session not found",
             ErrorCode::SessionExpired => "Session has expired",
             ErrorCode::MissingSigningKey => "Anchor TOML does not publish a signing key",
-            ErrorCode::InvalidStrategy => "Invalid routing strategy",
-            ErrorCode::AttestationLimitReached => "Attestation limit reached",
+            ErrorCode::InvalidStrategy => "Routing strategy symbol is not recognized",
+            ErrorCode::AttestationLimitReached => "Attestation ID counter has reached its maximum value",
+            ErrorCode::AttestorCapExceeded => "Maximum number of attestors has been reached",
+            ErrorCode::PathTraversalDetected => "URL contains a path traversal sequence",
+            ErrorCode::InvalidAmount => "Amount is outside the allowed min/max range for this asset",
+            ErrorCode::AttestationRevoked => "Attestation has been revoked",
+            ErrorCode::AttestationExpired => "Attestation has expired",
+            ErrorCode::ContractPaused => "Contract is paused",
+            ErrorCode::AdminTransferPending => "Admin transfer is already pending",
         }
     }
 
@@ -234,10 +247,23 @@ impl AnchorKitError {
     pub fn unauthorized_propose_admin() -> Self { Self::from_code(ErrorCode::UnauthorizedProposeAdmin) }
     pub fn audit_log_max_size_invalid() -> Self { Self::from_code(ErrorCode::AuditLogMaxSizeInvalid) }
     pub fn no_pending_admin() -> Self { Self::from_code(ErrorCode::NoPendingAdmin) }
-    pub fn path_traversal_detected() -> Self { Self::from_code(ErrorCode::ValidationError) }
+    pub fn path_traversal_detected() -> Self { Self::from_code(ErrorCode::PathTraversalDetected) }
+    pub fn attestation_expired() -> Self { Self::from_code(ErrorCode::AttestationExpired) }
+    pub fn contract_paused() -> Self { Self::from_code(ErrorCode::ContractPaused) }
+    pub fn admin_transfer_pending() -> Self { Self::from_code(ErrorCode::AdminTransferPending) }
+
+    pub fn invalid_amount() -> Self { Self::from_code(ErrorCode::InvalidAmount) }
 
     pub fn validation_error(context: &str) -> Self {
         Self::with_context(ErrorCode::ValidationError, ErrorCode::ValidationError.default_message(), context)
+    }
+
+    pub fn audit_log_max_size_invalid() -> Self { Self::from_code(ErrorCode::AuditLogMaxSizeInvalid) }
+    pub fn unauthorized_propose_admin() -> Self { Self::from_code(ErrorCode::UnauthorizedProposeAdmin) }
+    pub fn no_pending_admin() -> Self { Self::from_code(ErrorCode::NoPendingAdmin) }
+    pub fn not_pending_admin() -> Self { Self::from_code(ErrorCode::NotPendingAdmin) }
+    pub fn path_traversal_detected() -> Self {
+        Self::with_context(ErrorCode::ValidationError, "Path traversal detected in URL", "endpoint URL contains path traversal sequence")
     }
 }
 
@@ -257,6 +283,15 @@ impl core::fmt::Display for AnchorKitError {
 
 #[cfg(not(feature = "std"))]
 impl AnchorKitError {
+    /// Create an error using the default message for the given code.
+    pub fn from_code(code: ErrorCode) -> Self {
+        AnchorKitError {
+            code,
+            message: code.default_message(),
+            context: None,
+        }
+    }
+
     pub fn cache_not_found() -> Self {
         Self::from_code(ErrorCode::CacheNotFound)
     }
@@ -287,9 +322,14 @@ impl AnchorKitError {
     pub fn unauthorized_propose_admin() -> Self { Self::from_code(ErrorCode::UnauthorizedProposeAdmin) }
     pub fn audit_log_max_size_invalid() -> Self { Self::from_code(ErrorCode::AuditLogMaxSizeInvalid) }
     pub fn no_pending_admin() -> Self { Self::from_code(ErrorCode::NoPendingAdmin) }
-    pub fn path_traversal_detected() -> Self { Self::from_code(ErrorCode::ValidationError) }
+    pub fn path_traversal_detected() -> Self { Self::from_code(ErrorCode::PathTraversalDetected) }
+    pub fn attestation_expired() -> Self { Self::from_code(ErrorCode::AttestationExpired) }
+    pub fn contract_paused() -> Self { Self::from_code(ErrorCode::ContractPaused) }
+    pub fn admin_transfer_pending() -> Self { Self::from_code(ErrorCode::AdminTransferPending) }
+    pub fn invalid_amount() -> Self { Self::from_code(ErrorCode::InvalidAmount) }
     pub fn validation_error(_context: &str) -> Self { Self::from_code(ErrorCode::ValidationError) }
 }
+
 
 #[cfg(not(feature = "std"))]
 impl core::fmt::Display for AnchorKitError {
