@@ -1,0 +1,186 @@
+/* ── Container ────────────────────────────────────────────────────────────── */
+.player-filter {
+  font-family: 'Sora', sans-serif;
+  background: var(--ak-surface);
+  border: 1px solid var(--ak-border);
+  border-radius: 16px;
+  box-shadow: var(--ak-shadow-sm);
+  overflow: hidden;
+}
+
+/* ── Filter Controls ─────────────────────────────────────────────────────── */
+.player-filter__controls {
+  display: flex;
+  gap: 12px;
+  padding: 20px 20px 16px;
+  background: var(--ak-surface-2);
+  border-bottom: 1px solid var(--ak-border);
+  flex-wrap: wrap;
+}
+
+.player-filter__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 120px;
+}
+
+.player-filter__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ak-text-muted);
+}
+
+.player-filter__select {
+  font-family: 'Sora', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ak-text);
+  background: var(--ak-surface);
+  border: 1px solid var(--ak-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  appearance: auto;
+}
+
+.player-filter__select:focus {
+  border-color: var(--ak-accent);
+  box-shadow: 0 0 0 3px var(--ak-accent-focus-shadow);
+}
+
+/* ── Results Area ────────────────────────────────────────────────────────── */
+.player-filter__results {
+  min-height: 200px;
+  padding: 0;
+}
+
+/* ── Loading ─────────────────────────────────────────────────────────────── */
+.player-filter__loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px;
+  color: var(--ak-text-muted);
+  font-size: 13px;
+}
+
+.player-filter__spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--ak-border);
+  border-top-color: var(--ak-accent);
+  border-radius: 50%;
+  animation: pf-spin 0.7s linear infinite;
+}
+
+@keyframes pf-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Player Grid ─────────────────────────────────────────────────────────── */
+.player-filter__grid {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 8px;
+}
+
+.player-filter__card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--ak-border);
+  background: var(--ak-surface-2);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  animation: pf-slide-in 0.2s ease both;
+}
+
+.player-filter__card:hover {
+  border-color: var(--ak-accent);
+  box-shadow: 0 0 0 3px var(--ak-accent-focus-shadow);
+}
+
+@keyframes pf-slide-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.player-filter__avatar {
+  font-size: 24px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--ak-surface);
+  border: 1px solid var(--ak-border);
+  flex-shrink: 0;
+}
+
+.player-filter__card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.player-filter__card-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ak-text);
+  margin-bottom: 5px;
+}
+
+.player-filter__card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.player-filter__badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: var(--ak-method-get-bg);
+  color: var(--ak-method-get-color);
+}
+
+.player-filter__badge--muted {
+  background: var(--ak-surface);
+  color: var(--ak-text-muted);
+  border: 1px solid var(--ak-border);
+}
+
+/* ── Clear Filters Button ────────────────────────────────────────────────── */
+.player-filter__clear-btn {
+  font-family: 'Sora', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 20px;
+  border-radius: 8px;
+  border: none;
+  background: var(--ak-accent);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.player-filter__clear-btn:hover {
+  background: var(--ak-accent-hover);
+  box-shadow: 0 4px 12px var(--ak-accent-hover-shadow);
+}
+
+.player-filter__clear-btn:focus-visible {
+  outline: 2px solid var(--ak-accent);
+  outline-offset: 2px;
+}
