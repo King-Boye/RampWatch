@@ -2532,6 +2532,10 @@ fn verify_attestation_signature(
     // If we reach this point, no key verified the signature.
     panic_with_error!(env, ErrorCode::UnauthorizedAttestor);
 }
+
+    pub fn get_rate_limit_status(env: Env, attestor: Address) -> crate::rate_limiter::RateLimitStatus {
+        crate::rate_limiter::RateLimiter::get_rate_limit_status(env, attestor)
+    }
 }
 
 pub fn get_endpoint(env: Env, attestor: Address) -> String {
