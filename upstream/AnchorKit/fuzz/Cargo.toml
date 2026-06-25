@@ -1,0 +1,28 @@
+[package]
+name = "anchorkit-fuzz"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+soroban-sdk = { version = "21.7.0", features = ["testutils"] }
+
+[dependencies.anchorkit]
+path = ".."
+features = ["std"]
+
+[[bin]]
+name = "fuzz_deterministic_hash"
+path = "fuzz_targets/fuzz_deterministic_hash.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_domain_validator"
+path = "fuzz_targets/fuzz_domain_validator.rs"
+test = false
+doc = false
