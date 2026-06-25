@@ -80,15 +80,15 @@ impl RetryConfig {
 /// next request.
 pub fn is_retryable(code: u32) -> bool {
     use crate::errors::ErrorCode;
-    match code {
-        ErrorCode::ServicesNotConfigured as u32
-            | ErrorCode::AttestationNotFound as u32
-            | ErrorCode::StaleQuote as u32
-            | ErrorCode::NoQuotesAvailable as u32
-            | ErrorCode::CacheExpired as u32
-            | ErrorCode::CacheNotFound as u32 => true,
-        _ => false,
-    }
+    matches!(
+        code,
+        c if c == ErrorCode::ServicesNotConfigured as u32
+            || c == ErrorCode::AttestationNotFound as u32
+            || c == ErrorCode::StaleQuote as u32
+            || c == ErrorCode::NoQuotesAvailable as u32
+            || c == ErrorCode::CacheExpired as u32
+            || c == ErrorCode::CacheNotFound as u32
+    )
 }
 
 /// Execute `f` with exponential backoff retry.
@@ -132,6 +132,7 @@ where
 #[cfg(test)]
 mod retry_tests {
     use super::*;
+    use alloc::vec::Vec;
 
     #[derive(Debug, PartialEq)]
     enum TestError {

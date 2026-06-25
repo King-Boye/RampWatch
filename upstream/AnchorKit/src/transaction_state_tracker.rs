@@ -265,8 +265,19 @@ impl TransactionStateTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::AnchorKitContract;
     use soroban_sdk::Env;
     use soroban_sdk::testutils::Address;
+
+    fn with_contract<F, R>(f: F) -> R
+    where
+        F: FnOnce(Env) -> R,
+    {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        env.as_contract(&contract_id, || f(env.clone()))
+    }
 
     #[test]
     fn test_create_transaction() {
@@ -388,7 +399,7 @@ mod tests {
 
     #[test]
     fn test_clear_cache() {
-        let env = Env::default();
+        with_contract(|env| {
         let mut tracker = TransactionStateTracker::new();
         let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
@@ -397,6 +408,7 @@ mod tests {
 
         assert!(clear_result.is_ok());
         assert_eq!(tracker.cache_size(), 0);
+        });
     }
 
     #[test]
@@ -438,6 +450,7 @@ mod tests {
     #[should_panic]
     fn test_clear_cache_requires_admin_auth() {
         let env = Env::default();
+        let contract_id = env.register_contract(None, crate::contract::AnchorKitContract);
         let mut tracker = TransactionStateTracker::new();
         let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
         let different_admin = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
@@ -446,6 +459,8 @@ mod tests {
         assert_eq!(tracker.cache_size(), 1);
 
         // This should panic because different_admin has not authorized this call
-        tracker.clear_cache(&different_admin, &env).ok();
+        env.as_contract(&contract_id, || {
+            tracker.clear_cache(&different_admin, &env).ok();
+        });
     }
 }
