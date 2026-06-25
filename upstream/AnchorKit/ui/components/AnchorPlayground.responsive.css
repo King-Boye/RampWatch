@@ -1,0 +1,394 @@
+/* AnchorPlayground Responsive Styles
+ * Handles layout adaptation for tablets and mobile devices
+ * Uses CSS Grid for flexible panel management
+ */
+
+/* ─── Tablet & Small Desktop (768px - 1024px) ─────────────────────────────── */
+@media (max-width: 1024px) {
+  /* Slightly reduce sidebar width */
+  [data-playground-sidebar] {
+    width: 280px !important;
+  }
+
+  /* Reduce padding for better space usage */
+  [data-playground-sidebar] > div {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  /* Reduce font sizes slightly */
+  [data-playground-body] {
+    font-size: 10px;
+  }
+}
+
+/* ─── Tablet Portrait (600px - 768px) ────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Switch to column layout with collapsible sidebar */
+  [data-playground-container] {
+    flex-direction: column !important;
+  }
+
+  /* Sidebar becomes horizontal panel */
+  [data-playground-sidebar] {
+    width: 100% !important;
+    height: auto !important;
+    flex-shrink: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--ak-border-2) !important;
+    transition: max-height 0.3s ease-in-out !important;
+    z-index: 9 !important;
+  }
+
+  /* Sidebar open state */
+  [data-playground-sidebar][data-open="true"] {
+    max-height: 600px !important;
+  }
+
+  /* Main content takes full width */
+  [data-playground-main] {
+    flex: 1 !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  /* Adjust header for mobile */
+  [data-playground-header] {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    padding: 8px 12px !important;
+  }
+
+  /* Right header items on new row */
+  [data-playground-header-right] {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
+
+  /* Reduce button sizes */
+  [data-playground-header] button {
+    padding: 6px 10px !important;
+    font-size: 9px !important;
+  }
+
+  /* Status pill smaller */
+  [data-playground-status-pill] {
+    padding: 4px 8px !important;
+    font-size: 8px !important;
+  }
+
+  /* SEP selector: 3 columns instead of 4 */
+  [data-sep-grid] {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+
+  /* Reduce gaps */
+  [data-sep-grid] {
+    gap: 4px !important;
+  }
+
+  /* Toggle sidebar button */
+  [data-playground-sidebar-toggle] {
+    display: flex !important;
+  }
+
+  /* Sidebar sections: scrollable containers */
+  [data-sidebar-section] {
+    padding: 10px 12px 12px !important;
+    border-bottom: 1px solid var(--ak-border-2) !important;
+  }
+
+  [data-sidebar-section]:last-child {
+    border-bottom: none !important;
+  }
+
+  /* Reduce font sizes in sidebar */
+  [data-sidebar-label] {
+    font-size: 8px !important;
+  }
+
+  /* Make input fields more touch-friendly */
+  input[type="text"],
+  textarea {
+    min-height: 40px !important;
+    padding: 10px 12px !important;
+  }
+
+  /* Endpoint list: make rows taller for touch */
+  [data-endpoint-button] {
+    padding: 12px 10px 12px 14px !important;
+    min-height: 40px !important;
+  }
+
+  /* Parameters section: grid instead of flex */
+  [data-params-container] {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+
+  /* Parameter inputs full width */
+  [data-param-input] {
+    width: 100% !important;
+    min-height: 40px !important;
+  }
+
+  /* Send button: full width, larger touch target */
+  [data-send-button] {
+    width: 100% !important;
+    padding: 14px 16px !important;
+    font-size: 11px !important;
+    margin-top: 12px !important;
+  }
+
+  /* Response area: adjust for smaller viewport */
+  [data-response-area] {
+    padding: 12px !important;
+  }
+
+  /* URL bar: wrap on small screens */
+  [data-url-bar] {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  /* Tabs: stack better */
+  [data-tabs] {
+    border-bottom: 1px solid var(--ak-border-2) !important;
+    display: flex !important;
+    gap: 8px !important;
+    padding: 0 8px !important;
+  }
+
+  /* Tab buttons */
+  [data-tab-button] {
+    padding: 10px 12px !important;
+    font-size: 10px !important;
+  }
+
+  /* Code block scrollable */
+  [data-code-block] {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    font-size: 10px !important;
+  }
+
+  /* History list: compact view */
+  [data-history-list] {
+    gap: 8px !important;
+  }
+
+  [data-history-item] {
+    padding: 8px 10px !important;
+    font-size: 9px !important;
+  }
+}
+
+/* ─── Mobile Landscape (480px - 600px) ──────────────────────────────────── */
+@media (max-width: 600px) {
+  /* Header: stack items vertically */
+  [data-playground-header] {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 4px !important;
+  }
+
+  [data-playground-header-left] {
+    order: 1 !important;
+  }
+
+  [data-playground-header-right] {
+    order: 2 !important;
+    width: 100% !important;
+    flex-direction: row !important;
+  }
+
+  /* Logo area: smaller */
+  [data-logo-icon] {
+    width: 28px !important;
+    height: 28px !important;
+  }
+
+  [data-logo-text] {
+    font-size: 11px !important;
+  }
+
+  [data-logo-subtext] {
+    font-size: 8px !important;
+  }
+
+  /* Sidebar sections more compact */
+  [data-sidebar-section] {
+    padding: 8px 10px 10px !important;
+  }
+
+  /* SEP selector: 2 columns on very small screens */
+  @media (max-width: 480px) {
+    [data-sep-grid] {
+      grid-template-columns: repeat(2, 1fr) !important;
+    }
+  }
+
+  /* Input styling: larger for mobile */
+  input,
+  textarea {
+    font-size: 16px !important; /* Prevents zoom on iOS */
+    min-height: 44px !important; /* iOS minimum touch target */
+  }
+
+  /* Buttons: larger touch targets */
+  button {
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
+
+  /* Response tabs: full width */
+  [data-tabs] {
+    width: 100% !important;
+  }
+
+  [data-tab-button] {
+    flex: 1 !important;
+    text-align: center !important;
+  }
+
+  /* Copy button in response */
+  [data-copy-button] {
+    min-height: 40px !important;
+    min-width: 40px !important;
+  }
+
+  /* Reduce overall padding */
+  [data-playground-main] {
+    padding: 8px !important;
+  }
+
+  /* Scrollable containers: enable momentum scrolling */
+  [data-scrollable] {
+    -webkit-overflow-scrolling: touch !important;
+  }
+}
+
+/* ─── Very Small Mobile (< 480px) ──────────────────────────────────────── */
+@media (max-width: 480px) {
+  /* Hide decorative elements on very small screens */
+  [data-decorative-fixed] {
+    display: none !important;
+  }
+
+  /* Maximize content area */
+  [data-playground-body] {
+    flex: 1 !important;
+  }
+
+  /* Sidebar: minimal padding */
+  [data-sidebar-section] {
+    padding: 6px 8px 8px !important;
+  }
+
+  /* SEP protocol buttons: smaller */
+  [data-sep-button] {
+    padding: 6px 3px !important;
+    font-size: 8px !important;
+  }
+
+  /* Domain input: smaller prefix */
+  [data-domain-prefix] {
+    padding: 8px 8px !important;
+    font-size: 8px !important;
+  }
+
+  /* Hide secondary UI elements if needed */
+  @media (max-width: 374px) {
+    [data-logo-subtext] {
+      display: none !important;
+    }
+
+    [data-status-domain] {
+      display: none !important;
+    }
+  }
+}
+
+/* ─── Touch Device Enhancements ────────────────────────────────────────── */
+@media (hover: none) and (pointer: coarse) {
+  /* Larger touch targets */
+  button,
+  [role="button"],
+  input,
+  textarea {
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
+
+  /* Increase padding for touch */
+  [data-endpoint-button] {
+    padding: 14px 12px 14px 14px !important;
+  }
+
+  /* Remove hover effects that don't apply to touch */
+  button:hover {
+    filter: none !important;
+  }
+
+  /* Add active state instead */
+  button:active {
+    opacity: 0.8 !important;
+  }
+
+  /* Scrollable areas: ensure smooth scrolling */
+  [data-scrollable] {
+    -webkit-overflow-scrolling: touch !important;
+    scroll-behavior: smooth !important;
+  }
+}
+
+/* ─── Orientation-Specific Adjustments ────────────────────────────────── */
+@media (orientation: landscape) and (max-height: 500px) {
+  /* Hide some elements in landscape with limited height */
+  [data-logo-text] {
+    display: none !important;
+  }
+
+  /* Reduce header height */
+  [data-playground-header] {
+    padding: 6px 8px !important;
+  }
+
+  /* Compact sidebar in landscape */
+  [data-sidebar-section] {
+    padding: 6px 8px !important;
+  }
+}
+
+/* ─── High DPI / Retina Display Adjustments ────────────────────────────── */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  /* Slightly thicker borders on high DPI */
+  [data-playground-sidebar],
+  [data-playground-main] {
+    border-width: 1px !important;
+  }
+
+  /* Adjust font rendering */
+  body {
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+  }
+}
+
+/* ─── Print Styles (if needed) ───────────────────────────────────────── */
+@media print {
+  [data-decorative-fixed],
+  [data-playground-header],
+  [data-send-button] {
+    display: none !important;
+  }
+
+  [data-playground-sidebar],
+  [data-playground-main] {
+    width: 100% !important;
+    border: none !important;
+  }
+}
