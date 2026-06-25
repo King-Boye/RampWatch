@@ -32,6 +32,7 @@ export interface KYCField {
 export interface KYCRequirement {
   level: KYCLevel;
   fields: KYCField[];
+  documentTypes?: string[]; // e.g. ["passport", "drivers_license", "utility_bill"]
   estimatedTime?: string;
   description?: string;
 }
@@ -87,6 +88,8 @@ export interface AnchorCapabilityCardProps {
   healthStatus?: AnchorHealthStatus;
 }
 
+import './themes.css';
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const KYC_META: Record<
@@ -95,30 +98,30 @@ const KYC_META: Record<
 > = {
   none: {
     label: "No KYC",
-    color: "#22c55e",
-    bg: "#f0fdf4",
-    border: "#bbf7d0",
+    color: "var(--ak-kyc-none-color)",
+    bg: "var(--ak-kyc-none-bg)",
+    border: "var(--ak-kyc-none-border)",
     desc: "No identity verification required.",
   },
   basic: {
     label: "Basic KYC",
-    color: "#f59e0b",
-    bg: "#fffbeb",
-    border: "#fde68a",
+    color: "var(--ak-kyc-basic-color)",
+    bg: "var(--ak-kyc-basic-bg)",
+    border: "var(--ak-kyc-basic-border)",
     desc: "Name and email required.",
   },
   full: {
     label: "Full KYC",
-    color: "#3b82f6",
-    bg: "#eff6ff",
-    border: "#bfdbfe",
+    color: "var(--ak-kyc-full-color)",
+    bg: "var(--ak-kyc-full-bg)",
+    border: "var(--ak-kyc-full-border)",
     desc: "Government ID and address verification.",
   },
   enhanced: {
     label: "Enhanced",
-    color: "#8b5cf6",
-    bg: "#f5f3ff",
-    border: "#ddd6fe",
+    color: "var(--ak-kyc-enhanced-color)",
+    bg: "var(--ak-kyc-enhanced-bg)",
+    border: "var(--ak-kyc-enhanced-border)",
     desc: "Full KYC plus source-of-funds documentation.",
   },
 };
@@ -141,7 +144,8 @@ const fmt = (n: number, currency: string) =>
 function fmtFee(fee?: AssetFee): string {
   if (!fee) return "—";
   if (fee.type === "flat") return fmt(fee.flatAmount!, fee.currency);
-  if (fee.type === "percent") return `${fee.percent}%`;
+  if (fee.type === "percent")
+    return `${Number(fee.percent).toFixed(2)}% ${fee.currency}`;
   if (fee.type === "tiered" && fee.tiers) return "Tiered";
   return "—";
 }
@@ -184,9 +188,9 @@ function OpBadge({ op }: { op: OperationType }) {
     OperationType,
     { bg: string; color: string; label: string }
   > = {
-    deposit: { bg: "#dbeafe", color: "#1d4ed8", label: "Deposit" },
-    withdrawal: { bg: "#fce7f3", color: "#9d174d", label: "Withdraw" },
-    both: { bg: "#e0e7ff", color: "#4338ca", label: "Both" },
+    deposit:    { bg: "var(--ak-method-get-bg)",    color: "var(--ak-method-get-color)",    label: "Deposit"  },
+    withdrawal: { bg: "var(--ak-status-failed-bg)", color: "var(--ak-status-failed-color)", label: "Withdraw" },
+    both:       { bg: "var(--ak-method-patch-bg)",  color: "var(--ak-method-patch-color)",  label: "Both"     },
   };
   const s = styles[op];
   return (
@@ -234,7 +238,7 @@ function RowDivider() {
       style={{
         height: 1,
         background:
-          "linear-gradient(90deg, transparent, #e2e8f030, #e2e8f060, #e2e8f030, transparent)",
+          "linear-gradient(90deg, transparent, rgba(226,232,240,0.19), rgba(226,232,240,0.38), rgba(226,232,240,0.19), transparent)",
         margin: "2px 0",
       }}
     />
@@ -250,7 +254,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
         fontWeight: 700,
         letterSpacing: "0.18em",
         textTransform: "uppercase",
-        color: "#94a3b8",
+        color: "var(--ak-text-muted)",
         marginBottom: 12,
       }}
     >
@@ -286,7 +290,7 @@ function DataRow({
         style={{
           fontFamily: "'Sora', sans-serif",
           fontSize: 12,
-          color: "#64748b",
+          color: "var(--ak-text-muted)",
           flexShrink: 0,
         }}
       >
@@ -299,7 +303,7 @@ function DataRow({
             : "'Sora', sans-serif",
           fontSize: 12,
           fontWeight: 600,
-          color: accent ?? "#1e293b",
+          color: accent ?? "var(--ak-text)",
           textAlign: "right",
         }}
       >
@@ -347,21 +351,21 @@ function AssetsPanel({
               animation: `cap-slide-in 0.3s ease ${i * 0.06}s both`,
             }}
           >
-            <AssetAvatar asset={asset} accent={isActive ? accent : "#94a3b8"} />
+            <AssetAvatar asset={asset} accent={isActive ? accent : "var(--ak-text-muted)"} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div
                 style={{
                   fontFamily: "'Sora', sans-serif",
                   fontSize: 13,
                   fontWeight: 700,
-                  color: isActive ? "#0f172a" : "#334155",
+                  color: isActive ? "var(--ak-text)" : "var(--ak-text-muted)",
                 }}
               >
                 {asset.code}
                 <span
                   style={{
                     fontWeight: 400,
-                    color: "#94a3b8",
+                    color: "var(--ak-text-muted)",
                     marginLeft: 6,
                     fontSize: 12,
                   }}
@@ -396,8 +400,8 @@ function AssetsPanel({
                     fontFamily: "'Source Code Pro', monospace",
                     fontSize: 9,
                     fontWeight: 600,
-                    color: "#94a3b8",
-                    background: "#f1f5f9",
+                    color: "var(--ak-text-muted)",
+                    background: "var(--ak-surface-2)",
                     padding: "2px 6px",
                     borderRadius: 4,
                   }}
@@ -408,7 +412,7 @@ function AssetsPanel({
             </div>
             <div
               style={{
-                color: isActive ? accent : "#cbd5e1",
+                color: isActive ? accent : "var(--ak-text-subtle)",
                 fontSize: 14,
                 transition: "color 0.2s",
               }}
@@ -439,10 +443,10 @@ function FeesPanel({
           <SectionLabel>Deposit Fees</SectionLabel>
           <div
             style={{
-              background: "#f8fafc",
+              background: "var(--ak-surface-2)",
               borderRadius: 12,
               padding: "4px 14px",
-              border: "1px solid #e2e8f0",
+              border: "1px solid var(--ak-border)",
             }}
           >
             <DataRow
@@ -461,7 +465,7 @@ function FeesPanel({
             {df.type === "percent" && (
               <DataRow
                 label="Rate"
-                value={`${df.percent}%`}
+                value={`${Number(df.percent).toFixed(2)}% ${df.currency}`}
                 mono
                 accent={accent}
               />
@@ -472,7 +476,7 @@ function FeesPanel({
                   style={{
                     fontFamily: "'Sora', sans-serif",
                     fontSize: 12,
-                    color: "#64748b",
+                    color: "var(--ak-text-muted)",
                     marginBottom: 8,
                   }}
                 >
@@ -489,7 +493,7 @@ function FeesPanel({
                       fontSize: 11,
                     }}
                   >
-                    <span style={{ color: "#64748b" }}>
+                    <span style={{ color: "var(--ak-text-muted)" }}>
                       {t.upTo ? `up to ${fmt(t.upTo, df.currency)}` : "above"}
                     </span>
                     <span style={{ color: accent, fontWeight: 600 }}>
@@ -509,10 +513,10 @@ function FeesPanel({
           <SectionLabel>Withdrawal Fees</SectionLabel>
           <div
             style={{
-              background: "#f8fafc",
+              background: "var(--ak-surface-2)",
               borderRadius: 12,
               padding: "4px 14px",
-              border: "1px solid #e2e8f0",
+              border: "1px solid var(--ak-border)",
             }}
           >
             <DataRow
@@ -531,7 +535,7 @@ function FeesPanel({
             {wf.type === "percent" && (
               <DataRow
                 label="Rate"
-                value={`${wf.percent}%`}
+                value={`${Number(wf.percent).toFixed(2)}% ${wf.currency}`}
                 mono
                 accent={accent}
               />
@@ -549,7 +553,7 @@ function FeesPanel({
                       fontSize: 11,
                     }}
                   >
-                    <span style={{ color: "#64748b" }}>
+                    <span style={{ color: "var(--ak-text-muted)" }}>
                       {t.upTo ? `up to ${fmt(t.upTo, wf.currency)}` : "above"}
                     </span>
                     <span style={{ color: accent, fontWeight: 600 }}>
@@ -566,7 +570,7 @@ function FeesPanel({
         <div
           style={{
             textAlign: "center",
-            color: "#94a3b8",
+            color: "var(--ak-text-muted)",
             fontFamily: "'Sora', sans-serif",
             fontSize: 13,
             padding: "24px 0",
@@ -632,10 +636,10 @@ function LimitsPanel({
           <SectionLabel>Deposit Range</SectionLabel>
           <div
             style={{
-              background: "#f8fafc",
+              background: "var(--ak-surface-2)",
               borderRadius: 12,
               padding: "14px 16px",
-              border: "1px solid #e2e8f0",
+              border: "1px solid var(--ak-border)",
             }}
           >
             <div
@@ -647,10 +651,10 @@ function LimitsPanel({
                 fontSize: 11,
               }}
             >
-              <span style={{ color: "#94a3b8" }}>
+              <span style={{ color: "var(--ak-text-muted)" }}>
                 {fmt(L.minDeposit ?? 0, currency)}
               </span>
-              <span style={{ color: "#94a3b8" }}>
+              <span style={{ color: "var(--ak-text-muted)" }}>
                 {fmt(L.maxDeposit!, currency)}
               </span>
             </div>
@@ -658,7 +662,7 @@ function LimitsPanel({
               style={{
                 height: 6,
                 borderRadius: 3,
-                background: "#e2e8f0",
+                background: "var(--ak-border)",
                 overflow: "hidden",
               }}
             >
@@ -678,7 +682,7 @@ function LimitsPanel({
                 marginTop: 6,
                 fontFamily: "'Sora', sans-serif",
                 fontSize: 10,
-                color: "#94a3b8",
+                color: "var(--ak-text-muted)",
               }}
             >
               <span>Min</span>
@@ -693,10 +697,10 @@ function LimitsPanel({
         <SectionLabel>All Limits</SectionLabel>
         <div
           style={{
-            background: "#f8fafc",
+            background: "var(--ak-surface-2)",
             borderRadius: 12,
             padding: "4px 14px",
-            border: "1px solid #e2e8f0",
+            border: "1px solid var(--ak-border)",
           }}
         >
           {rows.map((row, i) => (
@@ -714,7 +718,7 @@ function LimitsPanel({
             <div
               style={{
                 textAlign: "center",
-                color: "#94a3b8",
+                color: "var(--ak-text-muted)",
                 padding: "16px 0",
                 fontFamily: "'Sora', sans-serif",
                 fontSize: 13,
@@ -740,9 +744,9 @@ function LimitsPanel({
                   fontWeight: 600,
                   padding: "4px 10px",
                   borderRadius: 6,
-                  background: "#f1f5f9",
-                  color: "#475569",
-                  border: "1px solid #e2e8f0",
+                  background: "var(--ak-surface-2)",
+                  color: "var(--ak-text-muted)",
+                  border: "1px solid var(--ak-border)",
                 }}
               >
                 {c}
@@ -766,6 +770,32 @@ function KYCPanel({
   const m = KYC_META[kyc.level];
   const required = kyc.fields.filter((f) => f.required);
   const optional = kyc.fields.filter((f) => !f.required);
+
+  // Document type icons mapping
+  const docTypeIcons: Record<string, string> = {
+    passport: "🛂",
+    drivers_license: "🪪",
+    national_id: "🆔",
+    utility_bill: "📄",
+    bank_statement: "🏦",
+    proof_of_address: "🏠",
+    tax_document: "📋",
+    birth_certificate: "📜",
+    social_security: "🔢",
+  };
+
+  // Document type labels
+  const docTypeLabels: Record<string, string> = {
+    passport: "Passport",
+    drivers_license: "Driver's License",
+    national_id: "National ID Card",
+    utility_bill: "Utility Bill",
+    bank_statement: "Bank Statement",
+    proof_of_address: "Proof of Address",
+    tax_document: "Tax Document",
+    birth_certificate: "Birth Certificate",
+    social_security: "Social Security Card",
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -817,7 +847,7 @@ function KYCPanel({
             style={{
               fontFamily: "'Sora', sans-serif",
               fontSize: 12,
-              color: "#64748b",
+              color: "var(--ak-text-muted)",
               marginTop: 2,
             }}
           >
@@ -828,7 +858,7 @@ function KYCPanel({
               style={{
                 fontFamily: "'Source Code Pro', monospace",
                 fontSize: 10,
-                color: "#94a3b8",
+                color: "var(--ak-text-muted)",
                 marginTop: 4,
               }}
             >
@@ -837,6 +867,86 @@ function KYCPanel({
           )}
         </div>
       </div>
+
+      {/* Document types required */}
+      {kyc.documentTypes && kyc.documentTypes.length > 0 && (
+        <div>
+          <SectionLabel>Required Documents</SectionLabel>
+          <div
+            role="list"
+            aria-label="Required document types"
+            style={{ display: "flex", flexDirection: "column", gap: 8 }}
+          >
+            {kyc.documentTypes.map((docType) => (
+              <div
+                key={docType}
+                role="listitem"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "12px 14px",
+                  borderRadius: 10,
+                  background: "#f8fafc",
+                  border: "1px solid #e2e8f0",
+                }}
+              >
+                <div
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 8,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: `${m.color}10`,
+                    border: `1px solid ${m.color}20`,
+                    fontSize: 18,
+                    flexShrink: 0,
+                  }}
+                >
+                  {docTypeIcons[docType] ?? "📄"}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div
+                    style={{
+                      fontFamily: "'Sora', sans-serif",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: "#1e293b",
+                    }}
+                  >
+                    {docTypeLabels[docType] ?? docType.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: "'Source Code Pro', monospace",
+                      fontSize: 10,
+                      color: "#94a3b8",
+                      marginTop: 2,
+                    }}
+                  >
+                    {docType}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    padding: "3px 8px",
+                    borderRadius: 20,
+                    background: `${m.color}15`,
+                    color: m.color,
+                    fontSize: 9,
+                    fontWeight: 700,
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  REQUIRED
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Required fields */}
       {required.length > 0 && (
@@ -852,8 +962,8 @@ function KYCPanel({
                   gap: 10,
                   padding: "9px 14px",
                   borderRadius: 9,
-                  background: "#f8fafc",
-                  border: "1px solid #e2e8f0",
+                  background: "var(--ak-surface-2)",
+                  border: "1px solid var(--ak-border)",
                 }}
               >
                 <div
@@ -869,7 +979,7 @@ function KYCPanel({
                   style={{
                     fontFamily: "'Sora', sans-serif",
                     fontSize: 12,
-                    color: "#1e293b",
+                    color: "var(--ak-text)",
                     flex: 1,
                   }}
                 >
@@ -879,8 +989,8 @@ function KYCPanel({
                   style={{
                     fontFamily: "'Source Code Pro', monospace",
                     fontSize: 9,
-                    color: "#94a3b8",
-                    background: "#f1f5f9",
+                    color: "var(--ak-text-muted)",
+                    background: "var(--ak-surface-2)",
                     padding: "2px 6px",
                     borderRadius: 4,
                   }}
@@ -907,9 +1017,9 @@ function KYCPanel({
                   fontWeight: 500,
                   padding: "5px 12px",
                   borderRadius: 20,
-                  background: "#f1f5f9",
-                  color: "#64748b",
-                  border: "1px solid #e2e8f0",
+                  background: "var(--ak-surface-2)",
+                  color: "var(--ak-text-muted)",
+                  border: "1px solid var(--ak-border)",
                 }}
               >
                 {f.label}
@@ -926,7 +1036,7 @@ function KYCPanel({
             style={{
               fontFamily: "'Sora', sans-serif",
               fontSize: 13,
-              color: "#22c55e",
+              color: "var(--ak-kyc-none-color)",
               fontWeight: 600,
             }}
           >
@@ -936,12 +1046,27 @@ function KYCPanel({
             style={{
               fontFamily: "'Sora', sans-serif",
               fontSize: 12,
-              color: "#94a3b8",
+              color: "var(--ak-text-muted)",
               marginTop: 4,
             }}
           >
             Transact immediately after connecting your wallet.
           </div>
+        </div>
+      )}
+
+      {/* Graceful fallback when no document types specified */}
+      {kyc.level !== "none" && (!kyc.documentTypes || kyc.documentTypes.length === 0) && required.length === 0 && (
+        <div
+          style={{
+            textAlign: "center",
+            padding: "16px 0",
+            color: "#94a3b8",
+            fontFamily: "'Sora', sans-serif",
+            fontSize: 12,
+          }}
+        >
+          Document requirements will be provided during the verification process.
         </div>
       )}
     </div>
@@ -1008,9 +1133,9 @@ export function AnchorCapabilityCard({
     <div
       style={{
         fontFamily: "'Sora', sans-serif",
-        background: "#ffffff",
+        background: "var(--ak-surface)",
         borderRadius: 20,
-        border: "1px solid #e2e8f0",
+        border: "1px solid var(--ak-border)",
         boxShadow:
           "0 8px 40px rgba(15,23,42,0.08), 0 2px 8px rgba(15,23,42,0.04)",
         overflow: "hidden",
@@ -1028,7 +1153,7 @@ export function AnchorCapabilityCard({
       <div
         style={{
           padding: "22px 24px 18px",
-          background: `linear-gradient(135deg, #0f172a 0%, #1e293b 100%)`,
+          background: "var(--ak-surface-2)",
           position: "relative",
           overflow: "hidden",
         }}
@@ -1095,7 +1220,7 @@ export function AnchorCapabilityCard({
               style={{
                 fontSize: 17,
                 fontWeight: 700,
-                color: "#f8fafc",
+                color: "var(--ak-text)",
                 letterSpacing: "-0.02em",
                 lineHeight: 1.2,
               }}
@@ -1117,7 +1242,7 @@ export function AnchorCapabilityCard({
               <div
                 style={{
                   fontSize: 11,
-                  color: "#94a3b8",
+                  color: "var(--ak-text-muted)",
                   marginTop: 6,
                   lineHeight: 1.5,
                 }}
@@ -1164,7 +1289,7 @@ export function AnchorCapabilityCard({
                   padding: "3px 8px",
                   borderRadius: 20,
                   background: "rgba(255,255,255,0.06)",
-                  color: "#94a3b8",
+                  color: "var(--ak-text-muted)",
                   border: "1px solid rgba(255,255,255,0.1)",
                 }}
               >
@@ -1179,8 +1304,8 @@ export function AnchorCapabilityCard({
         <div
           style={{
             padding: "10px 24px 0",
-            background: "#f8fafc",
-            borderBottom: "1px solid #e2e8f0",
+            background: "var(--ak-surface-2)",
+            borderBottom: "1px solid var(--ak-border)",
           }}
         >
           <div
@@ -1202,8 +1327,8 @@ export function AnchorCapabilityCard({
                   padding: "5px 12px",
                   borderRadius: 8,
                   border: "none",
-                  background: a.code === selectedAssetCode ? accent : "#e2e8f0",
-                  color: a.code === selectedAssetCode ? "#fff" : "#64748b",
+                  background: a.code === selectedAssetCode ? accent : "var(--ak-border)",
+                  color: a.code === selectedAssetCode ? "#fff" : "var(--ak-text-muted)",
                   cursor: "pointer",
                   transition: "all 0.15s",
                   flexShrink: 0,
@@ -1224,8 +1349,8 @@ export function AnchorCapabilityCard({
       <div
         style={{
           display: "flex",
-          borderBottom: "1px solid #e2e8f0",
-          background: "#fafafa",
+          borderBottom: "1px solid var(--ak-border)",
+          background: "var(--ak-surface-3)",
         }}
       >
         {TABS.map((tab) => (
@@ -1240,7 +1365,7 @@ export function AnchorCapabilityCard({
               fontFamily: "'Sora', sans-serif",
               fontSize: 12,
               fontWeight: activeTab === tab ? 700 : 500,
-              color: activeTab === tab ? accent : "#94a3b8",
+              color: activeTab === tab ? accent : "var(--ak-text-muted)",
               cursor: "pointer",
               position: "relative",
               transition: "color 0.2s",
@@ -1570,11 +1695,11 @@ export default function AnchorCapabilityDemo() {
               fontSize: 10,
               letterSpacing: "0.2em",
               textTransform: "uppercase",
-              color: "#94a3b8",
-              background: "#f1f5f9",
+              color: "var(--ak-text-muted)",
+              background: "var(--ak-surface-2)",
               padding: "4px 14px",
               borderRadius: 20,
-              border: "1px solid #e2e8f0",
+              border: "1px solid var(--ak-border)",
               marginBottom: 16,
             }}
           >
@@ -1585,7 +1710,7 @@ export default function AnchorCapabilityDemo() {
               fontFamily: "'Sora', sans-serif",
               fontSize: 36,
               fontWeight: 800,
-              color: "#0f172a",
+              color: "var(--ak-text)",
               letterSpacing: "-0.03em",
               marginBottom: 12,
               lineHeight: 1.15,
@@ -1596,7 +1721,7 @@ export default function AnchorCapabilityDemo() {
           <p
             style={{
               fontSize: 14,
-              color: "#64748b",
+              color: "var(--ak-text-muted)",
               maxWidth: 420,
               margin: "0 auto",
               lineHeight: 1.65,
@@ -1624,7 +1749,7 @@ export default function AnchorCapabilityDemo() {
                   fontFamily: "'Source Code Pro', monospace",
                   fontSize: 10,
                   letterSpacing: "0.16em",
-                  color: "#94a3b8",
+                  color: "var(--ak-text-muted)",
                   textTransform: "uppercase",
                   marginBottom: 12,
                 }}
@@ -1684,7 +1809,7 @@ export default function AnchorCapabilityDemo() {
                   fontFamily: "'Source Code Pro', monospace",
                   fontSize: 10,
                   letterSpacing: "0.16em",
-                  color: "#475569",
+                  color: "var(--ak-text-muted)",
                   textTransform: "uppercase",
                   marginBottom: 14,
                 }}
@@ -1695,7 +1820,7 @@ export default function AnchorCapabilityDemo() {
                 style={{
                   fontFamily: "'Source Code Pro', monospace",
                   fontSize: 11,
-                  color: "#94a3b8",
+                  color: "var(--ak-text-muted)",
                   lineHeight: 1.8,
                   overflowX: "auto",
                   whiteSpace: "pre-wrap",
@@ -1735,10 +1860,10 @@ export default function AnchorCapabilityDemo() {
             {/* KYC level legend */}
             <div
               style={{
-                background: "#fff",
+                background: "var(--ak-surface)",
                 borderRadius: 16,
                 padding: "18px 20px",
-                border: "1px solid #e2e8f0",
+                border: "1px solid var(--ak-border)",
                 boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
               }}
             >
@@ -1747,7 +1872,7 @@ export default function AnchorCapabilityDemo() {
                   fontFamily: "'Source Code Pro', monospace",
                   fontSize: 10,
                   letterSpacing: "0.16em",
-                  color: "#94a3b8",
+                  color: "var(--ak-text-muted)",
                   textTransform: "uppercase",
                   marginBottom: 14,
                 }}
@@ -1766,7 +1891,7 @@ export default function AnchorCapabilityDemo() {
                     style={{ display: "flex", alignItems: "center", gap: 10 }}
                   >
                     <KYCBadge level={level} />
-                    <span style={{ fontSize: 12, color: "#64748b" }}>
+                    <span style={{ fontSize: 12, color: "var(--ak-text-muted)" }}>
                       {m.desc}
                     </span>
                   </div>
@@ -1782,7 +1907,7 @@ export default function AnchorCapabilityDemo() {
                 fontFamily: "'Source Code Pro', monospace",
                 fontSize: 10,
                 letterSpacing: "0.16em",
-                color: "#94a3b8",
+                color: "var(--ak-text-muted)",
                 textTransform: "uppercase",
                 marginBottom: 12,
               }}

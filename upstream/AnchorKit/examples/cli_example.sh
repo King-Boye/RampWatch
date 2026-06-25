@@ -4,8 +4,38 @@
 
 set -e
 
+# ─── Deploy helper ────────────────────────────────────────────────────────────
+# Usage: anchorkit_deploy --network <network> [--yes]
+anchorkit_deploy() {
+  local network="" yes=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --network) network="$2"; shift 2 ;;
+      --yes)     yes=1;         shift   ;;
+      *)         shift ;;
+    esac
+  done
+
+  if [[ "$network" == "mainnet" && "$yes" -eq 0 ]]; then
+    read -r -p "⚠️  Deploy to mainnet? This action cannot be undone. [y/N] " answer
+    case "$answer" in
+      [yY][eE][sS]|[yY]) ;;
+      *) echo "Deployment cancelled."; return 1 ;;
+    esac
+  fi
+
+  echo "   → Deploying to $network..."
+  echo "   ✅ Contract deployed to $network"
+}
+# ──────────────────────────────────────────────────────────────────────────────
+
 echo "🚀 AnchorKit CLI Example - Deposit/Withdraw Workflow"
 echo "=================================================="
+echo ""
+
+# Step 0: Deploy (testnet — no prompt; mainnet would require confirmation or --yes)
+echo "0️⃣  Deploying contract..."
+anchorkit_deploy --network testnet
 echo ""
 
 # Mock addresses
@@ -88,6 +118,32 @@ echo "   → Availability: 99.9%"
 echo "   → Failure count: 0"
 echo "   ✅ Anchor healthy"
 echo ""
+
+# ─── health --watch (with SIGINT handler) ─────────────────────────────────────
+# Restores terminal state on Ctrl+C so the cursor and newline are not broken.
+anchorkit_health_watch() {
+  local attestor="${1:-}" interval="${2:-30}"
+
+  _health_watch_cleanup() {
+    echo ""
+    echo "🛑 Health watch stopped."
+    # Restore terminal: re-enable echo and canonical mode in case they were
+    # altered by the watch loop, then reset the cursor.
+    stty echo 2>/dev/null || true
+    tput cnorm 2>/dev/null || true
+    trap - INT
+    exit 0
+  }
+  trap '_health_watch_cleanup' INT
+
+  echo "   → Watching health (interval: ${interval}s) — press Ctrl+C to stop"
+  while true; do
+    echo "   → [$(date '+%H:%M:%S')] Latency: 45ms | Availability: 99.9% | Failures: 0"
+    sleep "$interval" &
+    wait $! 2>/dev/null || true
+  done
+}
+# ──────────────────────────────────────────────────────────────────────────────
 
 # Step 9: Audit Trail
 echo "9️⃣  Retrieving audit trail..."

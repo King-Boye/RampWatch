@@ -10,11 +10,28 @@
 // ============================================================================
 
 class WebhookMonitorWebSocket {
-    constructor(wsUrl) {
+    /**
+     * @param {string} wsUrl - WebSocket server URL
+     * @param {object} [options]
+     * @param {number} [options.maxReconnectAttempts=10] - Max reconnect attempts before giving up
+     */
+    constructor(wsUrl, options = {}) {
         this.wsUrl = wsUrl;
         this.ws = null;
-        this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 5;
+        this.reconnectCount = 0;
+        this.maxReconnectAttempts = options.maxReconnectAttempts ?? 10;
+        this._listeners = {};
+    }
+
+    // Minimal EventEmitter interface (avoids a Node.js-only dependency in browser contexts)
+    on(event, listener) {
+        if (!this._listeners[event]) this._listeners[event] = [];
+        this._listeners[event].push(listener);
+        return this;
+    }
+
+    emit(event, ...args) {
+        (this._listeners[event] || []).forEach(fn => fn(...args));
     }
 
     connect() {
@@ -22,7 +39,7 @@ class WebhookMonitorWebSocket {
 
         this.ws.onopen = () => {
             console.log('✅ WebSocket connected');
-            this.reconnectAttempts = 0;
+            this.reconnectCount = 0; // reset budget on every successful connection
         };
 
         this.ws.onmessage = (event) => {
@@ -45,12 +62,23 @@ class WebhookMonitorWebSocket {
     }
 
     attemptReconnect() {
-        if (this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.reconnectAttempts++;
-            const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-            console.log(`Reconnecting in ${delay}ms... (attempt ${this.reconnectAttempts})`);
-            setTimeout(() => this.connect(), delay);
+        if (this.reconnectCount >= this.maxReconnectAttempts) {
+            // Only emit the event on the first time we hit the limit
+            if (this.reconnectCount === this.maxReconnectAttempts) {
+                console.error(
+                    `WebSocket reconnect limit reached (${this.maxReconnectAttempts} attempts). Giving up.`
+                );
+                this.emit('max_reconnects_exceeded', { attempts: this.reconnectCount });
+                // Sentinel: increment past the limit so subsequent onclose calls are silent no-ops
+                this.reconnectCount++;
+            }
+            return;
         }
+
+        this.reconnectCount++;
+        const delay = Math.min(1000 * Math.pow(2, this.reconnectCount), 30000);
+        console.log(`Reconnecting in ${delay}ms... (attempt ${this.reconnectCount}/${this.maxReconnectAttempts})`);
+        setTimeout(() => this.connect(), delay);
     }
 
     handleWebhookEvent(webhookData) {
@@ -137,28 +165,44 @@ class WebhookMonitorSSE {
 // ============================================================================
 
 class WebhookMonitorPolling {
-    constructor(apiUrl, intervalMs = 2000) {
+    /**
+     * @param {string} apiUrl
+     * @param {object} [options]
+     * @param {number} [options.baseIntervalMs=2000] - Base polling interval
+     * @param {number} [options.maxIntervalMs=30000] - Maximum backoff interval
+     */
+    constructor(apiUrl, options = {}) {
+        // Support legacy positional signature: new WebhookMonitorPolling(url, 3000)
+        if (typeof options === 'number') {
+            options = { baseIntervalMs: options };
+        }
         this.apiUrl = apiUrl;
-        this.intervalMs = intervalMs;
-        this.intervalId = null;
+        this.baseIntervalMs = options.baseIntervalMs ?? 2000;
+        this.maxIntervalMs = options.maxIntervalMs ?? 30000;
+        this._timeoutId = null;
+        this._running = false;
+        this._failures = 0;
         this.lastEventId = 0;
     }
 
     start() {
-        this.intervalId = setInterval(() => this.poll(), this.intervalMs);
-        this.poll(); // Initial poll
+        this._running = true;
+        this.poll();
     }
 
     async poll() {
+        if (!this._running) return;
+
         try {
             const response = await fetch(`${this.apiUrl}?since=${this.lastEventId}`);
-            
+
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
             const events = await response.json();
-            
+            this._failures = 0; // reset backoff on success
+
             events.forEach(webhookData => {
                 this.handleWebhookEvent(webhookData);
                 if (webhookData.id > this.lastEventId) {
@@ -166,7 +210,16 @@ class WebhookMonitorPolling {
                 }
             });
         } catch (error) {
+            this._failures++;
             console.error('Polling error:', error);
+        }
+
+        if (this._running) {
+            const delay = Math.min(
+                this.baseIntervalMs * Math.pow(2, this._failures),
+                this.maxIntervalMs
+            );
+            this._timeoutId = setTimeout(() => this.poll(), delay);
         }
     }
 
@@ -182,9 +235,10 @@ class WebhookMonitorPolling {
     }
 
     stop() {
-        if (this.intervalId) {
-            clearInterval(this.intervalId);
-            this.intervalId = null;
+        this._running = false;
+        if (this._timeoutId) {
+            clearTimeout(this._timeoutId);
+            this._timeoutId = null;
         }
     }
 }
@@ -271,25 +325,55 @@ app.listen(3000, () => console.log('Server running on port 3000'));
 // SECURITY MIDDLEWARE EXAMPLE
 // ============================================================================
 
+// Allowlist of known, expected fields in a webhook payload.
+// Only these fields will pass through to downstream logic.
+const WEBHOOK_PAYLOAD_ALLOWLIST = new Set([
+    'id',
+    'type',
+    'timestamp',
+    'status',
+    'amount',
+    'asset',
+    'user',
+    'email',
+    'memo',
+    'transaction_id',
+    'account',
+    'network',
+    'fee',
+    'message',
+]);
+
 function sanitizeWebhookPayload(payload) {
-    const sanitized = { ...payload };
-    
-    // Redact email addresses
-    if (sanitized.email) {
-        const [local, domain] = sanitized.email.split('@');
-        sanitized.email = `${local.substring(0, 2)}***@${domain}`;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return {};
     }
-    
-    // Truncate addresses
-    if (sanitized.user) {
-        sanitized.user = `${sanitized.user.substring(0, 8)}...${sanitized.user.substring(sanitized.user.length - 3)}`;
+
+    const sanitized = {};
+
+    for (const key of Object.keys(payload)) {
+        if (!WEBHOOK_PAYLOAD_ALLOWLIST.has(key)) {
+            // Log field name only — never log the value to avoid leaking sensitive data
+            console.warn(`WARN: Unknown field detected in webhook payload: "${key}"`);
+            continue;
+        }
+
+        let value = payload[key];
+
+        // Redact email addresses
+        if (key === 'email' && typeof value === 'string' && value.includes('@')) {
+            const [local, domain] = value.split('@');
+            value = `${local.substring(0, 2)}***@${domain}`;
+        }
+
+        // Truncate Stellar account addresses
+        if (key === 'user' && typeof value === 'string' && value.length > 11) {
+            value = `${value.substring(0, 8)}...${value.substring(value.length - 3)}`;
+        }
+
+        sanitized[key] = value;
     }
-    
-    // Remove sensitive fields
-    delete sanitized.password;
-    delete sanitized.apiKey;
-    delete sanitized.secret;
-    
+
     return sanitized;
 }
 

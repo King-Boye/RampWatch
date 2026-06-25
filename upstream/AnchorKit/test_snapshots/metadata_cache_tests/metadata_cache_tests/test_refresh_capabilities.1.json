@@ -15,7 +15,11 @@
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                }
+                },
+                {
+                  "u64": 100
+                },
+                "void"
               ]
             }
           },
@@ -39,7 +43,11 @@
                   "string": "https://anchor.example/.well-known/stellar.toml"
                 },
                 {
-                  "string": "{\"deposits\":true}"
+                  "vec": [
+                    {
+                      "u32": 1
+                    }
+                  ]
                 },
                 {
                   "u64": 3600
@@ -115,6 +123,30 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "AuditLogMaxSize"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 100
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "RPWINDOW"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 300
                         }
                       }
                     ]
@@ -269,7 +301,15 @@
               }
             ],
             "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u64": 100
+                },
+                "void"
+              ]
             }
           }
         }
@@ -324,7 +364,11 @@
                   "string": "https://anchor.example/.well-known/stellar.toml"
                 },
                 {
-                  "string": "{\"deposits\":true}"
+                  "vec": [
+                    {
+                      "u32": 1
+                    }
+                  ]
                 },
                 {
                   "u64": 3600
@@ -439,16 +483,23 @@
           "v0": {
             "topics": [
               {
-                "symbol": "fn_return"
+                "symbol": "error"
               },
               {
-                "symbol": "get_cached_capabilities"
+                "error": {
+                  "contract": 49
+                }
               }
             ],
             "data": {
-              "error": {
-                "contract": 49
-              }
+              "vec": [
+                {
+                  "string": "failing with contract error"
+                },
+                {
+                  "u32": 49
+                }
+              ]
             }
           }
         }
@@ -473,7 +524,32 @@
               }
             ],
             "data": {
-              "string": "escalating Ok(ScErrorType::Contract) frame-exit to Err"
+              "string": "escalating error to panic"
+            }
+          }
+        }
+      },
+      "failed_call": true
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "error"
+              },
+              {
+                "error": {
+                  "contract": 49
+                }
+              }
+            ],
+            "data": {
+              "string": "caught error from function"
             }
           }
         }

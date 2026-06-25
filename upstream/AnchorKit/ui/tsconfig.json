@@ -16,10 +16,11 @@
     "declarationMap": true,
     "sourceMap": true,
     "allowSyntheticDefaultImports": true,
-    "types": ["jest", "@testing-library/jest-dom"]
+    "types": ["jest", "@testing-library/jest-dom", "node"]
   },
   "include": [
-    "components/**/*"
+    "components/**/*",
+    "src/**/*"
   ],
   "exclude": [
     "node_modules",
