@@ -905,11 +905,10 @@ impl AnchorKitContract {
             .unwrap_or(u64::MAX);
         let offset: u64 = inst.get(&key_audit_log_offset(env)).unwrap_or(0u64);
         let live_count = log_id.saturating_sub(offset); // entries [offset, log_id)
-        if live_count < max_size {
+        if live_count <= max_size {
             return;
         }
-        // Number of entries to remove so live_count == max_size - 1 (leaving room for the new one)
-        let to_prune = live_count - max_size + 1;
+        let to_prune = live_count - max_size;
         for i in 0..to_prune {
             let old_key = StorageKey::AuditLog(offset + i);
             env.storage().persistent().remove(&old_key);
@@ -965,9 +964,9 @@ impl AnchorKitContract {
         let inst = env.storage().instance();
         let acnt_key = key_audit_counter(&env);
         let log_id: u64 = inst.get(&acnt_key).unwrap_or(0u64);
-        inst.set(&acnt_key, &(log_id + 1));
-        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
-        Self::maybe_prune_audit_log(&env, log_id);
+        let projected = log_id + 1;
+        Self::maybe_prune_audit_log(&env, projected);
+        inst.set(&acnt_key, &projected);
 
         let now = env.ledger().timestamp();
         let audit = AuditLog {
@@ -1024,9 +1023,9 @@ impl AnchorKitContract {
         let inst = env.storage().instance();
         let acnt_key = key_audit_counter(&env);
         let log_id: u64 = inst.get(&acnt_key).unwrap_or(0u64);
-        inst.set(&acnt_key, &(log_id + 1));
-        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
-        Self::maybe_prune_audit_log(&env, log_id);
+        let projected = log_id + 1;
+        Self::maybe_prune_audit_log(&env, projected);
+        inst.set(&acnt_key, &projected);
 
         let admin: Address = inst
             .get::<_, Address>(&key_admin(&env))
@@ -1083,9 +1082,9 @@ impl AnchorKitContract {
         let inst = env.storage().instance();
         let acnt_key = key_audit_counter(&env);
         let log_id: u64 = inst.get(&acnt_key).unwrap_or(0u64);
-        inst.set(&acnt_key, &(log_id + 1));
-        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
-        Self::maybe_prune_audit_log(&env, log_id);
+        let projected = log_id + 1;
+        Self::maybe_prune_audit_log(&env, projected);
+        inst.set(&acnt_key, &projected);
 
         let admin: Address = inst
             .get::<_, Address>(&key_admin(&env))
@@ -1247,7 +1246,8 @@ impl AnchorKitContract {
     pub fn get_cache_age_seconds(env: Env, anchor: Address) -> Result<u64, ErrorCode> {
         let key = StorageKey::MetadataCache(anchor);
         let entry: MetadataCache = env.storage().persistent().get(&key)
-            .or_else(|| env.storage().temporary().get(&key))?;
+            .or_else(|| env.storage().temporary().get(&key))
+            .ok_or(ErrorCode::CacheNotFound)?;
         let now = env.ledger().timestamp();
         Ok(now.saturating_sub(entry.cached_at))
     }
@@ -1471,7 +1471,7 @@ impl AnchorKitContract {
     /// Emits a `CacheInvalidated` event with the count of cleared entries.
     pub fn invalidate_all_caches(env: Env) {
         Self::require_admin(&env);
-        let list_key = key_anchor_list(&env);
+        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
         let anchors: Vec<Address> = env.storage().persistent()
             .get::<_, Vec<Address>>(&list_key)
             .unwrap_or_else(|| Vec::new(&env));
@@ -1617,10 +1617,35 @@ impl AnchorKitContract {
             .unwrap_or_else(|| Vec::new(&env))
     }
 
+    /// Set the regulatory jurisdiction for an anchor (admin-only).
+    ///
+    /// `jurisdiction` should be an ISO 3166-1 alpha-3 code (e.g. `"USA"`, `"GBR"`).
+    /// Pass `None` to clear a previously assigned jurisdiction.
+    pub fn set_anchor_jurisdiction(env: Env, anchor: Address, jurisdiction: Option<String>) {
+        Self::require_admin(&env);
+        let key = StorageKey::AnchorJurisdiction(anchor.clone());
+        match jurisdiction {
+            Some(j) => {
+                env.storage().persistent().set(&key, &j);
+                env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+            }
+            None => {
+                env.storage().persistent().remove(&key);
+            }
+        }
+    }
+
+    /// Returns the jurisdiction registered for an anchor, if any.
+    pub fn get_anchor_jurisdiction(env: Env, anchor: Address) -> Option<String> {
+        let key = StorageKey::AnchorJurisdiction(anchor);
+        env.storage().persistent().get(&key)
+    }
+
     /// Select the best anchor for a transaction and return its `Quote`.
     ///
     /// Candidates are filtered to those that are active, meet `min_reputation`,
-    /// have a non-expired quote, and whose quote range covers `request.amount`.
+    /// match `jurisdiction` (when set), have a non-expired quote, and whose quote
+    /// range covers `request.amount`.
     ///
     /// The winner is then chosen by `options.strategy[0]`:
     ///
@@ -1647,6 +1672,19 @@ impl AnchorKitContract {
             };
             if !meta.is_active { continue; }
             if meta.reputation_score < options.min_reputation { continue; }
+
+            // Check jurisdiction filter (regulated flows)
+            if options.jurisdiction.is_some() {
+                let j_key = StorageKey::AnchorJurisdiction(anchor.clone());
+                let anchor_jurisdiction: Option<String> =
+                    env.storage().persistent().get(&j_key);
+                if !crate::types::anchor_matches_jurisdiction(
+                    &options.jurisdiction,
+                    &anchor_jurisdiction,
+                ) {
+                    continue;
+                }
+            }
 
             // Check KYC requirement filter
             if options.require_kyc {
@@ -1690,7 +1728,7 @@ impl AnchorKitContract {
             candidates.push_back(quote);
 
             // Stop adding candidates if we've reached max_anchors limit
-            if options.max_anchors > 0 && candidates.len() >= options.max_anchors as usize {
+            if options.max_anchors > 0 && candidates.len() >= options.max_anchors {
                 break;
             }
         }
@@ -2144,16 +2182,24 @@ fn verify_attestation_signature(
         panic_with_error!(env, ErrorCode::UnauthorizedAttestor)
     });
 
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
     // Attempt verification with each stored public key.
     for key in keys.iter() {
         if key.len() != 32 {
-            continue; // Skip malformed keys.
+            continue;
         }
-        // Convert the key to BytesN<32>.
-        let pk_n: BytesN<32> = key.clone().try_into().unwrap();
-        // Use the host environment's crypto verification.
-        if env.crypto().ed25519_verify(&pk_n, payload_hash, &sig_n) {
-            // Successful verification; exit the function.
+        let mut pk_arr = [0u8; 32];
+        key.copy_into_slice(&mut pk_arr);
+        let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) else {
+            continue;
+        };
+        let sig_arr: [u8; 64] = sig_n.to_array();
+        let dalek_sig = Signature::from_bytes(&sig_arr);
+        let mut msg = alloc::vec::Vec::with_capacity(payload_hash.len() as usize);
+        msg.resize(payload_hash.len() as usize, 0);
+        payload_hash.copy_into_slice(&mut msg);
+        if vk.verify(&msg, &dalek_sig).is_ok() {
             return;
         }
     }

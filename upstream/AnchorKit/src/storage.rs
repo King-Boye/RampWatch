@@ -55,6 +55,8 @@ pub enum StorageKey {
     Health(Address),
     /// Routing metadata for an anchor (persistent).
     AnchorMeta(Address),
+    /// ISO 3166-1 alpha-3 jurisdiction for an anchor (persistent).
+    AnchorJurisdiction(Address),
     /// Stellar.toml cache for an anchor (temporary).
     TomlCache(Address),
     /// Per-attestor rate-limit state — submission count + window start (persistent).
