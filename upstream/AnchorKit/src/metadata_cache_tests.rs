@@ -75,7 +75,7 @@ mod metadata_cache_tests {
     }
 
     #[test]
-    #[should_panic(expected = "ValidationError")]
+    #[should_panic(expected = "HostError: Error(Contract, #15)")]
     fn test_cache_metadata_reputation_score_must_be_at_most_10000() {
         let env = make_env();
         set_ledger(&env, 0);
@@ -92,7 +92,7 @@ mod metadata_cache_tests {
     }
 
     #[test]
-    #[should_panic(expected = "ValidationError")]
+    #[should_panic(expected = "HostError: Error(Contract, #15)")]
     fn test_cache_metadata_uptime_percentage_must_be_at_most_10000() {
         let env = make_env();
         set_ledger(&env, 0);
