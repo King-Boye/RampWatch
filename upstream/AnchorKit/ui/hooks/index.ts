@@ -13,3 +13,11 @@ export {
   type CopyToClipboardResult,
 } from './useCopyToClipboard';
 export { useTheme } from './useTheme';
+export {
+  useRateLimitStatus,
+  clearRateLimitCache,
+  type RateLimitStatus,
+  type UseRateLimitStatusResult,
+  type UseRateLimitStatusOptions,
+} from './useRateLimitStatus';
+export { type RateLimitStatusRaw, ContractError } from './contractClient';
