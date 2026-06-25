@@ -19,7 +19,7 @@ use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, String, V
 
 pub use config::{AttestorConfig, ContractConfig, SessionConfig};
 pub use errors::Error;
-pub use rate_limiter::{RateLimiter, RateLimitConfig, RateLimitState};
+pub use rate_limiter::{RateLimiter, RateLimitConfig, RateLimitState, RateLimitStatus};
 pub use response_validator::{
     validate_anchor_info_response, validate_deposit_response, validate_quote_response,
     validate_withdraw_response, AnchorInfoResponse, QuoteResponse,
