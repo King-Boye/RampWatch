@@ -96,13 +96,20 @@ pub enum ErrorCode {
     PendingAdminAlreadyExists = 52,
     NoPendingAdmin = 53,
     NotPendingAdmin = 54,
+    UnauthorizedProposeAdmin = 58,
     SessionNotFound = 55,
     SessionExpired = 56,
     MissingSigningKey = 57,
-    NotInitialized = 58,
     InvalidStrategy = 59,
-    UnauthorizedProposeAdmin = 60,
-    AttestationLimitReached = 61,
+    NotInitialized = 26,
+    AttestationLimitReached = 60,
+    AttestorCapExceeded = 61,
+    PathTraversalDetected = 62,
+    InvalidAmount = 63,
+    AttestationRevoked = 64,
+    AttestationExpired = 121,
+    ContractPaused = 122,
+    AdminTransferPending = 123,
 }
 
 impl ErrorCode {
@@ -134,13 +141,19 @@ impl ErrorCode {
             ErrorCode::PendingAdminAlreadyExists => "An admin transfer is already pending",
             ErrorCode::NoPendingAdmin => "No pending admin transfer found",
             ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
+            ErrorCode::UnauthorizedProposeAdmin => "Only admin can propose new admin",
             ErrorCode::SessionNotFound => "Session not found",
             ErrorCode::SessionExpired => "Session has expired",
             ErrorCode::MissingSigningKey => "Anchor TOML does not publish a signing key",
-            ErrorCode::NotInitialized => "Contract is not initialized",
-            ErrorCode::InvalidStrategy => "Routing strategy is invalid",
-            ErrorCode::UnauthorizedProposeAdmin => "Caller is not authorized to propose an admin",
-            ErrorCode::AttestationLimitReached => "Attestation limit reached for this subject",
+            ErrorCode::InvalidStrategy => "Routing strategy symbol is not recognized",
+            ErrorCode::AttestationLimitReached => "Attestation ID counter has reached its maximum value",
+            ErrorCode::AttestorCapExceeded => "Maximum number of attestors has been reached",
+            ErrorCode::PathTraversalDetected => "URL contains a path traversal sequence",
+            ErrorCode::InvalidAmount => "Amount is outside the allowed min/max range for this asset",
+            ErrorCode::AttestationRevoked => "Attestation has been revoked",
+            ErrorCode::AttestationExpired => "Attestation has expired",
+            ErrorCode::ContractPaused => "Contract is paused",
+            ErrorCode::AdminTransferPending => "Admin transfer is already pending",
         }
     }
 
@@ -230,6 +243,16 @@ impl AnchorKitError {
     pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
     pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
     pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
+    pub fn not_pending_admin() -> Self { Self::from_code(ErrorCode::NotPendingAdmin) }
+    pub fn unauthorized_propose_admin() -> Self { Self::from_code(ErrorCode::UnauthorizedProposeAdmin) }
+    pub fn audit_log_max_size_invalid() -> Self { Self::from_code(ErrorCode::AuditLogMaxSizeInvalid) }
+    pub fn no_pending_admin() -> Self { Self::from_code(ErrorCode::NoPendingAdmin) }
+    pub fn path_traversal_detected() -> Self { Self::from_code(ErrorCode::PathTraversalDetected) }
+    pub fn attestation_expired() -> Self { Self::from_code(ErrorCode::AttestationExpired) }
+    pub fn contract_paused() -> Self { Self::from_code(ErrorCode::ContractPaused) }
+    pub fn admin_transfer_pending() -> Self { Self::from_code(ErrorCode::AdminTransferPending) }
+
+    pub fn invalid_amount() -> Self { Self::from_code(ErrorCode::InvalidAmount) }
 
     pub fn validation_error(context: &str) -> Self {
         Self::with_context(ErrorCode::ValidationError, ErrorCode::ValidationError.default_message(), context)
@@ -257,6 +280,56 @@ impl core::fmt::Display for AnchorKitError {
 // ---------------------------------------------------------------------------
 // no-std / WASM implementation — zero heap allocation
 // ---------------------------------------------------------------------------
+
+#[cfg(not(feature = "std"))]
+impl AnchorKitError {
+    /// Create an error using the default message for the given code.
+    pub fn from_code(code: ErrorCode) -> Self {
+        AnchorKitError {
+            code,
+            message: code.default_message(),
+            context: None,
+        }
+    }
+
+    pub fn cache_not_found() -> Self {
+        Self::from_code(ErrorCode::CacheNotFound)
+    }
+
+    pub fn already_initialized() -> Self { Self::from_code(ErrorCode::AlreadyInitialized) }
+    pub fn attestor_already_registered() -> Self { Self::from_code(ErrorCode::AttestorAlreadyRegistered) }
+    pub fn attestor_not_registered() -> Self { Self::from_code(ErrorCode::AttestorNotRegistered) }
+    pub fn unauthorized_attestor() -> Self { Self::from_code(ErrorCode::UnauthorizedAttestor) }
+    pub fn invalid_timestamp() -> Self { Self::from_code(ErrorCode::InvalidTimestamp) }
+    pub fn replay_attack() -> Self { Self::from_code(ErrorCode::ReplayAttack) }
+    pub fn invalid_quote() -> Self { Self::from_code(ErrorCode::InvalidQuote) }
+    pub fn invalid_service_type() -> Self { Self::from_code(ErrorCode::InvalidServiceType) }
+    pub fn invalid_transaction_intent() -> Self { Self::from_code(ErrorCode::InvalidTransactionIntent) }
+    pub fn stale_quote() -> Self { Self::from_code(ErrorCode::StaleQuote) }
+    pub fn compliance_not_met() -> Self { Self::from_code(ErrorCode::ComplianceNotMet) }
+    pub fn invalid_endpoint_format() -> Self { Self::from_code(ErrorCode::InvalidEndpointFormat) }
+    pub fn no_quotes_available() -> Self { Self::from_code(ErrorCode::NoQuotesAvailable) }
+    pub fn services_not_configured() -> Self { Self::from_code(ErrorCode::ServicesNotConfigured) }
+    pub fn not_initialized() -> Self { Self::from_code(ErrorCode::NotInitialized) }
+    pub fn attestation_not_found() -> Self { Self::from_code(ErrorCode::AttestationNotFound) }
+    pub fn invalid_sep10_token() -> Self { Self::from_code(ErrorCode::InvalidSep10Token) }
+    pub fn rate_limit_exceeded() -> Self { Self::from_code(ErrorCode::RateLimitExceeded) }
+    pub fn storage_corrupted() -> Self { Self::from_code(ErrorCode::StorageCorrupted) }
+    pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
+    pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
+    pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
+    pub fn not_pending_admin() -> Self { Self::from_code(ErrorCode::NotPendingAdmin) }
+    pub fn unauthorized_propose_admin() -> Self { Self::from_code(ErrorCode::UnauthorizedProposeAdmin) }
+    pub fn audit_log_max_size_invalid() -> Self { Self::from_code(ErrorCode::AuditLogMaxSizeInvalid) }
+    pub fn no_pending_admin() -> Self { Self::from_code(ErrorCode::NoPendingAdmin) }
+    pub fn path_traversal_detected() -> Self { Self::from_code(ErrorCode::PathTraversalDetected) }
+    pub fn attestation_expired() -> Self { Self::from_code(ErrorCode::AttestationExpired) }
+    pub fn contract_paused() -> Self { Self::from_code(ErrorCode::ContractPaused) }
+    pub fn admin_transfer_pending() -> Self { Self::from_code(ErrorCode::AdminTransferPending) }
+    pub fn invalid_amount() -> Self { Self::from_code(ErrorCode::InvalidAmount) }
+    pub fn validation_error(_context: &str) -> Self { Self::from_code(ErrorCode::ValidationError) }
+}
+
 
 #[cfg(not(feature = "std"))]
 impl core::fmt::Display for AnchorKitError {
