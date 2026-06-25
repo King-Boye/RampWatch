@@ -14,6 +14,8 @@ export interface TxEvent {
   timestamp?: string;         // ISO string or readable label
   txHash?: string;            // on-chain hash, shown on completed
   detail?: string;            // any extra note
+  rawApiResponse?: unknown;   // raw anchor API response, shown in expanded view
+  errorMessage?: string;      // error detail for this step, shown in expanded view
 }
 
 export interface TransactionTimelineProps {
@@ -34,11 +36,13 @@ export interface TransactionTimelineProps {
 const STATUS_ORDER: TxStatus[] = ["initiated", "awaiting_user", "pending", "processing", "completed"];
 
 const STATUS_META: Record<TxStatus, { label: string; color: string; bg: string; border: string; icon: string }> = {
-  initiated:  { label: "Initiated",  color: "var(--ak-status-initiated-color)",  bg: "var(--ak-status-initiated-bg)",  border: "var(--ak-status-initiated-border)",  icon: "◎"  },
-  pending:    { label: "Pending",    color: "var(--ak-status-pending-color)",    bg: "var(--ak-status-pending-bg)",    border: "var(--ak-status-pending-border)",    icon: "◌"  },
-  processing: { label: "Processing", color: "var(--ak-status-processing-color)", bg: "var(--ak-status-processing-bg)", border: "var(--ak-status-processing-border)", icon: "◈"  },
-  completed:  { label: "Completed",  color: "var(--ak-status-completed-color)",  bg: "var(--ak-status-completed-bg)",  border: "var(--ak-status-completed-border)",  icon: "✓"  },
-  failed:     { label: "Failed",     color: "var(--ak-status-failed-color)",     bg: "var(--ak-status-failed-bg)",     border: "var(--ak-status-failed-border)",     icon: "✕"  },
+  initiated:     { label: "Initiated",      color: "var(--ak-status-initiated-color)",  bg: "var(--ak-status-initiated-bg)",  border: "var(--ak-status-initiated-border)",  icon: "◎"  },
+  awaiting_user: { label: "Action Required", color: "#d97706",                           bg: "#fffbeb",                         border: "#fcd34d",                             icon: "⚠"  },
+  pending:       { label: "Pending",         color: "var(--ak-status-pending-color)",    bg: "var(--ak-status-pending-bg)",    border: "var(--ak-status-pending-border)",    icon: "◌"  },
+  processing:    { label: "Processing",      color: "var(--ak-status-processing-color)", bg: "var(--ak-status-processing-bg)", border: "var(--ak-status-processing-border)", icon: "◈"  },
+  completed:     { label: "Completed",       color: "var(--ak-status-completed-color)",  bg: "var(--ak-status-completed-bg)",  border: "var(--ak-status-completed-border)",  icon: "✓"  },
+  failed:        { label: "Failed",          color: "var(--ak-status-failed-color)",     bg: "var(--ak-status-failed-bg)",     border: "var(--ak-status-failed-border)",     icon: "✕"  },
+  refunded:      { label: "Refunded",        color: "#7c3aed",                           bg: "#f5f3ff",                         border: "#c4b5fd",                             icon: "↩"  },
 };
 
 const DEFAULT_DESCRIPTIONS: Record<TxStatus, Record<TxType, string>> = {
@@ -178,6 +182,11 @@ export function TransactionTimeline({
   const currentIndex = getOrderIndex(currentStatus);
 
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [expandedStep, setExpandedStep] = useState<TxStatus | null>(null);
+
+  const toggleStep = (status: TxStatus) => {
+    setExpandedStep(prev => (prev === status ? null : status));
+  };
 
   useEffect(() => {
     if (!estimatedCompletionAt || completed || failed) {
@@ -350,6 +359,27 @@ export function TransactionTimeline({
                         animation: "txs-fade-in-out 1.8s ease-in-out infinite",
                       }}>LIVE</span>
                     )}
+                    {/* Expand toggle — only when step has event data */}
+                    {step.event && (
+                      <button
+                        aria-expanded={expandedStep === step.status}
+                        aria-controls={`step-details-${step.status}`}
+                        onClick={() => toggleStep(step.status)}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleStep(step.status); } }}
+                        style={{
+                          ...mono, marginLeft: "auto", fontSize: 10, fontWeight: 600,
+                          padding: "2px 8px", borderRadius: 8,
+                          border: `1px solid var(--ak-border)`,
+                          background: "var(--ak-surface-2)",
+                          color: "var(--ak-text-muted)",
+                          cursor: "pointer",
+                          transition: "all 0.15s",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {expandedStep === step.status ? "▲ Less" : "▼ More"}
+                      </button>
+                    )}
                   </div>
 
                   <p style={{
@@ -378,6 +408,61 @@ export function TransactionTimeline({
                       <span style={{ ...mono, fontSize: 10, color: "var(--ak-text-muted)" }}>{step.event.detail}</span>
                     )}
                   </div>
+
+                  {/* Expanded details panel */}
+                  {expandedStep === step.status && (
+                    <div
+                      id={`step-details-${step.status}`}
+                      role="region"
+                      aria-label={`${step.event?.label ?? step.m.label} details`}
+                      style={{
+                        marginTop: 10,
+                        padding: "10px 12px",
+                        borderRadius: 10,
+                        border: "1px solid var(--ak-border)",
+                        background: "var(--ak-surface-2)",
+                        display: "flex", flexDirection: "column", gap: 8,
+                      }}
+                    >
+                      {/* Timestamp */}
+                      <div>
+                        <span style={{ ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ak-text-muted)" }}>Timestamp</span>
+                        <p style={{ ...mono, fontSize: 11, color: "var(--ak-text)", margin: "3px 0 0" }}>
+                          {step.event?.timestamp ? formatTs(step.event.timestamp) : "—"}
+                        </p>
+                      </div>
+
+                      {/* Error message */}
+                      {(step.event?.errorMessage != null) && (
+                        <div>
+                          <span style={{ ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ak-status-failed-color)" }}>Error</span>
+                          <p style={{ ...mono, fontSize: 11, color: "var(--ak-status-failed-color)", margin: "3px 0 0", wordBreak: "break-word" }}>
+                            {step.event.errorMessage || "No error message provided."}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Raw API response */}
+                      <div>
+                        <span style={{ ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ak-text-muted)" }}>Raw API Response</span>
+                        {step.event?.rawApiResponse != null ? (
+                          <pre style={{
+                            ...mono, fontSize: 10, color: "var(--ak-text)", margin: "3px 0 0",
+                            background: "var(--ak-surface-3)", padding: "8px 10px", borderRadius: 7,
+                            border: "1px solid var(--ak-border)",
+                            overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word",
+                            maxHeight: 200,
+                          }}>
+                            {typeof step.event.rawApiResponse === "string"
+                              ? step.event.rawApiResponse
+                              : JSON.stringify(step.event.rawApiResponse, null, 2)}
+                          </pre>
+                        ) : (
+                          <p style={{ ...mono, fontSize: 11, color: "var(--ak-text-subtle)", margin: "3px 0 0" }}>No response data available.</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );
