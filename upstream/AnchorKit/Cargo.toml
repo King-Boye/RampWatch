@@ -17,6 +17,8 @@ std = ["serde", "serde_json", "toml", "regex"]
 wasm = []
 mock-only = []
 stress-tests = []
+proptest-tests = []
+testnet-integration = []
 
 [dependencies]
 soroban-sdk = "21.7.0"
@@ -36,6 +38,7 @@ soroban-sdk = { version = "21.7.0", features = ["testutils"] }
 base64 = "0.22"
 ed25519-dalek = "2"
 rand = "0.8"
+proptest = { version = "1.4", default-features = false, features = ["std"] }
 
 [profile.release]
 opt-level = "z"
