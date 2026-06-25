@@ -55,6 +55,8 @@ pub enum StorageKey {
     Health(Address),
     /// Routing metadata for an anchor (persistent).
     AnchorMeta(Address),
+    /// ISO 3166-1 alpha-3 jurisdiction for an anchor (persistent).
+    AnchorJurisdiction(Address),
     /// Stellar.toml cache for an anchor (temporary).
     TomlCache(Address),
     /// Running count of registered attestors (instance storage via key_attestor_count).
@@ -63,6 +65,10 @@ pub enum StorageKey {
     RateLimitState(Address),
     /// Per-attestor rate-limit configuration override (persistent).
     RateLimitOverride(Address),
+    /// Per-attestor attestation count (persistent).
+    PerAttestorCount(Address),
+    /// Revocation marker for an individual attestation (persistent).
+    AttestationRevoked(u64),
     /// Contract pause state (instance storage).
     IsPaused,
     // --- Instance-storage counters (stored as Vec<Symbol> keys) ---
