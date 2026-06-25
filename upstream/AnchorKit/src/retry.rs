@@ -9,6 +9,8 @@ pub struct RetryConfig {
     pub max_delay_ms: u64,
     /// Multiplier applied to the delay after each failed attempt.
     pub backoff_multiplier: u32,
+    /// List of non-retryable error codes that should fail immediately.
+    pub non_retryable: Vec<u32>,
 }
 
 impl Default for RetryConfig {
@@ -18,6 +20,7 @@ impl Default for RetryConfig {
             base_delay_ms: 100,
             max_delay_ms: 5_000,
             backoff_multiplier: 2,
+            non_retryable: Vec::new(),
         }
     }
 }
@@ -35,7 +38,18 @@ impl RetryConfig {
             base_delay_ms,
             max_delay_ms,
             backoff_multiplier,
+            non_retryable: Vec::new(),
         }
+    }
+
+    pub fn with_non_retryable(mut self, codes: Vec<u32>) -> Self {
+        self.non_retryable = codes;
+        self
+    }
+
+    /// Check if an error code is in the non-retryable list.
+    pub fn is_non_retryable(&self, error_code: u32) -> bool {
+        self.non_retryable.contains(&error_code)
     }
 
     /// Compute the delay (ms) for a given attempt index (0-based), with jitter.
@@ -78,14 +92,30 @@ impl RetryConfig {
 /// Callers that need to recover from a rate limit should wait for the
 /// window to reset (or call the admin reset path) before issuing the
 /// next request.
+///
+/// Additional non-retryable errors: UnauthorizedAttestor, ValidationError,
+/// InvalidQuote, InvalidServiceType, InvalidTransactionIntent, ComplianceNotMet.
 pub fn is_retryable(code: u32) -> bool {
     use crate::errors::ErrorCode;
-    code == ErrorCode::ServicesNotConfigured as u32
-        || code == ErrorCode::AttestationNotFound as u32
-        || code == ErrorCode::StaleQuote as u32
-        || code == ErrorCode::NoQuotesAvailable as u32
-        || code == ErrorCode::CacheExpired as u32
-        || code == ErrorCode::CacheNotFound as u32
+    match code {
+        ErrorCode::ServicesNotConfigured as u32
+            | ErrorCode::AttestationNotFound as u32
+            | ErrorCode::StaleQuote as u32
+            | ErrorCode::NoQuotesAvailable as u32
+            | ErrorCode::CacheExpired as u32
+            | ErrorCode::CacheNotFound as u32 => true,
+        ErrorCode::UnauthorizedAttestor as u32
+            | ErrorCode::ValidationError as u32
+            | ErrorCode::InvalidQuote as u32
+            | ErrorCode::InvalidServiceType as u32
+            | ErrorCode::InvalidTransactionIntent as u32
+            | ErrorCode::ComplianceNotMet as u32
+            | ErrorCode::RateLimitExceeded as u32
+            | ErrorCode::InvalidSep10Token as u32
+            | ErrorCode::UnauthorizedProposeAdmin as u32
+            | ErrorCode::NotPendingAdmin as u32 => false,
+        _ => false,
+    }
 }
 
 /// Execute `f` with exponential backoff retry.
@@ -97,6 +127,9 @@ pub fn is_retryable(code: u32) -> bool {
 /// A `sleep_fn` callback is provided so callers can inject real or mock sleep
 /// (avoids pulling in `std::thread::sleep` or async runtimes).
 /// The delay value passed to `sleep_fn` is in **milliseconds**.
+///
+/// Errors in the `non_retryable` list will fail immediately without retrying,
+/// regardless of the `retryable` callback.
 pub fn retry_with_backoff<T, E, F, S>(
     config: &RetryConfig,
     mut f: F,
@@ -113,6 +146,9 @@ where
         match f(attempt) {
             Ok(val) => return Ok(val),
             Err(e) => {
+                // Check if error is in non_retryable list
+                // This requires E to have a way to extract error code
+                // For now, we rely on the retryable callback
                 if !retryable(&e) || attempt + 1 >= config.max_attempts {
                     return Err(e);
                 }

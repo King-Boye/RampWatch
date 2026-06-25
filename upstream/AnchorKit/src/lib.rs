@@ -92,6 +92,9 @@ mod get_attestation_tests;
 mod replay_window_tests;
 
 #[cfg(test)]
+mod attestor_cap_batch_tests;
+
+#[cfg(test)]
 mod anchor_health_score_tests;
 
 #[cfg(test)]

@@ -96,13 +96,15 @@ pub enum ErrorCode {
     PendingAdminAlreadyExists = 52,
     NoPendingAdmin = 53,
     NotPendingAdmin = 54,
+    UnauthorizedProposeAdmin = 58,
     SessionNotFound = 55,
     SessionExpired = 56,
     MissingSigningKey = 57,
-    NotInitialized = 26,
-    PathTraversalDetected = 58,
     InvalidStrategy = 59,
+    NotInitialized = 26,
     AttestationLimitReached = 60,
+    AttestorCapExceeded = 61,
+    PathTraversalDetected = 62,
 }
 
 impl ErrorCode {
@@ -135,12 +137,14 @@ impl ErrorCode {
             ErrorCode::PendingAdminAlreadyExists => "An admin transfer is already pending",
             ErrorCode::NoPendingAdmin => "No pending admin transfer found",
             ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
+            ErrorCode::UnauthorizedProposeAdmin => "Only admin can propose new admin",
             ErrorCode::SessionNotFound => "Session not found",
             ErrorCode::SessionExpired => "Session has expired",
             ErrorCode::MissingSigningKey => "Anchor TOML does not publish a signing key",
-            ErrorCode::PathTraversalDetected => "URL contains a path traversal sequence",
             ErrorCode::InvalidStrategy => "Routing strategy symbol is not recognized",
             ErrorCode::AttestationLimitReached => "Attestation ID counter has reached its maximum value",
+            ErrorCode::AttestorCapExceeded => "Maximum number of attestors has been reached",
+            ErrorCode::PathTraversalDetected => "URL contains a path traversal sequence",
         }
     }
 
@@ -230,6 +234,10 @@ impl AnchorKitError {
     pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
     pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
     pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
+    pub fn not_pending_admin() -> Self { Self::from_code(ErrorCode::NotPendingAdmin) }
+    pub fn unauthorized_propose_admin() -> Self { Self::from_code(ErrorCode::UnauthorizedProposeAdmin) }
+    pub fn audit_log_max_size_invalid() -> Self { Self::from_code(ErrorCode::AuditLogMaxSizeInvalid) }
+    pub fn no_pending_admin() -> Self { Self::from_code(ErrorCode::NoPendingAdmin) }
     pub fn path_traversal_detected() -> Self { Self::from_code(ErrorCode::PathTraversalDetected) }
 
     pub fn validation_error(context: &str) -> Self {
@@ -262,6 +270,10 @@ impl AnchorKitError {
         }
     }
 
+    pub fn cache_not_found() -> Self {
+        Self::from_code(ErrorCode::CacheNotFound)
+    }
+
     pub fn already_initialized() -> Self { Self::from_code(ErrorCode::AlreadyInitialized) }
     pub fn attestor_already_registered() -> Self { Self::from_code(ErrorCode::AttestorAlreadyRegistered) }
     pub fn attestor_not_registered() -> Self { Self::from_code(ErrorCode::AttestorNotRegistered) }
@@ -284,6 +296,10 @@ impl AnchorKitError {
     pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
     pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
     pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
+    pub fn not_pending_admin() -> Self { Self::from_code(ErrorCode::NotPendingAdmin) }
+    pub fn unauthorized_propose_admin() -> Self { Self::from_code(ErrorCode::UnauthorizedProposeAdmin) }
+    pub fn audit_log_max_size_invalid() -> Self { Self::from_code(ErrorCode::AuditLogMaxSizeInvalid) }
+    pub fn no_pending_admin() -> Self { Self::from_code(ErrorCode::NoPendingAdmin) }
     pub fn path_traversal_detected() -> Self { Self::from_code(ErrorCode::PathTraversalDetected) }
     pub fn validation_error(_context: &str) -> Self { Self::from_code(ErrorCode::ValidationError) }
 }
