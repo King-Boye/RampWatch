@@ -35,6 +35,7 @@ impl TransactionStatus {
             "expired" => Self::Expired,
             "incomplete" => Self::Incomplete,
             "pending" => Self::Pending,
+            "error" => Self::Error,
             _ => Self::Unknown(AllocString::from(s)),
         }
     }
@@ -116,6 +117,7 @@ pub const SERVICE_DEPOSITS: u32 = 1;
 pub const SERVICE_WITHDRAWALS: u32 = 2;
 pub const SERVICE_QUOTES: u32 = 3;
 pub const SERVICE_KYC: u32 = 4;
+pub const SERVICE_EXCHANGE_QUOTES: u32 = 5;
 
 /// Typed representation of a service capability an anchor can support.
 ///
@@ -127,6 +129,7 @@ pub enum ServiceType {
     Withdrawals,
     Quotes,
     KYC,
+    ExchangeQuotes,
 }
 
 impl ServiceType {
@@ -136,6 +139,7 @@ impl ServiceType {
             ServiceType::Withdrawals => SERVICE_WITHDRAWALS,
             ServiceType::Quotes => SERVICE_QUOTES,
             ServiceType::KYC => SERVICE_KYC,
+            ServiceType::ExchangeQuotes => SERVICE_EXCHANGE_QUOTES,
         }
     }
 }
@@ -179,6 +183,8 @@ pub struct OperationContext {
     pub status: String,
     /// Human-readable outcome, e.g. `"attestation_id=42"`.
     pub result_summary: String,
+    /// Error code captured for failed operations; `None` on success.
+    pub error_code: Option<u32>,
     /// Number of retry attempts before success (0 for first attempt success).
     pub attempt_number: u32,
 }
@@ -213,9 +219,9 @@ pub struct Attestation {
     /// audit purposes; callers should treat `issuer_revoked = true` as a
     /// signal that the issuer's authority has been withdrawn.
     pub issuer_revoked: bool,
-    /// Optional caller-supplied context (e.g. `document_type`, `jurisdiction`).
-    /// Not included in the payload hash; purely informational.
-    pub metadata: Option<soroban_sdk::Map<String, String>>,
+    /// Optional Unix timestamp (seconds) after which this attestation is
+    /// considered expired. `None` means no expiry.
+    pub expires_at: Option<u64>,
 }
 
 #[contracttype]
@@ -274,8 +280,13 @@ pub struct RoutingRequest {
 ///   value are excluded before strategy selection. When `min_reputation = 0`,
 ///   reputation filtering is disabled and all anchors are included regardless
 ///   of their reputation score.
-/// - `max_anchors` / `require_kyc` — reserved for future filtering; not yet
-///   enforced by the current implementation.
+/// - `max_anchors` — limits how many candidate anchors are considered after
+///   other filters are applied. `0` means no limit.
+/// - `require_kyc` — when `true`, only anchors that advertise `SERVICE_KYC`
+///   are eligible.
+/// - `jurisdiction` — when `Some`, only anchors registered in that region
+///   (via `set_anchor_jurisdiction`) are eligible. `None` disables geographic
+///   filtering.
 /// - `fallback_chain` — ordered list of anchor addresses to try in sequence if
 ///   the primary selection fails. When empty, no fallback is used.
 #[contracttype]
@@ -286,7 +297,73 @@ pub struct RoutingOptions {
     pub min_reputation: u32,
     pub max_anchors: u32,
     pub require_kyc: bool,
+    pub jurisdiction: Option<String>,
     pub fallback_chain: Vec<Address>,
+}
+
+/// Returns whether an anchor is eligible under the requested jurisdiction filter.
+///
+/// When `required` is `None`, all anchors pass. Otherwise the anchor must have
+/// a stored jurisdiction that exactly matches `required` (case-sensitive ISO code).
+pub fn anchor_matches_jurisdiction(
+    required: &Option<String>,
+    anchor_jurisdiction: &Option<String>,
+) -> bool {
+    match required {
+        None => true,
+        Some(req) => anchor_jurisdiction.as_ref().is_some_and(|j| j == req),
+    }
+}
+
+#[cfg(test)]
+mod jurisdiction_filter_tests {
+    use super::*;
+    use soroban_sdk::String;
+
+    fn s(env: &soroban_sdk::Env, v: &str) -> String {
+        String::from_str(env, v)
+    }
+
+    #[test]
+    fn no_filter_accepts_any_anchor_jurisdiction() {
+        let env = soroban_sdk::Env::default();
+        assert!(anchor_matches_jurisdiction(&None, &None));
+        assert!(anchor_matches_jurisdiction(
+            &None,
+            &Some(s(&env, "USA")),
+        ));
+    }
+
+    #[test]
+    fn filter_requires_exact_match() {
+        let env = soroban_sdk::Env::default();
+        let required = Some(s(&env, "USA"));
+        assert!(anchor_matches_jurisdiction(
+            &required,
+            &Some(s(&env, "USA")),
+        ));
+        assert!(!anchor_matches_jurisdiction(
+            &required,
+            &Some(s(&env, "GBR")),
+        ));
+    }
+
+    #[test]
+    fn filter_excludes_anchor_without_jurisdiction() {
+        let env = soroban_sdk::Env::default();
+        let required = Some(s(&env, "USA"));
+        assert!(!anchor_matches_jurisdiction(&required, &None));
+    }
+
+    #[test]
+    fn filter_is_case_sensitive() {
+        let env = soroban_sdk::Env::default();
+        let required = Some(s(&env, "USA"));
+        assert!(!anchor_matches_jurisdiction(
+            &required,
+            &Some(s(&env, "usa")),
+        ));
+    }
 }
 
 // ---------------------------------------------------------------------------

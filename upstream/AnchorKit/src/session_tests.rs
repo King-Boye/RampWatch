@@ -20,7 +20,7 @@ mod session_tests {
 
     fn setup_ledger(env: &Env) {
         env.ledger().set(LedgerInfo {
-            timestamp: 0,
+            timestamp: 1_000_000,
             protocol_version: 21,
             sequence_number: 0,
             network_id: Default::default(),
@@ -196,7 +196,14 @@ mod session_tests {
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         let p = payload(&env, 0x01);
-        client.submit_attestation_with_session(&session_id, &attestor, &subject, &1u64, &p, &sign_payload(&env, &sk, &p), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        client.submit_attestation_with_session(
+            &session_id,
+            &attestor,
+            &subject,
+            &env.ledger().timestamp(),
+            &p,
+            &sign_payload(&env, &sk, &p),
+        );
 
         assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 1);
     }
@@ -223,7 +230,14 @@ mod session_tests {
         let session_id = client.create_session(&user_b);
 
         // user_a tries to submit to user_b's session
-        client.submit_attestation_with_session(&session_id, &user_a, &subject, &1700000001u64, &payload(&env, 0x01), &sig(&env, &[0x0a]), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        client.submit_attestation_with_session(
+            &session_id,
+            &user_a,
+            &subject,
+            &env.ledger().timestamp(),
+            &payload(&env, 0x01),
+            &sig(&env, &[0x0a]),
+        );
     }
 
 
@@ -345,7 +359,14 @@ mod session_tests {
         let sk = SigningKey::generate(&mut OsRng);
         register_with_session(&env, &client, session_id, &attestor, &sk);
         let p = payload(&env, 0x01);
-        client.submit_attestation_with_session(&session_id, &attestor, &subject, &1u64, &p, &sign_payload(&env, &sk, &p), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        client.submit_attestation_with_session(
+            &session_id,
+            &attestor,
+            &subject,
+            &env.ledger().timestamp(),
+            &p,
+            &sign_payload(&env, &sk, &p),
+        );
 
         let log0 = client.get_audit_log(&0u64);
         let log1 = client.get_audit_log(&1u64);
@@ -384,8 +405,22 @@ mod session_tests {
         // Step 3: two attestations
         let p0 = payload(&env, 0x01);
         let p1 = payload(&env, 0x02);
-        let id0 = client.submit_attestation_with_session(&session_id, &attestor, &subject, &1u64, &p0, &sign_payload(&env, &sk, &p0), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
-        let id1 = client.submit_attestation_with_session(&session_id, &attestor, &subject, &2u64, &p1, &sign_payload(&env, &sk, &p1), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        let id0 = client.submit_attestation_with_session(
+            &session_id,
+            &attestor,
+            &subject,
+            &env.ledger().timestamp(),
+            &p0,
+            &sign_payload(&env, &sk, &p0),
+        );
+        let id1 = client.submit_attestation_with_session(
+            &session_id,
+            &attestor,
+            &subject,
+            &env.ledger().timestamp(),
+            &p1,
+            &sign_payload(&env, &sk, &p1),
+        );
         assert_eq!(id0, 0);
         assert_eq!(id1, 1);
 
@@ -441,7 +476,9 @@ mod session_tests {
         // Write log_id=2 → live=[0,1,2], count=3 > max_size=2 → prune log_id=0.
         let ph = payload(&env, 0xAB);
         let s = sign_payload(&env, &signing_key, &ph);
-        client.submit_attestation_with_session(&session_id, &attestor, &attestor, &1u64, &ph, &s, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        client.submit_attestation_with_session(
+            &session_id, &attestor, &attestor, &env.ledger().timestamp(), &ph, &s,
+        );
 
         // log_id=2 must be accessible.
         let log2 = client.get_audit_log(&2u64);
@@ -473,7 +510,9 @@ mod session_tests {
         // Write log_id=2 → prunes log_id=0.
         let ph = payload(&env, 0xCD);
         let s = sign_payload(&env, &signing_key, &ph);
-        client.submit_attestation_with_session(&session_id, &attestor, &attestor, &1u64, &ph, &s, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        client.submit_attestation_with_session(
+            &session_id, &attestor, &attestor, &env.ledger().timestamp(), &ph, &s,
+        );
 
         // Accessing pruned entry must panic.
         client.get_audit_log(&0u64);

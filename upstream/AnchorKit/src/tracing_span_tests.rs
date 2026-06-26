@@ -30,7 +30,7 @@ mod tracing_span_tests {
     fn test_span_propagates_across_operations() {
         let env = make_env();
         env.ledger().set(LedgerInfo {
-            timestamp: 0,
+            timestamp: 1_000,
             protocol_version: 21,
             sequence_number: 0,
             network_id: Default::default(),
@@ -58,7 +58,7 @@ mod tracing_span_tests {
     fn test_span_emits_request_id() {
         let env = make_env();
         env.ledger().set(LedgerInfo {
-            timestamp: 0,
+            timestamp: 1_000,
             protocol_version: 21,
             sequence_number: 0,
             network_id: Default::default(),
@@ -80,7 +80,14 @@ mod tracing_span_tests {
 
         let req_id = client.generate_request_id();
         let p = payload(&env, 0x01);
-        client.submit_with_request_id(&req_id, &attestor, &subject, &1u64, &p, &sign_payload(&env, &sk, &p), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        client.submit_with_request_id(
+            &req_id,
+            &attestor,
+            &subject,
+            &env.ledger().timestamp(),
+            &p,
+            &sign_payload(&env, &sk, &p),
+        );
 
         let span = client.get_tracing_span(&req_id.id).unwrap();
         assert_eq!(span.request_id.id, req_id.id);
@@ -127,7 +134,7 @@ mod tracing_span_tests {
     fn test_structured_log_format() {
         let env = make_env();
         env.ledger().set(LedgerInfo {
-            timestamp: 0,
+            timestamp: 1_000,
             protocol_version: 21,
             sequence_number: 0,
             network_id: Default::default(),
@@ -149,7 +156,14 @@ mod tracing_span_tests {
 
         let req_id = client.generate_request_id();
         let p = payload(&env, 0x01);
-        client.submit_with_request_id(&req_id, &attestor, &subject, &1u64, &p, &sign_payload(&env, &sk, &p), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        client.submit_with_request_id(
+            &req_id,
+            &attestor,
+            &subject,
+            &env.ledger().timestamp(),
+            &p,
+            &sign_payload(&env, &sk, &p),
+        );
 
         let span = client.get_tracing_span(&req_id.id).unwrap();
         assert_eq!(span.request_id.id, req_id.id);

@@ -7,8 +7,19 @@ use soroban_sdk::Env;
 #[cfg(test)]
 mod transaction_state_tracker_tests {
     use super::*;
+    use crate::contract::AnchorKitContract;
     use soroban_sdk::testutils::Address;
     use soroban_sdk::String;
+
+    fn with_contract<F, R>(f: F) -> R
+    where
+        F: FnOnce(soroban_sdk::Env) -> R,
+    {
+        let env = soroban_sdk::Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        env.as_contract(&contract_id, || f(env.clone()))
+    }
 
     #[test]
     fn test_transaction_state_to_string() {
@@ -50,7 +61,7 @@ mod transaction_state_tracker_tests {
     #[test]
     fn test_full_transaction_lifecycle() {
         let env = Env::default();
-        let mut tracker = TransactionStateTracker::new(true);
+        let mut tracker = TransactionStateTracker::new();
         let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         // Create transaction -> Pending
@@ -75,7 +86,7 @@ mod transaction_state_tracker_tests {
     #[test]
     fn test_transaction_failure_with_error_message() {
         let env = Env::default();
-        let mut tracker = TransactionStateTracker::new(true);
+        let mut tracker = TransactionStateTracker::new();
         let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         tracker.create_transaction(1, initiator.clone(), &env).ok();
@@ -98,7 +109,7 @@ mod transaction_state_tracker_tests {
     #[test]
     fn test_query_transactions_by_state() {
         let env = Env::default();
-        let mut tracker = TransactionStateTracker::new(true);
+        let mut tracker = TransactionStateTracker::new();
         let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         // Create 5 transactions
@@ -133,25 +144,18 @@ mod transaction_state_tracker_tests {
     #[test]
     fn test_production_mode_flag() {
         let env = Env::default();
-        let mut prod_tracker = TransactionStateTracker::new(false);
+        let mut tracker = TransactionStateTracker::new();
         let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
-        // In production mode, cache should not be populated
-        let result = prod_tracker.create_transaction(1, initiator.clone(), &env);
+        let result = tracker.create_transaction(1, initiator.clone(), &env);
         assert!(result.is_ok());
-        assert_eq!(prod_tracker.cache_size(), 0); // Should be 0 in production mode
-
-        // In dev mode, cache should be populated
-        let mut dev_tracker = TransactionStateTracker::new(true);
-        let result = dev_tracker.create_transaction(1, initiator.clone(), &env);
-        assert!(result.is_ok());
-        assert_eq!(dev_tracker.cache_size(), 1); // Should be 1 in dev mode
+        assert_eq!(tracker.cache_size(), 1);
     }
 
     #[test]
     fn test_transaction_not_found() {
         let env = Env::default();
-        let tracker = TransactionStateTracker::new(true);
+        let tracker = TransactionStateTracker::new();
 
         let result = tracker.get_transaction_state(999, &env);
         assert!(result.is_ok());
@@ -161,7 +165,7 @@ mod transaction_state_tracker_tests {
     #[test]
     fn test_multiple_transactions_isolation() {
         let env = Env::default();
-        let mut tracker = TransactionStateTracker::new(true);
+        let mut tracker = TransactionStateTracker::new();
         let initiator1 = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
         let initiator2 = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
@@ -182,8 +186,8 @@ mod transaction_state_tracker_tests {
 
     #[test]
     fn test_clear_cache_dev_mode() {
-        let env = Env::default();
-        let mut tracker = TransactionStateTracker::new(true);
+        with_contract(|env| {
+        let mut tracker = TransactionStateTracker::new();
         let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         tracker.create_transaction(1, initiator.clone(), &env).ok();
@@ -193,13 +197,14 @@ mod transaction_state_tracker_tests {
         let clear_result = tracker.clear_cache(&initiator, &env);
         assert!(clear_result.is_ok());
         assert_eq!(tracker.cache_size(), 0);
+        });
     }
 
     #[test]
     #[should_panic]
-    fn test_clear_cache_production_requires_admin() {
+    fn test_clear_cache_requires_admin() {
         let env = Env::default();
-        let mut tracker = TransactionStateTracker::new(false);
+        let mut tracker = TransactionStateTracker::new();
         let admin = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         // In production mode, clear_cache requires admin auth.
@@ -210,7 +215,7 @@ mod transaction_state_tracker_tests {
     #[test]
     fn test_timestamp_tracking() {
         let env = Env::default();
-        let mut tracker = TransactionStateTracker::new(true);
+        let mut tracker = TransactionStateTracker::new();
         let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         let create_result = tracker.create_transaction(1, initiator.clone(), &env);
@@ -228,7 +233,7 @@ mod transaction_state_tracker_tests {
     #[test]
     fn test_get_transaction_count_by_state_basic() {
         let env = Env::default();
-        let mut tracker = TransactionStateTracker::new(true);
+        let mut tracker = TransactionStateTracker::new();
         let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         tracker.create_transaction(1, initiator.clone(), &env).ok();
@@ -250,7 +255,7 @@ mod transaction_state_tracker_tests {
     #[test]
     fn test_get_transaction_count_by_state_failed() {
         let env = Env::default();
-        let mut tracker = TransactionStateTracker::new(true);
+        let mut tracker = TransactionStateTracker::new();
         let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
         tracker.create_transaction(1, initiator.clone(), &env).ok();
@@ -264,8 +269,8 @@ mod transaction_state_tracker_tests {
 
     #[test]
     fn test_get_transaction_count_by_state_after_clear() {
-        let env = Env::default();
-        let mut tracker = TransactionStateTracker::new(true);
+        with_contract(|env| {
+        let mut tracker = TransactionStateTracker::new();
         let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
         let admin = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
 
@@ -274,5 +279,6 @@ mod transaction_state_tracker_tests {
 
         tracker.clear_cache(&admin, &env).ok();
         assert_eq!(tracker.get_transaction_count_by_state(TransactionState::Pending), 0);
+        });
     }
 }

@@ -172,15 +172,14 @@ mod audit_log_offset_tests {
         let session_id = client.create_session(&attestor);
 
         // Submit 5 entries and track expected offset.
-        // After submission N (0-indexed), live_count = N+1.
-        // Prune fires when live_count >= max (2), removing (live_count - max + 1) entries.
+        // Pruning fires once the projected live window would exceed max_size.
         //
-        // N=0: live=1 < 2, offset=0
-        // N=1: live=2 >= 2, prune 1, offset=1
-        // N=2: live=2 >= 2, prune 1, offset=2
-        // N=3: live=2 >= 2, prune 1, offset=3
-        // N=4: live=2 >= 2, prune 1, offset=4
-        let expected_offsets = [0u64, 1, 2, 3, 4];
+        // N=0: projected=1, offset=0
+        // N=1: projected=2, offset=0 (at capacity, not over)
+        // N=2: projected=3 > max=2, prune 1, offset=1
+        // N=3: projected=4 > max=2, prune 1, offset=2
+        // N=4: projected=5 > max=2, prune 1, offset=3
+        let expected_offsets = [0u64, 0, 1, 2, 3];
         for (nonce, &expected) in (0u8..5).zip(expected_offsets.iter()) {
             submit_one(&env, &client, session_id, &attestor, &sk, nonce);
             assert_eq!(

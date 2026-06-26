@@ -1,7 +1,6 @@
 #![cfg(test)]
 
 use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-use crate::errors::ErrorCode;
 use crate::types::AnchorMetadata;
 use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env};
 
