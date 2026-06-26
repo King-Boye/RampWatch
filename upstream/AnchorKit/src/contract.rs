@@ -2698,8 +2698,8 @@ fn verify_attestation_signature(
     panic_with_error!(env, ErrorCode::UnauthorizedAttestor);
 }
 
-    pub fn get_rate_limit_status(env: Env, attestor: Address) -> crate::rate_limiter::RateLimitStatus {
-        crate::rate_limiter::RateLimiter::get_rate_limit_status(env, attestor)
+    pub fn get_rate_limit_rejections(env: Env, attestor: Address) -> u64 {
+        crate::rate_limiter::RateLimiter::get_rate_limit_rejections(env, attestor)
     }
 }
 

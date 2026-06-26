@@ -33,29 +33,8 @@ pub struct RateLimitState {
     pub total_requests: u64,
     /// Whether the one-time burst allowance has been consumed.
     pub burst_used: bool,
-    /// Cumulative total rejected submissions across all windows (never reset)
+    /// Cumulative total rejected submissions (never reset).
     pub total_rejections: u64,
-}
-
-/// Snapshot of rate limit quota for a given attestor.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RateLimitStatus {
-    pub used: u32,
-    pub limit: u32,
-    pub window_resets_at: u32, // ledger number when window resets
-}
-
-/// Quota snapshot returned by [`RateLimiter::get_rate_limit_status`].
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RateLimitStatus {
-    /// Submissions used in the current window.
-    pub used: u32,
-    /// Effective submission limit for the current window.
-    pub limit: u32,
-    /// Ledger number at which the current window resets.
-    pub window_resets_at: u32,
 }
 
 /// Rate limiter utility — plain Rust struct, no Soroban contract boundary.
@@ -73,6 +52,11 @@ impl RateLimiter {
                 burst_used: false,
                 total_rejections: 0,
             })
+    }
+
+    /// Returns the total number of rejected submissions for an attestor.
+    pub fn get_rate_limit_rejections(env: Env, attestor: Address) -> u64 {
+        Self::get_state(env, attestor).total_rejections
     }
 
     /// Get the current global rate limit configuration.
@@ -138,6 +122,7 @@ impl RateLimiter {
             config.max_submissions
         };
         if state.submission_count >= effective_limit {
+            state.total_rejections += 1;
             env.storage().persistent().set(&state_key, &state);
             env.storage().persistent().extend_ttl(&state_key, config.window_length, config.window_length);
             return Err(ErrorCode::RateLimitExceeded);
@@ -271,6 +256,7 @@ impl RateLimiter {
             window_start_ledger: env.ledger().sequence(),
             total_requests: current_state.total_requests,
             burst_used: false,
+            total_rejections: current_state.total_rejections,
         };
 
         env.storage().persistent().set(&state_key, &reset_state);
