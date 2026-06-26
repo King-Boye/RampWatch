@@ -7,6 +7,9 @@
 export { ApiRequestPanel } from './ApiRequestPanel';
 export type { ApiRequestPanelProps } from './ApiRequestPanel';
 
+export { AnchorHealthBadge } from './AnchorHealthBadge';
+export type { AnchorHealthBadgeProps } from './AnchorHealthBadge';
+
 export { AnchorSelector } from './AnchorSelector';
 export type { AnchorSelectorProps, AnchorOption } from './AnchorSelector';
 
