@@ -246,6 +246,9 @@ pub struct StellarToml {
     pub transfer_server_sep0024: String,
     pub kyc_server: String,
     pub web_auth_endpoint: String,
+    /// Whether the anchor supports claimable balances as a deposit destination.
+    /// Sourced from the `CLAIMABLE_BALANCE_SUPPORTED` flag in stellar.toml.
+    pub claimable_balance_supported: bool,
 }
 
 #[contracttype]

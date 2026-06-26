@@ -87,6 +87,7 @@ mod anchor_info_discovery_tests {
             transfer_server_sep0024: String::from_str(env, "https://api.example.com/sep24"),
             kyc_server: String::from_str(env, "https://kyc.example.com"),
             web_auth_endpoint: String::from_str(env, "https://auth.example.com"),
+            claimable_balance_supported: false,
         }
     }
 
@@ -131,6 +132,7 @@ mod anchor_info_discovery_tests {
             transfer_server_sep0024: String::from_str(&env, "https://api.example.com/sep24"),
             kyc_server: String::from_str(&env, "https://kyc.example.com"),
             web_auth_endpoint: String::from_str(&env, "https://auth.example.com"),
+            claimable_balance_supported: false,
         };
 
         client.fetch_anchor_info(&anchor, &toml_no_key, &3600u64);
@@ -455,6 +457,7 @@ mod anchor_info_discovery_tests {
             transfer_server_sep0024: String::from_str(&env, "https://api2.example.com/sep24"),
             kyc_server: String::from_str(&env, "https://kyc2.example.com"),
             web_auth_endpoint: String::from_str(&env, "https://auth2.example.com"),
+            claimable_balance_supported: false,
         };
 
         client.fetch_anchor_info(&anchor1, &sample_toml(&env), &Some(3600u64));
@@ -551,6 +554,7 @@ mod anchor_info_discovery_tests {
             transfer_server_sep0024: String::from_str(&env, "https://btc.example.com/sep24"),
             kyc_server: String::from_str(&env, "https://kyc.example.com"),
             web_auth_endpoint: String::from_str(&env, "https://auth.example.com"),
+            claimable_balance_supported: false,
         };
         let anchor2 = Address::generate(&env);
         client.fetch_anchor_info(&anchor2, &toml_btc, &Some(3600u64));
@@ -601,6 +605,7 @@ mod anchor_info_discovery_tests {
             transfer_server_sep0024: String::from_str(&env, "https://api.example.com/sep24"),
             kyc_server: String::from_str(&env, "https://kyc.example.com"),
             web_auth_endpoint: String::from_str(&env, "https://auth.example.com"),
+            claimable_balance_supported: false,
         };
 
         client.fetch_anchor_info(&anchor, &toml, &3600u64);
