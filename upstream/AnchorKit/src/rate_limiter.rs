@@ -33,6 +33,17 @@ pub struct RateLimitState {
     pub total_requests: u64,
     /// Whether the one-time burst allowance has been consumed.
     pub burst_used: bool,
+    /// Cumulative total rejected submissions across all windows (never reset)
+    pub total_rejections: u64,
+}
+
+/// Snapshot of rate limit quota for a given attestor.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateLimitStatus {
+    pub used: u32,
+    pub limit: u32,
+    pub window_resets_at: u32, // ledger number when window resets
 }
 
 /// Rate limiter utility — plain Rust struct, no Soroban contract boundary.
@@ -48,6 +59,7 @@ impl RateLimiter {
                 window_start_ledger: env.ledger().sequence(),
                 total_requests: 0,
                 burst_used: false,
+                total_rejections: 0,
             })
     }
 
@@ -92,6 +104,7 @@ impl RateLimiter {
                 window_start_ledger: current_ledger,
                 total_requests: 0,
                 burst_used: false,
+                total_rejections: 0,
             });
 
         if Self::is_window_expired(current_ledger, state.window_start_ledger, config.window_length) {
@@ -174,6 +187,28 @@ impl RateLimiter {
         Ok(())
     }
 
+    /// Returns the current rate limit status for an attestor.
+    pub fn get_rate_limit_status(env: Env, attestor: Address) -> RateLimitStatus {
+        let config = Self::get_effective_config(env.clone(), attestor.clone());
+        let state = Self::get_state(env.clone(), attestor.clone());
+        let current_ledger = env.ledger().sequence();
+        let window_resets_at = if Self::is_window_expired(current_ledger, state.window_start_ledger, config.window_length) {
+            current_ledger
+        } else {
+            state.window_start_ledger + config.window_length
+        };
+        let effective_limit = if !state.burst_used && config.burst > 0 {
+            config.max_submissions + config.burst
+        } else {
+            config.max_submissions
+        };
+        RateLimitStatus {
+            used: state.submission_count,
+            limit: effective_limit,
+            window_resets_at,
+        }
+    }
+
     /// Returns true if rate limiting has been explicitly configured — either via
     /// a global config or a per-attestor override.
     fn is_configured(env: &Env, attestor: &Address) -> bool {
@@ -198,6 +233,7 @@ impl RateLimiter {
                 window_start_ledger: env.ledger().sequence(),
                 total_requests: 0,
                 burst_used: false,
+                total_rejections: 0,
             });
 
         let reset_state = RateLimitState {
