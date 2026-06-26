@@ -80,14 +80,7 @@ mod tracing_span_tests {
 
         let req_id = client.generate_request_id();
         let p = payload(&env, 0x01);
-        client.submit_with_request_id(
-            &req_id,
-            &attestor,
-            &subject,
-            &1u64,
-            &p,
-            &sign_payload(&env, &sk, &p),
-        );
+        client.submit_with_request_id(&req_id, &attestor, &subject, &1u64, &p, &sign_payload(&env, &sk, &p), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
 
         let span = client.get_tracing_span(&req_id.id).unwrap();
         assert_eq!(span.request_id.id, req_id.id);
@@ -120,14 +113,7 @@ mod tracing_span_tests {
 
         let req_id = client.generate_request_id();
         let p = payload(&env, 0x01);
-        client.submit_with_request_id(
-            &req_id,
-            &attestor,
-            &subject,
-            &1000u64,
-            &p,
-            &sign_payload(&env, &sk, &p),
-        );
+        client.submit_with_request_id(&req_id, &attestor, &subject, &1000u64, &p, &sign_payload(&env, &sk, &p), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
 
         let span = client.get_tracing_span(&req_id.id).unwrap();
         assert_eq!(span.operation, String::from_str(&env, "submit_attestation"));
@@ -163,14 +149,7 @@ mod tracing_span_tests {
 
         let req_id = client.generate_request_id();
         let p = payload(&env, 0x01);
-        client.submit_with_request_id(
-            &req_id,
-            &attestor,
-            &subject,
-            &1u64,
-            &p,
-            &sign_payload(&env, &sk, &p),
-        );
+        client.submit_with_request_id(&req_id, &attestor, &subject, &1u64, &p, &sign_payload(&env, &sk, &p), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
 
         let span = client.get_tracing_span(&req_id.id).unwrap();
         assert_eq!(span.request_id.id, req_id.id);

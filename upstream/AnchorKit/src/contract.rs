@@ -554,6 +554,7 @@ impl AnchorKitContract {
         timestamp: u64,
         payload_hash: Bytes,
         signature: Bytes,
+        metadata: Option<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>,
     ) -> u64 {
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
@@ -569,7 +570,7 @@ impl AnchorKitContract {
         }
 
         let id = Self::next_attestation_id(&env);
-        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature);
+        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature, metadata);
 
         env.storage().persistent().set(&used_key, &true);
         env.storage().persistent().extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
@@ -594,6 +595,7 @@ impl AnchorKitContract {
         timestamp: u64,
         payload_hash: Bytes,
         signature: Bytes,
+        metadata: Option<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>,
     ) -> u64 {
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
@@ -609,7 +611,7 @@ impl AnchorKitContract {
         }
 
         let id = Self::next_attestation_id(&env);
-        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature);
+        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature, metadata);
 
         env.storage().persistent().set(&used_key, &true);
         env.storage().persistent().extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
@@ -935,6 +937,7 @@ impl AnchorKitContract {
         timestamp: u64,
         payload_hash: Bytes,
         signature: Bytes,
+        metadata: Option<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>,
     ) -> u64 {
         Self::check_session_expiry(&env, session_id);
         let session = Self::get_session(env.clone(), session_id);
@@ -952,7 +955,7 @@ impl AnchorKitContract {
         }
 
         let id = Self::next_attestation_id(&env);
-        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature);
+        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature, metadata);
 
         env.storage().persistent().set(&used_key, &true);
         env.storage().persistent().extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
@@ -1588,6 +1591,7 @@ impl AnchorKitContract {
         liquidity_score: u32,
         uptime_percentage: u32,
         total_volume: u64,
+        homepage_url: Option<String>,
     ) {
         Self::require_admin(&env);
         let meta = AnchorMetadata {
@@ -1598,6 +1602,7 @@ impl AnchorKitContract {
             uptime_percentage,
             total_volume,
             is_active: true,
+            homepage_url,
         };
         let meta_key = StorageKey::AnchorMeta(anchor.clone());
         env.storage().persistent().set(&meta_key, &meta);
@@ -1842,6 +1847,7 @@ impl AnchorKitContract {
                         uptime_percentage: 0,
                         total_volume: 0,
                         is_active: false,
+                        homepage_url: None,
                     });
                 let fee_term = if q.fee_percentage > 0 { 40_000 / q.fee_percentage as u64 } else { 0 };
                 let time_term = 30_000u64.checked_div(meta.average_settlement_time).unwrap_or(0);
@@ -2179,6 +2185,7 @@ impl AnchorKitContract {
         timestamp: u64,
         payload_hash: Bytes,
         signature: Bytes,
+        metadata: Option<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>,
     ) {
         let attestation = Attestation {
             id,
@@ -2188,6 +2195,7 @@ impl AnchorKitContract {
             payload_hash,
             signature,
             issuer_revoked: false,
+            metadata,
         };
         let key = StorageKey::Attest(id);
         env.storage().persistent().set(&key, &attestation);

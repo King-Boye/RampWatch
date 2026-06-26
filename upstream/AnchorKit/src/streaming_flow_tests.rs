@@ -65,14 +65,7 @@ mod streaming_flow_tests {
         let signature = Bytes::from_array(&env, &[0u8; 64]);
         let timestamp = env.ledger().timestamp() + 1;
 
-        client.submit_attestation_with_session(
-            &session_id,
-            &anchor,
-            &subject,
-            &timestamp,
-            &payload_hash,
-            &signature,
-        );
+        client.submit_attestation_with_session(&session_id, &anchor, &subject, &timestamp, &payload_hash, &signature, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
 
         // Poll: audit log entry 1 should record a successful attestation
         let log = client.get_audit_log(&1);
@@ -102,24 +95,10 @@ mod streaming_flow_tests {
         let timestamp = env.ledger().timestamp() + 1;
 
         // First submission succeeds
-        client.submit_attestation_with_session(
-            &session_id,
-            &anchor,
-            &subject,
-            &timestamp,
-            &payload_hash,
-            &signature,
-        );
+        client.submit_attestation_with_session(&session_id, &anchor, &subject, &timestamp, &payload_hash, &signature, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
 
         // Second submission with same hash is a replay — should fail
-        let result = client.try_submit_attestation_with_session(
-            &session_id,
-            &anchor,
-            &subject,
-            &timestamp,
-            &payload_hash,
-            &signature,
-        );
+        let result = client.try_submit_attestation_with_session(&session_id, &anchor, &subject, &timestamp, &payload_hash, &signature, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
         assert!(result.is_err());
 
         // Poll: operation count reflects both attempts (success + failure)

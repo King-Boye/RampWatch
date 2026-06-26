@@ -69,7 +69,7 @@ mod attestation_pagination_tests {
         for i in 0..5 {
             let p = payload(&env, i);
             let s = sign_payload(&env, &sk, &p);
-            client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &p, &s);
+            client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &p, &s, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
         }
 
         let results = client.list_attestations(&subject, &0, &10);
@@ -97,7 +97,7 @@ mod attestation_pagination_tests {
         for i in 0..10 {
             let p = payload(&env, i);
             let s = sign_payload(&env, &sk, &p);
-            client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &p, &s);
+            client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &p, &s, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
         }
 
         // Page 1: offset 0, limit 3
@@ -138,11 +138,11 @@ mod attestation_pagination_tests {
         let p1 = payload(&env, 1);
         let p2 = payload(&env, 2);
         let p3 = payload(&env, 3);
-        client.submit_attestation(&attestor, &subj1, &1700000001, &p1, &sign_payload(&env, &sk, &p1));
-        client.submit_attestation(&attestor, &subj1, &1700000002, &p2, &sign_payload(&env, &sk, &p2));
+        client.submit_attestation(&attestor, &subj1, &1700000001, &p1, &sign_payload(&env, &sk, &p1), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        client.submit_attestation(&attestor, &subj1, &1700000002, &p2, &sign_payload(&env, &sk, &p2), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
 
         // Subj2: 1 attestation
-        client.submit_attestation(&attestor, &subj2, &1700000003, &p3, &sign_payload(&env, &sk, &p3));
+        client.submit_attestation(&attestor, &subj2, &1700000003, &p3, &sign_payload(&env, &sk, &p3), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
 
         let res1 = client.list_attestations(&subj1, &0, &10);
         assert_eq!(res1.len(), 2);
@@ -173,7 +173,7 @@ mod attestation_pagination_tests {
         for i in 0..51 {
             let p = payload(&env, i as u8);
             let s = sign_payload(&env, &sk, &p);
-            client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &p, &s);
+            client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &p, &s, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
         }
 
         // Request 100, should get only 50 (capped)
@@ -224,7 +224,7 @@ mod attestation_pagination_tests {
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         let p1 = payload(&env, 1);
-        client.submit_attestation(&attestor, &subject, &1700000001, &p1, &sign_payload(&env, &sk, &p1));
+        client.submit_attestation(&attestor, &subject, &1700000001, &p1, &sign_payload(&env, &sk, &p1), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
 
         let results = client.list_attestations(&subject, &5, &10);
         assert_eq!(results.len(), 0);
@@ -256,7 +256,7 @@ mod attestation_pagination_tests {
         for i in 0..60 {
             let p = payload(&env, i as u8);
             let s = sign_payload(&env, &sk, &p);
-            client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &p, &s);
+            client.submit_attestation(&attestor, &subject, &(1700000000 + i as u64), &p, &s, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
         }
 
         // Request 100 with page size 75, should return all 60

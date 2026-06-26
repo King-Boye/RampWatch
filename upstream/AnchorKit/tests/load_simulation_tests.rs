@@ -293,13 +293,7 @@ fn test_connection_pool_high_load() {
             let payload_hash = Bytes::from_slice(&env, &payload_bytes);
             let signature = sign_payload(&env, sk, &payload_hash);
 
-            let attestation_id = client.submit_attestation(
-                anchor,
-                &subject,
-                &current_time,
-                &payload_hash,
-                &signature,
-            );
+            let attestation_id = client.submit_attestation(anchor, &subject, &current_time, &payload_hash, &signature, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
             attestation_ids.push_back(attestation_id);
         }
     }

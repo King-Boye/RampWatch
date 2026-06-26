@@ -37,6 +37,7 @@ mod metadata_cache_tests {
             total_volume: 1_000_000,
             average_settlement_time: 300,
             is_active: true,
+            homepage_url: None,
         }
     }
 

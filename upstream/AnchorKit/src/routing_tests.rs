@@ -102,7 +102,7 @@ mod routing_tests {
         let anchor1 = Address::generate(&env);
         let anchor2 = Address::generate(&env);
         register_anchor(&env, &client, &anchor1);
-        client.set_anchor_metadata(&anchor1, &8000u32, &600u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor1, &8000u32, &600u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor1,
             &String::from_str(&env, "USD"),
@@ -111,7 +111,7 @@ mod routing_tests {
         );
 
         register_anchor(&env, &client, &anchor2);
-        client.set_anchor_metadata(&anchor2, &8000u32, &200u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor2, &8000u32, &200u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor2,
             &String::from_str(&env, "USD"),
@@ -145,7 +145,7 @@ mod routing_tests {
         let anchor2 = Address::generate(&env);
         register_anchor(&env, &client, &anchor1);
         // anchor1: reputation 3000 — below the threshold we will set
-        client.set_anchor_metadata(&anchor1, &3000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor1, &3000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor1,
             &String::from_str(&env, "USD"),
@@ -155,7 +155,7 @@ mod routing_tests {
 
         register_anchor(&env, &client, &anchor2);
         // anchor2: reputation 8000 — above the threshold
-        client.set_anchor_metadata(&anchor2, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor2, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor2,
             &String::from_str(&env, "USD"),
@@ -192,7 +192,7 @@ mod routing_tests {
 
         for (anchor, rep) in [(&low, 1000u32), (&mid, 5000u32), (&high, 9000u32)] {
             register_anchor(&env, &client, anchor);
-            client.set_anchor_metadata(anchor, &rep, &300u64, &7500u32, &9900u32, &1_000_000u64);
+            client.set_anchor_metadata(anchor, &rep, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
             client.submit_quote(
                 anchor,
                 &String::from_str(&env, "USD"),
@@ -230,7 +230,7 @@ mod routing_tests {
         let anchor = Address::generate(&env);
         register_anchor(&env, &client, &anchor);
         // reputation_score = 0 (minimum possible)
-        client.set_anchor_metadata(&anchor, &0u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor, &0u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor,
             &String::from_str(&env, "USD"),
@@ -302,8 +302,8 @@ mod routing_tests {
         register_anchor(&env, &client, &anchor_expired);
         register_anchor(&env, &client, &anchor_valid);
 
-        client.set_anchor_metadata(&anchor_expired, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
-        client.set_anchor_metadata(&anchor_valid, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor_expired, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
+        client.set_anchor_metadata(&anchor_valid, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
 
         // anchor_expired: quote valid_until = 1_000_050 (expires before routing)
         client.submit_quote(
@@ -430,9 +430,9 @@ mod routing_tests {
         register_anchor(&env, &client, &anchor3);
 
         // Explicit metadata so all three anchors participate in routing
-        client.set_anchor_metadata(&anchor1, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
-        client.set_anchor_metadata(&anchor2, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
-        client.set_anchor_metadata(&anchor3, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor1, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
+        client.set_anchor_metadata(&anchor2, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
+        client.set_anchor_metadata(&anchor3, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
 
         // Fees: anchor1=50, anchor2=25, anchor3=30 — all distinct, so winner is deterministic
         client.submit_quote(
@@ -479,7 +479,7 @@ mod routing_tests {
 
         let anchor = Address::generate(&env);
         register_anchor(&env, &client, &anchor);
-        client.set_anchor_metadata(&anchor, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor,
             &String::from_str(&env, "USD"),
@@ -530,7 +530,7 @@ mod routing_tests {
         //   score = 4630
         let anchor_a = Address::generate(&env);
         register_anchor(&env, &client, &anchor_a);
-        client.set_anchor_metadata(&anchor_a, &2000u32, &1000u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor_a, &2000u32, &1000u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor_a,
             &String::from_str(&env, "USD"),
@@ -545,7 +545,7 @@ mod routing_tests {
         //   score = 3800
         let anchor_b = Address::generate(&env);
         register_anchor(&env, &client, &anchor_b);
-        client.set_anchor_metadata(&anchor_b, &9000u32, &100u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor_b, &9000u32, &100u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor_b,
             &String::from_str(&env, "USD"),
@@ -560,7 +560,7 @@ mod routing_tests {
         //   score = 3950
         let anchor_c = Address::generate(&env);
         register_anchor(&env, &client, &anchor_c);
-        client.set_anchor_metadata(&anchor_c, &6000u32, &200u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor_c, &6000u32, &200u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor_c,
             &String::from_str(&env, "USD"),

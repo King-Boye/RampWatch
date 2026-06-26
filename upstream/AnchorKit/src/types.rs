@@ -213,6 +213,9 @@ pub struct Attestation {
     /// audit purposes; callers should treat `issuer_revoked = true` as a
     /// signal that the issuer's authority has been withdrawn.
     pub issuer_revoked: bool,
+    /// Optional caller-supplied context (e.g. `document_type`, `jurisdiction`).
+    /// Not included in the payload hash; purely informational.
+    pub metadata: Option<soroban_sdk::Map<String, String>>,
 }
 
 #[contracttype]
@@ -300,6 +303,8 @@ pub struct AnchorMetadata {
     pub total_volume: u64,
     pub average_settlement_time: u64,
     pub is_active: bool,
+    /// Optional public homepage URL for the anchor (e.g. "https://anchor.example.com").
+    pub homepage_url: Option<String>,
 }
 
 #[contracttype]
