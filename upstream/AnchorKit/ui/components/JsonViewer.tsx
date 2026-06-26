@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -595,7 +596,7 @@ export function JsonViewer({
   const t = THEMES[themeName];
   const [mode, setMode] = useState<ViewerMode>(defaultMode);
   const [search, setSearch] = useState("");
-  const [copied, setCopied] = useState(false);
+  const { isCopied: copied, copy: copyToClipboard } = useCopyToClipboard();
   
   // Remove circular references before processing
   const safeData = useMemo(() => removeCircularReferences(data), [data]);
@@ -635,11 +636,7 @@ export function JsonViewer({
 
   const collapseAll = () => setExpandedPaths(new Set());
 
-  const copy = () => {
-    navigator.clipboard.writeText(json);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
+  const copy = () => copyToClipboard(json);
 
   // Reset line counter on each render
   lineRef.current = 0;
