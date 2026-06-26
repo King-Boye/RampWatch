@@ -46,6 +46,18 @@ pub struct RateLimitStatus {
     pub window_resets_at: u32, // ledger number when window resets
 }
 
+/// Quota snapshot returned by [`RateLimiter::get_rate_limit_status`].
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateLimitStatus {
+    /// Submissions used in the current window.
+    pub used: u32,
+    /// Effective submission limit for the current window.
+    pub limit: u32,
+    /// Ledger number at which the current window resets.
+    pub window_resets_at: u32,
+}
+
 /// Rate limiter utility — plain Rust struct, no Soroban contract boundary.
 pub struct RateLimiter;
 
@@ -172,6 +184,24 @@ impl RateLimiter {
         let key = StorageKey::RateLimitOverride(attestor.clone());
         env.storage().persistent().get::<_, RateLimitConfig>(&key)
             .unwrap_or_else(|| Self::get_config(env.clone()))
+    }
+
+    /// Returns the current quota snapshot for an attestor.
+    pub fn get_rate_limit_status(env: Env, attestor: Address) -> RateLimitStatus {
+        let config = Self::get_effective_config(env.clone(), attestor.clone());
+        let state = Self::get_state(env.clone(), attestor);
+        let current_ledger = env.ledger().sequence();
+        let window_resets_at = if Self::is_window_expired(current_ledger, state.window_start_ledger, config.window_length) {
+            current_ledger
+        } else {
+            state.window_start_ledger + config.window_length
+        };
+        let effective_limit = if !state.burst_used && config.burst > 0 {
+            config.max_submissions + config.burst
+        } else {
+            config.max_submissions
+        };
+        RateLimitStatus { used: state.submission_count, limit: effective_limit, window_resets_at }
     }
 
     /// Configure rate limits for a specific attestor, including their window duration.
