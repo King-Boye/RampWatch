@@ -11,6 +11,10 @@ pub struct RetryConfig {
     pub backoff_multiplier: u32,
     /// List of non-retryable error codes that should fail immediately.
     pub non_retryable: Vec<u32>,
+    /// Total cumulative wait budget in milliseconds. Once the sum of all
+    /// delays reaches or exceeds this value, no further retries are attempted.
+    /// Set to `u64::MAX` (the default) to disable the budget cap.
+    pub budget_ms: u64,
 }
 
 impl Default for RetryConfig {
@@ -21,6 +25,7 @@ impl Default for RetryConfig {
             max_delay_ms: 5_000,
             backoff_multiplier: 2,
             non_retryable: Vec::new(),
+            budget_ms: u64::MAX,
         }
     }
 }
@@ -39,6 +44,7 @@ impl RetryConfig {
             max_delay_ms,
             backoff_multiplier,
             non_retryable: Vec::new(),
+            budget_ms: u64::MAX,
         }
     }
 
@@ -141,6 +147,7 @@ where
     S: FnMut(u64), // delay_ms: millisecond delay value
 {
     let mut last_err: Option<E> = None;
+    let mut cumulative_delay_ms: u64 = 0;
 
     for attempt in 0..config.max_attempts {
         match f(attempt) {
@@ -153,6 +160,10 @@ where
                     return Err(e);
                 }
                 let delay = config.delay_for_attempt(attempt, attempt as u64 * 17 + 3);
+                cumulative_delay_ms = cumulative_delay_ms.saturating_add(delay);
+                if cumulative_delay_ms >= config.budget_ms {
+                    return Err(e);
+                }
                 sleep_fn(delay);
                 last_err = Some(e);
             }
@@ -301,5 +312,34 @@ mod retry_tests {
     #[should_panic(expected = "max_attempts must be at least 1")]
     fn test_max_attempts_zero_panics() {
         let _ = RetryConfig::new(0, 100, 5000, 2);
+    }
+
+    #[test]
+    fn test_budget_ms_stops_retries_early() {
+        // With seed (attempt * 17 + 3): attempt 0 seed=3, delay_for_attempt(0,3)
+        // = 100 + (3 % 51) = 103. budget_ms=50 means cumulative (103) >= budget → stop after 1 call.
+        let config = RetryConfig { budget_ms: 50, ..RetryConfig::new(5, 100, 5000, 2) };
+        let mut calls = 0u32;
+        let result = retry_with_backoff(
+            &config,
+            |_| { calls += 1; Err::<i32, _>(TestError::Transient) },
+            is_retryable_test,
+            |_| {},
+        );
+        assert_eq!(result, Err(TestError::Transient));
+        assert_eq!(calls, 1); // budget exceeded before first sleep → no retry
+    }
+
+    #[test]
+    fn test_budget_ms_max_does_not_limit() {
+        let config = RetryConfig::new(3, 10, 1000, 2); // budget_ms defaults to u64::MAX
+        let mut calls = 0u32;
+        let _ = retry_with_backoff(
+            &config,
+            |_| { calls += 1; Err::<i32, _>(TestError::Transient) },
+            is_retryable_test,
+            |_| {},
+        );
+        assert_eq!(calls, 3); // all attempts used
     }
 }
