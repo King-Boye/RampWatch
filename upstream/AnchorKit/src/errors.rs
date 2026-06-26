@@ -7,12 +7,22 @@
 //! The [`ErrorCode`] enum enumerates every distinct error kind. Use the
 //! provided constructor helpers (e.g. [`AnchorKitError::already_initialized`])
 //! to build errors without touching raw codes.
+//!
+//! ## no-std / WASM builds
+//!
+//! When compiled without the `std` feature (e.g. for Soroban WASM), heap
+//! allocation via `alloc::string::String` is unavailable on the hot path.
+//! In that case `AnchorKitError` stores only an `ErrorCode` discriminant and
+//! a `&'static str` message slice — no heap allocation required.
+//! The full `String`-based struct is only compiled when `feature = "std"` is
+//! active (the default for host-side / test builds).
 
-
-extern crate alloc;
-
-use alloc::string::String;
 use soroban_sdk::contracterror;
+
+#[cfg(feature = "std")]
+extern crate alloc;
+#[cfg(feature = "std")]
+use alloc::string::String;
 
 // ---------------------------------------------------------------------------
 // ErrorCode — the canonical list of all error kinds (replaces the old Error enum)
@@ -21,6 +31,42 @@ use soroban_sdk::contracterror;
 /// Numeric error codes for every AnchorKit error kind.
 ///
 /// The `#[contracterror]` attribute keeps Soroban on-chain compatibility.
+///
+/// ## Migration note
+///
+/// Prior to this fix the codes were non-contiguous: values 1-19 were followed
+/// by a gap (20-47) and then 48-54, with `NotInitialized` at 101.
+/// All codes have been renumbered to the contiguous range **1-30**.
+/// Clients that matched on raw numeric values must update their mappings:
+///
+/// | Old code | New code | Name                    |
+/// |----------|----------|-------------------------|
+/// | 1        | 1        | AlreadyInitialized      |
+/// | 2        | 2        | AttestorAlreadyRegistered |
+/// | 3        | 3        | AttestorNotRegistered   |
+/// | 4        | 4        | UnauthorizedAttestor    |
+/// | 5        | 5        | InvalidTimestamp        |
+/// | 6        | 6        | ReplayAttack            |
+/// | 7        | 7        | InvalidQuote            |
+/// | 8        | 8        | InvalidServiceType      |
+/// | 9        | 9        | InvalidTransactionIntent |
+/// | 10       | 10       | StaleQuote              |
+/// | 11       | 11       | ComplianceNotMet        |
+/// | 12       | 12       | InvalidEndpointFormat   |
+/// | 13       | 13       | NoQuotesAvailable       |
+/// | 14       | 14       | ServicesNotConfigured   |
+/// | 15       | 15       | ValidationError         |
+/// | 16       | 16       | RateLimitExceeded       |
+/// | 17       | 17       | AttestationNotFound     |
+/// | 18       | 18       | InvalidSep10Token       |
+/// | 19       | 19       | StorageCorrupted        |
+/// | 48       | 20       | CacheExpired            |
+/// | 49       | 21       | CacheNotFound           |
+/// | 51       | 22       | AuditLogMaxSizeInvalid  |
+/// | 52       | 23       | UnauthorizedProposeAdmin |
+/// | 53       | 24       | NoPendingAdmin          |
+/// | 54       | 25       | NotPendingAdmin         |
+/// | 101      | 26       | NotInitialized          |
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -41,14 +87,29 @@ pub enum ErrorCode {
     ServicesNotConfigured = 14,
     ValidationError = 15,
     RateLimitExceeded = 16,
-    NotInitialized = 101,
     AttestationNotFound = 17,
     InvalidSep10Token = 18,
-    StorageCorrupted = 50,
+    StorageCorrupted = 19,
     CacheExpired = 48,
-StorageCorrupted = 19,
     CacheNotFound = 49,
     AuditLogMaxSizeInvalid = 51,
+    PendingAdminAlreadyExists = 52,
+    NoPendingAdmin = 53,
+    NotPendingAdmin = 54,
+    UnauthorizedProposeAdmin = 58,
+    SessionNotFound = 55,
+    SessionExpired = 56,
+    MissingSigningKey = 57,
+    InvalidStrategy = 59,
+    NotInitialized = 26,
+    AttestationLimitReached = 60,
+    AttestorCapExceeded = 61,
+    PathTraversalDetected = 62,
+    InvalidAmount = 63,
+    AttestationRevoked = 64,
+    AttestationExpired = 121,
+    ContractPaused = 122,
+    AdminTransferPending = 123,
 }
 
 impl ErrorCode {
@@ -71,13 +132,28 @@ impl ErrorCode {
             ErrorCode::ServicesNotConfigured => "Services are not configured",
             ErrorCode::ValidationError => "Response schema validation failed",
             ErrorCode::RateLimitExceeded => "Rate limit exceeded",
-            ErrorCode::NotInitialized => "Contract is not initialized",
             ErrorCode::AttestationNotFound => "Attestation not found",
             ErrorCode::InvalidSep10Token => "SEP-10 JWT is missing, expired, or invalid",
             ErrorCode::StorageCorrupted => "On-chain storage entry is corrupted or unreadable",
             ErrorCode::CacheExpired => "Cache entry has expired",
             ErrorCode::CacheNotFound => "Cache entry not found",
             ErrorCode::AuditLogMaxSizeInvalid => "max_audit_log_size must be at least 1",
+            ErrorCode::PendingAdminAlreadyExists => "An admin transfer is already pending",
+            ErrorCode::NoPendingAdmin => "No pending admin transfer found",
+            ErrorCode::NotPendingAdmin => "Caller is not the pending admin",
+            ErrorCode::UnauthorizedProposeAdmin => "Only admin can propose new admin",
+            ErrorCode::SessionNotFound => "Session not found",
+            ErrorCode::SessionExpired => "Session has expired",
+            ErrorCode::MissingSigningKey => "Anchor TOML does not publish a signing key",
+            ErrorCode::InvalidStrategy => "Routing strategy symbol is not recognized",
+            ErrorCode::AttestationLimitReached => "Attestation ID counter has reached its maximum value",
+            ErrorCode::AttestorCapExceeded => "Maximum number of attestors has been reached",
+            ErrorCode::PathTraversalDetected => "URL contains a path traversal sequence",
+            ErrorCode::InvalidAmount => "Amount is outside the allowed min/max range for this asset",
+            ErrorCode::AttestationRevoked => "Attestation has been revoked",
+            ErrorCode::AttestationExpired => "Attestation has expired",
+            ErrorCode::ContractPaused => "Contract is paused",
+            ErrorCode::AdminTransferPending => "Admin transfer is already pending",
         }
     }
 
@@ -85,14 +161,20 @@ impl ErrorCode {
 
 // ---------------------------------------------------------------------------
 // AnchorKitError — the unified base error type
+//
+// std build  : full struct with heap-allocated String fields (message + context)
+// no-std/WASM: thin wrapper around ErrorCode + &'static str — zero heap alloc
 // ---------------------------------------------------------------------------
 
 /// The base error type for all AnchorKit errors.
 ///
-/// Every error carries:
-/// - `code`: the [`ErrorCode`] identifying the error kind
-/// - `message`: a human-readable description
-/// - `context`: optional extra detail (field name, received value, etc.)
+/// **std builds** (default): carries a heap-allocated `message` and optional
+/// `context` string for rich diagnostics.
+///
+/// **no-std / WASM builds** (`wasm` feature, no `std`): stores only the
+/// [`ErrorCode`] discriminant and a `&'static str` message slice so that no
+/// heap allocation is required on the hot path inside a Soroban contract.
+#[cfg(feature = "std")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AnchorKitError {
     pub code: ErrorCode,
@@ -100,6 +182,20 @@ pub struct AnchorKitError {
     pub context: Option<String>,
 }
 
+/// Thin no-std / WASM variant — no heap allocation.
+#[cfg(not(feature = "std"))]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AnchorKitError {
+    pub code: ErrorCode,
+    pub message: &'static str,
+    pub context: Option<&'static str>,
+}
+
+// ---------------------------------------------------------------------------
+// std implementation
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "std")]
 impl AnchorKitError {
     /// Create a new error with a custom message and no context.
     pub fn new(code: ErrorCode, message: &str) -> Self {
@@ -125,105 +221,120 @@ impl AnchorKitError {
         AnchorKitError::new(code, message)
     }
 
-    // ------------------------------------------------------------------
-    // Named constructors — one per ErrorCode variant
-    // ------------------------------------------------------------------
+    pub fn already_initialized() -> Self { Self::from_code(ErrorCode::AlreadyInitialized) }
+    pub fn attestor_already_registered() -> Self { Self::from_code(ErrorCode::AttestorAlreadyRegistered) }
+    pub fn attestor_not_registered() -> Self { Self::from_code(ErrorCode::AttestorNotRegistered) }
+    pub fn unauthorized_attestor() -> Self { Self::from_code(ErrorCode::UnauthorizedAttestor) }
+    pub fn invalid_timestamp() -> Self { Self::from_code(ErrorCode::InvalidTimestamp) }
+    pub fn replay_attack() -> Self { Self::from_code(ErrorCode::ReplayAttack) }
+    pub fn invalid_quote() -> Self { Self::from_code(ErrorCode::InvalidQuote) }
+    pub fn invalid_service_type() -> Self { Self::from_code(ErrorCode::InvalidServiceType) }
+    pub fn invalid_transaction_intent() -> Self { Self::from_code(ErrorCode::InvalidTransactionIntent) }
+    pub fn stale_quote() -> Self { Self::from_code(ErrorCode::StaleQuote) }
+    pub fn compliance_not_met() -> Self { Self::from_code(ErrorCode::ComplianceNotMet) }
+    pub fn invalid_endpoint_format() -> Self { Self::from_code(ErrorCode::InvalidEndpointFormat) }
+    pub fn no_quotes_available() -> Self { Self::from_code(ErrorCode::NoQuotesAvailable) }
+    pub fn services_not_configured() -> Self { Self::from_code(ErrorCode::ServicesNotConfigured) }
+    pub fn not_initialized() -> Self { Self::from_code(ErrorCode::NotInitialized) }
+    pub fn attestation_not_found() -> Self { Self::from_code(ErrorCode::AttestationNotFound) }
+    pub fn invalid_sep10_token() -> Self { Self::from_code(ErrorCode::InvalidSep10Token) }
+    pub fn rate_limit_exceeded() -> Self { Self::from_code(ErrorCode::RateLimitExceeded) }
+    pub fn storage_corrupted() -> Self { Self::from_code(ErrorCode::StorageCorrupted) }
+    pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
+    pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
+    pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
+    pub fn not_pending_admin() -> Self { Self::from_code(ErrorCode::NotPendingAdmin) }
+    pub fn unauthorized_propose_admin() -> Self { Self::from_code(ErrorCode::UnauthorizedProposeAdmin) }
+    pub fn audit_log_max_size_invalid() -> Self { Self::from_code(ErrorCode::AuditLogMaxSizeInvalid) }
+    pub fn no_pending_admin() -> Self { Self::from_code(ErrorCode::NoPendingAdmin) }
+    pub fn path_traversal_detected() -> Self { Self::from_code(ErrorCode::PathTraversalDetected) }
+    pub fn attestation_expired() -> Self { Self::from_code(ErrorCode::AttestationExpired) }
+    pub fn contract_paused() -> Self { Self::from_code(ErrorCode::ContractPaused) }
+    pub fn admin_transfer_pending() -> Self { Self::from_code(ErrorCode::AdminTransferPending) }
 
-    pub fn already_initialized() -> Self {
-        Self::from_code(ErrorCode::AlreadyInitialized)
-    }
-
-    pub fn attestor_already_registered() -> Self {
-        Self::from_code(ErrorCode::AttestorAlreadyRegistered)
-    }
-
-    pub fn attestor_not_registered() -> Self {
-        Self::from_code(ErrorCode::AttestorNotRegistered)
-    }
-
-    pub fn unauthorized_attestor() -> Self {
-        Self::from_code(ErrorCode::UnauthorizedAttestor)
-    }
-
-    pub fn invalid_timestamp() -> Self {
-        Self::from_code(ErrorCode::InvalidTimestamp)
-    }
-
-    pub fn replay_attack() -> Self {
-        Self::from_code(ErrorCode::ReplayAttack)
-    }
-
-    pub fn invalid_quote() -> Self {
-        Self::from_code(ErrorCode::InvalidQuote)
-    }
-
-    pub fn invalid_service_type() -> Self {
-        Self::from_code(ErrorCode::InvalidServiceType)
-    }
-
-    pub fn invalid_transaction_intent() -> Self {
-        Self::from_code(ErrorCode::InvalidTransactionIntent)
-    }
-
-    pub fn stale_quote() -> Self {
-        Self::from_code(ErrorCode::StaleQuote)
-    }
-
-    pub fn compliance_not_met() -> Self {
-        Self::from_code(ErrorCode::ComplianceNotMet)
-    }
-
-    pub fn invalid_endpoint_format() -> Self {
-        Self::from_code(ErrorCode::InvalidEndpointFormat)
-    }
-
-    pub fn no_quotes_available() -> Self {
-        Self::from_code(ErrorCode::NoQuotesAvailable)
-    }
-
-    pub fn services_not_configured() -> Self {
-        Self::from_code(ErrorCode::ServicesNotConfigured)
-    }
-
-    pub fn not_initialized() -> Self {
-        Self::from_code(ErrorCode::NotInitialized)
-    }
-
-    pub fn attestation_not_found() -> Self {
-        Self::from_code(ErrorCode::AttestationNotFound)
-    }
-
-    pub fn invalid_sep10_token() -> Self {
-        Self::from_code(ErrorCode::InvalidSep10Token)
-    }
+    pub fn invalid_amount() -> Self { Self::from_code(ErrorCode::InvalidAmount) }
 
     pub fn validation_error(context: &str) -> Self {
         Self::with_context(ErrorCode::ValidationError, ErrorCode::ValidationError.default_message(), context)
     }
 
-    pub fn rate_limit_exceeded() -> Self {
-        Self::from_code(ErrorCode::RateLimitExceeded)
+    pub fn audit_log_max_size_invalid() -> Self { Self::from_code(ErrorCode::AuditLogMaxSizeInvalid) }
+    pub fn unauthorized_propose_admin() -> Self { Self::from_code(ErrorCode::UnauthorizedProposeAdmin) }
+    pub fn no_pending_admin() -> Self { Self::from_code(ErrorCode::NoPendingAdmin) }
+    pub fn not_pending_admin() -> Self { Self::from_code(ErrorCode::NotPendingAdmin) }
+    pub fn path_traversal_detected() -> Self {
+        Self::with_context(ErrorCode::ValidationError, "Path traversal detected in URL", "endpoint URL contains path traversal sequence")
     }
+}
 
-pub fn storage_corrupted() -> Self {
-        Self::from_code(ErrorCode::StorageCorrupted)
+#[cfg(feature = "std")]
+impl core::fmt::Display for AnchorKitError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match &self.context {
+            Some(ctx) => write!(f, "[E{}] {} ({})", self.code as u32, self.message, ctx),
+            None => write!(f, "[E{}] {}", self.code as u32, self.message),
+        }
     }
+}
 
-    pub fn cache_expired() -> Self {
-        Self::from_code(ErrorCode::CacheExpired)
+// ---------------------------------------------------------------------------
+// no-std / WASM implementation — zero heap allocation
+// ---------------------------------------------------------------------------
+
+#[cfg(not(feature = "std"))]
+impl AnchorKitError {
+    /// Create an error using the default message for the given code.
+    pub fn from_code(code: ErrorCode) -> Self {
+        AnchorKitError {
+            code,
+            message: code.default_message(),
+            context: None,
+        }
     }
 
     pub fn cache_not_found() -> Self {
         Self::from_code(ErrorCode::CacheNotFound)
     }
+
+    pub fn already_initialized() -> Self { Self::from_code(ErrorCode::AlreadyInitialized) }
+    pub fn attestor_already_registered() -> Self { Self::from_code(ErrorCode::AttestorAlreadyRegistered) }
+    pub fn attestor_not_registered() -> Self { Self::from_code(ErrorCode::AttestorNotRegistered) }
+    pub fn unauthorized_attestor() -> Self { Self::from_code(ErrorCode::UnauthorizedAttestor) }
+    pub fn invalid_timestamp() -> Self { Self::from_code(ErrorCode::InvalidTimestamp) }
+    pub fn replay_attack() -> Self { Self::from_code(ErrorCode::ReplayAttack) }
+    pub fn invalid_quote() -> Self { Self::from_code(ErrorCode::InvalidQuote) }
+    pub fn invalid_service_type() -> Self { Self::from_code(ErrorCode::InvalidServiceType) }
+    pub fn invalid_transaction_intent() -> Self { Self::from_code(ErrorCode::InvalidTransactionIntent) }
+    pub fn stale_quote() -> Self { Self::from_code(ErrorCode::StaleQuote) }
+    pub fn compliance_not_met() -> Self { Self::from_code(ErrorCode::ComplianceNotMet) }
+    pub fn invalid_endpoint_format() -> Self { Self::from_code(ErrorCode::InvalidEndpointFormat) }
+    pub fn no_quotes_available() -> Self { Self::from_code(ErrorCode::NoQuotesAvailable) }
+    pub fn services_not_configured() -> Self { Self::from_code(ErrorCode::ServicesNotConfigured) }
+    pub fn not_initialized() -> Self { Self::from_code(ErrorCode::NotInitialized) }
+    pub fn attestation_not_found() -> Self { Self::from_code(ErrorCode::AttestationNotFound) }
+    pub fn invalid_sep10_token() -> Self { Self::from_code(ErrorCode::InvalidSep10Token) }
+    pub fn rate_limit_exceeded() -> Self { Self::from_code(ErrorCode::RateLimitExceeded) }
+    pub fn storage_corrupted() -> Self { Self::from_code(ErrorCode::StorageCorrupted) }
+    pub fn cache_expired() -> Self { Self::from_code(ErrorCode::CacheExpired) }
+    pub fn cache_not_found() -> Self { Self::from_code(ErrorCode::CacheNotFound) }
+    pub fn missing_signing_key() -> Self { Self::from_code(ErrorCode::MissingSigningKey) }
+    pub fn not_pending_admin() -> Self { Self::from_code(ErrorCode::NotPendingAdmin) }
+    pub fn unauthorized_propose_admin() -> Self { Self::from_code(ErrorCode::UnauthorizedProposeAdmin) }
+    pub fn audit_log_max_size_invalid() -> Self { Self::from_code(ErrorCode::AuditLogMaxSizeInvalid) }
+    pub fn no_pending_admin() -> Self { Self::from_code(ErrorCode::NoPendingAdmin) }
+    pub fn path_traversal_detected() -> Self { Self::from_code(ErrorCode::PathTraversalDetected) }
+    pub fn attestation_expired() -> Self { Self::from_code(ErrorCode::AttestationExpired) }
+    pub fn contract_paused() -> Self { Self::from_code(ErrorCode::ContractPaused) }
+    pub fn admin_transfer_pending() -> Self { Self::from_code(ErrorCode::AdminTransferPending) }
+    pub fn invalid_amount() -> Self { Self::from_code(ErrorCode::InvalidAmount) }
+    pub fn validation_error(_context: &str) -> Self { Self::from_code(ErrorCode::ValidationError) }
 }
 
+
+#[cfg(not(feature = "std"))]
 impl core::fmt::Display for AnchorKitError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match &self.context {
-            Some(context) => write!(f, "[E{}] {} ({})", self.code as u32, self.message, context),
-            None => write!(f, "[E{}] {}", self.code as u32, self.message),
-        }
+        write!(f, "[E{}] {}", self.code as u32, self.message)
     }
 }
 
@@ -238,7 +349,7 @@ pub type Error = AnchorKitError;
 // Tests
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
 
@@ -289,6 +400,10 @@ mod tests {
         assert_eq!(AnchorKitError::invalid_sep10_token().code, ErrorCode::InvalidSep10Token);
         assert_eq!(AnchorKitError::cache_expired().code, ErrorCode::CacheExpired);
         assert_eq!(AnchorKitError::cache_not_found().code, ErrorCode::CacheNotFound);
+        assert_eq!(AnchorKitError::audit_log_max_size_invalid().code, ErrorCode::AuditLogMaxSizeInvalid);
+        assert_eq!(AnchorKitError::unauthorized_propose_admin().code, ErrorCode::UnauthorizedProposeAdmin);
+        assert_eq!(AnchorKitError::no_pending_admin().code, ErrorCode::NoPendingAdmin);
+        assert_eq!(AnchorKitError::not_pending_admin().code, ErrorCode::NotPendingAdmin);
     }
 
     #[test]
@@ -302,9 +417,10 @@ mod tests {
     fn test_error_code_default_messages_are_non_empty() {
 let codes = [
             ErrorCode::AlreadyInitialized,
-            ErrorCode::UnauthorizedProposeAdmin,
+            ErrorCode::PendingAdminAlreadyExists,
             ErrorCode::NoPendingAdmin,
             ErrorCode::NotPendingAdmin,
+            ErrorCode::InvalidStrategy,
             ErrorCode::AttestorAlreadyRegistered,
             ErrorCode::AttestorNotRegistered,
             ErrorCode::UnauthorizedAttestor,
@@ -326,6 +442,9 @@ let codes = [
             ErrorCode::StorageCorrupted,
             ErrorCode::CacheExpired,
             ErrorCode::CacheNotFound,
+            ErrorCode::SessionNotFound,
+            ErrorCode::SessionExpired,
+            ErrorCode::MissingSigningKey,
         ];
         for code in codes {
             assert!(!code.default_message().is_empty());

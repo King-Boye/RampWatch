@@ -36,7 +36,7 @@ mod sep10_contract_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let issuer = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         let pk = Bytes::from_slice(&env, sk.verifying_key().as_bytes());
@@ -63,7 +63,7 @@ mod sep10_contract_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let issuer = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &issuer, &sk);
@@ -78,7 +78,7 @@ mod sep10_contract_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let issuer = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         // Set initial key
         let old_sk = SigningKey::generate(&mut OsRng);
@@ -102,6 +102,7 @@ mod sep10_contract_tests {
     }
 
     #[test]
+    #[should_panic]
     fn key_rotation_old_key_rejected_after_removal() {
         let env = make_env();
         ledger(&env, 1000);
@@ -109,7 +110,7 @@ mod sep10_contract_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let issuer = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let old_sk = SigningKey::generate(&mut OsRng);
         let old_pk = Bytes::from_slice(&env, old_sk.verifying_key().as_bytes());
@@ -122,13 +123,32 @@ mod sep10_contract_tests {
         // Remove old key after rotation window
         client.remove_sep10_verifying_key(&issuer, &old_pk);
 
-        // Old key token is now rejected
+        // Old key token is now rejected (should panic)
         let jwt_old = build_sep10_jwt(&old_sk, "any", 2000);
         let token_old = String::from_str(&env, jwt_old.as_str());
-        let result = std::panic::catch_unwind(|| {
-            client.verify_sep10_token(&token_old, &issuer);
-        });
-        assert!(result.is_err(), "old key should be rejected after removal");
+        client.verify_sep10_token(&token_old, &issuer);
+    }
+
+    #[test]
+    fn key_rotation_new_key_still_works_after_removal() {
+        let env = make_env();
+        ledger(&env, 1000);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let issuer = Address::generate(&env);
+        client.initialize(&admin, &100_u64, &None);
+
+        let old_sk = SigningKey::generate(&mut OsRng);
+        let old_pk = Bytes::from_slice(&env, old_sk.verifying_key().as_bytes());
+        client.set_sep10_jwt_verifying_key(&issuer, &old_pk);
+
+        let new_sk = SigningKey::generate(&mut OsRng);
+        let new_pk = Bytes::from_slice(&env, new_sk.verifying_key().as_bytes());
+        client.add_sep10_verifying_key(&issuer, &new_pk);
+
+        // Remove old key after rotation window
+        client.remove_sep10_verifying_key(&issuer, &old_pk);
 
         // New key token still works
         let jwt_new = build_sep10_jwt(&new_sk, "any", 2000);
@@ -144,7 +164,7 @@ mod sep10_contract_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let issuer = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &100_u64, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         let pk = Bytes::from_slice(&env, sk.verifying_key().as_bytes());
@@ -159,6 +179,7 @@ mod sep10_contract_tests {
     }
 
     #[test]
+    #[should_panic]
     fn verify_sep10_token_for_service_mismatching_scope() {
         let env = make_env();
         ledger(&env, 1000);
@@ -166,7 +187,7 @@ mod sep10_contract_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let issuer = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &100_u64, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         let pk = Bytes::from_slice(&env, sk.verifying_key().as_bytes());
@@ -176,13 +197,11 @@ mod sep10_contract_tests {
         let jwt = build_sep10_jwt_with_scope(&sk, "any", 2000, "deposit");
         let token = String::from_str(&env, jwt.as_str());
 
-        let result = std::panic::catch_unwind(|| {
-            client.verify_sep10_token_for_service(&token, &issuer, &2u32);
-        });
-        assert!(result.is_err(), "mismatching scope must return InvalidSep10Token");
+        client.verify_sep10_token_for_service(&token, &issuer, &2u32);
     }
 
     #[test]
+    #[should_panic]
     fn verify_sep10_token_for_service_no_scope_claim_rejected() {
         let env = make_env();
         ledger(&env, 1000);
@@ -190,7 +209,7 @@ mod sep10_contract_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let issuer = Address::generate(&env);
-        client.initialize(&admin);
+        client.initialize(&admin, &100_u64, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         let pk = Bytes::from_slice(&env, sk.verifying_key().as_bytes());
@@ -200,13 +219,11 @@ mod sep10_contract_tests {
         let jwt = build_sep10_jwt(&sk, "any", 2000);
         let token = String::from_str(&env, jwt.as_str());
 
-        let result = std::panic::catch_unwind(|| {
-            client.verify_sep10_token_for_service(&token, &issuer, &1u32);
-        });
-        assert!(result.is_err(), "absent scp claim must return InvalidSep10Token");
+        client.verify_sep10_token_for_service(&token, &issuer, &1u32);
     }
 
     #[test]
+    #[should_panic]
     fn max_key_count_enforced() {
         let env = make_env();
         ledger(&env, 1000);
@@ -214,7 +231,7 @@ mod sep10_contract_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let issuer = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         // Fill up to max (3)
         for _ in 0..3 {
@@ -226,9 +243,6 @@ mod sep10_contract_tests {
         // 4th key should panic
         let sk = SigningKey::generate(&mut OsRng);
         let pk = Bytes::from_slice(&env, sk.verifying_key().as_bytes());
-        let result = std::panic::catch_unwind(|| {
-            client.add_sep10_verifying_key(&issuer, &pk);
-        });
-        assert!(result.is_err(), "should reject exceeding max key count");
+        client.add_sep10_verifying_key(&issuer, &pk);
     }
 }

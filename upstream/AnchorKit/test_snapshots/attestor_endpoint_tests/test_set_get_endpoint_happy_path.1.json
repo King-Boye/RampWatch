@@ -15,7 +15,11 @@
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                }
+                },
+                {
+                  "u64": 100
+                },
+                "void"
               ]
             }
           },
@@ -36,7 +40,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "bytes": "aa3e06db82fb127fc94d51c6a40c176437213153837a033b91ef4a0f66d125a1"
+                  "bytes": "bc30d0769bec08958d44baddc2b06c590e41c71dcf2c7a817b28eeb22de4ff4a"
                 }
               ]
             }
@@ -58,7 +62,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJDQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBSEszTSIsImV4cCI6ODY0MDB9.6bVt52KTqHpC0Yf-v7GTNI-8KkEaOYzc3at5UVahlczop-pBY5eiFaPyNPYgMsn_D1_yWWq6iVBrZTi8rUy9BA"
+                  "string": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJDQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBSEszTSIsImV4cCI6ODY0MDB9.0oVnflSPIH0RPrFFojISfkkiYjtkUlDF8XPWrPScyudTZAygIum9Zuoc46_zKzeyI8ZuK_oN8nYDcFDTYxgPAg"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -111,7 +115,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "ATTESTOR"
+                  "symbol": "Attestor"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -131,7 +135,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "ATTESTOR"
+                      "symbol": "Attestor"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -156,7 +160,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "ENDPOINT"
+                  "symbol": "Endpoint"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -176,7 +180,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "ENDPOINT"
+                      "symbol": "Endpoint"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -201,7 +205,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SEP10KEY"
+                  "symbol": "Sep10Key"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -221,7 +225,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SEP10KEY"
+                      "symbol": "Sep10Key"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -230,7 +234,11 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "bytes": "aa3e06db82fb127fc94d51c6a40c176437213153837a033b91ef4a0f66d125a1"
+                  "vec": [
+                    {
+                      "bytes": "bc30d0769bec08958d44baddc2b06c590e41c71dcf2c7a817b28eeb22de4ff4a"
+                    }
+                  ]
                 }
               }
             },
@@ -272,6 +280,42 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "AuditLogMaxSize"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 100
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "MaxPageSize"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 50
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "RPWINDOW"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 300
                         }
                       }
                     ]
@@ -459,7 +503,15 @@
               }
             ],
             "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u64": 100
+                },
+                "void"
+              ]
             }
           }
         }
@@ -511,7 +563,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "bytes": "aa3e06db82fb127fc94d51c6a40c176437213153837a033b91ef4a0f66d125a1"
+                  "bytes": "bc30d0769bec08958d44baddc2b06c590e41c71dcf2c7a817b28eeb22de4ff4a"
                 }
               ]
             }
@@ -565,7 +617,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJDQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBSEszTSIsImV4cCI6ODY0MDB9.6bVt52KTqHpC0Yf-v7GTNI-8KkEaOYzc3at5UVahlczop-pBY5eiFaPyNPYgMsn_D1_yWWq6iVBrZTi8rUy9BA"
+                  "string": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJDQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBSEszTSIsImV4cCI6ODY0MDB9.0oVnflSPIH0RPrFFojISfkkiYjtkUlDF8XPWrPScyudTZAygIum9Zuoc46_zKzeyI8ZuK_oN8nYDcFDTYxgPAg"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -589,13 +641,16 @@
                 "symbol": "attestor"
               },
               {
-                "symbol": "added"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                "symbol": "reg"
               }
             ],
-            "data": "void"
+            "data": {
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                }
+              ]
+            }
           }
         }
       },

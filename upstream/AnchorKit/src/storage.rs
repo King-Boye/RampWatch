@@ -4,15 +4,21 @@ use soroban_sdk::{contracttype, Address, Bytes};
 ///
 /// Using an enum prevents typos in raw string literals and makes every
 /// storage access site self-documenting.
+///
+/// Note: the admin address is stored under the `key_admin(env)` Vec<Symbol>
+/// key in instance storage (see the helper below). There is no `Admin` variant
+/// here to avoid having two representations for the same logical key.
 #[contracttype]
 #[derive(Clone)]
 pub enum StorageKey {
-    /// Contract administrator address (instance storage).
-    Admin,
     /// SEP-10 JWT verifying key for an attestor (persistent).
     Sep10Key(Address),
     /// Whether an address is a registered attestor (persistent).
     Attestor(Address),
+    /// Revocation marker for an attestor — present when the attestor has been
+    /// revoked. Used by `get_attestation` to populate `issuer_revoked` without
+    /// rewriting every stored attestation (persistent).
+    AttestorRevoked(Address),
     /// HTTPS endpoint URL for an attestor (persistent).
     Endpoint(Address),
     /// Supported services record for an anchor (persistent).
@@ -29,14 +35,14 @@ pub enum StorageKey {
     Span(Bytes),
     /// Session record by session ID (persistent).
     Session(u64),
-    /// Session nonce by session ID (persistent).
-    SessionNonce(u64),
     /// Session operation count by session ID (persistent).
     SessionOpCount(u64),
     /// Audit log entry by log ID (persistent).
     AuditLog(u64),
     /// Maximum number of audit log entries to retain (instance storage).
     AuditLogMaxSize,
+    /// Maximum page size allowed when listing attestations (instance storage).
+    MaxPageSize,
     /// Quote record keyed by anchor + quote ID (persistent).
     Quote(Address, u64),
     /// Latest quote ID for an anchor (persistent).
@@ -49,11 +55,49 @@ pub enum StorageKey {
     Health(Address),
     /// Routing metadata for an anchor (persistent).
     AnchorMeta(Address),
+    /// ISO 3166-1 alpha-3 jurisdiction for an anchor (persistent).
+    AnchorJurisdiction(Address),
     /// Stellar.toml cache for an anchor (temporary).
     TomlCache(Address),
+    /// Running count of registered attestors (instance storage via key_attestor_count).
+    AttestorCount,
+    /// Per-attestor rate-limit state — submission count + window start (persistent).
+    RateLimitState(Address),
+    /// Per-attestor rate-limit configuration override (persistent).
+    RateLimitOverride(Address),
+    /// Per-attestor attestation count (persistent).
+    PerAttestorCount(Address),
+    /// Revocation marker for an individual attestation (persistent).
+    AttestationRevoked(u64),
+    /// Contract pause state (instance storage).
+    IsPaused,
     // --- Instance-storage counters (stored as Vec<Symbol> keys) ---
     // These are kept as plain symbol_short! vecs because instance storage
     // requires a Vec<Symbol> key; they are defined as named constants below.
+}
+
+/// Module-specific storage key variants for Sessions module.
+#[contracttype]
+#[derive(Clone)]
+pub enum SessionModuleKey {
+    /// Session counter for generating unique session IDs.
+    Counter,
+}
+
+/// Module-specific storage key variants for Attestations module.
+#[contracttype]
+#[derive(Clone)]
+pub enum AttestationModuleKey {
+    /// Attestation counter for generating unique attestation IDs.
+    Counter,
+}
+
+/// Module-specific storage key variants for RateLimiter module.
+#[contracttype]
+#[derive(Clone)]
+pub enum RateLimiterModuleKey {
+    /// Rate limiter configuration key.
+    Config,
 }
 
 // Instance-storage counter keys (Vec<Symbol>).
@@ -64,26 +108,32 @@ pub fn key_admin(env: &Env) -> Vec<Symbol> {
     soroban_sdk::vec![env, symbol_short!("ADMIN")]
 }
 pub fn key_counter(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("COUNTER")]
+    soroban_sdk::vec![env, symbol_short!("ATST_CNT")]
 }
 pub fn key_session_counter(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("SCNT")]
+    soroban_sdk::vec![env, symbol_short!("SESS_CNT")]
 }
 pub fn key_quote_counter(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("QCNT")]
+    soroban_sdk::vec![env, symbol_short!("QUOT_CNT")]
 }
 pub fn key_audit_counter(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("ACNT")]
+    soroban_sdk::vec![env, symbol_short!("AUD_CNT")]
 }
 pub fn key_audit_log_offset(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("AOFF")]
+    soroban_sdk::vec![env, symbol_short!("AUD_OFF")]
 }
 pub fn key_anchor_list(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("ANCHLIST")]
+    soroban_sdk::vec![env, symbol_short!("ANCHORS")]
 }
 pub fn key_health_threshold(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("HTHRESH")]
+    soroban_sdk::vec![env, symbol_short!("HLTH_TR")]
 }
 pub fn key_replay_window(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("RPWINDOW")]
+    soroban_sdk::vec![env, symbol_short!("REPL_WIN")]
+}
+pub fn key_attestor_count(env: &Env) -> Vec<Symbol> {
+    soroban_sdk::vec![env, symbol_short!("ATTCNT")]
+}
+pub fn key_attestor_list(env: &Env) -> Vec<Symbol> {
+    soroban_sdk::vec![env, symbol_short!("ATTESTLIST")]
 }

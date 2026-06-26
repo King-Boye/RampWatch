@@ -15,7 +15,11 @@
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                }
+                },
+                {
+                  "u64": 100
+                },
+                "void"
               ]
             }
           },
@@ -70,6 +74,42 @@
                         },
                         "val": {
                           "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "AuditLogMaxSize"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 100
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "MaxPageSize"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 50
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "RPWINDOW"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 300
                         }
                       }
                     ]
@@ -158,7 +198,15 @@
               }
             ],
             "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u64": 100
+                },
+                "void"
+              ]
             }
           }
         }
@@ -240,7 +288,7 @@
                     "symbol": "id"
                   },
                   "val": {
-                    "bytes": "1dbf595975a7597010512dc1a625a467"
+                    "bytes": "1dbf595975a7597010512dc1a625a4671d3ebb898cf96400e84709c40a08d608"
                   }
                 }
               ]
@@ -285,7 +333,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "bytes": "1dbf595975a7597010512dc1a625a467"
+                        "bytes": "1dbf595975a7597010512dc1a625a4671d3ebb898cf96400e84709c40a08d608"
                       }
                     }
                   ]
@@ -436,7 +484,7 @@
                             "symbol": "id"
                           },
                           "val": {
-                            "bytes": "1dbf595975a7597010512dc1a625a467"
+                            "bytes": "1dbf595975a7597010512dc1a625a4671d3ebb898cf96400e84709c40a08d608"
                           }
                         }
                       ]
@@ -484,7 +532,7 @@
               }
             ],
             "data": {
-              "bytes": "1dbf595975a7597010512dc1a625a467"
+              "bytes": "1dbf595975a7597010512dc1a625a4671d3ebb898cf96400e84709c40a08d608"
             }
           }
         }

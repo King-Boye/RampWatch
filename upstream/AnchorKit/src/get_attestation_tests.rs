@@ -9,7 +9,7 @@ mod get_attestation_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::register_attestor_with_sep10;
+    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -38,14 +38,6 @@ mod get_attestation_tests {
         b
     }
 
-    fn sig(env: &Env, byte: u8) -> Bytes {
-        let mut b = Bytes::new(env);
-        for _ in 0..64 {
-            b.push_back(byte);
-        }
-        b
-    }
-
     #[test]
     fn returns_none_for_missing_id() {
         let env = make_env();
@@ -54,7 +46,7 @@ mod get_attestation_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         assert!(client.get_attestation(&999).is_none());
     }
@@ -69,18 +61,19 @@ mod get_attestation_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
 
         let mut csprng = OsRng;
         let signing_key = SigningKey::generate(&mut csprng);
-        register_attestor_with_sep10(&env, &client, &attestor, &admin, &signing_key);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &signing_key);
 
+        let p = payload(&env, 0xAB);
         let id = client.submit_attestation(
             &attestor,
             &subject,
             &1700000000u64,
-            &payload(&env, 0xAB),
-            &sig(&env, 0x01),
+            &p,
+            &sign_payload(&env, &signing_key, &p),
         );
 
         let result = client.get_attestation(&id);

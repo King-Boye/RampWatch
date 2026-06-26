@@ -10,7 +10,7 @@ mod tracing_span_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::register_attestor_with_sep10;
+    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -30,7 +30,7 @@ mod tracing_span_tests {
     fn test_span_propagates_across_operations() {
         let env = make_env();
         env.ledger().set(LedgerInfo {
-            timestamp: 0,
+            timestamp: 1_000,
             protocol_version: 21,
             sequence_number: 0,
             network_id: Default::default(),
@@ -45,7 +45,7 @@ mod tracing_span_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
 
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
         let req_id = client.generate_request_id();
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
@@ -58,7 +58,7 @@ mod tracing_span_tests {
     fn test_span_emits_request_id() {
         let env = make_env();
         env.ledger().set(LedgerInfo {
-            timestamp: 0,
+            timestamp: 1_000,
             protocol_version: 21,
             sequence_number: 0,
             network_id: Default::default(),
@@ -74,18 +74,19 @@ mod tracing_span_tests {
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         let req_id = client.generate_request_id();
+        let p = payload(&env, 0x01);
         client.submit_with_request_id(
             &req_id,
             &attestor,
             &subject,
-            &1000u64,
-            &payload(&env, 0x01),
-            &Bytes::new(&env),
+            &env.ledger().timestamp(),
+            &p,
+            &sign_payload(&env, &sk, &p),
         );
 
         let span = client.get_tracing_span(&req_id.id).unwrap();
@@ -113,18 +114,19 @@ mod tracing_span_tests {
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         let req_id = client.generate_request_id();
+        let p = payload(&env, 0x01);
         client.submit_with_request_id(
             &req_id,
             &attestor,
             &subject,
             &1000u64,
-            &payload(&env, 0x01),
-            &Bytes::new(&env),
+            &p,
+            &sign_payload(&env, &sk, &p),
         );
 
         let span = client.get_tracing_span(&req_id.id).unwrap();
@@ -139,7 +141,7 @@ mod tracing_span_tests {
     fn test_structured_log_format() {
         let env = make_env();
         env.ledger().set(LedgerInfo {
-            timestamp: 0,
+            timestamp: 1_000,
             protocol_version: 21,
             sequence_number: 0,
             network_id: Default::default(),
@@ -155,18 +157,19 @@ mod tracing_span_tests {
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         let req_id = client.generate_request_id();
+        let p = payload(&env, 0x01);
         client.submit_with_request_id(
             &req_id,
             &attestor,
             &subject,
-            &1000u64,
-            &payload(&env, 0x01),
-            &Bytes::new(&env),
+            &env.ledger().timestamp(),
+            &p,
+            &sign_payload(&env, &sk, &p),
         );
 
         let span = client.get_tracing_span(&req_id.id).unwrap();

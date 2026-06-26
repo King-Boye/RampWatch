@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useSep10Auth } from "../hooks/useSep10Auth";
 
 import './themes.css';
 
@@ -169,7 +170,6 @@ function TokenDisplay({ jwt }: { jwt: string }) {
   const [revealed, setRevealed] = useState(false);
   const parts = jwt.split(".");
   const colors = ["#ff7eb3", "#79d4fd", "#7effc7"];
-  const labels = ["HEADER", "PAYLOAD", "SIGNATURE"];
   const SENSITIVE_FIELDS = ["sub", "iss", "jti"];
 
   const copy = () => {
@@ -320,20 +320,18 @@ function TokenDisplay({ jwt }: { jwt: string }) {
 function AuthStatusBadge({ wallet, jwt }: { wallet: WalletInfo; jwt: string }) {
   const [age, setAge] = useState(0);
   const [isExpired, setIsExpired] = useState(false);
-  
-  // Parse JWT to get expiry time
+
   const expiryTime = useMemo(() => {
     try {
       const parts = jwt.split(".");
       if (parts.length !== 3) return null;
       const payload = JSON.parse(atob(parts[1]));
-      return payload.exp ? payload.exp * 1000 : null; // Convert to milliseconds
+      return payload.exp ? payload.exp * 1000 : null;
     } catch {
       return null;
     }
   }, [jwt]);
 
-  // Poll token expiry every 30 seconds
   useEffect(() => {
     const checkExpiry = () => {
       if (!expiryTime) return;
@@ -345,13 +343,10 @@ function AuthStatusBadge({ wallet, jwt }: { wallet: WalletInfo; jwt: string }) {
       }
     };
 
-    // Initial check
     checkExpiry();
 
-    // Poll every 30 seconds
     const intervalId = setInterval(checkExpiry, 30000);
 
-    // Also update age counter every second for display
     const ageIntervalId = setInterval(() => {
       if (!isExpired && expiryTime) {
         const now = Date.now();
@@ -372,11 +367,13 @@ function AuthStatusBadge({ wallet, jwt }: { wallet: WalletInfo; jwt: string }) {
   const expiresIn = isExpired ? 0 : Math.max(0, 86400 - age);
   const pct = Math.max(0, (expiresIn / 86400) * 100);
 
-  // Determine status color based on expiry state
   const statusColor = isExpired ? "#ff3670" : expiresIn < 3600 ? "#ff8c00" : "#00ff9d";
   const statusBg = isExpired ? "rgba(255,54,112,0.06)" : expiresIn < 3600 ? "rgba(255,140,0,0.06)" : "rgba(0,255,157,0.06)";
   const statusBorder = isExpired ? "rgba(255,54,112,0.3)" : expiresIn < 3600 ? "rgba(255,140,0,0.3)" : "rgba(0,255,157,0.3)";
   const statusLabel = isExpired ? "EXPIRED" : "AUTHENTICATED";
+  const statusSubtext = isExpired
+    ? "Token has expired · Re-authenticate required"
+    : "Session active · SEP-10 verified";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -416,7 +413,7 @@ function AuthStatusBadge({ wallet, jwt }: { wallet: WalletInfo; jwt: string }) {
             {statusLabel}
           </div>
           <div style={{ fontSize: 10, color: "var(--ak-text-muted)", marginTop: 2 }}>
-            Session active · SEP-10 verified
+            {statusSubtext}
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
@@ -465,9 +462,9 @@ function AuthStatusBadge({ wallet, jwt }: { wallet: WalletInfo; jwt: string }) {
               height: "100%",
               borderRadius: 2,
               width: `${pct}%`,
-              background: isExpired 
-                ? "linear-gradient(90deg,#ff3670,#ff3670)" 
-                : expiresIn < 3600 
+              background: isExpired
+                ? "linear-gradient(90deg,#ff3670,#ff3670)"
+                : expiresIn < 3600
                   ? "linear-gradient(90deg,#ff8c00,#ff8c00)"
                   : "linear-gradient(90deg,#00e5ff,#00ff9d)",
               boxShadow: `0 0 8px ${statusColor}60`,
@@ -529,9 +526,7 @@ export default function SEP10AuthFlow() {
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
   const [challenge, setChallenge] = useState<string | null>(null);
   const [signedXdr, setSignedXdr] = useState<string | null>(null);
-  const [jwt, setJwt] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [domain, setDomain] = useState("testanchor.stellar.org");
   const [log, setLog] = useState<string[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
@@ -545,6 +540,46 @@ export default function SEP10AuthFlow() {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [log]);
+
+  // ── useSep10Auth ──────────────────────────────────────────────────────────
+  // Each adapter reflects the mock demo logic while also providing the values
+  // the hook needs to progress through the SEP-10 protocol.
+  const {
+    token: jwt,
+    isAuthenticated,
+    error: authError,
+    authenticate,
+    reset: resetAuth,
+  } = useSep10Auth(domain, {
+    // Returns the challenge XDR already fetched by the "Fetch Challenge" step.
+    fetchChallenge: async (_d: string, _addr: string): Promise<string> => {
+      if (!challenge) throw new Error("Challenge not yet fetched");
+      return challenge;
+    },
+    // Returns the signed XDR already produced by the "Sign Challenge" step.
+    signChallenge: async (_xdr: string): Promise<string> => {
+      if (!signedXdr) throw new Error("Challenge not yet signed");
+      return signedXdr;
+    },
+    // Submits to the anchor and receives the JWT. This is where the actual
+    // network call (or mock) lives — the only step not yet done by the UI.
+    submitChallenge: async (d: string, _signed: string): Promise<string> => {
+      addLog(`POST https://${d}/auth`);
+      addLog("Sending signed XDR...");
+      await sleep(700);
+      addLog("Response: 200 OK");
+      await sleep(300);
+      const token = mockJWT();
+      addLog("JWT received ✓");
+      addLog("Auth session established — expires in 24h");
+      return token;
+    },
+  });
+
+  // Transition to authenticated view once the hook sets the token.
+  useEffect(() => {
+    if (jwt) setStep("authenticated");
+  }, [jwt]);
 
   const NEON = "#00e5ff";
 
@@ -570,7 +605,6 @@ export default function SEP10AuthFlow() {
   // ── Step handlers ──
   const connectWallet = async () => {
     setLoading(true);
-    setError(null);
     addLog("Requesting wallet connection...");
     await sleep(900);
     addLog("Scanning for available wallets...");
@@ -586,7 +620,6 @@ export default function SEP10AuthFlow() {
 
   const fetchChallenge = async () => {
     setLoading(true);
-    setError(null);
     addLog(
       `GET https://${domain}/auth?account=${wallet?.address.slice(0, 8)}...`,
     );
@@ -602,7 +635,6 @@ export default function SEP10AuthFlow() {
 
   const signChallenge = async () => {
     setLoading(true);
-    setError(null);
     addLog("Sending challenge XDR to wallet for signing...");
     await sleep(800);
     addLog("User approved signature request");
@@ -614,19 +646,12 @@ export default function SEP10AuthFlow() {
     setLoading(false);
   };
 
+  // Delegates to useSep10Auth.authenticate() which runs the full SEP-10
+  // protocol using the adapters above (challenge and signedXdr already ready).
   const submitChallenge = async () => {
+    if (!wallet) return;
     setLoading(true);
-    setError(null);
-    addLog(`POST https://${domain}/auth`);
-    addLog("Sending signed XDR...");
-    await sleep(700);
-    addLog("Response: 200 OK");
-    await sleep(300);
-    const token = mockJWT();
-    addLog("JWT received ✓");
-    addLog("Auth session established — expires in 24h");
-    setJwt(token);
-    setStep("authenticated");
+    await authenticate(wallet.address);
     setLoading(false);
   };
 
@@ -635,8 +660,7 @@ export default function SEP10AuthFlow() {
     setWallet(null);
     setChallenge(null);
     setSignedXdr(null);
-    setJwt(null);
-    setError(null);
+    resetAuth();
     addLog("─── Session reset ───");
   };
 
@@ -897,6 +921,11 @@ export default function SEP10AuthFlow() {
             <code style={{ color: "#79d4fd", fontSize: 10 }}>Bearer</code> token
             in all subsequent SEP requests.
           </p>
+          {authError && (
+            <p style={{ fontSize: 10, color: "#ff3670", marginBottom: 12 }}>
+              {authError}
+            </p>
+          )}
           <button
             onClick={submitChallenge}
             disabled={loading || !signedXdr}
@@ -1351,7 +1380,7 @@ export default function SEP10AuthFlow() {
         </div>
 
         {/* ── Auth Status (full width, post-auth) ── */}
-        {step === "authenticated" && wallet && (
+        {step === "authenticated" && wallet && jwt && (
           <div
             style={{
               borderRadius: 12,

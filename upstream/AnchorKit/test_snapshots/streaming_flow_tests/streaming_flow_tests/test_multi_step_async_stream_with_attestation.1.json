@@ -15,7 +15,11 @@
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                }
+                },
+                {
+                  "u64": 100
+                },
+                "void"
               ]
             }
           },
@@ -36,7 +40,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "bytes": "cef8d0a120a7fc5b7455a93fa734f0cbdf5f5252b5eb310bc7a0fcf7b58fd9a3"
+                  "bytes": "9f7d4f9d51129d7f12546feb104cb7f36ebb4d242a51db089fdb75390f0897f9"
                 }
               ]
             }
@@ -58,7 +62,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJDQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBSEszTSIsImV4cCI6MTA4NjQwMH0.XjiYq2vBwPEWZIQBfFDL2xRHlC3Pp2LGc-PnphdZDFQHRzjKMwUMhGE5GyLGb55q3lC5x-Oo3oqujWrs59yvCw"
+                  "string": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJDQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBSEszTSIsImV4cCI6MTA4NjQwMH0.2M1RGm_oIXLu2Jgg7LsFpb2tO5BvIgtos6-mRYeD8Xh8bJYY2_wIqZjRzcRLnWCISG_U_qGu6mXLVAxdT0xSDQ"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -104,7 +108,7 @@
     ],
     [
       [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
         {
           "function": {
             "contract_fn": {
@@ -112,7 +116,7 @@
               "function_name": "create_session",
               "args": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 }
               ]
             }
@@ -146,7 +150,7 @@
                   "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
                 },
                 {
-                  "bytes": "0a0b0c"
+                  "bytes": "206cdcac43e92c05d6f4f4858510bb404310f3c00437dba59c86af801f0cc605b5b61a7a6d39e2bd9352e165a54f02bb744d6b83d2f7108fc7bf778467ce4c02"
                 }
               ]
             }
@@ -175,7 +179,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "ATTEST"
+                  "symbol": "Attest"
                 },
                 {
                   "u64": 0
@@ -195,7 +199,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "ATTEST"
+                      "symbol": "Attest"
                     },
                     {
                       "u64": 0
@@ -234,7 +238,7 @@
                         "symbol": "signature"
                       },
                       "val": {
-                        "bytes": "0a0b0c"
+                        "bytes": "206cdcac43e92c05d6f4f4858510bb404310f3c00437dba59c86af801f0cc605b5b61a7a6d39e2bd9352e165a54f02bb744d6b83d2f7108fc7bf778467ce4c02"
                       }
                     },
                     {
@@ -269,7 +273,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "ATTESTOR"
+                  "symbol": "Attestor"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -289,7 +293,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "ATTESTOR"
+                      "symbol": "Attestor"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -314,7 +318,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "AUDIT"
+                  "symbol": "AuditLog"
                 },
                 {
                   "u64": 0
@@ -334,7 +338,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "AUDIT"
+                      "symbol": "AuditLog"
                     },
                     {
                       "u64": 0
@@ -384,10 +388,10 @@
                           },
                           {
                             "key": {
-                              "symbol": "result_data"
+                              "symbol": "result_summary"
                             },
                             "val": {
-                              "u64": 0
+                              "string": "attestation_id=0"
                             }
                           },
                           {
@@ -441,7 +445,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SEP10KEY"
+                  "symbol": "Sep10Key"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -461,7 +465,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SEP10KEY"
+                      "symbol": "Sep10Key"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -470,7 +474,11 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "bytes": "cef8d0a120a7fc5b7455a93fa734f0cbdf5f5252b5eb310bc7a0fcf7b58fd9a3"
+                  "vec": [
+                    {
+                      "bytes": "9f7d4f9d51129d7f12546feb104cb7f36ebb4d242a51db089fdb75390f0897f9"
+                    }
+                  ]
                 }
               }
             },
@@ -486,7 +494,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SERVICES"
+                  "symbol": "Services"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -506,7 +514,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SERVICES"
+                      "symbol": "Services"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -558,7 +566,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SESS"
+                  "symbol": "Session"
                 },
                 {
                   "u64": 0
@@ -578,7 +586,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SESS"
+                      "symbol": "Session"
                     },
                     {
                       "u64": 0
@@ -598,10 +606,18 @@
                     },
                     {
                       "key": {
+                        "symbol": "expires_at"
+                      },
+                      "val": {
+                        "u64": 1086400
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "initiator"
                       },
                       "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                       }
                     },
                     {
@@ -609,7 +625,7 @@
                         "symbol": "nonce"
                       },
                       "val": {
-                        "u64": 0
+                        "u64": 6775509081846337106
                       }
                     },
                     {
@@ -644,7 +660,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SNONCE"
+                  "symbol": "SessionNonce"
                 },
                 {
                   "u64": 0
@@ -664,7 +680,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SNONCE"
+                      "symbol": "SessionNonce"
                     },
                     {
                       "u64": 0
@@ -673,7 +689,7 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "u64": 0
+                  "u64": 6775509081846337106
                 }
               }
             },
@@ -689,7 +705,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SOPCNT"
+                  "symbol": "SessionOpCount"
                 },
                 {
                   "u64": 0
@@ -709,7 +725,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SOPCNT"
+                      "symbol": "SessionOpCount"
                     },
                     {
                       "u64": 0
@@ -734,7 +750,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SUBATT"
+                  "symbol": "SubjectAttestation"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -757,7 +773,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SUBATT"
+                      "symbol": "SubjectAttestation"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -785,7 +801,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "SUBCNT"
+                  "symbol": "SubjectCount"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -805,7 +821,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "SUBCNT"
+                      "symbol": "SubjectCount"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -830,7 +846,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "USED"
+                  "symbol": "Used"
                 },
                 {
                   "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
@@ -850,7 +866,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "USED"
+                      "symbol": "Used"
                     },
                     {
                       "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
@@ -893,6 +909,14 @@
                     "storage": [
                       {
                         "key": {
+                          "symbol": "TOTALCNT"
+                        },
+                        "val": {
+                          "u64": 1
+                        }
+                      },
+                      {
+                        "key": {
                           "vec": [
                             {
                               "symbol": "ACNT"
@@ -919,12 +943,36 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "AuditLogMaxSize"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 100
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "COUNTER"
                             }
                           ]
                         },
                         "val": {
                           "u64": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "RPWINDOW"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 300
                         }
                       },
                       {
@@ -1054,6 +1102,39 @@
             "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
             "key": {
               "ledger_key_nonce": {
+                "nonce": 2032731177588607455
+              }
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+                "key": {
+                  "ledger_key_nonce": {
+                    "nonce": 2032731177588607455
+                  }
+                },
+                "durability": "temporary",
+                "val": "void"
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+            "key": {
+              "ledger_key_nonce": {
                 "nonce": 4270020994084947596
               }
             },
@@ -1116,39 +1197,6 @@
       ],
       [
         {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
-            "key": {
-              "ledger_key_nonce": {
-                "nonce": 2032731177588607455
-              }
-            },
-            "durability": "temporary"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
-                "key": {
-                  "ledger_key_nonce": {
-                    "nonce": 2032731177588607455
-                  }
-                },
-                "durability": "temporary",
-                "val": "void"
-              }
-            },
-            "ext": "v0"
-          },
-          6311999
-        ]
-      ],
-      [
-        {
           "contract_code": {
             "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
           }
@@ -1190,7 +1238,15 @@
               }
             ],
             "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u64": 100
+                },
+                "void"
+              ]
             }
           }
         }
@@ -1242,7 +1298,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "bytes": "cef8d0a120a7fc5b7455a93fa734f0cbdf5f5252b5eb310bc7a0fcf7b58fd9a3"
+                  "bytes": "9f7d4f9d51129d7f12546feb104cb7f36ebb4d242a51db089fdb75390f0897f9"
                 }
               ]
             }
@@ -1296,7 +1352,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJDQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBSEszTSIsImV4cCI6MTA4NjQwMH0.XjiYq2vBwPEWZIQBfFDL2xRHlC3Pp2LGc-PnphdZDFQHRzjKMwUMhGE5GyLGb55q3lC5x-Oo3oqujWrs59yvCw"
+                  "string": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJDQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBSEszTSIsImV4cCI6MTA4NjQwMH0.2M1RGm_oIXLu2Jgg7LsFpb2tO5BvIgtos6-mRYeD8Xh8bJYY2_wIqZjRzcRLnWCISG_U_qGu6mXLVAxdT0xSDQ"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -1320,13 +1376,16 @@
                 "symbol": "attestor"
               },
               {
-                "symbol": "added"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                "symbol": "reg"
               }
             ],
-            "data": "void"
+            "data": {
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                }
+              ]
+            }
           }
         }
       },
@@ -1486,7 +1545,7 @@
               }
             ],
             "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
             }
           }
         }
@@ -1518,7 +1577,7 @@
                     "symbol": "initiator"
                   },
                   "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                   }
                 },
                 {
@@ -1603,7 +1662,7 @@
                   "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
                 },
                 {
-                  "bytes": "0a0b0c"
+                  "bytes": "206cdcac43e92c05d6f4f4858510bb404310f3c00437dba59c86af801f0cc605b5b61a7a6d39e2bd9352e165a54f02bb744d6b83d2f7108fc7bf778467ce4c02"
                 }
               ]
             }
@@ -1880,10 +1939,10 @@
                       },
                       {
                         "key": {
-                          "symbol": "result_data"
+                          "symbol": "result_summary"
                         },
                         "val": {
-                          "u64": 0
+                          "string": "attestation_id=0"
                         }
                       },
                       {

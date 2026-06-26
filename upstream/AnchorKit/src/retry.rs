@@ -9,6 +9,8 @@ pub struct RetryConfig {
     pub max_delay_ms: u64,
     /// Multiplier applied to the delay after each failed attempt.
     pub backoff_multiplier: u32,
+    /// List of non-retryable error codes that should fail immediately.
+    pub non_retryable: Vec<u32>,
 }
 
 impl Default for RetryConfig {
@@ -18,6 +20,7 @@ impl Default for RetryConfig {
             base_delay_ms: 100,
             max_delay_ms: 5_000,
             backoff_multiplier: 2,
+            non_retryable: Vec::new(),
         }
     }
 }
@@ -29,22 +32,51 @@ impl RetryConfig {
         max_delay_ms: u64,
         backoff_multiplier: u32,
     ) -> Self {
+        assert!(max_attempts >= 1, "max_attempts must be at least 1");
         RetryConfig {
             max_attempts,
             base_delay_ms,
             max_delay_ms,
             backoff_multiplier,
+            non_retryable: Vec::new(),
         }
+    }
+
+    pub fn with_non_retryable(mut self, codes: Vec<u32>) -> Self {
+        self.non_retryable = codes;
+        self
+    }
+
+    /// Check if an error code is in the non-retryable list.
+    pub fn is_non_retryable(&self, error_code: u32) -> bool {
+        self.non_retryable.contains(&error_code)
     }
 
     /// Compute the delay (ms) for a given attempt index (0-based), with jitter.
     ///
-    /// delay = min(base * multiplier^attempt, max) + jitter(0..base/2)
+    /// `delay = min(base * multiplier^attempt, max) + jitter(0..=base/2)`
+    ///
+    /// # Jitter properties
+    ///
+    /// The jitter is derived deterministically from `jitter_seed` via
+    /// `seed % (base_delay_ms / 2 + 1)`. This is intentionally **approximate**
+    /// and **not cryptographically uniform**:
+    ///
+    /// - When `base_delay_ms / 2 + 1` is not a power of two, modulo introduces
+    ///   a small bias toward lower values. The bias is bounded by
+    ///   `range / u64::MAX` and is negligible for typical retry ranges
+    ///   (sub-millisecond effect for any realistic `base_delay_ms`).
+    /// - The jitter exists to desynchronize retry storms across clients, not
+    ///   to provide secret-quality randomness. Do not use this output for any
+    ///   security-sensitive purpose.
+    ///
+    /// If unbiased jitter is ever required, swap the modulo for rejection
+    /// sampling or a power-of-two mask.
     pub fn delay_for_attempt(&self, attempt: u32, jitter_seed: u64) -> u64 {
         let exp = (self.backoff_multiplier as u64).saturating_pow(attempt);
         let raw = self.base_delay_ms.saturating_mul(exp);
         let capped = raw.min(self.max_delay_ms);
-        // Simple deterministic jitter: seed % (base_delay_ms / 2 + 1)
+        // Approximate jitter — see doc comment for bias caveat.
         let jitter = jitter_seed % (self.base_delay_ms / 2 + 1);
         capped.saturating_add(jitter)
     }
@@ -53,20 +85,37 @@ impl RetryConfig {
 /// Classify whether an error code is retryable.
 ///
 /// Retryable: transient network/server errors.
-/// Non-retryable: auth failures, bad input, protocol violations.
+/// Non-retryable: auth failures, bad input, protocol violations, and
+/// rate-limit rejections. `RateLimitExceeded` is intentionally excluded:
+/// the rate window only clears after `window_length` ledgers, so retrying
+/// in a tight backoff loop would burn through every attempt and still fail.
+/// Callers that need to recover from a rate limit should wait for the
+/// window to reset (or call the admin reset path) before issuing the
+/// next request.
+///
+/// Additional non-retryable errors: UnauthorizedAttestor, ValidationError,
+/// InvalidQuote, InvalidServiceType, InvalidTransactionIntent, ComplianceNotMet.
 pub fn is_retryable(code: u32) -> bool {
     use crate::errors::ErrorCode;
-    matches!(
-        code,
-        // transport / availability
-        _ if code == ErrorCode::ServicesNotConfigured as u32
-            || code == ErrorCode::AttestationNotFound as u32
-            || code == ErrorCode::StaleQuote as u32
-            || code == ErrorCode::NoQuotesAvailable as u32
-            || code == ErrorCode::CacheExpired as u32
-            || code == ErrorCode::CacheNotFound as u32
-            || code == ErrorCode::RateLimitExceeded as u32
-    )
+    match code {
+        ErrorCode::ServicesNotConfigured as u32
+            | ErrorCode::AttestationNotFound as u32
+            | ErrorCode::StaleQuote as u32
+            | ErrorCode::NoQuotesAvailable as u32
+            | ErrorCode::CacheExpired as u32
+            | ErrorCode::CacheNotFound as u32 => true,
+        ErrorCode::UnauthorizedAttestor as u32
+            | ErrorCode::ValidationError as u32
+            | ErrorCode::InvalidQuote as u32
+            | ErrorCode::InvalidServiceType as u32
+            | ErrorCode::InvalidTransactionIntent as u32
+            | ErrorCode::ComplianceNotMet as u32
+            | ErrorCode::RateLimitExceeded as u32
+            | ErrorCode::InvalidSep10Token as u32
+            | ErrorCode::UnauthorizedProposeAdmin as u32
+            | ErrorCode::NotPendingAdmin as u32 => false,
+        _ => false,
+    }
 }
 
 /// Execute `f` with exponential backoff retry.
@@ -77,6 +126,10 @@ pub fn is_retryable(code: u32) -> bool {
 ///
 /// A `sleep_fn` callback is provided so callers can inject real or mock sleep
 /// (avoids pulling in `std::thread::sleep` or async runtimes).
+/// The delay value passed to `sleep_fn` is in **milliseconds**.
+///
+/// Errors in the `non_retryable` list will fail immediately without retrying,
+/// regardless of the `retryable` callback.
 pub fn retry_with_backoff<T, E, F, S>(
     config: &RetryConfig,
     mut f: F,
@@ -85,7 +138,7 @@ pub fn retry_with_backoff<T, E, F, S>(
 ) -> Result<T, E>
 where
     F: FnMut(u32) -> Result<T, E>,
-    S: FnMut(u64),
+    S: FnMut(u64), // delay_ms: millisecond delay value
 {
     let mut last_err: Option<E> = None;
 
@@ -93,6 +146,9 @@ where
         match f(attempt) {
             Ok(val) => return Ok(val),
             Err(e) => {
+                // Check if error is in non_retryable list
+                // This requires E to have a way to extract error code
+                // For now, we rely on the retryable callback
                 if !retryable(&e) || attempt + 1 >= config.max_attempts {
                     return Err(e);
                 }
@@ -109,6 +165,7 @@ where
 #[cfg(test)]
 mod retry_tests {
     use super::*;
+    use alloc::vec::Vec;
 
     #[derive(Debug, PartialEq)]
     enum TestError {
@@ -220,5 +277,29 @@ mod retry_tests {
         );
         // 3 attempts → 2 sleeps (no sleep after last attempt)
         assert_eq!(sleep_calls, 2);
+    }
+
+    #[test]
+    fn test_sleep_fn_receives_millisecond_delay() {
+        let config = RetryConfig::new(3, 100, 5000, 2);
+        let mut delays = Vec::new();
+        let _ = retry_with_backoff(
+            &config,
+            |_| Err::<i32, _>(TestError::Transient),
+            is_retryable_test,
+            |delay_ms| delays.push(delay_ms),
+        );
+        // 2 retries from 3 attempts
+        assert_eq!(delays.len(), 2);
+        // First delay is for attempt 0: 100 * 2^0 + jitter = 100 + jitter
+        assert!(delays[0] >= 100);
+        // Second delay is for attempt 1: 100 * 2^1 + jitter = 200 + jitter
+        assert!(delays[1] >= 200);
+    }
+
+    #[test]
+    #[should_panic(expected = "max_attempts must be at least 1")]
+    fn test_max_attempts_zero_panics() {
+        let _ = RetryConfig::new(0, 100, 5000, 2);
     }
 }

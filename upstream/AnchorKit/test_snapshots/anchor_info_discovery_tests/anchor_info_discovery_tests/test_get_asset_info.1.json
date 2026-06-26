@@ -48,6 +48,14 @@
                               },
                               {
                                 "key": {
+                                  "symbol": "decimals"
+                                },
+                                "val": {
+                                  "u32": 7
+                                }
+                              },
+                              {
+                                "key": {
                                   "symbol": "deposit_enabled"
                                 },
                                 "val": {
@@ -148,6 +156,14 @@
                               },
                               {
                                 "key": {
+                                  "symbol": "decimals"
+                                },
+                                "val": {
+                                  "u32": 7
+                                }
+                              },
+                              {
+                                "key": {
                                   "symbol": "deposit_enabled"
                                 },
                                 "val": {
@@ -241,6 +257,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "fiat_currencies"
+                      },
+                      "val": {
+                        "vec": []
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "kyc_server"
                       },
                       "val": {
@@ -298,6 +322,9 @@
                   ]
                 },
                 {
+                  "string": "Test SDF Network ; September 2015"
+                },
+                {
                   "u64": 3600
                 }
               ]
@@ -326,7 +353,50 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "TOMLCACHE"
+                  "symbol": "CANCHORS"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "CANCHORS"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "vec": [
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          1555200
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "TomlCache"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -346,7 +416,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "TOMLCACHE"
+                      "symbol": "TomlCache"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -396,6 +466,14 @@
                                       },
                                       "val": {
                                         "string": "USDC"
+                                      }
+                                    },
+                                    {
+                                      "key": {
+                                        "symbol": "decimals"
+                                      },
+                                      "val": {
+                                        "u32": 7
                                       }
                                     },
                                     {
@@ -500,6 +578,14 @@
                                     },
                                     {
                                       "key": {
+                                        "symbol": "decimals"
+                                      },
+                                      "val": {
+                                        "u32": 7
+                                      }
+                                    },
+                                    {
+                                      "key": {
                                         "symbol": "deposit_enabled"
                                       },
                                       "val": {
@@ -589,6 +675,14 @@
                                   ]
                                 }
                               ]
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "fiat_currencies"
+                            },
+                            "val": {
+                              "vec": []
                             }
                           },
                           {
@@ -811,6 +905,14 @@
                               },
                               {
                                 "key": {
+                                  "symbol": "decimals"
+                                },
+                                "val": {
+                                  "u32": 7
+                                }
+                              },
+                              {
+                                "key": {
                                   "symbol": "deposit_enabled"
                                 },
                                 "val": {
@@ -911,6 +1013,14 @@
                               },
                               {
                                 "key": {
+                                  "symbol": "decimals"
+                                },
+                                "val": {
+                                  "u32": 7
+                                }
+                              },
+                              {
+                                "key": {
                                   "symbol": "deposit_enabled"
                                 },
                                 "val": {
@@ -1004,6 +1114,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "fiat_currencies"
+                      },
+                      "val": {
+                        "vec": []
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "kyc_server"
                       },
                       "val": {
@@ -1059,6 +1177,9 @@
                       }
                     }
                   ]
+                },
+                {
+                  "string": "Test SDF Network ; September 2015"
                 },
                 {
                   "u64": 3600
@@ -1147,6 +1268,14 @@
                   },
                   "val": {
                     "string": "USDC"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "decimals"
+                  },
+                  "val": {
+                    "u32": 7
                   }
                 },
                 {
