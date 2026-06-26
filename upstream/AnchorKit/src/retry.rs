@@ -11,6 +11,10 @@ pub struct RetryConfig {
     pub backoff_multiplier: u32,
     /// List of non-retryable error codes that should fail immediately.
     pub non_retryable: Vec<u32>,
+    /// Total cumulative wait budget in milliseconds. Once the sum of all
+    /// delays reaches or exceeds this value, no further retries are attempted.
+    /// Set to `u64::MAX` (the default) to disable the budget cap.
+    pub budget_ms: u64,
 }
 
 impl Default for RetryConfig {
@@ -21,6 +25,7 @@ impl Default for RetryConfig {
             max_delay_ms: 5_000,
             backoff_multiplier: 2,
             non_retryable: Vec::new(),
+            budget_ms: u64::MAX,
         }
     }
 }
@@ -39,6 +44,7 @@ impl RetryConfig {
             max_delay_ms,
             backoff_multiplier,
             non_retryable: Vec::new(),
+            budget_ms: u64::MAX,
         }
     }
 
@@ -52,33 +58,33 @@ impl RetryConfig {
         self.non_retryable.contains(&error_code)
     }
 
-    /// Compute the delay (ms) for a given attempt index (0-based), with jitter.
+    /// Compute the delay (ms) for a given attempt index (0-based), with full jitter.
     ///
-    /// `delay = min(base * multiplier^attempt, max) + jitter(0..=base/2)`
+    /// `delay = rand(0..=min(base * multiplier^attempt, max))`
     ///
-    /// # Jitter properties
+    /// # Full jitter
+    ///
+    /// Full jitter spreads retries uniformly across the entire backoff window
+    /// `[0, capped_delay]` rather than adding a small random offset on top of
+    /// the deterministic delay. This gives better thundering-herd protection
+    /// when many clients retry simultaneously (see the AWS "Exponential Backoff
+    /// And Jitter" post).
     ///
     /// The jitter is derived deterministically from `jitter_seed` via
-    /// `seed % (base_delay_ms / 2 + 1)`. This is intentionally **approximate**
-    /// and **not cryptographically uniform**:
+    /// `seed % (capped + 1)`. This is intentionally **approximate** and
+    /// **not cryptographically uniform**:
     ///
-    /// - When `base_delay_ms / 2 + 1` is not a power of two, modulo introduces
-    ///   a small bias toward lower values. The bias is bounded by
-    ///   `range / u64::MAX` and is negligible for typical retry ranges
-    ///   (sub-millisecond effect for any realistic `base_delay_ms`).
+    /// - Modulo introduces a small bias toward lower values when `capped + 1`
+    ///   is not a power of two. The bias is negligible for typical retry ranges.
     /// - The jitter exists to desynchronize retry storms across clients, not
     ///   to provide secret-quality randomness. Do not use this output for any
     ///   security-sensitive purpose.
-    ///
-    /// If unbiased jitter is ever required, swap the modulo for rejection
-    /// sampling or a power-of-two mask.
     pub fn delay_for_attempt(&self, attempt: u32, jitter_seed: u64) -> u64 {
         let exp = (self.backoff_multiplier as u64).saturating_pow(attempt);
         let raw = self.base_delay_ms.saturating_mul(exp);
         let capped = raw.min(self.max_delay_ms);
-        // Approximate jitter — see doc comment for bias caveat.
-        let jitter = jitter_seed % (self.base_delay_ms / 2 + 1);
-        capped.saturating_add(jitter)
+        // Full jitter: uniform in [0, capped].
+        jitter_seed % (capped + 1)
     }
 }
 
@@ -104,7 +110,6 @@ pub fn is_retryable(code: u32) -> bool {
             | ErrorCode::NoQuotesAvailable as u32
             | ErrorCode::CacheExpired as u32
             | ErrorCode::CacheNotFound as u32 => true,
-        // Explicitly non-retryable errors
         ErrorCode::UnauthorizedAttestor as u32
             | ErrorCode::ValidationError as u32
             | ErrorCode::InvalidQuote as u32
@@ -142,6 +147,7 @@ where
     S: FnMut(u64), // delay_ms: millisecond delay value
 {
     let mut last_err: Option<E> = None;
+    let mut cumulative_delay_ms: u64 = 0;
 
     for attempt in 0..config.max_attempts {
         match f(attempt) {
@@ -154,6 +160,10 @@ where
                     return Err(e);
                 }
                 let delay = config.delay_for_attempt(attempt, attempt as u64 * 17 + 3);
+                cumulative_delay_ms = cumulative_delay_ms.saturating_add(delay);
+                if cumulative_delay_ms >= config.budget_ms {
+                    return Err(e);
+                }
                 sleep_fn(delay);
                 last_err = Some(e);
             }
@@ -166,6 +176,7 @@ where
 #[cfg(test)]
 mod retry_tests {
     use super::*;
+    use alloc::vec::Vec;
 
     #[derive(Debug, PartialEq)]
     enum TestError {
@@ -252,17 +263,20 @@ mod retry_tests {
     #[test]
     fn test_delay_increases_exponentially() {
         let config = RetryConfig::new(4, 100, 10_000, 2);
-        // attempt 0: 100 * 2^0 = 100, attempt 1: 200, attempt 2: 400
-        assert!(config.delay_for_attempt(0, 0) >= 100);
-        assert!(config.delay_for_attempt(1, 0) >= 200);
-        assert!(config.delay_for_attempt(2, 0) >= 400);
+        // Full jitter: delay is in [0, capped]. Use non-zero seed to get non-zero delays.
+        // attempt 0 capped = 100, attempt 1 = 200, attempt 2 = 400
+        assert!(config.delay_for_attempt(0, 50) <= 100);
+        assert!(config.delay_for_attempt(1, 100) <= 200);
+        assert!(config.delay_for_attempt(2, 300) <= 400);
+        // With seed=capped the result equals capped (modulo wraps to capped)
+        assert_eq!(config.delay_for_attempt(0, 100), 100 % 101);
     }
 
     #[test]
     fn test_delay_capped_at_max() {
         let config = RetryConfig::new(10, 1000, 3_000, 2);
-        // attempt 5: 1000 * 2^5 = 32000, capped at 3000
-        assert!(config.delay_for_attempt(5, 0) <= 3_000 + config.base_delay_ms / 2 + 1);
+        // attempt 5: 1000 * 2^5 = 32000, capped at 3000; full jitter in [0, 3000]
+        assert!(config.delay_for_attempt(5, 99999) <= 3_000);
     }
 
     #[test]
@@ -291,15 +305,43 @@ mod retry_tests {
         );
         // 2 retries from 3 attempts
         assert_eq!(delays.len(), 2);
-        // First delay is for attempt 0: 100 * 2^0 + jitter = 100 + jitter
-        assert!(delays[0] >= 100);
-        // Second delay is for attempt 1: 100 * 2^1 + jitter = 200 + jitter
-        assert!(delays[1] >= 200);
+        // Full jitter: delays are in [0, capped_delay]
+        assert!(delays[0] <= 100);
+        assert!(delays[1] <= 200);
     }
 
     #[test]
     #[should_panic(expected = "max_attempts must be at least 1")]
     fn test_max_attempts_zero_panics() {
         let _ = RetryConfig::new(0, 100, 5000, 2);
+    }
+
+    #[test]
+    fn test_budget_ms_stops_retries_early() {
+        // Full jitter with seed (attempt * 17 + 3): attempt 0 seed=3, delay = 3 % 101 = 3
+        // budget_ms=2 means cumulative (3) >= budget (2) on first retry → stops after 2 calls
+        let config = RetryConfig { budget_ms: 2, ..RetryConfig::new(5, 100, 5000, 2) };
+        let mut calls = 0u32;
+        let result = retry_with_backoff(
+            &config,
+            |_| { calls += 1; Err::<i32, _>(TestError::Transient) },
+            is_retryable_test,
+            |_| {},
+        );
+        assert_eq!(result, Err(TestError::Transient));
+        assert_eq!(calls, 2); // stopped before sleeping/retrying further
+    }
+
+    #[test]
+    fn test_budget_ms_max_does_not_limit() {
+        let config = RetryConfig::new(3, 10, 1000, 2); // budget_ms = u64::MAX by default
+        let mut calls = 0u32;
+        let _ = retry_with_backoff(
+            &config,
+            |_| { calls += 1; Err::<i32, _>(TestError::Transient) },
+            is_retryable_test,
+            |_| {},
+        );
+        assert_eq!(calls, 3); // all attempts used
     }
 }
