@@ -341,4 +341,7 @@ pub enum ContractError {
 
     /// No active admin nomination exists.
     NominationNotFound = 82,
+
+    /// Evidence hash for a dispute is not a valid 32-byte SHA-256 commitment.
+    MalformedEvidenceHash = 83,
 }

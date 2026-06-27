@@ -238,6 +238,7 @@ impl TransactionController {
             created_at: env.ledger().timestamp(),
             failed_at: None,
             dispute_evidence: crate::MaybeBytes32::None,
+            expires_at: None,
         };
 
         crate::storage::set_remittance(env, remittance_id, &remittance);
