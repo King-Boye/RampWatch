@@ -119,3 +119,6 @@ mod payload_hash_vectors_tests;
 
 #[cfg(test)]
 mod session_expiry_error_tests;
+
+#[cfg(test)]
+mod pause_tests;
