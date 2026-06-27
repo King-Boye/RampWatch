@@ -32,6 +32,7 @@ fn create_metadata(
         total_volume: 1_000_000,
         average_settlement_time: settlement_time,
         is_active: true,
+        homepage_url: None,
     }
 }
 

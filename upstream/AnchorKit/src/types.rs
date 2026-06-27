@@ -380,6 +380,8 @@ pub struct AnchorMetadata {
     pub total_volume: u64,
     pub average_settlement_time: u64,
     pub is_active: bool,
+    /// Optional public homepage URL for the anchor (e.g. "https://anchor.example.com").
+    pub homepage_url: Option<String>,
 }
 
 #[contracttype]
