@@ -72,6 +72,27 @@ export class SwiftRemitClient {
   private readonly retryDelayMs: number;
   private readonly retryBackoffFactor: number;
 
+  /**
+   * Initialize a SwiftRemit SDK client.
+   * 
+   * @param options - Client configuration
+   * @param options.contractId - The deployed SwiftRemit contract address
+   * @param options.networkPassphrase - Stellar network passphrase (e.g., Networks.TESTNET)
+   * @param options.rpcUrl - Soroban RPC endpoint URL
+   * @param options.fee - Optional: Transaction fee in stroops (default: 100)
+   * @param options.retries - Optional: Retry attempts for transient errors (default: 3)
+   * @param options.retryDelayMs - Optional: Initial retry delay in ms (default: 1000)
+   * @param options.retryBackoffFactor - Optional: Backoff multiplier for retries (default: 2)
+   * 
+   * @example
+   * import { SwiftRemitClient, Networks, RpcUrls } from '@swiftremit/sdk';
+   * 
+   * const client = new SwiftRemitClient({
+   *   contractId: 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4',
+   *   networkPassphrase: Networks.TESTNET,
+   *   rpcUrl: RpcUrls.TESTNET,
+   * });
+   */
   constructor(options: SwiftRemitClientOptions) {
     this.contract = new Contract(options.contractId);
     const allowHttp = shouldAllowHttp(options.rpcUrl);
@@ -194,6 +215,17 @@ export class SwiftRemitClient {
   // ─── Query functions ─────────────────────────────────────────────────────────
 
   /** Retrieve a remittance record by ID. */
+  /**
+   * Retrieve a single remittance by ID.
+   * 
+   * @param sourceAddress - Query account address
+   * @param remittanceId - The remittance ID to retrieve
+   * @returns The remittance details including sender, agent, amount, status, etc.
+   * 
+   * @example
+   * const remittance = await client.getRemittance(senderAddress, 1n);
+   * console.log(`Status: ${remittance.status}`);
+   */
   async getRemittance(
     sourceAddress: string,
     remittanceId: bigint
@@ -204,7 +236,15 @@ export class SwiftRemitClient {
     return parseRemittance(val);
   }
 
-  /** Get paginated remittance IDs for a sender. */
+  /**
+   * Get paginated remittance IDs for a sender.
+   * 
+   * @param sourceAddress - Query account address
+   * @param sender - Sender address to filter remittances
+   * @param offset - Pagination offset
+   * @param limit - Maximum results to return
+   * @returns Array of remittance IDs for the sender
+   */
   async getRemittancesBySender(
     sourceAddress: string,
     sender: string,
@@ -454,7 +494,32 @@ export class SwiftRemitClient {
     ]);
   }
 
-  /** Create a new remittance. */
+  /**
+   * Create a new remittance transaction.
+   * 
+   * The sender approves USDC to the contract, and this method creates a remittance
+   * escrow. The contract holds USDC until an agent confirms payout or the remittance expires.
+   * 
+   * @param params - Remittance creation parameters
+   * @param params.sender - Sender's Stellar address (must authorize transaction)
+   * @param params.agent - Agent's Stellar address to receive payout notification
+   * @param params.amount - Amount in stroops (1 USDC = 10_000_000 stroops)
+   * @param params.expiry - Optional: Ledger sequence after which remittance auto-expires
+   * @param params.token - Optional: Token contract ID (defaults to USDC)
+   * @param params.idempotencyKey - Optional: Prevent duplicate remittances on retry
+   * @param params.recipientHash - Optional: Hash for recipient verification
+   * @returns Prepared transaction ready for signing
+   * 
+   * @example
+   * const tx = await client.createRemittance({
+   *   sender: senderAddress,
+   *   agent: agentAddress,
+   *   amount: toStroops(100), // 100 USDC
+   *   expiry: ledgerSeq + 1000, // ~5 minutes
+   *   idempotencyKey: 'order-12345',
+   * });
+   * // Sign and submit tx
+   */
   async createRemittance(params: CreateRemittanceParams): Promise<Transaction> {
     return this.prepareTransaction(params.sender, "create_remittance", [
       addressToScVal(params.sender),
@@ -475,7 +540,21 @@ export class SwiftRemitClient {
     ]);
   }
 
-  /** Create multiple remittances in one batch. */
+  /**
+   * Create multiple remittances in a single batch transaction.
+   * 
+   * More efficient than individual create_remittance calls when creating many remittances.
+   * 
+   * @param sender - Batch creator's address
+   * @param entries - Array of remittance entries (max 50 per batch)
+   * @returns Prepared batch transaction
+   * 
+   * @example
+   * const tx = await client.batchCreateRemittances(senderAddress, [
+   *   { agent: agent1, amount: toStroops(100) },
+   *   { agent: agent2, amount: toStroops(250) },
+   * ]);
+   */
   async batchCreateRemittances(
     sender: string,
     entries: BatchCreateEntry[]
