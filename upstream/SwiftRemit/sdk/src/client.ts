@@ -25,6 +25,7 @@ import type {
   RemittanceEventType,
   SubscribeOptions,
   Unsubscribe,
+  EventHandler,
 } from "./types.js";
 import { parseContractError, SwiftRemitError, ErrorCode } from "./errors.js";
 import { withRetry } from "./retry.js";
@@ -860,4 +861,105 @@ export class SwiftRemitClient {
       active = false;
     };
   }
+
+  /**
+   * Subscribe to typed contract events with full TypeScript type safety.
+   * 
+   * @param eventType - The specific event type to listen for
+   * @param handler - Callback function called when an event of this type is emitted
+   * @param options - Optional subscription options (filter by remittanceId, sender, agent, etc)
+   * @returns Unsubscribe function to stop listening
+   * 
+   * @example
+   * const unsubscribe = client.on('created', (event) => {
+   *   console.log(`Remittance ${event.data.remittanceId} created`);
+   * });
+   * // Later:
+   * unsubscribe();
+   */
+  on<T extends RemittanceEventType>(
+    eventType: T,
+    handler: EventHandler<T>,
+    options?: SubscribeOptions
+  ): Unsubscribe {
+    return this.subscribe(
+      (event) => {
+        if (event.type === eventType) {
+          handler({
+            type: eventType,
+            data: event.raw,
+            ledger: event.ledger,
+            ledgerClosedAt: event.ledgerClosedAt,
+          });
+        }
+      },
+      options
+    );
+  }
+
+  /**
+   * Subscribe to multiple event types with a single handler.
+   * 
+   * @param eventTypes - Array of event types to listen for
+   * @param handler - Callback called when any of the specified events are emitted
+   * @param options - Optional subscription options
+   * @returns Unsubscribe function
+   * 
+   * @example
+   * const unsubscribe = client.onAny(['created', 'completed', 'failed'], (event) => {
+   *   console.log(`Event: ${event.type}`);
+   * });
+   */
+  onAny(
+    eventTypes: RemittanceEventType[],
+    handler: (event: { type: RemittanceEventType; ledger: number; ledgerClosedAt: string }) => Promise<void> | void,
+    options?: SubscribeOptions
+  ): Unsubscribe {
+    return this.subscribe(
+      (event) => {
+        if (eventTypes.includes(event.type)) {
+          handler({
+            type: event.type,
+            ledger: event.ledger,
+            ledgerClosedAt: event.ledgerClosedAt,
+          });
+        }
+      },
+      options
+    );
+  }
+
+  /**
+   * Get all available contract event types.
+   */
+  static readonly ALL_EVENTS: RemittanceEventType[] = [
+    "created",
+    "completed",
+    "cancelled",
+    "failed",
+    "disputed",
+    "partial_payout",
+    "expired",
+    "agent_registered",
+    "agent_removed",
+    "fee_updated",
+    "paused",
+    "unpaused",
+    "admin_added",
+    "admin_removed",
+    "circuit_breaker_paused",
+    "circuit_breaker_unpaused",
+    "user_blacklisted",
+    "user_removed_from_blacklist",
+    "token_whitelisted",
+    "token_removed_from_whitelist",
+    "daily_limit_updated",
+    "dispute_raised",
+    "dispute_resolved",
+    "proposal_created",
+    "proposal_voted",
+    "proposal_approved",
+    "proposal_executed",
+    "settlement_completed",
+  ];
 }
