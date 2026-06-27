@@ -123,6 +123,7 @@ pub struct SettlementConfig {
     pub oracle_address: Option<Address>,
 }
 
+/// Contracttype-compatible wrapper for Option<SettlementConfig>.
 /// Escrow status for locked funds
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -373,6 +374,10 @@ pub struct CircuitBreakerStatus {
     pub unpause_quorum: u32,
     /// Number of votes cast for the current pause instance.
     pub current_vote_count: u32,
+    /// Ledger timestamp of the most recent unpause, or `None` if never unpaused.
+    pub last_unpause_at: Option<u64>,
+    /// Post-unpause cooldown period in seconds; rate limits are halved during this window.
+    pub cooldown_period_seconds: u64,
 }
 
 /// Idempotency record for duplicate remittance prevention.
@@ -389,6 +394,8 @@ pub struct IdempotencyRecord {
     pub request_hash: soroban_sdk::BytesN<32>,
     /// The remittance ID returned from the original request
     pub remittance_id: u64,
+    /// Ledger timestamp when this record was created
+    pub created_at: u64,
     /// Timestamp when this record expires (ledger timestamp)
     pub expires_at: u64,
 }
@@ -415,6 +422,8 @@ pub enum ProposalAction {
     UpdateQuorum(u32),
     /// Update the governance execution timelock in seconds.
     UpdateTimelock(u64),
+    /// Update the post-unpause cooldown period in seconds (0 = disabled).
+    UpdateCooldownPeriod(u64),
 }
 
 /// Lifecycle state of a governance proposal.

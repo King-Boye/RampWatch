@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, Address, Env, Map, Vec};
 
-use crate::{ContractError, Remittance, RemittanceStatus, config::MAX_NETTING_BATCH_SIZE};
+use crate::{ContractError, MaybeBytes32, Remittance, RemittanceStatus, config::MAX_NETTING_BATCH_SIZE};
 
 /// Result of a netting computation, pairing net transfers with IDs that were
 /// excluded because they are in a non-nettable state (Failed or Disputed).
@@ -269,7 +269,7 @@ mod tests {
             token: addr_a.clone(),
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         });
 
@@ -286,7 +286,7 @@ mod tests {
             token: addr_a.clone(),
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         });
 
@@ -328,7 +328,7 @@ mod tests {
             token: addr_a.clone(),
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         });
 
@@ -345,7 +345,7 @@ mod tests {
             token: addr_a.clone(),
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         });
 
@@ -378,7 +378,7 @@ mod tests {
             token: addr_a.clone(),
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         });
 
@@ -395,7 +395,7 @@ mod tests {
             token: addr_a.clone(),
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         });
 
@@ -412,7 +412,7 @@ mod tests {
             token: addr_a.clone(),
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         });
 
@@ -450,7 +450,7 @@ mod tests {
             token: addr_a.clone(),
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         });
 
@@ -466,7 +466,7 @@ mod tests {
             token: addr_a.clone(),
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         });
 
@@ -496,7 +496,7 @@ mod tests {
             token: addr_a.clone(),
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         });
         remittances1.push_back(Remittance {
@@ -511,7 +511,7 @@ mod tests {
             token: addr_a.clone(),
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         });
 
@@ -529,7 +529,7 @@ mod tests {
             token: addr_a.clone(),
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         });
         remittances2.push_back(Remittance {
@@ -544,7 +544,7 @@ mod tests {
             token: addr_a.clone(),
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         });
 
@@ -585,7 +585,7 @@ mod tests {
             token: soroban_sdk::Address::generate(env),
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         }
     }

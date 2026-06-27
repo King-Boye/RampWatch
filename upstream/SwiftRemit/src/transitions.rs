@@ -15,7 +15,7 @@
 //! 4. State updates are atomic — no partial writes
 //! 5. Same-state transitions are idempotent (safe for retries)
 
-use crate::types::RemittanceStatus;
+use crate::types::{MaybeBytes32, RemittanceStatus};
 use crate::errors::ContractError;
 use soroban_sdk::Env;
 
@@ -315,7 +315,7 @@ mod tests {
             token,
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         };
 
@@ -343,7 +343,7 @@ mod tests {
             token,
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         };
 
@@ -372,7 +372,7 @@ mod tests {
             token,
             created_at: 0,
             failed_at: None,
-            dispute_evidence: None,
+            dispute_evidence: MaybeBytes32::None,
             expires_at: None,
         };
 

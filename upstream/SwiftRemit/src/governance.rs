@@ -103,6 +103,7 @@ pub fn do_propose(
             }
         }
         ProposalAction::UpdateTimelock(_) => {}
+        ProposalAction::UpdateCooldownPeriod(_) => {}
     }
 
     let id = next_proposal_id(env);
@@ -401,6 +402,9 @@ fn dispatch_action(
         ProposalAction::UpdateTimelock(s) => {
             set_governance_timelock(env, *s);
         }
+        ProposalAction::UpdateCooldownPeriod(secs) => {
+            crate::circuit_breaker_storage::set_cooldown_period(env, *secs);
+        }
     }
     Ok(())
 }
@@ -418,5 +422,6 @@ fn action_type_symbol(env: &Env, action: &ProposalAction) -> Symbol {
         ProposalAction::RemoveAdmin(_) => Symbol::new(env, "rem_admin"),
         ProposalAction::UpdateQuorum(_) => Symbol::new(env, "upd_quorum"),
         ProposalAction::UpdateTimelock(_) => Symbol::new(env, "upd_tlock"),
+        ProposalAction::UpdateCooldownPeriod(_) => Symbol::new(env, "upd_cool"),
     }
 }

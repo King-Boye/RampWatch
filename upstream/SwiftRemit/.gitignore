@@ -60,7 +60,35 @@ proptest-regressions/
 coverage/
 lcov.info
 
-# Temporary
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.DS_Store
+
+# OS metadata
+Thumbs.db
+
+# Generated / build artifacts
+node_modules/
+dist/
+build/
+*.log
+*.lock
 *.tmp
 *.bak
 *.orig
+
+# Coverage output
+backend/coverage/
+frontend/coverage/
+
+# Local environment overrides
+.env.local
+.env.*.local
+
+# Soroban CLI identity files (contain private keys)
+.soroban-identity/
+identity/
