@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import SEP10AuthFlow from './Sep10AuthFlow';
@@ -747,5 +747,189 @@ describe('Token Expiry Polling', () => {
     act(() => {
       jest.advanceTimersByTime(60000);
     });
+  });
+});
+
+describe('SEP-10 Integration Tests', () => {
+  // Mock anchor server responses
+  const mockAnchorServer = {
+    challenge: 'AAAAAGL8HQvQkbK2HA3WVjRrKmjX00fG8sLI7m0ERwJW/AX3AAAAZAAiII0AAAABAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAArqN6LeOagjxMaUP96Bzfs9e0corNZXzBWJkFoK7kvkwAAAAXSHboHQAAAAA=',
+    signedXdr: 'AAAAAGL8HQvQkbK2HA3WVjRrKmjX00fG8sLI7m0ERwJW/AX3AAAAZAAiII0AAAABAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAArqN6LeOagjxMaUP96Bzfs9e0corNZXzBWJkFoK7kvkwAAAAXSHboHQAAAABqfF0L0JGytgwN1lY0aypo19NHxvLCyO5tBEcCVvwF9wAAAEDn6quNiED+WSSXUVNI7aXIERuSR7fl2GWoOK+UOSHiLPdHBQoqBDyfa8PPiRoxiQVjah6EEqMENREaaegGabJM',
+    jwt: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0ZXN0YW5jaG9yLnN0ZWxsYXIub3JnIiwic3ViIjoiR0w4SFF2UWtiSzJIQTNXVmpSckttalgwMGZHOHNMSTdtMEVSd0pXX0FYMyIsImlhdCI6MTY0MDk5NTIwMCwiZXhwIjoxNjQxMDgxNjAwLCJqdGkiOiJ0ZXN0LXV1aWQtMTIzNC01Njc4LTkwYWItY2RlZiJ9.signature'
+  };
+
+  beforeEach(() => {
+    // Mock fetch for anchor server requests
+    global.fetch = jest.fn();
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it('completes full SEP-10 authentication round-trip', async () => {
+    // Mock the anchor server endpoints
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          transaction: mockAnchorServer.challenge,
+          network_passphrase: 'Test SDF Network ; September 2015'
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          token: mockAnchorServer.jwt
+        })
+      });
+
+    render(<SEP10AuthFlow />);
+
+    // Step 1: Connect wallet
+    const connectButton = screen.getByRole('button', { name: /Connect Wallet/ });
+    await act(async () => {
+      fireEvent.click(connectButton);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/CONNECTED ACCOUNT/)).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Step 2: Fetch challenge from anchor
+    await waitFor(() => {
+      const fetchButton = screen.getByRole('button', { name: /Fetch Challenge/ });
+      fireEvent.click(fetchButton);
+    }, { timeout: 3000 });
+
+    await waitFor(() => {
+      expect(screen.getByText(/CHALLENGE XDR/)).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Step 3: Sign challenge with wallet
+    await waitFor(() => {
+      const signButton = screen.getByText(/Sign with Wallet/);
+      fireEvent.click(signButton);
+    }, { timeout: 3000 });
+
+    await waitFor(() => {
+      expect(screen.getByText(/SIGNED XDR/)).toBeInTheDocument();
+      expect(screen.getByText(/ED25519 signature applied/)).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Step 4: Submit signed challenge and receive token
+    await waitFor(() => {
+      const submitButton = screen.getByText(/Submit & Get Token/);
+      fireEvent.click(submitButton);
+    }, { timeout: 3000 });
+
+    await waitFor(() => {
+      expect(screen.getByText(/AUTHENTICATED/)).toBeInTheDocument();
+      expect(screen.getByText(/DECODED PAYLOAD/)).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Step 5: Verify token is valid and displayed
+    await waitFor(() => {
+      expect(screen.getByText(/Session active · SEP-10 verified/)).toBeInTheDocument();
+      expect(screen.getByText(/TOKEN VALIDITY/)).toBeInTheDocument();
+      expect(screen.getByText(/EXPIRES IN/)).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Verify JWT structure is displayed
+    expect(screen.getByText(/HEADER/)).toBeInTheDocument();
+    expect(screen.getByText(/PAYLOAD/)).toBeInTheDocument();
+    expect(screen.getByText(/SIGNATURE/)).toBeInTheDocument();
+
+    // Verify copy functionality works
+    const copyButton = screen.getByText(/COPY JWT/);
+    fireEvent.click(copyButton);
+    
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        expect.stringMatching(/^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$/)
+      );
+    });
+  });
+
+  it('tests complete challenge-response cryptographic flow', async () => {
+    // Mock anchor server with realistic responses
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          transaction: mockAnchorServer.challenge,
+          network_passphrase: 'Test SDF Network ; September 2015'
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          token: mockAnchorServer.jwt
+        })
+      });
+
+    render(<SEP10AuthFlow />);
+
+    // Complete authentication flow and verify each step
+    const connectButton = screen.getByRole('button', { name: /Connect Wallet/ });
+    await act(async () => {
+      fireEvent.click(connectButton);
+    });
+
+    // Verify wallet connection logs
+    await waitFor(() => {
+      expect(screen.getByText(/Requesting wallet connection/)).toBeInTheDocument();
+      expect(screen.getByText(/Connection approved/)).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Fetch challenge
+    await waitFor(() => {
+      const fetchButton = screen.getByRole('button', { name: /Fetch Challenge/ });
+      fireEvent.click(fetchButton);
+    }, { timeout: 3000 });
+
+    // Verify challenge fetch logs
+    await waitFor(() => {
+      expect(screen.getByText(/Challenge XDR received/)).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Sign challenge
+    await waitFor(() => {
+      const signButton = screen.getByText(/Sign with Wallet/);
+      fireEvent.click(signButton);
+    }, { timeout: 3000 });
+
+    // Verify signing logs
+    await waitFor(() => {
+      expect(screen.getByText(/Transaction signed with ED25519 key/)).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Submit and get token
+    await waitFor(() => {
+      const submitButton = screen.getByText(/Submit & Get Token/);
+      fireEvent.click(submitButton);
+    }, { timeout: 3000 });
+
+    // Verify token receipt logs
+    await waitFor(() => {
+      expect(screen.getByText(/JWT received/)).toBeInTheDocument();
+      expect(screen.getByText(/Auth session established — expires in 24h/)).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Verify final authenticated state
+    await waitFor(() => {
+      expect(screen.getByText(/AUTHENTICATED/)).toBeInTheDocument();
+      expect(screen.getByText(/ACCOUNT/)).toBeInTheDocument();
+      expect(screen.getByText(/NETWORK/)).toBeInTheDocument();
+      expect(screen.getByText(/PROTOCOL/)).toBeInTheDocument();
+      expect(screen.getByText(/AUTH METHOD/)).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Verify progress indicators show completion
+    const checkmarks = screen.getAllByText('✓');
+    expect(checkmarks.length).toBeGreaterThan(0);
   });
 });

@@ -58,6 +58,8 @@ fn test_admin_transfer_full_flow() {
     assert_eq!(client.get_admin(), admin1);
 
     // accept: admin2 takes over
+    client.propose_admin(&admin2);
+    assert_eq!(client.get_admin(), admin1);
     client.accept_admin();
     assert_eq!(client.get_admin(), admin2);
 }
@@ -94,4 +96,9 @@ fn test_admin_unchanged_after_propose_before_accept() {
     client.propose_admin(&admin2);
     // admin must not change until accept
     assert_eq!(client.get_admin(), admin1);
+fn test_accept_no_pending() {
+    let (env, client) = setup();
+    let admin1 = Address::generate(&env);
+    client.initialize(&admin1, &100_u64, &None);
+    client.accept_admin();
 }

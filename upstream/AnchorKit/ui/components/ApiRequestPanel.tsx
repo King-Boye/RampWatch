@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './ApiRequestPanel.css';
 
 export interface ApiRequestPanelProps {
@@ -34,6 +34,11 @@ export const ApiRequestPanel: React.FC<ApiRequestPanelProps> = ({
     requestBody ? formatJson(requestBody) : ''
   );
   const [jsonError, setJsonError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEditableBody(requestBody ? formatJson(requestBody) : '');
+    setJsonError(null);
+  }, [requestBody]);
 
   const validateJson = (value: string): boolean => {
     if (!value.trim()) {
@@ -74,7 +79,8 @@ export const ApiRequestPanel: React.FC<ApiRequestPanelProps> = ({
 
   const generateCurl = (): string => {
     const headerFlags = Object.entries(headers)
-      .map(([key, value]) => `-H "${key}: ${value}"`)
+      .map(([key, value]) => `-H "${key}: ${value.replace(/"/g, '\\"')}"`)
+
       .join(' \\\n  ');
 
     let curl = `curl -X ${method} \\\n  "${endpoint}"`;

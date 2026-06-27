@@ -236,7 +236,7 @@
 .editable-body:focus {
   outline: none;
   border-color: var(--ak-accent);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  box-shadow: 0 0 0 3px var(--ak-accent-focus-shadow, rgba(59, 130, 246, 0.1));
 }
 
 .editable-body.error {
@@ -244,7 +244,7 @@
 }
 
 .editable-body.error:focus {
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+  box-shadow: 0 0 0 3px var(--ak-error-focus-shadow, rgba(239, 68, 68, 0.1));
 }
 
 .json-error {
@@ -287,7 +287,7 @@
 .submit-button:hover:not(:disabled) {
   background: var(--ak-accent-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 12px var(--ak-accent-hover-shadow, rgba(59, 130, 246, 0.3));
 }
 
 .submit-button:active:not(:disabled) {
