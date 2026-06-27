@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useSep10Auth } from "../hooks/useSep10Auth";
+import { SkeletonLoader } from "./SkeletonLoader";
 
 import './themes.css';
 
@@ -815,13 +816,20 @@ export default function SEP10AuthFlow() {
             The anchor generates a unique challenge transaction. This XDR must
             be signed by your wallet to prove key ownership.
           </p>
-          <button
-            onClick={fetchChallenge}
-            disabled={loading || !wallet}
-            style={btnStyle(NEON, loading || !wallet)}
-          >
-            {loading ? <Spinner /> : <>{fetchIcon} Fetch Challenge</>}
-          </button>
+          {loading ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <SkeletonLoader variant="text" width="70%" height={10} dark />
+              <SkeletonLoader variant="rect" width="100%" height={56} dark />
+            </div>
+          ) : (
+            <button
+              onClick={fetchChallenge}
+              disabled={loading || !wallet}
+              style={btnStyle(NEON, loading || !wallet)}
+            >
+              <>{fetchIcon} Fetch Challenge</>
+            </button>
+          )}
         </div>
       ),
     },
