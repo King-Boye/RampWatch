@@ -467,6 +467,7 @@ impl AnchorKitContract {
     }
 
     pub fn register_attestor(env: Env, attestor: Address, sep10_token: String, sep10_issuer: Address) {
+        Self::require_not_paused(&env);
         Self::require_admin(&env);
         Self::verify_sep10_token_matches_attestor(&env, &sep10_token, &sep10_issuer, &attestor);
         Self::validate_stellar_address(&env, &attestor);
@@ -502,6 +503,7 @@ impl AnchorKitContract {
     }
 
     pub fn revoke_attestor(env: Env, attestor: Address) {
+        Self::require_not_paused(&env);
         Self::require_admin(&env);
         let key = StorageKey::Attestor(attestor.clone());
         if !env.storage().persistent().has(&key) {
@@ -539,6 +541,7 @@ impl AnchorKitContract {
     /// Revoke a single attestation by its ID. Only the issuing attestor may
     /// revoke their own attestation.
     pub fn revoke_attestation(env: Env, attestor: Address, attestation_id: u64) {
+        Self::require_not_paused(&env);
         attestor.require_auth();
         let attest_key = StorageKey::Attest(attestation_id);
         let attestation: Attestation = env
@@ -568,6 +571,7 @@ impl AnchorKitContract {
     /// Revoke an individual attestation by ID (admin only).
     /// Emits an AttestationRevoked event for off-chain tracking.
     pub fn revoke_attestation(env: Env, attestation_id: u64) {
+        Self::require_not_paused(&env);
         Self::require_admin(&env);
         let att_key = StorageKey::Attest(attestation_id);
         let attestation: Attestation = env.storage()
@@ -613,6 +617,7 @@ impl AnchorKitContract {
     // -----------------------------------------------------------------------
 
     pub fn set_endpoint(env: Env, attestor: Address, endpoint: String) {
+        Self::require_not_paused(&env);
         attestor.require_auth();
         Self::check_attestor(&env, &attestor);
 
@@ -668,6 +673,7 @@ impl AnchorKitContract {
     // -----------------------------------------------------------------------
 
     pub fn configure_services(env: Env, anchor: Address, services: Vec<u32>) {
+        Self::require_not_paused(&env);
         anchor.require_auth();
         if !env
             .storage()
@@ -736,6 +742,7 @@ impl AnchorKitContract {
         payload_hash: Bytes,
         signature: Bytes,
     ) -> u64 {
+        Self::require_not_paused(&env);
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
         if let Err(e) = crate::rate_limiter::RateLimiter::check_and_increment(&env, &issuer) {
@@ -778,6 +785,7 @@ impl AnchorKitContract {
         issuer: Address,
         inputs: Vec<AttestationInput>,
     ) -> Vec<u64> {
+        Self::require_not_paused(&env);
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
 
@@ -1036,6 +1044,7 @@ impl AnchorKitContract {
     // -----------------------------------------------------------------------
 
     pub fn create_session(env: Env, initiator: Address) -> u64 {
+        Self::require_not_paused(&env);
         initiator.require_auth();
         let inst = env.storage().instance();
         let scnt_key = key_session_counter(&env);
@@ -1083,6 +1092,7 @@ impl AnchorKitContract {
         maximum_amount: u64,
         valid_until: u64,
     ) -> u64 {
+        Self::require_not_paused(&env);
         anchor.require_auth();
         Self::check_attestor(&env, &anchor);
 
@@ -1191,6 +1201,7 @@ impl AnchorKitContract {
         payload_hash: Bytes,
         signature: Bytes,
     ) -> u64 {
+        Self::require_not_paused(&env);
         Self::check_session_expiry(&env, session_id);
         let session = Self::get_session(env.clone(), session_id);
         if session.initiator != issuer {
@@ -1264,6 +1275,7 @@ impl AnchorKitContract {
     }
 
     pub fn register_attestor_with_session(env: Env, session_id: u64, attestor: Address, sep10_token: String, sep10_issuer: Address) {
+        Self::require_not_paused(&env);
         Self::check_session_expiry(&env, session_id);
         Self::require_admin(&env);
         Self::verify_sep10_token_matches_attestor(&env, &sep10_token, &sep10_issuer, &attestor);
@@ -1340,6 +1352,7 @@ impl AnchorKitContract {
     }
 
     pub fn revoke_attestor_with_session(env: Env, session_id: u64, attestor: Address) {
+        Self::require_not_paused(&env);
         Self::check_session_expiry(&env, session_id);
         Self::require_admin(&env);
         let key = StorageKey::Attestor(attestor.clone());
@@ -2513,6 +2526,17 @@ impl AnchorKitContract {
             .get::<_, Address>(&key_admin(env))
             .unwrap_or_else(|| panic_with_error!(env, ErrorCode::NotInitialized));
         admin.require_auth();
+    }
+
+    fn require_not_paused(env: &Env) {
+        if env
+            .storage()
+            .instance()
+            .get::<_, bool>(&StorageKey::IsPaused)
+            .unwrap_or(false)
+        {
+            panic_with_error!(env, ErrorCode::ContractPaused);
+        }
     }
 
     fn check_attestor(env: &Env, attestor: &Address) {
