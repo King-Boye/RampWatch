@@ -1,6 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import './ApiRequestPanel.css';
 
+const HISTORY_KEY = 'anchorkit_api_history';
+const HISTORY_MAX = 20;
+
+export interface HistoryEntry {
+  id: string;
+  timestamp: number;
+  endpoint: string;
+  method: string;
+  requestBody?: Record<string, any> | string;
+  response?: Record<string, any> | string;
+  error?: string;
+}
+
+function loadHistory(): HistoryEntry[] {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(entries: HistoryEntry[]): void {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, HISTORY_MAX)));
+  } catch {
+    // localStorage may be unavailable (SSR, private mode quota)
+  }
+}
+
 export interface ApiRequestPanelProps {
   endpoint: string;
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
@@ -11,6 +40,8 @@ export interface ApiRequestPanelProps {
   error?: string;
   editable?: boolean;
   onSubmit?: (body: Record<string, any> | string) => void;
+  /** Persist requests to localStorage and show history panel. Default: true */
+  persistHistory?: boolean;
 }
 
 export const ApiRequestPanel: React.FC<ApiRequestPanelProps> = ({
@@ -23,6 +54,7 @@ export const ApiRequestPanel: React.FC<ApiRequestPanelProps> = ({
   error,
   editable = false,
   onSubmit,
+  persistHistory = true,
 }) => {
   const formatJson = (data: any): string => {
     if (typeof data === 'string') return data;
@@ -34,6 +66,33 @@ export const ApiRequestPanel: React.FC<ApiRequestPanelProps> = ({
     requestBody ? formatJson(requestBody) : ''
   );
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>(() =>
+    persistHistory ? loadHistory() : []
+  );
+  const [showHistory, setShowHistory] = useState(false);
+
+  // Persist whenever history changes
+  useEffect(() => {
+    if (persistHistory) saveHistory(history);
+  }, [history, persistHistory]);
+
+  // Record a completed request into history
+  useEffect(() => {
+    if (!persistHistory || isLoading) return;
+    // Only record when we have a response or error for the current endpoint
+    if (response === undefined && !error) return;
+    const entry: HistoryEntry = {
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      endpoint,
+      method,
+      requestBody,
+      response,
+      error,
+    };
+    setHistory((prev) => [entry, ...prev].slice(0, HISTORY_MAX));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [response, error]);
 
   useEffect(() => {
     setEditableBody(requestBody ? formatJson(requestBody) : '');
@@ -223,6 +282,55 @@ export const ApiRequestPanel: React.FC<ApiRequestPanelProps> = ({
           </pre>
         </div>
       </div>
+
+      {/* History Section */}
+      {persistHistory && (
+        <div className="panel-section history-section">
+          <div className="section-header">
+            <h3>History</h3>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {history.length > 0 && (
+                <button
+                  className="copy-button"
+                  onClick={() => { setHistory([]); saveHistory([]); }}
+                  title="Clear history"
+                >
+                  <span className="copy-icon">🗑️</span>
+                </button>
+              )}
+              <button
+                className="copy-button"
+                onClick={() => setShowHistory((v) => !v)}
+                title={showHistory ? 'Hide history' : 'Show history'}
+              >
+                <span className="copy-icon">{showHistory ? '▲' : '▼'}</span>
+              </button>
+            </div>
+          </div>
+          {showHistory && (
+            <div className="section-content">
+              {history.length === 0 ? (
+                <div className="empty-state">No history yet</div>
+              ) : (
+                <ul className="history-list" aria-label="Request history">
+                  {history.map((entry) => (
+                    <li key={entry.id} className="history-item">
+                      <span className="method-badge" data-method={entry.method}>{entry.method}</span>
+                      <code className="endpoint-url">{entry.endpoint}</code>
+                      <span className="history-time">
+                        {new Date(entry.timestamp).toLocaleTimeString()}
+                      </span>
+                      {entry.error && (
+                        <span className="error-icon" title={entry.error}>⚠️</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
