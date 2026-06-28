@@ -1,11 +1,5 @@
-# TODO
+- [ ] Understand existing session/audit log tests
+- [x] Add new interleaving two-session audit log monotonic ID test in src/session_tests.rs
 
-## Pre-commit hook setup
-- [x] Create `.pre-commit-config.yaml` with hooks for:
-  - [x] `cargo fmt --check`
-  - [x] `cargo clippy -- -D warnings`
-  - [x] `eslint` on staged JS/TS files (best-effort if eslint is missing)
-- [ ] Run `pre-commit install` (requires installing the `pre-commit` Python package)
-- [ ] Run `pre-commit run --all-files`
-
-
+- [ ] Ensure test uses fresh env/ledger and large max_audit_log_size to avoid pruning
+- [ ] Run cargo test to confirm pass
