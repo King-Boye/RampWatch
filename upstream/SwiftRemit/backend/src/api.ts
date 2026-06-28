@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import { Pool } from 'pg';
 import { AssetVerifier } from './verifier';
+import crypto from 'crypto';
 import {
   getAssetVerification,
   saveAssetVerification,
@@ -16,6 +17,8 @@ import {
   saveUserKycStatus,
   getPool,
   saveAssetReport,
+  getWebhookSubscriberById,
+  rotateWebhookSecret,
 } from './database';
 import { storeVerificationOnChain, simulateSettlement } from './stellar';
 import { VerificationStatus, AnchorKycConfig } from './types';
@@ -26,6 +29,12 @@ import { correlationIdMiddleware, createLogger } from './correlation-id';
 import { getMetricsService } from './metrics';
 import { sanitizeInput } from './sanitizer';
 import docsRouter from './routes/docs';
+import { Sep24Service, Sep24InitiateRequest, Sep24ConfigError, Sep24AnchorError } from './sep24-service';
+import { AdminAuditLogService } from './admin-audit-log';
+import { saveContractEvent, queryContractEvents } from './database';
+import { remittanceEventEmitter } from './remittance/events';
+import { handleKycWebhook } from './kyc-webhook-handler';
+import { apiKeyRateLimiter } from './middleware/api-key-rate-limit';
 
 const app = express();
 const fxRateCache = getFxRateCache();
@@ -58,14 +67,36 @@ async function getSep24ServiceInstance(): Promise<Sep24Service> {
   return sep24Service;
 }
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'),
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'),
-  message: 'Too many requests from this IP, please try again later.',
-});
+// Per-group rate limiters
+function makeRateLimiter(max: number, windowMs = 60_000) {
+  return rateLimit({
+    windowMs,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req: Request, res: Response) => {
+      const retryAfter = Math.ceil(windowMs / 1000);
+      res.set('Retry-After', String(retryAfter));
+      metricsService.incrementRateLimitExceeded(req.path);
+      res.status(429).json({
+        error: 'Too many requests',
+        retryAfter,
+      });
+    },
+  });
+}
 
-app.use('/api/', limiter);
+// Public endpoints: 100 req/min
+const publicLimiter = makeRateLimiter(100);
+// Webhook endpoints: 1000 req/min (higher for anchor callbacks)
+const webhookLimiter = makeRateLimiter(1000);
+// Admin endpoints: 20 req/min
+const adminLimiter = makeRateLimiter(20);
+
+app.use('/api/webhook', webhookLimiter);
+app.use('/api/kyc/config', adminLimiter);
+app.use('/api/', apiKeyRateLimiter);
+app.use('/api/', publicLimiter);
 
 // Metrics endpoint (excluded from rate limiting)
 app.get('/metrics', async (req: Request, res: Response) => {
@@ -109,8 +140,102 @@ function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunc
 }
 
 // Health check
-app.get('/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get('/health', async (req: Request, res: Response) => {
+  let dbStatus: 'healthy' | 'unhealthy' = 'unhealthy';
+  try {
+    await Promise.race([
+      pool.query('SELECT 1'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
+    ]);
+    dbStatus = 'healthy';
+  } catch {
+    // db unreachable or timed out
+  }
+
+  const status = dbStatus === 'healthy' ? 200 : 503;
+  res.status(status).json({ status: dbStatus === 'healthy' ? 'ok' : 'degraded', db: dbStatus, timestamp: new Date().toISOString() });
+});
+
+app.get('/health/db', async (req: Request, res: Response) => {
+  try {
+    await Promise.race([
+      pool.query('SELECT 1'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
+    ]);
+    res.status(200).json({
+      status: 'ok',
+      pool: {
+        active: pool.totalCount - pool.idleCount,
+        idle: pool.idleCount,
+        waiting: pool.waitingCount,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch {
+    res.status(503).json({
+      status: 'error',
+      error: 'Database unreachable',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Rotate webhook subscriber secret
+app.post('/api/webhooks/:id/rotate-secret', adminLimiter, async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    return res.status(400).json({ error: 'Invalid subscriber ID' });
+  }
+
+  try {
+    const { newSecret, rotatedAt } = await rotateWebhookSecret(id);
+    const subscriber = await getWebhookSubscriberById(id);
+
+    // Notify subscriber of new secret via a signed delivery (best-effort)
+    if (subscriber?.url) {
+      try {
+        const timestamp = Date.now().toString();
+        const notificationBody = JSON.stringify({
+          event: 'webhook.secret_rotated',
+          subscriber_id: id,
+          new_secret: newSecret,
+          rotated_at: rotatedAt.toISOString(),
+          grace_period_hours: 24,
+        });
+        const signature = crypto
+          .createHmac('sha256', newSecret)
+          .update(`${timestamp}.${notificationBody}`)
+          .digest('hex');
+
+        await fetch(subscriber.url, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-event-type': 'webhook.secret_rotated',
+            'x-webhook-timestamp': timestamp,
+            'x-webhook-signature': signature,
+          },
+          body: notificationBody,
+        });
+      } catch (notifyErr) {
+        logger.warn('Failed to notify subscriber of secret rotation', { id, error: notifyErr });
+      }
+    }
+
+    return res.status(200).json({
+      subscriber_id: id,
+      secret_rotated_at: rotatedAt.toISOString(),
+      grace_period_hours: 24,
+      message: 'Secret rotated. Previous secret accepted for 24 hours.',
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Webhook subscriber not found')) {
+      return res.status(404).json({ error: 'Webhook subscriber not found' });
+    }
+    logger.error('Failed to rotate webhook secret', error);
+    return res.status(500).json({ error: 'Failed to rotate webhook secret' });
+  }
 });
 
 // Get asset verification status
@@ -711,5 +836,83 @@ app.post('/api/simulate-settlement', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to simulate settlement' });
   }
 });
+
+// Admin audit log
+app.get('/api/admin/audit-log', async (req: Request, res: Response) => {
+  try {
+    const auditService = new AdminAuditLogService(pool);
+    const limit  = Math.min(parseInt(req.query.limit  as string) || 50, 200);
+    const offset = parseInt(req.query.offset as string) || 0;
+    const filter = {
+      admin_address: req.query.admin_address as string | undefined,
+      action:        req.query.action        as string | undefined,
+      from:  req.query.from  ? new Date(req.query.from  as string) : undefined,
+      to:    req.query.to    ? new Date(req.query.to    as string) : undefined,
+      limit,
+      offset,
+    };
+    const { entries, total } = await auditService.query(filter);
+    res.json({ total, limit, offset, entries });
+  } catch (error) {
+    logger.error('Error fetching audit log', error);
+    res.status(500).json({ error: 'Failed to fetch audit log' });
+  }
+});
+
+// ── Contract Events ──────────────────────────────────────────────────────────
+
+// Persist contract events emitted by the remittance event emitter
+remittanceEventEmitter.onStatusChange(async (event) => {
+  try {
+    await saveContractEvent({
+      event_type: event.status,
+      remittance_id: event.remittanceId ? parseInt(event.remittanceId, 10) : null,
+      actor: event.recipientId || null,
+      amount: event.amount?.toString() ?? null,
+      fee: null,
+      tx_hash: (event.metadata?.txHash as string) ?? null,
+      ledger_sequence: (event.metadata?.ledgerSequence as number) ?? null,
+      timestamp: event.timestamp,
+      raw_data: event.metadata ?? null,
+    });
+  } catch (err) {
+    logger.error('Failed to persist contract event', err);
+  }
+});
+
+// GET /api/events — query indexed contract events with filters and pagination
+app.get('/api/events', async (req: Request, res: Response) => {
+  try {
+    const limit  = Math.min(parseInt(req.query.limit  as string) || 50, 200);
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    const filter = {
+      event_type:    req.query.event_type    as string | undefined,
+      actor:         req.query.actor         as string | undefined,
+      remittance_id: req.query.remittance_id ? parseInt(req.query.remittance_id as string, 10) : undefined,
+      from:          req.query.from          ? new Date(req.query.from as string) : undefined,
+      to:            req.query.to            ? new Date(req.query.to   as string) : undefined,
+      limit,
+      offset,
+    };
+
+    const { events, total } = await queryContractEvents(filter);
+    res.json({ total, limit, offset, events });
+  } catch (error) {
+    logger.error('Error fetching contract events', error);
+    res.status(500).json({ error: 'Failed to fetch contract events' });
+  }
+});
+
+// ── SEP-12 KYC Webhook ──────────────────────────────────────────────────────
+
+/**
+ * POST /webhooks/kyc/:anchor_id
+ * 
+ * Receive KYC status updates from anchors via webhook push.
+ * Reduces polling load for anchors that support push notifications.
+ * Falls back to polling for anchors that don't.
+ */
+app.post('/webhooks/kyc/:anchor_id', webhookLimiter, handleKycWebhook);
 
 export default app;
