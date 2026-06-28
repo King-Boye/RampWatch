@@ -31,6 +31,7 @@ import { sanitizeInput } from './sanitizer';
 import docsRouter from './routes/docs';
 import { Sep24Service, Sep24InitiateRequest, Sep24ConfigError, Sep24AnchorError } from './sep24-service';
 import { AdminAuditLogService } from './admin-audit-log';
+import { getJobSummaries } from './job-tracker';
 import { saveContractEvent, queryContractEvents } from './database';
 import { remittanceEventEmitter } from './remittance/events';
 import { handleKycWebhook } from './kyc-webhook-handler';
@@ -828,6 +829,17 @@ app.get('/api/admin/audit-log', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Error fetching audit log', error);
     res.status(500).json({ error: 'Failed to fetch audit log' });
+  }
+});
+
+// Background job monitoring dashboard (#866)
+app.get('/api/admin/jobs', adminLimiter, async (req: Request, res: Response) => {
+  try {
+    const summaries = await getJobSummaries(pool);
+    res.json({ jobs: summaries });
+  } catch (error) {
+    logger.error('Error fetching job summaries', error);
+    res.status(500).json({ error: 'Failed to fetch job summaries' });
   }
 });
 

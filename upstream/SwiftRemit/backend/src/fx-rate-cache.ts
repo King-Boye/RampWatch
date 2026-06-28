@@ -1,5 +1,6 @@
 import NodeCache from 'node-cache';
 import axios from 'axios';
+import { getFailoverFxService } from './fx-provider';
 
 export interface FxRateResponse {
   from: string;
@@ -113,36 +114,18 @@ export class FxRateCache {
   }
 
   /**
-   * Fetch rate from external FX provider
+   * Fetch rate via the FailoverFxService (primary → secondary → stale cache).
    */
   private async fetchFromExternalApi(from: string, to: string): Promise<FxRateResponse> {
     try {
-      // Mock implementation - replace with actual API call
-      const url = `${this.externalApiUrl}/${from}`;
-      const headers: Record<string, string> = {};
-      
-      if (this.externalApiKey) {
-        headers['Authorization'] = `Bearer ${this.externalApiKey}`;
-      }
-
-      const response = await axios.get(url, { 
-        headers,
-        timeout: 5000,
-      });
-
-      const rates = response.data.rates || {};
-      const rate = rates[to];
-
-      if (!rate) {
-        throw new Error(`Rate not found for ${from}/${to}`);
-      }
-
+      const failover = getFailoverFxService();
+      const rate = await failover.getRate(from, to);
       return {
         from,
         to,
-        rate: parseFloat(rate),
+        rate,
         timestamp: new Date(),
-        provider: 'ExchangeRateAPI',
+        provider: 'FailoverFxService',
         cached: false,
       };
     } catch (error) {
