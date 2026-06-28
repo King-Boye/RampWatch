@@ -179,7 +179,10 @@ export type ProposalAction =
   | { AddAdmin: string }
   | { RemoveAdmin: string }
   | { UpdateQuorum: number }
-  | { UpdateTimelock: bigint };
+  | { UpdateTimelock: bigint }
+  | { UpdateCooldownPeriod: bigint }
+  | { WhitelistAsset: string }
+  | { AdjustReputationThreshold: number };
 
 export interface Proposal {
   id: bigint;

@@ -20,6 +20,7 @@ import type {
   GovernanceConfig,
   DailyLimitStatus,
   Proposal,
+  ProposalAction,
   PartialPayoutRecord,
   RemittanceEvent,
   RemittanceEventType,
@@ -60,6 +61,125 @@ function shouldAllowHttp(rpcUrl: string): boolean {
 
   const hostname = parsedUrl.hostname.toLowerCase();
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+// ─── Proposal action helpers ──────────────────────────────────────────────────
+
+function proposalActionToScVal(action: ProposalAction): xdr.ScVal {
+  let entry: xdr.ScMapEntry;
+  if ("UpdateFee" in action) {
+    entry = new xdr.ScMapEntry({
+      key: xdr.ScVal.scvSymbol("UpdateFee"),
+      val: xdr.ScVal.scvU32(action.UpdateFee),
+    });
+  } else if ("RegisterAgent" in action) {
+    entry = new xdr.ScMapEntry({
+      key: xdr.ScVal.scvSymbol("RegisterAgent"),
+      val: addressToScVal(action.RegisterAgent),
+    });
+  } else if ("RemoveAgent" in action) {
+    entry = new xdr.ScMapEntry({
+      key: xdr.ScVal.scvSymbol("RemoveAgent"),
+      val: addressToScVal(action.RemoveAgent),
+    });
+  } else if ("AddAdmin" in action) {
+    entry = new xdr.ScMapEntry({
+      key: xdr.ScVal.scvSymbol("AddAdmin"),
+      val: addressToScVal(action.AddAdmin),
+    });
+  } else if ("RemoveAdmin" in action) {
+    entry = new xdr.ScMapEntry({
+      key: xdr.ScVal.scvSymbol("RemoveAdmin"),
+      val: addressToScVal(action.RemoveAdmin),
+    });
+  } else if ("UpdateQuorum" in action) {
+    entry = new xdr.ScMapEntry({
+      key: xdr.ScVal.scvSymbol("UpdateQuorum"),
+      val: xdr.ScVal.scvU32(action.UpdateQuorum),
+    });
+  } else if ("UpdateTimelock" in action) {
+    entry = new xdr.ScMapEntry({
+      key: xdr.ScVal.scvSymbol("UpdateTimelock"),
+      val: u64ToScVal(action.UpdateTimelock),
+    });
+  } else if ("UpdateCooldownPeriod" in action) {
+    entry = new xdr.ScMapEntry({
+      key: xdr.ScVal.scvSymbol("UpdateCooldownPeriod"),
+      val: u64ToScVal(action.UpdateCooldownPeriod),
+    });
+  } else if ("WhitelistAsset" in action) {
+    entry = new xdr.ScMapEntry({
+      key: xdr.ScVal.scvSymbol("WhitelistAsset"),
+      val: addressToScVal(action.WhitelistAsset),
+    });
+  } else if ("AdjustReputationThreshold" in action) {
+    entry = new xdr.ScMapEntry({
+      key: xdr.ScVal.scvSymbol("AdjustReputationThreshold"),
+      val: xdr.ScVal.scvU32(action.AdjustReputationThreshold),
+    });
+  } else {
+    throw new SwiftRemitError(
+      ErrorCode.DataCorruption,
+      "Unknown proposal action type"
+    );
+  }
+  return xdr.ScVal.scvMap([entry]);
+}
+
+/** Build a typed UpdateFee proposal action. */
+export function buildUpdateFeeProposal(feeBps: number): ProposalAction {
+  return { UpdateFee: feeBps };
+}
+
+/** Build a typed RegisterAgent proposal action. */
+export function buildRegisterAgentProposal(agent: string): ProposalAction {
+  return { RegisterAgent: agent };
+}
+
+/** Build a typed RemoveAgent proposal action. */
+export function buildRemoveAgentProposal(agent: string): ProposalAction {
+  return { RemoveAgent: agent };
+}
+
+/** Build a typed AddAdmin proposal action. */
+export function buildAddAdminProposal(admin: string): ProposalAction {
+  return { AddAdmin: admin };
+}
+
+/** Build a typed RemoveAdmin proposal action. */
+export function buildRemoveAdminProposal(admin: string): ProposalAction {
+  return { RemoveAdmin: admin };
+}
+
+/** Build a typed UpdateQuorum proposal action. */
+export function buildUpdateQuorumProposal(quorum: number): ProposalAction {
+  return { UpdateQuorum: quorum };
+}
+
+/** Build a typed UpdateTimelock proposal action. */
+export function buildUpdateTimelockProposal(
+  timelockSeconds: bigint
+): ProposalAction {
+  return { UpdateTimelock: timelockSeconds };
+}
+
+/** Build a typed UpdateCooldownPeriod proposal action. */
+export function buildUpdateCooldownPeriodProposal(
+  cooldownSeconds: bigint
+): ProposalAction {
+  return { UpdateCooldownPeriod: cooldownSeconds };
+}
+
+/** Build a typed WhitelistAsset proposal action. */
+export function buildWhitelistAssetProposal(assetAddress: string): ProposalAction {
+  return { WhitelistAsset: assetAddress };
+}
+
+/** Build a typed AdjustReputationThreshold proposal action. */
+export function buildAdjustReputationThresholdProposal(
+  threshold: number
+): ProposalAction {
+  return { AdjustReputationThreshold: threshold };
 }
 
 export class SwiftRemitClient {
@@ -743,13 +863,19 @@ export class SwiftRemitClient {
   }
 
   /**
-   * Fetch all proposals with state Pending or Approved.
-   * Iterates proposal IDs starting from 0 until the contract returns NotFound.
+   * Fetch proposals with state Pending or Approved, starting from `offset`.
+   *
+   * @param offset - Proposal ID to start iterating from
+   * @param limit - Maximum number of active proposals to return
    */
-  async getActiveProposals(sourceAddress: string): Promise<Proposal[]> {
+  async getActiveProposals(
+    sourceAddress: string,
+    offset: bigint = 0n,
+    limit: bigint = 50n
+  ): Promise<Proposal[]> {
     const proposals: Proposal[] = [];
-    let id = 0n;
-    while (true) {
+    let id = offset;
+    while (BigInt(proposals.length) < limit) {
       try {
         const val = await this.simulateCall(sourceAddress, "get_proposal", [
           u64ToScVal(id),
@@ -760,10 +886,34 @@ export class SwiftRemitClient {
         }
         id++;
       } catch {
-        break; // ProposalNotFound — no more proposals
+        break;
       }
     }
     return proposals;
+  }
+
+  /** Check whether `voterAddress` has already voted on `proposalId`. */
+  async getVoteStatus(
+    sourceAddress: string,
+    proposalId: bigint,
+    voterAddress: string
+  ): Promise<boolean> {
+    const val = await this.simulateCall(sourceAddress, "get_vote_status", [
+      u64ToScVal(proposalId),
+      addressToScVal(voterAddress),
+    ]);
+    return Boolean(scValToNative(val));
+  }
+
+  /** Create a new governance proposal (admin only). */
+  async propose(
+    sourceAddress: string,
+    action: ProposalAction
+  ): Promise<Transaction> {
+    return this.prepareTransaction(sourceAddress, "propose", [
+      addressToScVal(sourceAddress),
+      proposalActionToScVal(action),
+    ]);
   }
 
   /** Cast an approval vote on a pending proposal (admin only). */
