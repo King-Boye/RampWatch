@@ -1,5 +1,12 @@
 import NodeCache from 'node-cache';
 import axios from 'axios';
+import { EventEmitter } from 'events';
+
+// Lazily resolved to avoid circular import — set by fx-rate-websocket.ts initialisation
+let _fxRateEvents: EventEmitter | null = null;
+export function setFxRateEventBus(emitter: EventEmitter): void {
+  _fxRateEvents = emitter;
+}
 
 export interface FxRateResponse {
   from: string;
@@ -81,6 +88,7 @@ export class FxRateCache {
         this.cache.set(cacheKey, rate);
         this.staleCache.set(cacheKey, rate);
         this.scheduleBackgroundRefresh(cacheKey, fromUpper, toUpper);
+        _fxRateEvents?.emit('rate_updated', rate);
         return rate;
       }).finally(() => {
         this.inflight.delete(cacheKey);
@@ -175,7 +183,7 @@ export class FxRateCache {
           const rate = await this.fetchFromExternalApi(from, to);
           this.cache.set(cacheKey, rate);
           this.staleCache.set(cacheKey, rate);
-          
+          _fxRateEvents?.emit('rate_updated', rate);
           // Schedule next refresh
           this.scheduleBackgroundRefresh(cacheKey, from, to);
         } catch (error) {
