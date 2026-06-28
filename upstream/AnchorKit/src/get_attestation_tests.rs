@@ -68,13 +68,7 @@ mod get_attestation_tests {
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &signing_key);
 
         let p = payload(&env, 0xAB);
-        let id = client.submit_attestation(
-            &attestor,
-            &subject,
-            &1700000000u64,
-            &p,
-            &sign_payload(&env, &signing_key, &p),
-        );
+        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_payload(&env, &signing_key, &p), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
 
         let result = client.get_attestation(&id);
         assert!(result.is_some());

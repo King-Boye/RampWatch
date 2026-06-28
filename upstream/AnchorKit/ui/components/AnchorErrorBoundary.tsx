@@ -25,6 +25,7 @@ interface State {
   hasError: boolean;
   error: AnchorKitError | null;
   prevResetKeys: unknown[] | undefined;
+  retryKey: number;
 }
 
 // ─── Normalise any thrown value into an AnchorKitError ────────────────────────
@@ -228,7 +229,7 @@ export class AnchorErrorBoundary extends Component<
 > {
   constructor(props: AnchorErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false, error: null, prevResetKeys: props.resetKeys };
+    this.state = { hasError: false, error: null, prevResetKeys: props.resetKeys, retryKey: 0 };
     this.reset = this.reset.bind(this);
   }
 
@@ -242,7 +243,7 @@ export class AnchorErrorBoundary extends Component<
       state.prevResetKeys !== undefined &&
       props.resetKeys.some((key, i) => !Object.is(key, state.prevResetKeys![i]))
     ) {
-      return { hasError: false, error: null, prevResetKeys: props.resetKeys };
+      return { hasError: false, error: null, prevResetKeys: props.resetKeys, retryKey: state.retryKey + 1 };
     }
     if (props.resetKeys !== state.prevResetKeys) {
       return { prevResetKeys: props.resetKeys };
@@ -260,14 +261,14 @@ export class AnchorErrorBoundary extends Component<
   }
 
   reset(): void {
-    this.setState({ hasError: false, error: null });
+    this.setState((s) => ({ hasError: false, error: null, retryKey: s.retryKey + 1 }));
   }
 
   render(): ReactNode {
-    const { hasError, error } = this.state;
+    const { hasError, error, retryKey } = this.state;
     const { children, fallback, componentLabel } = this.props;
 
-    if (!hasError || !error) return children;
+    if (!hasError || !error) return <React.Fragment key={retryKey}>{children}</React.Fragment>;
 
     if (fallback) return fallback(error, this.reset);
 
