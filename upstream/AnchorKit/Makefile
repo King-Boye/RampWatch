@@ -1,4 +1,4 @@
-.PHONY: build test lint fmt clean deploy-testnet help build-wasm storybook validate coverage
+.PHONY: build test lint fmt clean deploy-testnet help build-wasm storybook validate coverage bench
 
 ## build: Build the contract in release mode
 build:
@@ -7,6 +7,10 @@ build:
 ## test: Run all Rust tests
 test:
 	cargo test
+
+## bench: Run criterion benchmarks for contract hot paths
+bench:
+	cargo bench
 
 ## lint: Run clippy with warnings as errors
 lint:

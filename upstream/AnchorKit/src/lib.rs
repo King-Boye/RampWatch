@@ -36,8 +36,14 @@ pub use sep6::{
     AssetLimits, AnchorFeeData, FeeEstimate, FeeOperation, TransactionFilters,
 };
 pub use types::{DepositResponse, WithdrawalResponse, TransactionStatus};
+pub use types::{AnchorMetadata, RoutingOptions, RoutingRequest};
 pub use contract::{AnchorKitContract, get_admin, get_endpoint, set_endpoint, get_attestation_count};
 pub use events::EndpointUpdated;
+
+// Generated contract client, re-exported for the criterion benchmark suite
+// (`benches/`, issue #738) which drives the contract through the Soroban test
+// harness as an external consumer of this crate.
+pub use contract::AnchorKitContractClient;
 
 #[cfg(test)]
 mod request_id_tests;
