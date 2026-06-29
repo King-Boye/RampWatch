@@ -1,5 +1,6 @@
 import NodeCache from 'node-cache';
 import axios from 'axios';
+import { getFailoverFxService } from './fx-provider';
 import { EventEmitter } from 'events';
 
 // Lazily resolved to avoid circular import — set by fx-rate-websocket.ts initialisation
@@ -133,6 +134,31 @@ export class FxRateCache {
   }
 
   /**
+   * Fetch rate via the FailoverFxService (primary → secondary → stale cache).
+   */
+  private async fetchFromExternalApi(from: string, to: string): Promise<FxRateResponse> {
+    try {
+      const failover = getFailoverFxService();
+      const rate = await failover.getRate(from, to);
+      return {
+        from,
+        to,
+        rate,
+        timestamp: new Date(),
+        provider: 'FailoverFxService',
+        cached: false,
+      };
+    } catch (error) {
+      // Re-throw axios errors as-is so callers can inspect the status code (e.g. 429)
+      if (axios.isAxiosError(error)) {
+        throw error;
+      }
+      console.error(`Failed to fetch FX rate for ${from}/${to}:`, error);
+      throw new Error(`Failed to fetch FX rate: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
    * Try the configured providers in order: primary, secondary, then fail.
    */
   private async fetchFromProviders(from: string, to: string): Promise<FxRateResponse> {
@@ -161,23 +187,6 @@ export class FxRateCache {
 
     if (this.externalApiKey) {
       headers['Authorization'] = `Bearer ${this.externalApiKey}`;
-    }
-
-      return {
-        from,
-        to,
-        rate: parseFloat(rate),
-        timestamp: new Date(),
-        provider: 'ExchangeRateAPI',
-        cached: false,
-      };
-    } catch (error) {
-      // Re-throw axios errors as-is so callers can inspect the status code (e.g. 429)
-      if (axios.isAxiosError(error)) {
-        throw error;
-      }
-      console.error(`Failed to fetch FX rate for ${from}/${to}:`, error);
-      throw new Error(`Failed to fetch FX rate: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
     return {
