@@ -370,6 +370,24 @@ cargo test cross_platform
 cargo test --verbose
 ```
 
+### Benchmarks
+
+Performance baselines for the contract's hot paths are maintained with
+[criterion](https://github.com/bheisler/criterion.rs) in `benches/hot_paths.rs`,
+so regressions can be caught between releases. The suite covers
+`submit_attestation`, `get_anchor_health_score`, and `route_transaction` (the
+latter parameterized by anchor-set size).
+
+```bash
+# Run the full benchmark suite
+cargo bench
+# or
+make bench
+```
+
+Criterion writes HTML reports and saves the previous run as a baseline under
+`target/criterion/`, so subsequent runs report deltas against it.
+
 ### Configuration Validation
 
 #### Linux/macOS
