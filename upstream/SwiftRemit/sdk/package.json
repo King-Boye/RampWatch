@@ -12,15 +12,22 @@
       "import": "./dist/index.mjs",
       "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./testing": {
+      "import": "./dist/testing/index.mjs",
+      "require": "./dist/testing/index.js",
+      "types": "./dist/testing/index.d.ts"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
     "lint": "tsc --noEmit",
+    "release": "npm run build && npm publish --access public --provenance",
     "docs": "typedoc src/index.ts --out docs --plugin typedoc-plugin-markdown",
     "docs:serve": "http-server docs -p 8080 -o"
   },
@@ -35,7 +42,12 @@
   "peerDependencies": {
     "@stellar/stellar-sdk": ">=13.0.0"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.5.0",
+    "@changesets/cli": "^2.27.0",
     "@stellar/stellar-sdk": "^13.0.0",
     "@types/node": "^25.9.1",
     "tsup": "^8.0.0",
