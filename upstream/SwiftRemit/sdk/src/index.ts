@@ -1,4 +1,17 @@
-export { SwiftRemitClient, MAX_BATCH_SIZE } from "./client.js";
+export {
+  SwiftRemitClient,
+  MAX_BATCH_SIZE,
+  buildUpdateFeeProposal,
+  buildRegisterAgentProposal,
+  buildRemoveAgentProposal,
+  buildAddAdminProposal,
+  buildRemoveAdminProposal,
+  buildUpdateQuorumProposal,
+  buildUpdateTimelockProposal,
+  buildUpdateCooldownPeriodProposal,
+  buildWhitelistAssetProposal,
+  buildAdjustReputationThresholdProposal,
+} from "./client.js";
 export { SwiftRemitError, ErrorCode, parseContractError } from "./errors.js";
 export type {
   SwiftRemitClientOptions,
@@ -6,6 +19,7 @@ export type {
   RemittanceStatus,
   RemittanceEvent,
   RemittanceEventType,
+  EventHandler,
   SubscribeOptions,
   Unsubscribe,
   AgentStats,
@@ -14,12 +28,17 @@ export type {
   HealthStatus,
   FeeBreakdown,
   BatchCreateEntry,
+  BatchCreateResult,
+  BatchCreateResponse,
   CreateRemittanceParams,
   SettlementConfig,
   EscrowStatus,
   Role,
   GovernanceConfig,
   DailyLimitStatus,
+  Proposal,
+  ProposalAction,
+  ProposalState,
 } from "./types.js";
 export {
   parseRemittance,
