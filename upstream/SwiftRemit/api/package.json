@@ -13,7 +13,9 @@
     "test:chaos": "vitest run --config vitest.chaos.config.ts"
   },
   "dependencies": {
-    "axios": "^1.7.2"
+    "@aws-sdk/client-secrets-manager": "^3.600.0",
+    "axios": "^1.7.2",
+    "jsonwebtoken": "^9.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.9",
