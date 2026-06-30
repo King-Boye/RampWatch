@@ -129,6 +129,9 @@ function validateAssetParams(req: Request, res: Response, next: Function) {
     return res.status(400).json({ error: 'Invalid issuer address' });
   }
 
+  req.body.assetCode = sanitizeInput(assetCode);
+  req.body.issuer = sanitizeInput(issuer);
+
   next();
 }
 
@@ -465,12 +468,12 @@ app.post('/api/fx-rate', async (req: Request, res: Response) => {
     }
 
     await saveFxRate({
-      transaction_id: transactionId,
+      transaction_id: sanitizeInput(transactionId),
       rate,
-      provider,
+      provider: sanitizeInput(provider),
       timestamp: new Date(),
-      from_currency: fromCurrency,
-      to_currency: toCurrency,
+      from_currency: sanitizeInput(String(fromCurrency)),
+      to_currency: sanitizeInput(String(toCurrency)),
     });
 
     res.json({ success: true, message: 'FX rate stored successfully' });
@@ -539,8 +542,8 @@ app.post('/api/kyc/config', async (req: Request, res: Response) => {
     }
 
     const config: AnchorKycConfig = {
-      anchor_id: anchorId,
-      kyc_server_url: kycServerUrl,
+      anchor_id: sanitizeInput(anchorId),
+      kyc_server_url: sanitizeInput(kycServerUrl),
       auth_token: authToken,
       polling_interval_minutes: pollingIntervalMinutes || 60,
       enabled: enabled !== false,
@@ -596,16 +599,19 @@ app.post('/api/kyc/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields: userId, anchorId' });
     }
 
+    const sanitizedUserId = sanitizeInput(userId);
+    const sanitizedAnchorId = sanitizeInput(anchorId);
+
     const kycService = (await import('./kyc-service')).KycService;
     const service = new kycService();
-    await service.registerUserForKyc(userId, anchorId);
+    await service.registerUserForKyc(sanitizedUserId, sanitizedAnchorId);
 
     const auditService = new AdminAuditLogService(pool);
     await auditService.log({
       admin_address: (req.headers['x-user-id'] as string) || 'unknown',
       action: 'register_kyc_user',
-      target: userId,
-      params_json: { anchorId },
+      target: sanitizedUserId,
+      params_json: { anchorId: sanitizedAnchorId },
       tx_hash: null,
       ip_address: (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() ?? req.socket.remoteAddress ?? null,
     });
@@ -644,15 +650,15 @@ app.post('/api/anchor/initiate', async (req: Request, res: Response) => {
     }
 
     const service = await getSep24ServiceInstance();
-    
+
     const request: Sep24InitiateRequest = {
-      user_id,
-      anchor_id,
+      user_id: sanitizeInput(user_id),
+      anchor_id: sanitizeInput(anchor_id),
       direction: direction as 'deposit' | 'withdrawal',
-      asset_code,
+      asset_code: sanitizeInput(asset_code),
       amount,
-      user_address,
-      user_email,
+      user_address: user_address ? sanitizeInput(String(user_address)) : user_address,
+      user_email: user_email ? sanitizeInput(String(user_email)) : user_email,
     };
 
     const result = await service.initiateFlow(request);

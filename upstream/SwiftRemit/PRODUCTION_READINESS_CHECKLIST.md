@@ -5,6 +5,64 @@ This checklist tracks the production-readiness refactoring of the SwiftRemit Sor
 
 ---
 
+## Automated Mainnet Checklist (CI-enforced)
+
+The `mainnet-checklist` CI workflow (`/.github/workflows/mainnet-checklist.yml`) automatically enforces the following gates before mainnet deployment is allowed. The `deploy-mainnet` workflow will not proceed unless all of these pass on the target commit.
+
+| Gate | What is checked | CI Job |
+|------|-----------------|--------|
+| WASM build | Contract builds for `wasm32-unknown-unknown` and the `.wasm` artifact is present | `wasm-build` |
+| Full test suite | `cargo test` exits 0 with no failing tests | `contract-tests` |
+| No TODO/FIXME | Security-critical source files contain no `TODO` or `FIXME` markers | `security-lint` |
+| CHANGELOG updated | `CHANGELOG.md` has been modified in the branch/commit relative to `main` | `changelog-check` |
+| Clippy strict | `cargo clippy -- -D warnings` exits 0 | `clippy-strict` |
+
+**Security-critical files scanned for TODO/FIXME:**
+- `src/validation.rs`
+- `src/abuse_protection.rs`
+- `src/rate_limit.rs`
+- `src/multisig.rs`
+- `src/governance.rs`
+- `backend/src/sanitizer.ts`
+- `backend/src/transfer-guard.ts`
+- `backend/src/webhook-middleware.ts`
+
+---
+
+## Manual Checklist Items (cannot be automated)
+
+These items require human judgement and must be verified by the deployment owner before triggering `deploy-mainnet`.
+
+### Security review
+- [ ] A senior engineer has reviewed all changes to `src/` since the last mainnet deploy for logic errors and privilege-escalation paths.
+- [ ] External security audit findings from the most recent audit have been addressed or formally accepted as residual risk.
+- [ ] All `ADMIN_API_KEY`, `JWT_SECRET`, and deployer key secrets in GitHub Environments are rotated if there is any suspicion of exposure.
+- [ ] The deployer Stellar secret key (`MAINNET_DEPLOYER_SECRET_KEY`) has the minimum required permissions and is not used for anything else.
+
+### Contract upgrade and migration
+- [ ] If the contract storage schema changed, a migration plan has been written and tested on testnet.
+- [ ] The existing on-chain contract state has been backed up (via ledger snapshot or export of relevant storage keys).
+- [ ] Rollback procedure is documented and the team has rehearsed it on testnet.
+
+### Operational readiness
+- [ ] Monitoring dashboards (Grafana) are configured for the new contract address.
+- [ ] PagerDuty / on-call alerts are set up for error-rate and latency SLOs.
+- [ ] The incident-response runbook (`RUNBOOK.md`) has been reviewed and is accessible to the on-call team.
+- [ ] A post-deployment smoke test checklist has been prepared and assigned to a responsible person.
+
+### Legal and compliance
+- [ ] Legal has confirmed that the jurisdiction list and fee structure for this release comply with applicable regulations.
+- [ ] KYC/AML thresholds have been reviewed against the latest compliance requirements.
+
+### Communication
+- [ ] Release notes have been prepared for stakeholders.
+- [ ] The mobile app team has been notified if the API contract changed.
+- [ ] A maintenance window has been announced if downtime is expected.
+
+---
+
+---
+
 ## ✅ Completed Tasks
 
 ### 1. Code Hygiene

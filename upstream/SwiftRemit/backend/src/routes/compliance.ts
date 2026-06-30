@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { stringify as csvStringify } from 'csv-stringify/sync';
+import { sanitizeInput } from '../sanitizer';
 
 export function createComplianceRouter(pool: Pool): Router {
   const router = Router();
@@ -136,7 +137,12 @@ export function createComplianceRouter(pool: Pool): Router {
                jurisdiction = EXCLUDED.jurisdiction,
                updated_at = NOW()
          RETURNING *`,
-        [corridor.toUpperCase(), currency.toUpperCase(), threshold, jurisdiction ?? null],
+        [
+          sanitizeInput(corridor).toUpperCase(),
+          sanitizeInput(currency).toUpperCase(),
+          threshold,
+          jurisdiction != null ? sanitizeInput(String(jurisdiction)) : null,
+        ],
       );
       res.status(201).json(result.rows[0]);
     } catch {
@@ -152,12 +158,16 @@ export function createComplianceRouter(pool: Pool): Router {
       res.status(400).json({ error: 'transaction_id, amount, and currency are required' });
       return;
     }
+    const sanitizedTransactionId = sanitizeInput(String(transaction_id));
+    const sanitizedCurrency = sanitizeInput(String(currency)).toUpperCase();
+    const sanitizedCorridor = corridor != null ? sanitizeInput(String(corridor)).toUpperCase() : null;
+    const sanitizedNotes = notes != null ? sanitizeInput(String(notes)) : null;
     try {
       const thresholdResult = await pool.query(
         `SELECT id FROM compliance_thresholds
          WHERE currency = $1 AND threshold <= $2 AND active = TRUE
          ORDER BY threshold DESC LIMIT 1`,
-        [currency.toUpperCase(), amount],
+        [sanitizedCurrency, amount],
       );
       const thresholdId = thresholdResult.rows[0]?.id ?? null;
 
@@ -167,7 +177,7 @@ export function createComplianceRouter(pool: Pool): Router {
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (transaction_id) DO NOTHING
          RETURNING *`,
-        [transaction_id, corridor?.toUpperCase() ?? null, amount, currency.toUpperCase(), thresholdId, notes ?? null],
+        [sanitizedTransactionId, sanitizedCorridor, amount, sanitizedCurrency, thresholdId, sanitizedNotes],
       );
       res.status(201).json(result.rows[0] ?? { message: 'already flagged' });
     } catch {
@@ -184,6 +194,7 @@ export function createComplianceRouter(pool: Pool): Router {
       res.status(400).json({ error: 'status must be reported | cleared | pending' });
       return;
     }
+    const sanitizedNotes = notes != null ? sanitizeInput(String(notes)) : null;
     try {
       const result = await pool.query(
         `UPDATE compliance_flagged_remittances
@@ -193,7 +204,7 @@ export function createComplianceRouter(pool: Pool): Router {
              notes = COALESCE($2, notes)
          WHERE id = $3
          RETURNING *`,
-        [status, notes ?? null, id],
+        [status, sanitizedNotes, id],
       );
       if (!result.rows.length) {
         res.status(404).json({ error: 'Not found' });

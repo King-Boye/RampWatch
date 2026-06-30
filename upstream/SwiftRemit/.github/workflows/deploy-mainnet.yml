@@ -1,0 +1,137 @@
+name: Deploy to Mainnet
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type DEPLOY to confirm mainnet deployment"
+        required: true
+        type: string
+
+concurrency:
+  group: mainnet-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  # ── Guard: require manual confirmation word ────────────────────────────────
+  confirmation-gate:
+    name: Confirm deployment intent
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify confirmation input
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "DEPLOY" ]; then
+            echo "❌ Deployment aborted: confirmation word must be DEPLOY (got '${{ github.event.inputs.confirm }}')"
+            exit 1
+          fi
+          echo "✅ Deployment confirmed"
+
+  # ── Guard: mainnet checklist must pass ────────────────────────────────────
+  require-checklist:
+    name: Wait for mainnet checklist
+    runs-on: ubuntu-latest
+    needs: confirmation-gate
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify mainnet-checklist workflow passed on this SHA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA="${{ github.sha }}"
+          echo "Checking mainnet-checklist status for $SHA…"
+
+          STATUS=$(gh api \
+            "/repos/${{ github.repository }}/commits/$SHA/check-runs" \
+            --jq '[.check_runs[] | select(.name == "Mainnet Checklist")] | sort_by(.completed_at) | last | .conclusion' \
+            2>/dev/null || echo "not_found")
+
+          echo "Latest Mainnet Checklist conclusion: $STATUS"
+
+          if [ "$STATUS" != "success" ]; then
+            echo "❌ Mainnet Checklist has not passed on this commit ($STATUS)."
+            echo "   Run the mainnet-checklist workflow and ensure it succeeds before deploying."
+            exit 1
+          fi
+          echo "✅ Mainnet Checklist passed"
+
+  # ── Build production WASM artifact ────────────────────────────────────────
+  build-wasm:
+    name: Build WASM artifact
+    runs-on: ubuntu-latest
+    needs: require-checklist
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-wasm-
+
+      - name: Build production WASM
+        run: cargo build --release --target wasm32-unknown-unknown
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: swiftremit-mainnet-wasm-${{ github.sha }}
+          path: target/wasm32-unknown-unknown/release/swiftremit.wasm
+          retention-days: 90
+
+  # ── Deploy contract to mainnet ─────────────────────────────────────────────
+  deploy-contract:
+    name: Deploy contract to mainnet
+    runs-on: ubuntu-latest
+    needs: build-wasm
+    environment:
+      name: mainnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download WASM artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: swiftremit-mainnet-wasm-${{ github.sha }}
+          path: wasm/
+
+      - name: Install Stellar CLI
+        run: |
+          curl -sSL https://github.com/stellar/stellar-cli/releases/latest/download/stellar-cli-x86_64-unknown-linux-gnu.tar.gz \
+            | tar -xz -C /usr/local/bin stellar
+
+      - name: Deploy contract
+        env:
+          MAINNET_SECRET_KEY: ${{ secrets.MAINNET_DEPLOYER_SECRET_KEY }}
+        run: |
+          stellar contract deploy \
+            --wasm wasm/swiftremit.wasm \
+            --source-account "$MAINNET_SECRET_KEY" \
+            --network mainnet \
+            --rpc-url "${{ vars.MAINNET_RPC_URL }}" \
+            --network-passphrase "Public Global Stellar Network ; September 2015" \
+          | tee deploy-output.txt
+
+          CONTRACT_ID=$(cat deploy-output.txt | tail -1)
+          echo "Deployed contract ID: $CONTRACT_ID"
+          echo "CONTRACT_ID=$CONTRACT_ID" >> $GITHUB_ENV
+
+      - name: Record deployment
+        run: |
+          echo "## Mainnet Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed by:** \`${{ github.actor }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Contract ID:** \`${{ env.CONTRACT_ID }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp:** $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
