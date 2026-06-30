@@ -39,6 +39,13 @@ base64 = "0.22"
 ed25519-dalek = "2"
 rand = "0.8"
 proptest = { version = "1.4", default-features = false, features = ["std"] }
+criterion = "0.5"
+
+# Benchmark suite for contract hot paths (issue #738). Uses criterion with a
+# custom harness; run with `cargo bench`.
+[[bench]]
+name = "hot_paths"
+harness = false
 
 [profile.release]
 opt-level = "z"
@@ -53,3 +60,9 @@ lto = true
 [profile.release-with-logs]
 inherits = "release"
 debug-assertions = true
+
+# The `bench` profile otherwise inherits `release` (opt-level = "z"), which is
+# tuned for wasm size, not native execution speed. Optimize benches for speed so
+# the criterion baselines (issue #738) reflect runtime cost, not code size.
+[profile.bench]
+opt-level = 3

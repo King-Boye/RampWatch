@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTheme } from "../hooks/useTheme";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1110,6 +1111,7 @@ export function AnchorCapabilityCard({
   services,
   healthStatus,
 }: AnchorCapabilityCardProps) {
+  const isDark = useTheme();
   const [activeTab, setActiveTab] = useState<Tab>("assets");
   const [selectedAssetCode, setSelectedAssetCode] = useState(
     assets[0]?.code ?? "",
@@ -1131,6 +1133,7 @@ export function AnchorCapabilityCard({
 
   return (
     <div
+      data-theme={isDark ? "dark" : "light"}
       style={{
         fontFamily: "'Sora', sans-serif",
         background: "var(--ak-surface)",

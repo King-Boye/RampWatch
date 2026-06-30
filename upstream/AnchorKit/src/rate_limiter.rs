@@ -33,6 +33,8 @@ pub struct RateLimitState {
     pub total_requests: u64,
     /// Whether the one-time burst allowance has been consumed.
     pub burst_used: bool,
+    /// Cumulative total rejected submissions (never reset).
+    pub total_rejections: u64,
 }
 
 /// Rate limiter utility — plain Rust struct, no Soroban contract boundary.
@@ -48,7 +50,13 @@ impl RateLimiter {
                 window_start_ledger: env.ledger().sequence(),
                 total_requests: 0,
                 burst_used: false,
+                total_rejections: 0,
             })
+    }
+
+    /// Returns the total number of rejected submissions for an attestor.
+    pub fn get_rate_limit_rejections(env: Env, attestor: Address) -> u64 {
+        Self::get_state(env, attestor).total_rejections
     }
 
     /// Get the current global rate limit configuration.
@@ -92,6 +100,7 @@ impl RateLimiter {
                 window_start_ledger: current_ledger,
                 total_requests: 0,
                 burst_used: false,
+                total_rejections: 0,
             });
 
         if Self::is_window_expired(current_ledger, state.window_start_ledger, config.window_length) {
@@ -113,6 +122,7 @@ impl RateLimiter {
             config.max_submissions
         };
         if state.submission_count >= effective_limit {
+            state.total_rejections += 1;
             env.storage().persistent().set(&state_key, &state);
             env.storage().persistent().extend_ttl(&state_key, config.window_length, config.window_length);
             return Err(ErrorCode::RateLimitExceeded);
@@ -161,6 +171,24 @@ impl RateLimiter {
             .unwrap_or_else(|| Self::get_config(env.clone()))
     }
 
+    /// Returns the current quota snapshot for an attestor.
+    pub fn get_rate_limit_status(env: Env, attestor: Address) -> RateLimitStatus {
+        let config = Self::get_effective_config(env.clone(), attestor.clone());
+        let state = Self::get_state(env.clone(), attestor);
+        let current_ledger = env.ledger().sequence();
+        let window_resets_at = if Self::is_window_expired(current_ledger, state.window_start_ledger, config.window_length) {
+            current_ledger
+        } else {
+            state.window_start_ledger + config.window_length
+        };
+        let effective_limit = if !state.burst_used && config.burst > 0 {
+            config.max_submissions + config.burst
+        } else {
+            config.max_submissions
+        };
+        RateLimitStatus { used: state.submission_count, limit: effective_limit, window_resets_at }
+    }
+
     /// Configure rate limits for a specific attestor, including their window duration.
     /// High-volume attestors can have shorter windows; low-volume ones can have longer windows.
     pub fn set_attestor_config(
@@ -172,6 +200,28 @@ impl RateLimiter {
         env.storage().persistent().set(&key, &config);
         env.storage().persistent().extend_ttl(&key, config.window_length, config.window_length);
         Ok(())
+    }
+
+    /// Returns the current rate limit status for an attestor.
+    pub fn get_rate_limit_status(env: Env, attestor: Address) -> RateLimitStatus {
+        let config = Self::get_effective_config(env.clone(), attestor.clone());
+        let state = Self::get_state(env.clone(), attestor.clone());
+        let current_ledger = env.ledger().sequence();
+        let window_resets_at = if Self::is_window_expired(current_ledger, state.window_start_ledger, config.window_length) {
+            current_ledger
+        } else {
+            state.window_start_ledger + config.window_length
+        };
+        let effective_limit = if !state.burst_used && config.burst > 0 {
+            config.max_submissions + config.burst
+        } else {
+            config.max_submissions
+        };
+        RateLimitStatus {
+            used: state.submission_count,
+            limit: effective_limit,
+            window_resets_at,
+        }
     }
 
     /// Returns true if rate limiting has been explicitly configured — either via
@@ -198,6 +248,7 @@ impl RateLimiter {
                 window_start_ledger: env.ledger().sequence(),
                 total_requests: 0,
                 burst_used: false,
+                total_rejections: 0,
             });
 
         let reset_state = RateLimitState {
@@ -205,6 +256,7 @@ impl RateLimiter {
             window_start_ledger: env.ledger().sequence(),
             total_requests: current_state.total_requests,
             burst_used: false,
+            total_rejections: current_state.total_rejections,
         };
 
         env.storage().persistent().set(&state_key, &reset_state);

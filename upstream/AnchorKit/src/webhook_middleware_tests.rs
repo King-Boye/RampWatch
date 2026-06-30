@@ -81,7 +81,7 @@ mod webhook_middleware_tests {
         // 64 bytes of 0xFF are not a valid ed25519 signature for the registered key.
         let bad_sig = Bytes::from_slice(&env, &[0xFFu8; 64]);
 
-        client.submit_attestation(&attestor, &subject, &1_000_000u64, &payload_hash, &bad_sig);
+        client.submit_attestation(&attestor, &subject, &1_000_000u64, &payload_hash, &bad_sig, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
     }
 
     /// Verifies that a replayed webhook request — identical payload submitted a second
@@ -103,10 +103,10 @@ mod webhook_middleware_tests {
         let sig = sign_payload(&env, &sk, &payload_hash);
 
         // First submission succeeds.
-        client.submit_attestation(&attestor, &subject, &1_000_000u64, &payload_hash, &sig);
+        client.submit_attestation(&attestor, &subject, &1_000_000u64, &payload_hash, &sig, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
 
         // Replaying the exact same payload must panic.
-        client.submit_attestation(&attestor, &subject, &1_000_000u64, &payload_hash, &sig);
+        client.submit_attestation(&attestor, &subject, &1_000_000u64, &payload_hash, &sig, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
     }
 
     /// Verifies that a webhook request from an anchor that has never been registered
@@ -125,6 +125,6 @@ mod webhook_middleware_tests {
         let payload_hash = Bytes::from_slice(&env, &[0xDEu8; 32]);
         let sig = Bytes::new(&env);
 
-        client.submit_attestation(&unregistered, &subject, &1_000_000u64, &payload_hash, &sig);
+        client.submit_attestation(&unregistered, &subject, &1_000_000u64, &payload_hash, &sig, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
     }
 }

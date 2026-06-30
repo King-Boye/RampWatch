@@ -83,6 +83,9 @@ pub struct DepositResponse {
     pub fee_percent: Option<u32>,
     /// Current status of the transaction.
     pub status: TransactionStatus,
+    /// Whether the anchor supports claimable balances as the deposit destination.
+    /// Sourced from the `CLAIMABLE_BALANCE_SUPPORTED` flag in stellar.toml.
+    pub claimable_balance_supported: bool,
 }
 
 /// Normalized response for a withdrawal initiation.
@@ -159,6 +162,9 @@ pub struct RawDepositResponse {
     pub status: Option<String>,
     /// Optional Stellar account (G-address) of the depositor.
     pub depositor_account: Option<String>,
+    /// Whether the anchor supports claimable balances as the deposit destination.
+    /// Sourced from the `CLAIMABLE_BALANCE_SUPPORTED` flag in stellar.toml.
+    pub claimable_balance_supported: bool,
 }
 
 /// Raw fields from an anchor's `/withdraw` response.
@@ -329,6 +335,7 @@ pub fn initiate_deposit(raw: RawDepositResponse, asset_code: &str) -> Result<Dep
             .as_deref()
             .map(TransactionStatus::from_str)
             .unwrap_or(TransactionStatus::Pending),
+        claimable_balance_supported: raw.claimable_balance_supported,
     })
 }
 
@@ -692,6 +699,7 @@ mod tests {
             fee_percent: None,
             status: Some("pending_external".to_string()),
             depositor_account: None,
+            claimable_balance_supported: false,
         }
     }
 
@@ -932,6 +940,18 @@ mod tests {
         raw.fee_percent = Some(150);
         let resp = initiate_deposit(raw, "USDC").unwrap();
         assert_eq!(resp.fee_percent, Some(150));
+    }
+
+    #[test]
+    fn test_initiate_deposit_claimable_balance_supported_propagated() {
+        let mut raw = raw_deposit();
+        raw.claimable_balance_supported = true;
+        let resp = initiate_deposit(raw).unwrap();
+        assert!(resp.claimable_balance_supported);
+
+        let raw_false = raw_deposit(); // claimable_balance_supported = false by default
+        let resp_false = initiate_deposit(raw_false).unwrap();
+        assert!(!resp_false.claimable_balance_supported);
     }
 
     #[test]
