@@ -1,15 +1,16 @@
 {
   "name": "swiftremit-api",
   "version": "1.0.0",
-  "description": "API service for SwiftRemit currency configuration",
-  "main": "dist/index.js",
+  "private": true,
+  "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:pact": "vitest run src/__tests__/pact",
     "lint": "eslint src --ext .ts",
     "generate:openapi": "tsx generate-openapi.ts",
     "validate:openapi": "swagger-cli validate openapi.yaml"
@@ -45,6 +46,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@pact-foundation/pact": "^13.1.0",
     "@apidevtools/swagger-cli": "^4.0.4",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.17",
