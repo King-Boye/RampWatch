@@ -16,9 +16,8 @@
     "validate:openapi": "swagger-cli validate openapi.yaml"
   },
   "dependencies": {
-    "@aws-sdk/client-secrets-manager": "^3.600.0",
     "axios": "^1.7.2",
-    "jsonwebtoken": "^9.0.0"
+    "xss": "^1.0.15"
   },
   "devDependencies": {
     "@pact-foundation/pact": "^13.1.0",

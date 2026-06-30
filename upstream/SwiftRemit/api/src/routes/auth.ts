@@ -15,6 +15,7 @@ import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { ErrorResponse } from '../types';
+import { sanitizeInput } from '../utils/sanitize.js';
 
 function timestamp(): string {
   return new Date().toISOString();
@@ -83,8 +84,9 @@ export function createAuthRouter(): Router {
       return sendError(res, 401, 'Invalid credentials', 'INVALID_CREDENTIALS');
     }
 
-    const accessToken = issueAccessToken(userId.trim());
-    const refreshToken = issueRefreshToken(userId.trim());
+    const sanitizedUserId = sanitizeInput(userId.trim());
+    const accessToken = issueAccessToken(sanitizedUserId);
+    const refreshToken = issueRefreshToken(sanitizedUserId);
 
     res.cookie(REFRESH_COOKIE, refreshToken, setCookieOptions());
 

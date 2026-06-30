@@ -8,6 +8,7 @@ import {
   isAnchorStatus,
 } from '../db/anchorStore';
 import { encodeCursor, decodeCursor } from '../services/cursor-pagination';
+import { sanitizeObject } from '../utils/sanitize.js';
 
 type RouterOptions = {
   store?: AnchorStore;
@@ -188,7 +189,8 @@ router.post('/admin', adminAuth, async (req: Request, res: Response) => {
       return sendError(res, 400, 'Invalid anchor payload', 'INVALID_ANCHOR_PAYLOAD');
     }
 
-    const anchor = await getStore().create(req.body);
+    const sanitizedBody = sanitizeObject(req.body as Record<string, unknown>) as AnchorProvider;
+    const anchor = await getStore().create(sanitizedBody);
     const response: AnchorDetailResponse = {
       success: true,
       data: anchor,
@@ -212,7 +214,8 @@ router.put('/admin/:id', adminAuth, async (req: Request, res: Response) => {
       return sendError(res, 400, 'Invalid anchor update payload', 'INVALID_ANCHOR_PAYLOAD');
     }
 
-    const anchor = await getStore().update(req.params.id, req.body);
+    const sanitizedUpdate = sanitizeObject(req.body as Record<string, unknown>) as Partial<AnchorProvider>;
+    const anchor = await getStore().update(req.params.id, sanitizedUpdate);
     if (!anchor) {
       return sendError(
         res,
