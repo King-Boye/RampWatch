@@ -1747,6 +1747,8 @@ export default function AnchorPlayground() {
           {/* Tabs */}
           <div
             data-tabs="true"
+            role="tablist"
+            aria-label="Response panels"
             style={{
               flexShrink: 0,
               display: "flex",
@@ -1756,11 +1758,27 @@ export default function AnchorPlayground() {
               background: D ? "rgba(5,8,16,0.5)" : "rgba(240,244,255,0.5)",
             }}
           >
-            {(["response", "history"] as const).map((t) => (
+            {(["response", "history"] as const).map((t, idx, arr) => (
               <button
                 key={t}
+                id={`tab-${t}`}
+                role="tab"
+                aria-selected={tab === t}
+                aria-controls={`tabpanel-${t}`}
+                tabIndex={tab === t ? 0 : -1}
                 data-tab-button="true"
                 onClick={() => setTab(t)}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+                    const next = e.key === "ArrowRight"
+                      ? arr[(idx + 1) % arr.length]
+                      : arr[(idx - 1 + arr.length) % arr.length];
+                    setTab(next);
+                    (e.currentTarget.parentElement?.querySelector(`[id="tab-${next}"]`) as HTMLElement)?.focus();
+                  }
+                  if (e.key === "Home") { setTab(arr[0]); (e.currentTarget.parentElement?.querySelector(`[id="tab-${arr[0]}"]`) as HTMLElement)?.focus(); }
+                  if (e.key === "End") { setTab(arr[arr.length - 1]); (e.currentTarget.parentElement?.querySelector(`[id="tab-${arr[arr.length - 1]}"]`) as HTMLElement)?.focus(); }
+                }}
                 style={{
                   position: "relative",
                   padding: "11px 16px",
@@ -1813,6 +1831,9 @@ export default function AnchorPlayground() {
             data-response-area="true"
             data-scrollable="true"
             ref={responseRef}
+            role="tabpanel"
+            id={`tabpanel-${tab}`}
+            aria-labelledby={`tab-${tab}`}
             style={{ flex: 1, overflowY: "auto", padding: 20 }}
           >
             {tab === "response" && (

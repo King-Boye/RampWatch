@@ -1,0 +1,38 @@
+# git-cliff configuration for release notes generation
+# Uses Conventional Commits to categorize changes.
+
+[changelog]
+header = ""
+footer = ""
+
+# Keep output focused for GitHub Release body.
+
+[git]
+# Default commit message parser; git-cliff will detect Conventional Commits.
+
+[release]
+# Regex for version tags (both v1.2.3 and 1.2.3)
+tag_regex = "^(v)?\\d+\\.\\d+\\.\\d+$"
+
+[commit_types]
+# Conventional Commit types
+feat = { title = "Added" }
+fix = { title = "Fixed" }
+perf = { title = "Performance" }
+refactor = { title = "Changed" }
+change = { title = "Changed" }
+docs = { title = "Changed" }
+style = { title = "Changed" }
+test = { title = "Changed" }
+chore = { title = "Changed" }
+build = { title = "Changed" }
+ci = { title = "Changed" }
+
+[sort_commits]
+by = "committerdate"
+order = "desc"
+
+[template]
+# Release body template: show sections only if they have content.
+body = "{{#each releases}}## {{this.version}}\n\n{{#each this.sections}}### {{this.title}}\n{{#each this.commits}}- {{this.line}}\n{{/each}}\n{{/each}}\n{{/each}}"
+

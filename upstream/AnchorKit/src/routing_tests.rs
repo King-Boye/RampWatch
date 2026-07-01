@@ -125,7 +125,7 @@ mod routing_tests {
         let anchor1 = Address::generate(&env);
         let anchor2 = Address::generate(&env);
         register_anchor(&env, &client, &anchor1);
-        client.set_anchor_metadata(&anchor1, &8000u32, &600u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor1, &8000u32, &600u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor1,
             &String::from_str(&env, "USD"),
@@ -134,7 +134,7 @@ mod routing_tests {
         );
 
         register_anchor(&env, &client, &anchor2);
-        client.set_anchor_metadata(&anchor2, &8000u32, &200u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor2, &8000u32, &200u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor2,
             &String::from_str(&env, "USD"),
@@ -169,7 +169,7 @@ mod routing_tests {
         let anchor2 = Address::generate(&env);
         register_anchor(&env, &client, &anchor1);
         // anchor1: reputation 3000 — below the threshold we will set
-        client.set_anchor_metadata(&anchor1, &3000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor1, &3000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor1,
             &String::from_str(&env, "USD"),
@@ -179,7 +179,7 @@ mod routing_tests {
 
         register_anchor(&env, &client, &anchor2);
         // anchor2: reputation 8000 — above the threshold
-        client.set_anchor_metadata(&anchor2, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor2, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor2,
             &String::from_str(&env, "USD"),
@@ -217,7 +217,7 @@ mod routing_tests {
 
         for (anchor, rep) in [(&low, 1000u32), (&mid, 5000u32), (&high, 9000u32)] {
             register_anchor(&env, &client, anchor);
-            client.set_anchor_metadata(anchor, &rep, &300u64, &7500u32, &9900u32, &1_000_000u64);
+            client.set_anchor_metadata(anchor, &rep, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
             client.submit_quote(
                 anchor,
                 &String::from_str(&env, "USD"),
@@ -256,7 +256,7 @@ mod routing_tests {
         let anchor = Address::generate(&env);
         register_anchor(&env, &client, &anchor);
         // reputation_score = 0 (minimum possible)
-        client.set_anchor_metadata(&anchor, &0u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor, &0u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor,
             &String::from_str(&env, "USD"),
@@ -329,8 +329,8 @@ mod routing_tests {
         register_anchor(&env, &client, &anchor_expired);
         register_anchor(&env, &client, &anchor_valid);
 
-        client.set_anchor_metadata(&anchor_expired, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
-        client.set_anchor_metadata(&anchor_valid, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor_expired, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
+        client.set_anchor_metadata(&anchor_valid, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
 
         // anchor_expired: quote valid_until = 1_000_050 (expires before routing)
         client.submit_quote(
@@ -458,9 +458,9 @@ mod routing_tests {
         register_anchor(&env, &client, &anchor3);
 
         // Explicit metadata so all three anchors participate in routing
-        client.set_anchor_metadata(&anchor1, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
-        client.set_anchor_metadata(&anchor2, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
-        client.set_anchor_metadata(&anchor3, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor1, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
+        client.set_anchor_metadata(&anchor2, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
+        client.set_anchor_metadata(&anchor3, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
 
         // Fees: anchor1=50, anchor2=25, anchor3=30 — all distinct, so winner is deterministic
         client.submit_quote(
@@ -508,7 +508,7 @@ mod routing_tests {
 
         let anchor = Address::generate(&env);
         register_anchor(&env, &client, &anchor);
-        client.set_anchor_metadata(&anchor, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor, &8000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor,
             &String::from_str(&env, "USD"),
@@ -560,7 +560,7 @@ mod routing_tests {
         //   score = 4630
         let anchor_a = Address::generate(&env);
         register_anchor(&env, &client, &anchor_a);
-        client.set_anchor_metadata(&anchor_a, &2000u32, &1000u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor_a, &2000u32, &1000u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor_a,
             &String::from_str(&env, "USD"),
@@ -575,7 +575,7 @@ mod routing_tests {
         //   score = 3800
         let anchor_b = Address::generate(&env);
         register_anchor(&env, &client, &anchor_b);
-        client.set_anchor_metadata(&anchor_b, &9000u32, &100u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor_b, &9000u32, &100u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor_b,
             &String::from_str(&env, "USD"),
@@ -590,7 +590,7 @@ mod routing_tests {
         //   score = 3950
         let anchor_c = Address::generate(&env);
         register_anchor(&env, &client, &anchor_c);
-        client.set_anchor_metadata(&anchor_c, &6000u32, &200u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(&anchor_c, &6000u32, &200u64, &7500u32, &9900u32, &1_000_000u64, &None::<soroban_sdk::String>);
         client.submit_quote(
             &anchor_c,
             &String::from_str(&env, "USD"),
@@ -1040,3 +1040,69 @@ mod routing_tests {
         assert_eq!(events_after, events_before + 1);
     }
 }
+
+    #[test]
+    fn test_single_anchor_routing_returns_that_anchor() {
+        // Edge case: only one anchor is registered; routing must select it regardless of strategy.
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let only_anchor = Address::generate(&env);
+        register_anchor(&env, &client, &only_anchor);
+        submit_standard_quote(&env, &client, &only_anchor, 30);
+
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy,
+            min_reputation: 0,
+            max_anchors: 1,
+            require_kyc: false,
+            jurisdiction: None,
+            fallback_chain: Vec::new(&env),
+        };
+
+        let best = client.route_transaction(&options);
+        assert_eq!(best.anchor, only_anchor);
+    }
+
+    #[test]
+    #[should_panic(expected = "HostError")]
+    fn test_all_anchors_below_health_threshold_panics() {
+        // Edge case: all anchors are deactivated by the failure threshold;
+        // route_transaction must panic rather than silently returning a bad anchor.
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let anchor1 = Address::generate(&env);
+        let anchor2 = Address::generate(&env);
+        register_anchor(&env, &client, &anchor1);
+        register_anchor(&env, &client, &anchor2);
+        submit_standard_quote(&env, &client, &anchor1, 20);
+        submit_standard_quote(&env, &client, &anchor2, 25);
+
+        // Set failure threshold to 2 consecutive failures
+        client.set_health_failure_threshold(&2u32);
+
+        // Push both anchors past the threshold — they become inactive
+        client.update_health_status(&anchor1, &200u64, &2u32, &5000u32);
+        client.update_health_status(&anchor2, &200u64, &2u32, &5000u32);
+
+        let mut strategy = Vec::new(&env);
+        strategy.push_back(Symbol::new(&env, "LowestFee"));
+        let options = RoutingOptions {
+            request: make_request(&env),
+            strategy,
+            min_reputation: 0,
+            max_anchors: 2,
+            require_kyc: false,
+            jurisdiction: None,
+            fallback_chain: Vec::new(&env),
+        };
+
+        // Must panic — no active anchors remain
+        client.route_transaction(&options);
+    }
