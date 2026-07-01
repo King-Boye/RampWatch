@@ -334,23 +334,35 @@ export function TransactionTimeline({
 
                 {/* Content */}
                 <div style={{ flex: 1, paddingTop: 8, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <span style={{
-                      ...sans, fontSize: 13, fontWeight: 600,
-                      color: step.isDone || step.isActive ? "var(--ak-text)" : "var(--ak-text-subtle)",
-                      transition: "color 0.4s",
-                    }}>
-                      {step.event?.label ?? step.m.label}
-                    </span>
-                    {step.isDone && !step.isActive && (
+                  <div
+                    onClick={() => setExpandedStep(expandedStep === step.status ? null : step.status)}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                       <span style={{
-                        ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em",
-                        padding: "2px 7px", borderRadius: 10,
-                        background: step.m.bg, color: step.m.color,
-                        border: `1px solid ${step.m.border}`,
-                      }}>DONE</span>
-                    )}
-                    {step.isActive && (
+                        ...sans, fontSize: 13, fontWeight: 600,
+                        color: step.isDone || step.isActive ? "var(--ak-text)" : "var(--ak-text-subtle)",
+                        transition: "color 0.4s",
+                      }}>
+                        {step.event?.label ?? step.m.label}
+                      </span>
+                      {step.isDone && !step.isActive && (
+                        <span style={{
+                          ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em",
+                          padding: "2px 7px", borderRadius: 10,
+                          background: step.m.bg, color: step.m.color,
+                          border: `1px solid ${step.m.border}`,
+                        }}>DONE</span>
+                      )}
+                      {step.isActive && (
+                        <span style={{
+                          ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em",
+                          padding: "2px 7px", borderRadius: 10,
+                          background: step.m.bg, color: step.m.color,
+                          border: `1px solid ${step.m.border}`,
+                          animation: "txs-fade-in-out 1.8s ease-in-out infinite",
+                        }}>LIVE</span>
+                      )}
                       <span style={{
                         ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em",
                         padding: "2px 7px", borderRadius: 10,
@@ -483,17 +495,52 @@ export function TransactionTimeline({
                 }}>✕</div>
               </div>
               <div style={{ flex: 1, paddingTop: 8 }}>
-                <div style={{ ...sans, fontSize: 13, fontWeight: 600, color: "var(--ak-status-failed-color)", marginBottom: 4 }}>
-                  {events.find(e => e.status === "failed")?.label ?? "Transaction Failed"}
+                <div
+                  onClick={() => setExpandedStep(expandedStep === "failed" ? null : "failed")}
+                  style={{ cursor: "pointer", userSelect: "none" }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span style={{ ...sans, fontSize: 13, fontWeight: 600, color: "var(--ak-status-failed-color)" }}>
+                      {events.find(e => e.status === "failed")?.label ?? "Transaction Failed"}
+                    </span>
+                    <span style={{ ...mono, fontSize: 10, color: "var(--ak-text-subtle)", marginLeft: "auto", display: "inline-block", transition: "transform 0.2s", transform: expandedStep === "failed" ? "rotate(180deg)" : "rotate(0deg)" }}>▾</span>
+                  </div>
+                  <p style={{ ...sans, fontSize: 12, color: "var(--ak-status-failed-color)", lineHeight: 1.55, margin: 0 }}>
+                    {events.find(e => e.status === "failed")?.description ?? DEFAULT_DESCRIPTIONS.failed[type]}
+                  </p>
+                  {events.find(e => e.status === "failed")?.timestamp && (
+                    <span style={{ ...mono, fontSize: 10, color: "var(--ak-status-failed-color)", marginTop: 4, display: "block" }}>
+                      {formatTs(events.find(e => e.status === "failed")!.timestamp)}
+                    </span>
+                  )}
                 </div>
-                <p style={{ ...sans, fontSize: 12, color: "var(--ak-status-failed-color)", lineHeight: 1.55, margin: 0 }}>
-                  {events.find(e => e.status === "failed")?.description ?? DEFAULT_DESCRIPTIONS.failed[type]}
-                </p>
-                {events.find(e => e.status === "failed")?.timestamp && (
-                  <span style={{ ...mono, fontSize: 10, color: "var(--ak-status-failed-color)", marginTop: 4, display: "block" }}>
-                    {formatTs(events.find(e => e.status === "failed")!.timestamp)}
-                  </span>
-                )}
+                {expandedStep === "failed" && (() => {
+                  const ev = events.find(e => e.status === "failed");
+                  return (
+                    <div style={{ marginTop: 10, padding: "12px 14px", borderRadius: 10, border: "1px solid var(--ak-status-failed-border)", background: "var(--ak-status-failed-bg)", display: "flex", flexDirection: "column", gap: 8 }}>
+                      {ev?.timestamp && (
+                        <div>
+                          <span style={{ ...mono, fontSize: 9, letterSpacing: "0.1em", color: "var(--ak-status-failed-color)", textTransform: "uppercase", display: "block", marginBottom: 2 }}>Timestamp</span>
+                          <span style={{ ...mono, fontSize: 11, color: "var(--ak-status-failed-color)" }}>{ev.timestamp}</span>
+                        </div>
+                      )}
+                      {ev?.error && (
+                        <div>
+                          <span style={{ ...mono, fontSize: 9, letterSpacing: "0.1em", color: "var(--ak-status-failed-color)", textTransform: "uppercase", display: "block", marginBottom: 2 }}>Error</span>
+                          <span style={{ ...mono, fontSize: 11, color: "var(--ak-status-failed-color)" }}>{ev.error}</span>
+                        </div>
+                      )}
+                      {ev?.rawApiResponse !== undefined && (
+                        <div>
+                          <span style={{ ...mono, fontSize: 9, letterSpacing: "0.1em", color: "var(--ak-status-failed-color)", textTransform: "uppercase", display: "block", marginBottom: 2 }}>Raw API Response</span>
+                          <pre style={{ ...mono, fontSize: 10, color: "var(--ak-status-failed-color)", background: "var(--ak-surface-3)", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--ak-status-failed-border)", overflowX: "auto", margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 200, overflowY: "auto" }}>
+                            {JSON.stringify(ev.rawApiResponse, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}

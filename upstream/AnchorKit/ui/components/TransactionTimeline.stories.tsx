@@ -9,9 +9,9 @@ const minsAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
 // ─── Per-story event fixtures ──────────────────────────────────────────────────
 
 const PENDING_EVENTS: TxEvent[] = [
-  { status: "initiated",     timestamp: minsAgo(14), detail: "via ACH transfer" },
-  { status: "awaiting_user", timestamp: minsAgo(12), detail: "Reference: ANC-20240115-0042" },
-  { status: "pending",       timestamp: minsAgo(3),  description: "Funds detected on the ACH rail — awaiting settlement." },
+  { status: "initiated",     timestamp: minsAgo(14), detail: "via ACH transfer", rawApiResponse: { transaction: { id: "dep_8f3c1a9e2b", status: "completed", kind: "deposit", amount_in: "250.00", asset_code: "USDC" } } },
+  { status: "awaiting_user", timestamp: minsAgo(12), detail: "Reference: ANC-20240115-0042", rawApiResponse: { transaction: { id: "dep_8f3c1a9e2b", status: "pending_user_transfer_start", more_info_url: "https://anchor.example.com/sep24/transaction/dep_8f3c1a9e2b" } } },
+  { status: "pending",       timestamp: minsAgo(3),  description: "Funds detected on the ACH rail — awaiting settlement.", rawApiResponse: { transaction: { id: "dep_8f3c1a9e2b", status: "pending_external", amount_in: "250.00", amount_fee: "1.50" } } },
 ];
 
 const AWAITING_USER_EVENTS: TxEvent[] = [
@@ -33,14 +33,16 @@ const COMPLETED_EVENTS: TxEvent[] = [
 ];
 
 const FAILED_EVENTS: TxEvent[] = [
-  { status: "initiated",     timestamp: minsAgo(50), detail: "to SEPA •••• 4821" },
-  { status: "awaiting_user", timestamp: minsAgo(49) },
-  { status: "pending",       timestamp: minsAgo(44) },
+  { status: "initiated",     timestamp: minsAgo(50), detail: "to SEPA •••• 4821", rawApiResponse: { transaction: { id: "wdl_9b3e7c1a4f", status: "completed", kind: "withdrawal" } } },
+  { status: "awaiting_user", timestamp: minsAgo(49), rawApiResponse: { transaction: { id: "wdl_9b3e7c1a4f", status: "pending_user_transfer_start" } } },
+  { status: "pending",       timestamp: minsAgo(44), rawApiResponse: { transaction: { id: "wdl_9b3e7c1a4f", status: "pending_external" } } },
   {
     status: "failed",
     timestamp: minsAgo(22),
     label: "Bank Rejected",
     description: "Destination bank rejected the transfer. Please verify your IBAN and try again.",
+    error: "SEPA transfer declined: invalid IBAN checksum (error code: RJCT-AC01)",
+    rawApiResponse: { transaction: { id: "wdl_9b3e7c1a4f", status: "error", message: "Bank rejected: invalid IBAN", external_transaction_id: "SEPA-20240115-9821" } },
   },
 ];
 
