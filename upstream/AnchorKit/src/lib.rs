@@ -10,9 +10,12 @@ mod rate_limiter;
 mod response_validator;
 mod retry;
 mod sep10_jwt;
+pub mod sdk_config;
 mod storage;
 mod transaction_state_tracker;
+pub mod transport;
 mod types;
+mod sep6;
 
 pub use errors::{AnchorKitError, ErrorCode};
 
@@ -26,8 +29,6 @@ pub use retry::{retry_with_backoff, is_retryable, RetryConfig};
 pub use deterministic_hash::{compute_payload_hash, verify_payload_hash};
 pub use domain_validator::validate_anchor_domain;
 
-#[cfg(test)]
-mod transaction_state_tracker_tests;
 pub use sep6::{
     fetch_transaction_status, initiate_deposit, initiate_withdrawal, withdraw_exchange,
     deposit_exchange, validate_amount, get_fee_estimate, get_transactions,
@@ -44,6 +45,9 @@ pub use events::EndpointUpdated;
 // (`benches/`, issue #738) which drives the contract through the Soroban test
 // harness as an external consumer of this crate.
 pub use contract::AnchorKitContractClient;
+
+#[cfg(test)]
+mod transaction_state_tracker_tests;
 
 #[cfg(test)]
 mod request_id_tests;
@@ -128,3 +132,15 @@ mod session_expiry_error_tests;
 
 #[cfg(test)]
 mod pause_tests;
+
+#[cfg(test)]
+mod attestation_validation_tests;
+
+#[cfg(test)]
+mod attestor_event_tests;
+
+#[cfg(test)]
+mod sdk_config_tests;
+
+#[cfg(test)]
+mod streaming_flow_tests;
