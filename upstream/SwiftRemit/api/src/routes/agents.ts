@@ -8,6 +8,7 @@
 
 import { Router, Request, Response } from 'express';
 import { ErrorResponse } from '../types';
+import { sanitizeInput } from '../utils/sanitize.js';
 
 function timestamp(): string {
   return new Date().toISOString();
@@ -70,8 +71,8 @@ export function createAgentsRouter(): Router {
     const agent: Agent = {
       id: stellar_address,
       stellar_address,
-      payout_address: payout_address.trim(),
-      name: name.trim(),
+      payout_address: sanitizeInput(payout_address.trim()),
+      name: sanitizeInput(name.trim()),
       status: 'pending',
       created_at: now,
       updated_at: now,
@@ -112,7 +113,7 @@ export function createAgentsRouter(): Router {
       return sendError(res, 400, 'payout_address is required', 'MISSING_FIELD');
     }
 
-    agent.payout_address = payout_address.trim();
+    agent.payout_address = sanitizeInput(payout_address.trim());
     agent.updated_at = timestamp();
     agentStore.set(agent.id, agent);
 

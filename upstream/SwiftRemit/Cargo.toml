@@ -1,3 +1,7 @@
+[workspace]
+members = ["."]
+exclude = ["fuzz"]
+
 [package]
 name = "swiftremit"
 version = "0.1.0"

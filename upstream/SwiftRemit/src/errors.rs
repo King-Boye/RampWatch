@@ -261,86 +261,62 @@ pub enum ContractError {
     /// Contract is not currently paused.
     NotPaused = 55,
 
-    /// A fee update proposal is already pending.
-    ProposalAlreadyPending = 56,
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Multi-Sig Errors (56-59)
+    // ═══════════════════════════════════════════════════════════════════════════
 
-    /// Agent is already registered.
-    AgentAlreadyRegistered = 57,
+    /// Pending admin operation not found.
+    OperationNotFound = 56,
 
-    /// Address is already an admin.
-    AlreadyAdmin = 58,
+    /// Caller has already approved this pending operation.
+    AlreadyApproved = 57,
 
-    /// Not enough admins to perform this operation.
-    InsufficientAdmins = 59,
+    /// Pending operation has exceeded its time-to-live and cannot be approved or executed.
+    OperationExpired = 58,
 
-    /// Governance module is already initialized.
-    GovernanceAlreadyInitialized = 60,
+    /// Multi-sig threshold must be at least 1 and no greater than the admin count.
+    InvalidMultiSigThreshold = 59,
 
-    /// Quorum value is invalid.
-    InvalidQuorum = 61,
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Governance / DAO Errors (60-70)
+    // ═══════════════════════════════════════════════════════════════════════════
 
-    /// Admin has already voted on this proposal.
-    AlreadyVoted = 62,
+    /// Address is already in the admin set.
+    AlreadyAdmin = 60,
 
-    /// Proposal state is invalid for this operation.
-    InvalidProposalState = 63,
+    /// Removing this admin would drop the admin count below quorum or below 1.
+    InsufficientAdmins = 61,
 
-    /// Timelock duration is invalid.
-    InvalidTimelockDuration = 64,
+    /// Quorum must be ≥ 1 and ≤ current admin count.
+    InvalidQuorum = 62,
 
-    /// Timelock is still active.
-    TimelockActive = 65,
+    /// Admin has already cast a vote on this proposal.
+    AlreadyVoted = 63,
 
-    /// Timelock has not elapsed yet.
-    TimelockNotElapsed = 66,
+    /// Proposal is not in the required state for this operation.
+    InvalidProposalState = 64,
 
-    /// Dispute window has expired.
-    DisputeWindowExpired = 67,
+    /// A fee-update proposal is already pending or approved; only one may be active.
+    ProposalAlreadyPending = 65,
 
-    /// Remittance is not in disputed state.
-    NotDisputed = 68,
+    /// Proposal timelock has not elapsed; cannot execute yet.
+    TimelockActive = 66,
 
-    /// Migration validation failed.
-    MigrationValidationFailed = 69,
+    /// Governance has already been initialized via migrate_to_governance.
+    GovernanceAlreadyInitialized = 67,
 
-    /// Record not found.
-    NotFound = 70,
+    /// Proposal with the given ID does not exist.
+    ProposalNotFound = 68,
 
-    /// Caller is not authorized (alias for Unauthorized in upgrade context).
-    NotAuthorized = 71,
+    /// Agent is already registered in the system.
+    AgentAlreadyRegistered = 69,
 
-    /// Invalid input provided.
-    InvalidInput = 72,
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Dispute Errors (71-83)
+    // ═══════════════════════════════════════════════════════════════════════════
 
-    /// Pause record not found.
-    PauseRecordNotFound = 73,
-
-    /// Recipient hash is invalid.
-    InvalidRecipientHash = 74,
-
-    /// Recipient hash is missing but required.
-    MissingRecipientHash = 75,
-
-    /// Recipient hash schema version mismatch.
-    RecipientHashSchemaMismatch = 76,
-
-    /// Recipient hash does not match stored hash.
-    RecipientHashMismatch = 77,
-
-    /// Proposal not found.
-    ProposalNotFound = 78,
-
-    /// Agent reputation is below the minimum threshold.
-    BelowMinReputation = 79,
-
-    /// Corridor daily volume cap has been reached.
-    CorridorVolumeLimitExceeded = 80,
-
-    /// Admin nomination has expired (48-hour window elapsed).
-    NominationExpired = 81,
-
-    /// No active admin nomination exists.
-    NominationNotFound = 82,
+    /// This operation requires the remittance to be in a Disputed state.
+    NotDisputed = 71,
 
     /// Evidence hash for a dispute is not a valid 32-byte SHA-256 commitment.
     MalformedEvidenceHash = 83,
