@@ -475,7 +475,7 @@ pub struct CachedToml {
 // ---------------------------------------------------------------------------
 
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HealthStatus {
     pub anchor: Address,
     pub latency_ms: u64,

@@ -414,7 +414,7 @@ pub fn withdraw_exchange(
     }
     Ok(WithdrawalResponse {
         transaction_id: raw.transaction_id,
-        account_id: Some(raw.account_id),
+        account_id: raw.account_id,
         dest_account_id: raw.dest_account_id,
         memo: raw.memo,
         memo_type: raw.memo_type,
@@ -422,7 +422,6 @@ pub fn withdraw_exchange(
         max_amount: raw.max_amount,
         fee_fixed: raw.fee_fixed,
         fee_percent: raw.fee_percent,
-        estimated_completion: None,
         status: raw
             .status
             .as_deref()
@@ -652,6 +651,13 @@ pub fn get_fee_estimate(
     }
     if amount == 0 {
         return Err(Error::invalid_amount());
+    }
+    if fee_data.fee_percent_bps > 10_000 {
+        return Err(Error::with_context(
+            ErrorCode::ValidationError,
+            "fee_percent_bps exceeds maximum (10000)",
+            "fee_percent_bps",
+        ));
     }
     let _ = operation;
     let percent_fee = (amount as u128 * fee_data.fee_percent_bps as u128 / 10_000) as u64;

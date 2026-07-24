@@ -1,3 +1,6 @@
+extern crate alloc;
+use alloc::vec::Vec;
+
 /// Retry configuration for off-chain anchor requests.
 #[derive(Clone, Debug)]
 pub struct RetryConfig {
@@ -84,7 +87,11 @@ impl RetryConfig {
         let raw = self.base_delay_ms.saturating_mul(exp);
         let capped = raw.min(self.max_delay_ms);
         // Full jitter: uniform in [0, capped].
-        jitter_seed % (capped + 1)
+        // Use checked_add to avoid overflow when capped == u64::MAX.
+        match capped.checked_add(1) {
+            Some(m) => jitter_seed % m,
+            None => jitter_seed,
+        }
     }
 }
 
