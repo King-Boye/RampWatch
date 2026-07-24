@@ -135,5 +135,5 @@ pub fn key_attestor_count(env: &Env) -> Vec<Symbol> {
     soroban_sdk::vec![env, symbol_short!("ATTCNT")]
 }
 pub fn key_attestor_list(env: &Env) -> Vec<Symbol> {
-    soroban_sdk::vec![env, symbol_short!("ATTESTLIST")]
+    soroban_sdk::vec![env, symbol_short!("ATTLST")]
 }

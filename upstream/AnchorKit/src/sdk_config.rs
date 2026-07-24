@@ -55,16 +55,16 @@ impl SdkConfig {
 
     pub fn validate(&self) -> Result<(), Error> {
         if self.timeout_seconds < MIN_TIMEOUT || self.timeout_seconds > MAX_TIMEOUT {
-            return Err(Error::InvalidConfig);
+            return Err(Error::invalid_config());
         }
 
         if self.retry_attempts > MAX_RETRY {
-            return Err(Error::InvalidConfig);
+            return Err(Error::invalid_config());
         }
 
         let anchor_len = self.default_anchor.len();
         if anchor_len < MIN_ANCHOR_LEN || anchor_len > MAX_ANCHOR_LEN {
-            return Err(Error::InvalidConfig);
+            return Err(Error::invalid_config());
         }
 
         Ok(())

@@ -570,7 +570,7 @@ impl AnchorKitContract {
 
     /// Revoke an individual attestation by ID (admin only).
     /// Emits an AttestationRevoked event for off-chain tracking.
-    pub fn revoke_attestation(env: Env, attestation_id: u64) {
+    pub fn admin_revoke_attestation(env: Env, attestation_id: u64) {
         Self::require_not_paused(&env);
         Self::require_admin(&env);
         let att_key = StorageKey::Attest(attestation_id);
@@ -602,8 +602,8 @@ impl AnchorKitContract {
         let limit = limit as usize;
         let mut result = Vec::new(&env);
 
-        if start < attestors.len() {
-            let end = std::cmp::min(start + limit, attestors.len());
+        if start < attestors.len() as usize {
+            let end = core::cmp::min(start + limit, attestors.len() as usize);
             for i in start..end {
                 result.push_back(attestors.get(i as u32).unwrap());
             }
@@ -809,6 +809,7 @@ impl AnchorKitContract {
                 input.timestamp,
                 input.payload_hash.clone(),
                 input.signature,
+                None,
             );
 
             env.storage().persistent().set(&used_key, &true);
@@ -816,7 +817,7 @@ impl AnchorKitContract {
 
             env.events().publish(
                 (symbol_short!("attest"), symbol_short!("recorded"), id, input.subject),
-                AttestEvent { payload_hash: input.payload_hash, timestamp: input.timestamp },
+                AttestEvent { payload_hash: input.payload_hash, timestamp: input.timestamp, subject: input.subject },
             );
 
             ids.push_back(id);
@@ -1840,7 +1841,7 @@ impl AnchorKitContract {
         let inst = env.storage().instance();
 
         // Track migration completion to prevent re-running the same migration
-        let migration_key = Symbol::from_str(&env, &migration_name);
+        let migration_key = Symbol::new(&env, migration_name.to_buffer().as_slice());
         if inst.has(&migration_key) {
             panic_with_error!(&env, ErrorCode::ValidationError);
         }
@@ -2280,7 +2281,7 @@ impl AnchorKitContract {
 
             let mut total_score: i64 = 0;
             for q in candidates.iter() {
-                total_score += health_score(&env, q);
+                total_score += health_score(&env, &q);
             }
 
             if total_score == 0 {
@@ -2290,7 +2291,7 @@ impl AnchorKitContract {
             } else {
                 let mut threshold = env.prng().gen_range(0..total_score);
                 for q in candidates.iter() {
-                    threshold -= health_score(&env, q);
+                    threshold -= health_score(&env, &q);
                     if threshold <= 0 {
                         best = q;
                         break;
@@ -2718,10 +2719,8 @@ fn verify_attestation_signature(
             continue;
         }
         let pk_n: BytesN<32> = key.clone().try_into().unwrap();
-        match env.crypto().ed25519_verify(&pk_n, payload_hash, &sig_n) {
-            Ok(()) => return,
-            Err(_) => continue,
-        }
+        env.crypto().ed25519_verify(&pk_n, payload_hash, signature);
+        return;
     }
 
     // If we reach this point, no key verified the signature.
