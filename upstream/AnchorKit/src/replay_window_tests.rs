@@ -54,7 +54,7 @@ mod replay_window_tests {
         let (client, admin, attestor, sk) = setup(&env);
 
         // Initialize with no custom window → defaults to 300 s
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // timestamp = now - 299 s → inside window
@@ -72,7 +72,7 @@ mod replay_window_tests {
         set_ts(&env, 1_000_000);
         let (client, admin, attestor, sk) = setup(&env);
 
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // timestamp = now - 301 s → outside default 300 s window
@@ -93,7 +93,7 @@ mod replay_window_tests {
         let (client, admin, attestor, sk) = setup(&env);
 
         // Custom window: 3600 s (1 hour)
-        client.initialize(&admin, &100_u64, &Some(3600u64));
+        client.initialize(&admin, &100_u64, &Some(3600u64), &None);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // timestamp = now - 3599 s → inside custom window
@@ -112,7 +112,7 @@ mod replay_window_tests {
         let (client, admin, attestor, sk) = setup(&env);
 
         // Custom window: 60 s
-        client.initialize(&admin, &100_u64, &Some(60u64));
+        client.initialize(&admin, &100_u64, &Some(60u64), &None);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // timestamp = now - 61 s → outside 60 s window
@@ -133,7 +133,7 @@ mod replay_window_tests {
         set_ts(&env, 1_000_000);
         let (client, admin, attestor, sk) = setup(&env);
 
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // timestamp = now + 1 s → future, must be rejected even though it's within the old symmetric window
@@ -150,7 +150,7 @@ mod replay_window_tests {
         let (client, admin, attestor, sk) = setup(&env);
 
         // Window = 0 → only exact ledger timestamp is valid
-        client.initialize(&admin, &100_u64, &Some(0u64));
+        client.initialize(&admin, &100_u64, &Some(0u64), &None);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         let ts: u64 = 1_000_000; // exact match

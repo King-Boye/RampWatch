@@ -43,7 +43,7 @@ mod new_features_tests {
         let client = AnchorKitContractClient::new(env, &contract_id);
         let admin = Address::generate(env);
         let attestor = Address::generate(env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
         let mut csprng = OsRng;
         let signing_key = SigningKey::generate(&mut csprng);
         register_attestor_with_sep10(env, &client, &attestor, &attestor, &signing_key);

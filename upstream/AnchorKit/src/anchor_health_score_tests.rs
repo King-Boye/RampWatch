@@ -12,7 +12,7 @@ fn setup_test_env() -> (Env, AnchorKitContractClient<'static>, Address, Address)
     let client = AnchorKitContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     let anchor = Address::generate(&env);
-    client.initialize(&admin, &100_u64, &None);
+    client.initialize(&admin, &100_u64, &None, &None);
     (env, client, admin, anchor)
 }
 

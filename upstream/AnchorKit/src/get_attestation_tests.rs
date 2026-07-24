@@ -46,7 +46,7 @@ mod get_attestation_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         assert!(client.get_attestation(&999).is_none());
     }
@@ -61,7 +61,7 @@ mod get_attestation_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let mut csprng = OsRng;
         let signing_key = SigningKey::generate(&mut csprng);

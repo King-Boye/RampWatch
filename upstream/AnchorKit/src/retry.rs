@@ -110,15 +110,15 @@ impl RetryConfig {
 /// InvalidQuote, InvalidServiceType, InvalidTransactionIntent, ComplianceNotMet.
 pub fn is_retryable(code: u32) -> bool {
     use crate::errors::ErrorCode;
-    const RETRYABLE: &[u32] = &[
-        ErrorCode::ServicesNotConfigured as u32,
-        ErrorCode::AttestationNotFound as u32,
-        ErrorCode::StaleQuote as u32,
-        ErrorCode::NoQuotesAvailable as u32,
-        ErrorCode::CacheExpired as u32,
-        ErrorCode::CacheNotFound as u32,
-    ];
-    RETRYABLE.contains(&code)
+    match code {
+        ErrorCode::ServicesNotConfigured as u32
+            | ErrorCode::AttestationNotFound as u32
+            | ErrorCode::StaleQuote as u32
+            | ErrorCode::NoQuotesAvailable as u32
+            | ErrorCode::CacheExpired as u32
+            | ErrorCode::CacheNotFound as u32 => true,
+        _ => false,
+    }
 }
 
 /// Execute `f` with exponential backoff retry.

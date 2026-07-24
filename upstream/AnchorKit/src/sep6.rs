@@ -134,6 +134,7 @@ pub struct TransactionStatusResponse {
 pub enum TransactionKind {
     Deposit,
     Withdrawal,
+    Unknown(String),
 }
 
 impl TransactionKind {
@@ -141,7 +142,16 @@ impl TransactionKind {
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "withdrawal" | "withdraw" => Self::Withdrawal,
-            _ => Self::Deposit,
+            "deposit" => Self::Deposit,
+            _ => Self::Unknown(String::from(s)),
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Deposit => "deposit",
+            Self::Withdrawal => "withdrawal",
+            Self::Unknown(s) => s.as_str(),
         }
     }
 }
@@ -900,6 +910,25 @@ mod tests {
             r.kind = Some(s.to_string());
             assert_eq!(fetch_transaction_status(r).unwrap().kind, TransactionKind::Deposit, "failed for {s}");
         }
+    }
+
+    #[test]
+    fn test_unknown_kind_preserved_not_coerced_to_deposit() {
+        let mut raw = raw_tx_status();
+        raw.kind = Some("typo_kind".to_string());
+        let resp = fetch_transaction_status(raw).unwrap();
+        assert_eq!(resp.kind, TransactionKind::Unknown("typo_kind".to_string()));
+    }
+
+    #[test]
+    fn test_transaction_kind_from_str_roundtrip() {
+        assert_eq!(TransactionKind::from_str("deposit"), TransactionKind::Deposit);
+        assert_eq!(TransactionKind::from_str("withdrawal"), TransactionKind::Withdrawal);
+        assert_eq!(TransactionKind::from_str("withdraw"), TransactionKind::Withdrawal);
+        assert_eq!(
+            TransactionKind::from_str("future_value"),
+            TransactionKind::Unknown("future_value".to_string())
+        );
     }
 
     // ── get_transaction_status tests ─────────────────────────────────────

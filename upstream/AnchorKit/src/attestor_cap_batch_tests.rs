@@ -32,7 +32,7 @@ mod attestor_cap_batch_tests {
         let contract_id = env.register_contract(None, AnchorKitContract);
         let client = AnchorKitContractClient::new(env, &contract_id);
         let admin = Address::generate(env);
-        client.initialize(&admin, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
         (client, admin)
     }
 
