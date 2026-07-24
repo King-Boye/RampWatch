@@ -154,6 +154,7 @@ impl ErrorCode {
             ErrorCode::AttestationExpired => "Attestation has expired",
             ErrorCode::ContractPaused => "Contract is paused",
             ErrorCode::AdminTransferPending => "Admin transfer is already pending",
+            ErrorCode::NotInitialized => "Contract is not initialized",
         }
     }
 
@@ -258,12 +259,16 @@ impl AnchorKitError {
         Self::with_context(ErrorCode::ValidationError, ErrorCode::ValidationError.default_message(), context)
     }
 
-    pub fn audit_log_max_size_invalid() -> Self { Self::from_code(ErrorCode::AuditLogMaxSizeInvalid) }
-    pub fn unauthorized_propose_admin() -> Self { Self::from_code(ErrorCode::UnauthorizedProposeAdmin) }
-    pub fn no_pending_admin() -> Self { Self::from_code(ErrorCode::NoPendingAdmin) }
-    pub fn not_pending_admin() -> Self { Self::from_code(ErrorCode::NotPendingAdmin) }
-    pub fn path_traversal_detected() -> Self {
-        Self::with_context(ErrorCode::ValidationError, "Path traversal detected in URL", "endpoint URL contains path traversal sequence")
+    pub fn invalid_config() -> Self {
+        Self::with_context(ErrorCode::ValidationError, "Invalid SDK configuration", "config")
+    }
+
+    pub fn endpoint_not_found() -> Self {
+        Self::with_context(ErrorCode::ServicesNotConfigured, "Endpoint not found", "endpoint")
+    }
+
+    pub fn transport_timeout() -> Self {
+        Self::with_context(ErrorCode::RateLimitExceeded, "Transport request timed out", "timeout")
     }
 }
 

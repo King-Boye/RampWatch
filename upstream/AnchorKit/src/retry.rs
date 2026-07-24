@@ -1,3 +1,6 @@
+extern crate alloc;
+use alloc::vec::Vec;
+
 /// Retry configuration for off-chain anchor requests.
 #[derive(Clone, Debug)]
 pub struct RetryConfig {
@@ -84,7 +87,11 @@ impl RetryConfig {
         let raw = self.base_delay_ms.saturating_mul(exp);
         let capped = raw.min(self.max_delay_ms);
         // Full jitter: uniform in [0, capped].
-        jitter_seed % (capped + 1)
+        // Use checked_add to avoid overflow when capped == u64::MAX.
+        match capped.checked_add(1) {
+            Some(m) => jitter_seed % m,
+            None => jitter_seed,
+        }
     }
 }
 
@@ -103,25 +110,15 @@ impl RetryConfig {
 /// InvalidQuote, InvalidServiceType, InvalidTransactionIntent, ComplianceNotMet.
 pub fn is_retryable(code: u32) -> bool {
     use crate::errors::ErrorCode;
-    match code {
-        ErrorCode::ServicesNotConfigured as u32
-            | ErrorCode::AttestationNotFound as u32
-            | ErrorCode::StaleQuote as u32
-            | ErrorCode::NoQuotesAvailable as u32
-            | ErrorCode::CacheExpired as u32
-            | ErrorCode::CacheNotFound as u32 => true,
-        ErrorCode::UnauthorizedAttestor as u32
-            | ErrorCode::ValidationError as u32
-            | ErrorCode::InvalidQuote as u32
-            | ErrorCode::InvalidServiceType as u32
-            | ErrorCode::InvalidTransactionIntent as u32
-            | ErrorCode::ComplianceNotMet as u32
-            | ErrorCode::RateLimitExceeded as u32
-            | ErrorCode::InvalidSep10Token as u32
-            | ErrorCode::UnauthorizedProposeAdmin as u32
-            | ErrorCode::NotPendingAdmin as u32 => false,
-        _ => false,
-    }
+    const RETRYABLE: &[u32] = &[
+        ErrorCode::ServicesNotConfigured as u32,
+        ErrorCode::AttestationNotFound as u32,
+        ErrorCode::StaleQuote as u32,
+        ErrorCode::NoQuotesAvailable as u32,
+        ErrorCode::CacheExpired as u32,
+        ErrorCode::CacheNotFound as u32,
+    ];
+    RETRYABLE.contains(&code)
 }
 
 /// Execute `f` with exponential backoff retry.
