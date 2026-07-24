@@ -89,7 +89,7 @@ mod audit_log_offset_tests {
 
         let admin = Address::generate(&env);
         // Large max size — pruning will never trigger.
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         assert_eq!(client.get_audit_log_offset(), 0u64);
     }
@@ -106,7 +106,7 @@ mod audit_log_offset_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        client.initialize(&admin, &5_u64, &None);
+        client.initialize(&admin, &5_u64, &None, &None);
 
         let (attestor, sk) = setup_attestor(&env, &client);
         let session_id = client.create_session(&attestor);
@@ -132,7 +132,7 @@ mod audit_log_offset_tests {
 
         let admin = Address::generate(&env);
         // max_audit_log_size = 3: pruning fires when live_count >= 3.
-        client.initialize(&admin, &3_u64, &None);
+        client.initialize(&admin, &3_u64, &None, &None);
 
         let (attestor, sk) = setup_attestor(&env, &client);
         let session_id = client.create_session(&attestor);
@@ -166,7 +166,7 @@ mod audit_log_offset_tests {
 
         let admin = Address::generate(&env);
         // max = 2: every submission beyond the 2nd triggers a prune.
-        client.initialize(&admin, &2_u64, &None);
+        client.initialize(&admin, &2_u64, &None, &None);
 
         let (attestor, sk) = setup_attestor(&env, &client);
         let session_id = client.create_session(&attestor);

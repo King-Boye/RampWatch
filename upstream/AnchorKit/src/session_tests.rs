@@ -84,7 +84,7 @@ mod session_tests {
 
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let id0 = client.create_session(&user);
         let id1 = client.create_session(&user);
@@ -119,7 +119,7 @@ mod session_tests {
 
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let session_id = client.create_session(&user);
         let session = client.get_session(&session_id);
@@ -141,7 +141,7 @@ mod session_tests {
 
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let session_id = client.create_session(&user);
         assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 0);
@@ -154,7 +154,7 @@ mod session_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         assert!(client.get_session_operation_count(&999u64).is_none());
     }
@@ -169,7 +169,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let session_id = client.create_session(&user);
         let sk = SigningKey::generate(&mut OsRng);
@@ -189,7 +189,7 @@ mod session_tests {
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let session_id = client.create_session(&attestor);
         let sk = SigningKey::generate(&mut OsRng);
@@ -220,7 +220,7 @@ mod session_tests {
         let user_a = Address::generate(&env);
         let user_b = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         // Register user_a as attestor so they can call the function
         let sk = SigningKey::generate(&mut OsRng);
@@ -254,7 +254,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let session_id = client.create_session(&user);
         let sk = SigningKey::generate(&mut OsRng);
@@ -273,7 +273,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let session_id = client.create_session(&user);
         let sk = SigningKey::generate(&mut OsRng);
@@ -304,7 +304,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let session_id = client.create_session(&user);
         let sk = SigningKey::generate(&mut OsRng);
@@ -324,7 +324,7 @@ mod session_tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let session_id = client.create_session(&user);
         let sk = SigningKey::generate(&mut OsRng);
@@ -357,7 +357,7 @@ mod session_tests {
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let session_id = client.create_session(&attestor);
         // Set Sep10 key so signature verification works, then register via session (writes audit log)
@@ -397,7 +397,7 @@ mod session_tests {
         let admin = Address::generate(&env);
 
         // Use large max_audit_log_size to avoid pruning during this test.
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         // Two independent sessions.
         let initiator_a = Address::generate(&env);
@@ -491,7 +491,7 @@ mod session_tests {
         let user = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         // Step 1: create session
         let session_id = client.create_session(&attestor);
@@ -568,7 +568,7 @@ mod session_tests {
 
         let admin = Address::generate(&env);
         // max_audit_log_size = 2: only 2 live entries at a time
-        client.initialize(&admin, &2_u64, &None);
+        client.initialize(&admin, &2_u64, &None, &None);
 
         let mut csprng = OsRng;
         let signing_key = SigningKey::generate(&mut csprng);
@@ -614,7 +614,7 @@ mod session_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        client.initialize(&admin, &2_u64, &None);
+        client.initialize(&admin, &2_u64, &None, &None);
 
         let mut csprng = OsRng;
         let signing_key = SigningKey::generate(&mut csprng);
@@ -651,6 +651,6 @@ mod session_tests {
         let contract_id = env.register_contract(None, AnchorKitContract);
         let client = AnchorKitContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
-        client.initialize(&admin, &0_u64, &None); // must panic with AuditLogMaxSizeInvalid
+        client.initialize(&admin, &0_u64, &None, &None); // must panic with AuditLogMaxSizeInvalid
     }
 }

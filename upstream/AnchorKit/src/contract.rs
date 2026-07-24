@@ -11,7 +11,7 @@ use crate::storage::{
     StorageKey,
     key_admin, key_counter, key_session_counter, key_quote_counter,
     key_audit_counter, key_anchor_list, key_health_threshold, key_replay_window,
-    key_attestor_count, key_audit_log_offset, key_attestor_list,
+    key_clock_skew, key_attestor_count, key_audit_log_offset, key_attestor_list,
 };
 
 // ---------------------------------------------------------------------------
@@ -148,7 +148,13 @@ impl AnchorKitContract {
     /// replay attack detection.  Attestations whose timestamp falls outside
     /// `[now - window, now + window]` are rejected.
     ///
-    /// Defaults to **300 seconds** (5 minutes) when `None` is supplied.
+    /// `clock_skew_seconds` sets the tolerance for SEP-10 JWT expiry drift
+    /// between the anchor's clock and the Soroban ledger timestamp.
+    /// Tokens whose `exp` falls within `now + clock_skew_seconds` of the
+    /// current ledger time are still accepted.
+    ///
+    /// Defaults to **300 seconds** (5 minutes) for `replay_window_seconds`
+    /// and **60 seconds** for `clock_skew_seconds` when `None` is supplied.
     ///
     /// Returns `Err(ErrorCode::AlreadyInitialized)` instead of panicking when
     /// called a second time, so callers can handle re-initialization
@@ -158,6 +164,7 @@ impl AnchorKitContract {
         admin: Address,
         max_audit_log_size: u64,
         replay_window_seconds: Option<u64>,
+        clock_skew_seconds: Option<u64>,
     ) -> Result<(), ErrorCode> {
         admin.require_auth();
         if admin == env.current_contract_address() {
@@ -176,6 +183,9 @@ impl AnchorKitContract {
         // Default replay window: 300 seconds (5 minutes).
         let window = replay_window_seconds.unwrap_or(300u64);
         inst.set(&key_replay_window(&env), &window);
+        // Default clock skew tolerance: 60 seconds.
+        let skew = clock_skew_seconds.unwrap_or(60u64);
+        inst.set(&key_clock_skew(&env), &skew);
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
         Ok(())
     }
@@ -407,7 +417,10 @@ impl AnchorKitContract {
         if keys.is_empty() {
             panic_with_error!(&env, ErrorCode::MissingSigningKey);
         }
-        if sep10_jwt::verify_sep10_jwt(&env, &token, &keys, None, 0).is_err() {
+        let clock_skew: u64 = env.storage().instance()
+            .get(&key_clock_skew(&env))
+            .unwrap_or(60u64);
+        if sep10_jwt::verify_sep10_jwt(&env, &token, &keys, None, clock_skew).is_err() {
             panic_with_error!(&env, ErrorCode::InvalidSep10Token);
         }
     }
@@ -426,7 +439,10 @@ impl AnchorKitContract {
         if keys.is_empty() {
             panic_with_error!(&env, ErrorCode::MissingSigningKey);
         }
-        if sep10_jwt::verify_sep10_jwt(&env, &token, &keys, None, 0).is_err() {
+        let clock_skew: u64 = env.storage().instance()
+            .get(&key_clock_skew(&env))
+            .unwrap_or(60u64);
+        if sep10_jwt::verify_sep10_jwt(&env, &token, &keys, None, clock_skew).is_err() {
             panic_with_error!(&env, ErrorCode::InvalidSep10Token);
         }
         if sep10_jwt::check_token_scope(&env, &token, service).is_err() {
@@ -448,8 +464,11 @@ impl AnchorKitContract {
         if keys.is_empty() {
             panic_with_error!(env, ErrorCode::MissingSigningKey);
         }
+        let clock_skew: u64 = env.storage().instance()
+            .get(&key_clock_skew(env))
+            .unwrap_or(60u64);
         let expected = attestor.to_string();
-        if sep10_jwt::verify_sep10_jwt(env, token, &keys, Some(&expected), 0).is_err() {
+        if sep10_jwt::verify_sep10_jwt(env, token, &keys, Some(&expected), clock_skew).is_err() {
             panic_with_error!(env, ErrorCode::InvalidSep10Token);
         }
     }
@@ -1698,6 +1717,7 @@ impl AnchorKitContract {
             let caps_key = StorageKey::CapabilitiesCache(anchor.clone());
             let toml_key = StorageKey::TomlCache(anchor.clone());
             if env.storage().temporary().has(&meta_key)
+                || env.storage().persistent().has(&meta_key)
                 || env.storage().temporary().has(&caps_key)
                 || env.storage().temporary().has(&toml_key)
             {
@@ -1796,6 +1816,10 @@ impl AnchorKitContract {
             let meta_key = StorageKey::MetadataCache(anchor.clone());
             if env.storage().temporary().has(&meta_key) {
                 env.storage().temporary().remove(&meta_key);
+                count += 1;
+            }
+            if env.storage().persistent().has(&meta_key) {
+                env.storage().persistent().remove(&meta_key);
                 count += 1;
             }
             let caps_key = StorageKey::CapabilitiesCache(anchor.clone());

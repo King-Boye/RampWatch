@@ -110,16 +110,6 @@ pub fn is_retryable(code: u32) -> bool {
             | ErrorCode::NoQuotesAvailable as u32
             | ErrorCode::CacheExpired as u32
             | ErrorCode::CacheNotFound as u32 => true,
-        ErrorCode::UnauthorizedAttestor as u32
-            | ErrorCode::ValidationError as u32
-            | ErrorCode::InvalidQuote as u32
-            | ErrorCode::InvalidServiceType as u32
-            | ErrorCode::InvalidTransactionIntent as u32
-            | ErrorCode::ComplianceNotMet as u32
-            | ErrorCode::RateLimitExceeded as u32
-            | ErrorCode::InvalidSep10Token as u32
-            | ErrorCode::UnauthorizedProposeAdmin as u32
-            | ErrorCode::NotPendingAdmin as u32 => false,
         _ => false,
     }
 }

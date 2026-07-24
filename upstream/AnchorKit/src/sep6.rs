@@ -134,6 +134,7 @@ pub struct TransactionStatusResponse {
 pub enum TransactionKind {
     Deposit,
     Withdrawal,
+    Unknown(String),
 }
 
 impl TransactionKind {
@@ -141,7 +142,16 @@ impl TransactionKind {
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "withdrawal" | "withdraw" => Self::Withdrawal,
-            _ => Self::Deposit,
+            "deposit" => Self::Deposit,
+            _ => Self::Unknown(String::from(s)),
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Deposit => "deposit",
+            Self::Withdrawal => "withdrawal",
+            Self::Unknown(s) => s.as_str(),
         }
     }
 }
@@ -896,6 +906,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_unknown_kind_preserved_not_coerced_to_deposit() {
+        let mut raw = raw_tx_status();
+        raw.kind = Some("typo_kind".to_string());
+        let resp = fetch_transaction_status(raw).unwrap();
+        assert_eq!(resp.kind, TransactionKind::Unknown("typo_kind".to_string()));
+    }
+
+    #[test]
+    fn test_transaction_kind_from_str_roundtrip() {
+        assert_eq!(TransactionKind::from_str("deposit"), TransactionKind::Deposit);
+        assert_eq!(TransactionKind::from_str("withdrawal"), TransactionKind::Withdrawal);
+        assert_eq!(TransactionKind::from_str("withdraw"), TransactionKind::Withdrawal);
+        assert_eq!(
+            TransactionKind::from_str("future_value"),
+            TransactionKind::Unknown("future_value".to_string())
+        );
+    }
+
     // ── get_transaction_status tests ─────────────────────────────────────
 
     #[test]
@@ -1174,6 +1203,9 @@ mod tests {
             fee_fixed: Some(3),
             fee_percent: Some(100),
             status: Some("pending_external".to_string()),
+        }
+    }
+
     // ── deposit_exchange tests (#650) ────────────────────────────────────────
 
     fn exchange_req() -> RawDepositExchangeRequest {
@@ -1220,6 +1252,9 @@ mod tests {
         raw.status = None;
         let resp = withdraw_exchange(raw, "USDC", "BTC").unwrap();
         assert_eq!(resp.status, TransactionStatus::Pending);
+    }
+
+    #[test]
     fn test_deposit_exchange_success() {
         let resp = deposit_exchange(exchange_req(), raw_deposit()).unwrap();
         assert_eq!(resp.transaction_id, "txn-001");

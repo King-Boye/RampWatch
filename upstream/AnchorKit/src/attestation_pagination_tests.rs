@@ -60,7 +60,7 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
@@ -88,7 +88,7 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
@@ -129,7 +129,7 @@ mod attestation_pagination_tests {
         let attestor = Address::generate(&env);
         let subj1 = Address::generate(&env);
         let subj2 = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
@@ -164,7 +164,7 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
@@ -191,7 +191,7 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         // Seed the counter to u64::MAX - 1 so the next increment hits the limit
         env.as_contract(&contract_id, &|| {
@@ -218,7 +218,7 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
@@ -240,7 +240,7 @@ mod attestation_pagination_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         // Verify default value is 50
         assert_eq!(client.get_max_page_size(), 50);
@@ -276,7 +276,7 @@ mod attestation_pagination_tests {
         let client = AnchorKitContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
 
         client.set_max_page_size(&100);
     }

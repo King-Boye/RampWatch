@@ -131,6 +131,9 @@ pub fn key_health_threshold(env: &Env) -> Vec<Symbol> {
 pub fn key_replay_window(env: &Env) -> Vec<Symbol> {
     soroban_sdk::vec![env, symbol_short!("REPL_WIN")]
 }
+pub fn key_clock_skew(env: &Env) -> Vec<Symbol> {
+    soroban_sdk::vec![env, symbol_short!("CLK_SKEW")]
+}
 pub fn key_attestor_count(env: &Env) -> Vec<Symbol> {
     soroban_sdk::vec![env, symbol_short!("ATTCNT")]
 }
