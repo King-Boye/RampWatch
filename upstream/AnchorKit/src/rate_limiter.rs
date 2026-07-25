@@ -21,6 +21,22 @@ pub struct RateLimitConfig {
     pub burst: u32,
 }
 
+impl RateLimitConfig {
+    /// Validate the rate limit configuration.
+    /// Rejects invalid configurations that would cause silent failures:
+    /// - window_length must be > 0 (window_length=0 makes every check reset the window)
+    /// - max_submissions must be > 0 (max_submissions=0 permanently blocks all submissions)
+    pub fn validate(&self) -> Result<(), ErrorCode> {
+        if self.window_length == 0 {
+            return Err(ErrorCode::ValidationError);
+        }
+        if self.max_submissions == 0 {
+            return Err(ErrorCode::ValidationError);
+        }
+        Ok(())
+    }
+}
+
 /// Per-attestor rate limit state stored in contract storage
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -158,6 +174,7 @@ impl RateLimiter {
         config: RateLimitConfig,
         attestor: Option<&Address>,
     ) -> Result<(), ErrorCode> {
+        config.validate()?;
         match attestor {
             Some(addr) => {
                 let key = StorageKey::RateLimitOverride(addr.clone());
@@ -187,6 +204,7 @@ impl RateLimiter {
         attestor: &Address,
         config: RateLimitConfig,
     ) -> Result<(), ErrorCode> {
+        config.validate()?;
         let key = StorageKey::RateLimitOverride(attestor.clone());
         env.storage().persistent().set(&key, &config);
         env.storage().persistent().extend_ttl(&key, config.window_length, config.window_length);
@@ -542,5 +560,23 @@ mod tests {
         assert_eq!(state_after.window_start_ledger, env.ledger().sequence());
         assert!(state_after.window_start_ledger >= ledger_before);
         });
+    }
+
+    #[test]
+    fn test_validate_rejects_zero_window_length() {
+        let config = RateLimitConfig { max_submissions: 10, window_length: 0, burst: 0 };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_zero_max_submissions() {
+        let config = RateLimitConfig { max_submissions: 0, window_length: 100, burst: 0 };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_accepts_valid_config() {
+        let config = RateLimitConfig { max_submissions: 10, window_length: 100, burst: 0 };
+        assert!(config.validate().is_ok());
     }
 }
