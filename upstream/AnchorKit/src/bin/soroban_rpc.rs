@@ -175,16 +175,20 @@ pub fn list_sessions_rpc(limit: u64) -> Result<Vec<SessionData>, String> {
 
 // ── Helper functions ────────────────────────────────────────────────────────
 
-/// Check if address is valid Stellar format
+/// Check if address is valid Stellar format.
+/// Validates prefix (G/C), length (56), and restricts the remaining 55
+/// characters to the RFC4648 base32 strkey alphabet (A-Z, 2-7).
+/// Lowercase letters and the digits 0, 1, 8, 9 are not valid strkey chars.
 fn is_valid_stellar_address(addr: &str) -> bool {
-    // Stellar account addresses start with 'G' and are 56 chars
-    // Contract addresses start with 'C' and are 56 chars
-    if (addr.starts_with('G') || addr.starts_with('C')) && addr.len() == 56 {
-        // Check if all chars are valid base32 (excluding the version byte check for simplicity)
-        addr.chars().all(|c| c.is_ascii_alphanumeric())
+    let (expected_prefix, rest) = if let Some(r) = addr.strip_prefix('G') {
+        ('G', r)
+    } else if let Some(r) = addr.strip_prefix('C') {
+        ('C', r)
     } else {
-        false
-    }
+        return false;
+    };
+    let _ = expected_prefix; // prefix consumed by strip_prefix above
+    addr.len() == 56 && rest.chars().all(|c| matches!(c, 'A'..='Z' | '2'..='7'))
 }
 
 /// Derive Stellar address from secret key

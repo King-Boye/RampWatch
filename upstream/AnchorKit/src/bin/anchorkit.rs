@@ -309,9 +309,9 @@ fn run_deploy(network: &str) {
 fn run_init(admin: &str) {
     println!("🔧 Initializing contract with admin: {}", admin);
     
-    // Validate admin address format
-    if !admin.starts_with('G') || admin.len() != 56 {
-        eprintln!("❌ Invalid admin address format. Expected Stellar public key starting with 'G'");
+    // Validate admin address format (prefix, length, and base32 strkey charset)
+    if !is_valid_g_address(admin) {
+        eprintln!("❌ Invalid admin address format. Expected Stellar public key starting with 'G' followed by 55 base32 characters (A-Z2-7)");
         std::process::exit(1);
     }
     
@@ -339,8 +339,8 @@ fn run_attest(subject: &str, payload_hash: &str, session: Option<&str>) {
     }
     
     // Validate inputs
-    if !subject.starts_with('G') || subject.len() != 56 {
-        eprintln!("❌ Invalid subject address format");
+    if !is_valid_g_address(subject) {
+        eprintln!("❌ Invalid subject address format. Expected Stellar public key starting with 'G' followed by 55 base32 characters (A-Z2-7)");
         std::process::exit(1);
     }
     
@@ -1030,7 +1030,7 @@ fn validate_attestors_section(attestors: &serde_json::Value, errors: &mut Vec<St
         
         // Validate address
         if let Some(address) = attestor_obj.get("address").and_then(|v| v.as_str()) {
-            let addr_regex = Regex::new(r"^G[A-Z0-9]{55}$").unwrap();
+            let addr_regex = Regex::new(r"^G[A-Z2-7]{55}$").unwrap();
             if !addr_regex.is_match(address) {
                 errors.push(format!("field 'attestors.registry[{}].address' has invalid Stellar address format (must start with 'G' and be 56 characters)", idx));
             }
@@ -1432,9 +1432,9 @@ fn run_register(address: &str, services: Option<&str>, endpoint: Option<&str>, o
         }
     }
 
-    // Validate address format
-    if !address.starts_with('G') || address.len() != 56 {
-        eprintln!("error: invalid attestor address format. Expected Stellar public key starting with 'G'");
+    // Validate address format (prefix, length, and base32 strkey charset)
+    if !is_valid_g_address(address) {
+        eprintln!("error: invalid attestor address format. Expected Stellar public key starting with 'G' followed by 55 base32 characters (A-Z2-7)");
         std::process::exit(1);
     }
 
@@ -1721,18 +1721,20 @@ fn print_audit_entry(entry: &AuditLogEntry) {
 }
 
 fn print_audit_entry_compact(entry: &AuditLogEntry) {
+    let actor_truncated: String = entry.actor.chars().take(24).collect();
+    let result_truncated: String = entry.result.chars().take(50).collect();
     println!("  │ Log ID:     {} │ Op: {} │ Status: {}", 
              entry.log_id,
              entry.operation_type,
              entry.status);
     println!("  │ Session:    {} │ Actor: {}", 
              entry.session_id,
-             &entry.actor[..entry.actor.len().min(24)]);
+             actor_truncated);
     println!("  │ Timestamp:  {} (op_index: {})", 
              format_timestamp(entry.timestamp),
              entry.operation_index);
     println!("  │ Result:     {}", 
-             &entry.result[..entry.result.len().min(50)]);
+             result_truncated);
 }
 
 fn format_timestamp(ts: u64) -> String {
@@ -2025,16 +2027,25 @@ where
     }
 }
 
+/// Returns `true` if `addr` is a syntactically valid Stellar public key:
+/// prefix 'G', exactly 56 characters, remaining 55 chars from the RFC4648
+/// base32 strkey alphabet (A-Z, 2-7).  Digits 0, 1, 8, 9 and any lowercase
+/// letter are not part of that alphabet and will cause this to return `false`.
+fn is_valid_g_address(addr: &str) -> bool {
+    addr.starts_with('G')
+        && addr.len() == 56
+        && addr[1..].chars().all(|c| matches!(c, 'A'..='Z' | '2'..='7'))
+}
+
 /// Validate a Stellar public key (admin / contract-id format).
 fn validate_stellar_address(s: &str) -> Result<String, String> {
-    // Match the same regex used by validate_attestors_section so a key
-    // that passes here will also pass config validation.
-    let re = Regex::new(r"^G[A-Z0-9]{55}$").unwrap();
+    // Stellar public keys are RFC4648 base32 strkeys: prefix 'G' + 55 chars from A-Z2-7
+    let re = Regex::new(r"^G[A-Z2-7]{55}$").unwrap();
     if re.is_match(s) {
         Ok(s.to_string())
     } else {
         Err(format!(
-            "Invalid Stellar public key — must start with 'G' followed by 55 uppercase alphanumeric characters (56 chars total), got '{}'",
+            "Invalid Stellar public key — must start with 'G' followed by 55 base32 characters (A-Z, 2-7) (56 chars total), got '{}'",
             s
         ))
     }
