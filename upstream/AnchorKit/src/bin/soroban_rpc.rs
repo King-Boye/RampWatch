@@ -1,7 +1,14 @@
 /// Soroban RPC client for contract interaction from CLI
 ///
-/// This module provides HTTP-based RPC calls to interact with the AnchorKit contract
-/// on the Soroban network, enabling session management and other operations via CLI.
+/// This module is intended to provide HTTP-based RPC calls to interact with the
+/// AnchorKit contract on the Soroban network. Currently all three public functions
+/// (`create_session_rpc`, `get_session_rpc`, `list_sessions_rpc`) are **placeholders**
+/// that return descriptive `Err` messages — no actual network requests are made yet.
+///
+/// # Status
+/// - `reqwest` is now declared as an optional dependency (enabled with the `std` feature)
+///   so the HTTP client layer can be wired up without further Cargo.toml changes.
+/// - Full implementation requires: XDR transaction building, signing, and RPC submission.
 
 use serde::{Deserialize, Serialize};
 use std::env;
