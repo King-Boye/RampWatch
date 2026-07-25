@@ -68,10 +68,12 @@ function GlowRing({
   active,
   done,
   color,
+  stepId,
 }: {
   active: boolean;
   done: boolean;
   color: string;
+  stepId: string;
 }) {
   return (
     <div style={{ position: "relative", width: 48, height: 48, flexShrink: 0 }}>
@@ -131,7 +133,7 @@ function GlowRing({
               filter: active ? `drop-shadow(0 0 6px ${color})` : "none",
             }}
           >
-            {STEPS.find((s) => s.id === (active ? "active" : ""))?.icon ?? "○"}
+            {STEPS.find((s) => s.id === stepId)?.icon ?? "○"}
           </span>
         )}
       </div>
@@ -1182,7 +1184,7 @@ export default function SEP10AuthFlow() {
                     flexShrink: 0,
                   }}
                 >
-                  <GlowRing active={isActive} done={isDone} color={stepColor} />
+                  <GlowRing active={isActive} done={isDone} color={stepColor} stepId={s.id} />
                   <div style={{ display: i < 3 ? "none" : undefined }}>
                     {/* hide labels for middle steps on small screens */}
                   </div>

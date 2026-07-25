@@ -33,7 +33,7 @@ describe('AnchorPlayground', () => {
       render(<AnchorPlayground />);
 
       // Click send request button
-      const sendButton = screen.getByRole('button', { name: /Send Request/i });
+      const sendButton = screen.getByRole('button', { name: /Execute Request/i });
       fireEvent.click(sendButton);
 
       // Check for skeleton loaders
@@ -68,7 +68,7 @@ describe('AnchorPlayground', () => {
 
       render(<AnchorPlayground />);
 
-      const sendButton = screen.getByRole('button', { name: /Send Request/i });
+      const sendButton = screen.getByRole('button', { name: /Execute Request/i });
       fireEvent.click(sendButton);
 
       await waitFor(() => {
@@ -97,7 +97,7 @@ describe('AnchorPlayground', () => {
 
       render(<AnchorPlayground />);
 
-      const sendButton = screen.getByRole('button', { name: /Send Request/i });
+      const sendButton = screen.getByRole('button', { name: /Execute Request/i });
       fireEvent.click(sendButton);
 
       await waitFor(() => {
@@ -124,7 +124,7 @@ describe('AnchorPlayground', () => {
 
       render(<AnchorPlayground />);
 
-      const sendButton = screen.getByRole('button', { name: /Send Request/i });
+      const sendButton = screen.getByRole('button', { name: /Execute Request/i });
       fireEvent.click(sendButton);
 
       await waitFor(() => {
@@ -151,7 +151,7 @@ describe('AnchorPlayground', () => {
 
       render(<AnchorPlayground />);
 
-      const sendButton = screen.getByRole('button', { name: /Send Request/i });
+      const sendButton = screen.getByRole('button', { name: /Execute Request/i });
       fireEvent.click(sendButton);
 
       await waitFor(() => {
@@ -169,7 +169,7 @@ describe('AnchorPlayground', () => {
 
       render(<AnchorPlayground />);
 
-      const sendButton = screen.getByRole('button', { name: /Send Request/i });
+      const sendButton = screen.getByRole('button', { name: /Execute Request/i });
       fireEvent.click(sendButton);
 
       // Wait for response to load
@@ -199,7 +199,7 @@ describe('AnchorPlayground', () => {
 
       const { container } = render(<AnchorPlayground />);
 
-      const sendButton = screen.getByRole('button', { name: /Send Request/i });
+      const sendButton = screen.getByRole('button', { name: /Execute Request/i });
       fireEvent.click(sendButton);
 
       await waitFor(() => {
@@ -235,7 +235,7 @@ describe('AnchorPlayground', () => {
   });
 
   describe('Request Functionality', () => {
-    it('sends request when send button is clicked', async () => {
+    it('sends request when execute button is clicked', async () => {
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         status: 200,
@@ -245,7 +245,7 @@ describe('AnchorPlayground', () => {
 
       render(<AnchorPlayground />);
 
-      const sendButton = screen.getByRole('button', { name: /Send Request/i });
+      const sendButton = screen.getByRole('button', { name: /Execute Request/i });
       fireEvent.click(sendButton);
 
       await waitFor(() => {
@@ -263,7 +263,7 @@ describe('AnchorPlayground', () => {
 
       render(<AnchorPlayground />);
 
-      const sendButton = screen.getByRole('button', { name: /Send Request/i });
+      const sendButton = screen.getByRole('button', { name: /Execute Request/i });
       fireEvent.click(sendButton);
 
       await waitFor(() => {

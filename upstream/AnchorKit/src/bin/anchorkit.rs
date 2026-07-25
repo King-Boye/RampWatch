@@ -2127,11 +2127,16 @@ fn run_config_init() {
     // ── 4. RPC endpoint ────────────────────────────────────────────────────
     let default_rpc = match network.as_str() {
         "stellar-testnet" => "https://soroban-testnet.stellar.org",
-        "stellar-mainnet" => "https://mainnet.sorobanrpc.com",
+        "stellar-mainnet" => "https://horizon.stellar.org/rpc",
         _ => "https://rpc-futurenet.stellar.org",
     };
     println!();
     println!("  Default RPC for {}: {}", network, default_rpc);
+    if network == "stellar-mainnet" {
+        println!("  ⚠  Note: This is a third-party RPC endpoint, not operated by the Stellar Development Foundation.");
+        println!("     It will receive your mainnet traffic including session and attestation data.");
+        println!("     Consider using your own RPC node or an SDF-operated endpoint for production use.");
+    }
     let rpc_endpoint: String = prompt_until_valid(
         &format!("RPC endpoint URL [{}]: ", default_rpc),
         |s| {
