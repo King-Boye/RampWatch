@@ -1350,16 +1350,34 @@ export function AnchorCapabilityCard({
 
       {/* ── Tabs ── */}
       <div
+        role="tablist"
+        aria-label="Capability panels"
         style={{
           display: "flex",
           borderBottom: "1px solid var(--ak-border)",
           background: "var(--ak-surface-3)",
         }}
       >
-        {TABS.map((tab) => (
+        {TABS.map((tab, idx, arr) => (
           <button
             key={tab}
+            id={`cap-tab-${tab}`}
+            role="tab"
+            aria-selected={activeTab === tab}
+            aria-controls={`cap-tabpanel-${tab}`}
+            tabIndex={activeTab === tab ? 0 : -1}
             onClick={() => setActiveTab(tab)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+                const next = e.key === "ArrowRight"
+                  ? arr[(idx + 1) % arr.length]
+                  : arr[(idx - 1 + arr.length) % arr.length];
+                setActiveTab(next);
+                (e.currentTarget.parentElement?.querySelector(`[id="cap-tab-${next}"]`) as HTMLElement)?.focus();
+              }
+              if (e.key === "Home") { setActiveTab(arr[0]); (e.currentTarget.parentElement?.querySelector(`[id="cap-tab-${arr[0]}"]`) as HTMLElement)?.focus(); }
+              if (e.key === "End") { setActiveTab(arr[arr.length - 1]); (e.currentTarget.parentElement?.querySelector(`[id="cap-tab-${arr[arr.length - 1]}"]`) as HTMLElement)?.focus(); }
+            }}
             style={{
               flex: 1,
               padding: "12px 0",
@@ -1396,6 +1414,9 @@ export function AnchorCapabilityCard({
 
       {/* ── Tab Content ── */}
       <div
+        role="tabpanel"
+        id={`cap-tabpanel-${activeTab}`}
+        aria-labelledby={`cap-tab-${activeTab}`}
         style={{
           padding: "20px 20px 22px",
           minHeight: 280,

@@ -160,7 +160,7 @@ pub struct Session {
 }
 
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Quote {
     pub quote_id: u64,
     pub anchor: Address,

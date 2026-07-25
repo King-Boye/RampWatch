@@ -490,6 +490,22 @@ fn run_query(transaction_id: &str, output: &str) {
 fn run_health(attestor: Option<&str>, watch: bool, interval: u64, output: &str) {
     validate_output_format(output);
 
+    if watch {
+        if interval == 0 {
+            eprintln!("❌ Invalid interval '0'. --interval must be greater than 0 seconds");
+            std::process::exit(1);
+        }
+        eprintln!("👀 Watch mode enabled (interval: {}s) — press Ctrl+C to stop", interval);
+        loop {
+            render_health(attestor, output);
+            std::thread::sleep(std::time::Duration::from_secs(interval));
+        }
+    }
+
+    render_health(attestor, output);
+}
+
+fn render_health(attestor: Option<&str>, output: &str) {
     // Simulated health records.  In a real implementation these come from
     // on-chain queries; the shape maps 1-to-1 with HealthStatus in types.rs.
     let records: Vec<[&str; 4]> = if let Some(addr) = attestor {
@@ -501,10 +517,6 @@ fn run_health(attestor: Option<&str>, watch: bool, interval: u64, output: &str) 
             ["G…attestor-3", "120", "3", "92"],
         ]
     };
-
-    if watch {
-        eprintln!("👀 Watch mode enabled (interval: {}s) — press Ctrl+C to stop", interval);
-    }
 
     match output {
         "json" => {

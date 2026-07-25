@@ -231,10 +231,70 @@ pub struct RawTransactionListRequest {
 
 // ── Service functions ─────────────────────────────────────────────────────────
 
+/// StrKey version byte for an ed25519 public key ("G..." account address).
+const STRKEY_VERSION_ACCOUNT_ID: u8 = 6 << 3;
+
+/// Decodes a 56-character StrKey string into its raw 35-byte representation
+/// (1 version byte + 32-byte payload + 2-byte CRC16-XModem checksum),
+/// validating that every character belongs to the Base32 alphabet (`A`-`Z`, `2`-`7`).
+fn decode_strkey(s: &str) -> Option<[u8; 35]> {
+    const ALPHABET: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+    if s.len() != 56 || !s.is_ascii() {
+        return None;
+    }
+
+    let mut out = [0u8; 35];
+    let mut buffer: u64 = 0;
+    let mut bits: u32 = 0;
+    let mut out_idx = 0;
+
+    for &b in s.as_bytes() {
+        let value = ALPHABET.iter().position(|&c| c == b)? as u64;
+        buffer = (buffer << 5) | value;
+        bits += 5;
+        if bits >= 8 {
+            bits -= 8;
+            out[out_idx] = ((buffer >> bits) & 0xFF) as u8;
+            out_idx += 1;
+        }
+    }
+
+    Some(out)
+}
+
+/// Computes the CRC16-XModem checksum used by Stellar's StrKey encoding.
+fn crc16_xmodem(data: &[u8]) -> u16 {
+    let mut crc: u16 = 0;
+    for &byte in data {
+        crc ^= (byte as u16) << 8;
+        for _ in 0..8 {
+            crc = if crc & 0x8000 != 0 {
+                (crc << 1) ^ 0x1021
+            } else {
+                crc << 1
+            };
+        }
+    }
+    crc
+}
+
+/// Validates that `s` is a well-formed Stellar account address (StrKey "G..." format):
+/// correct length, strict Base32 alphabet, the ed25519-public-key version byte, and a
+/// matching CRC16-XModem checksum.
 fn is_valid_stellar_address(s: &str) -> bool {
-    s.len() == 56
-        && s.starts_with('G')
-        && s.chars().all(|c| c.is_ascii_alphanumeric())
+    let decoded = match decode_strkey(s) {
+        Some(d) => d,
+        None => return false,
+    };
+
+    if decoded[0] != STRKEY_VERSION_ACCOUNT_ID {
+        return false;
+    }
+
+    let payload = &decoded[..33];
+    let expected_checksum = u16::from_le_bytes([decoded[33], decoded[34]]);
+    crc16_xmodem(payload) == expected_checksum
 }
 
 fn is_valid_asset_code(s: &str) -> bool {
@@ -819,10 +879,31 @@ mod tests {
     }
 
     #[test]
+    fn test_initiate_deposit_lowercase_stellar_address_returns_error() {
+        // 56 chars, starts with 'G', all ASCII alphanumeric — but lowercase is not
+        // part of the Base32 alphabet, so this must be rejected.
+        let mut raw = raw_deposit();
+        raw.depositor_account = Some(("G".to_string() + &"a".repeat(55)));
+        let err = initiate_deposit(raw, "USDC").unwrap_err();
+        assert_eq!(err.code, ErrorCode::ValidationError);
+    }
+
+    #[test]
+    fn test_initiate_deposit_checksum_corrupted_stellar_address_returns_error() {
+        // Same address as the valid-address test, but with one character
+        // transposed, which flips the CRC16 checksum without changing the length
+        // or the (still-valid) Base32 alphabet.
+        let mut raw = raw_deposit();
+        raw.depositor_account = Some("GAAACAQDAQCQMBYIBEFAWDANBYHRAEISCMKBKFQXDAMRUGY4DUPB7JZY".to_string());
+        let err = initiate_deposit(raw, "USDC").unwrap_err();
+        assert_eq!(err.code, ErrorCode::ValidationError);
+    }
+
+    #[test]
     fn test_initiate_deposit_valid_stellar_address_accepted() {
         let mut raw = raw_deposit();
-        // 56-char G-address
-        raw.depositor_account = Some("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA".to_string());
+        // 56-char G-address with a valid Base32 encoding and CRC16 checksum
+        raw.depositor_account = Some("GAAACAQDAQCQMBYIBEFAWDANBYHRAEISCMKBKFQXDAMRUGY4DUPB7JZX".to_string());
         assert!(initiate_deposit(raw, "USDC").is_ok());
     }
 
@@ -1012,7 +1093,7 @@ mod tests {
 
     // ── list_transactions ────────────────────────────────────────────────────
 
-    const VALID_ACCOUNT: &str = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+    const VALID_ACCOUNT: &str = "GAAACAQDAQCQMBYIBEFAWDANBYHRAEISCMKBKFQXDAMRUGY4DUPB7JZX";
 
     fn make_raw_tx(id: &str, status: &str) -> RawTransactionResponse {
         RawTransactionResponse {
