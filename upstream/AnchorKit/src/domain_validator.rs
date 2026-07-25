@@ -278,12 +278,19 @@ fn validate_path_traversal(url: &str) -> Result<(), AnchorKitError> {
         return Err(AnchorKitError::path_traversal_detected());
     }
 
-    // Attempt to decode the path and check again
-    // Since we're in a no-std environment (alloc), we'll manually decode
-    // Look for %2E%2E and %2F patterns that could form traversals when decoded
-    let decoded = percent_decode_simple(path);
-    if decoded.contains("/../") || decoded.starts_with("../") || decoded.ends_with("/..") {
-        return Err(AnchorKitError::path_traversal_detected());
+    // #889: decode repeatedly until the string stabilises to catch double/multi-encoded
+    // traversal sequences (e.g. %252E%252E -> %2E%2E -> ..)
+    let mut current = alloc::string::String::from(path);
+    loop {
+        let decoded = percent_decode_simple(&current);
+        if decoded.contains("/../") || decoded.starts_with("../") || decoded.ends_with("/..") {
+            return Err(AnchorKitError::path_traversal_detected());
+        }
+        if decoded == current {
+            // Fixed point reached — no further decoding possible
+            break;
+        }
+        current = decoded;
     }
 
     Ok(())

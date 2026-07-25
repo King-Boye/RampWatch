@@ -97,6 +97,14 @@ impl TransactionStateTracker {
         initiator: Address,
         env: &Env,
     ) -> Result<TransactionStateRecord, String> {
+        // #909: reject duplicate transaction IDs to prevent orphaned records
+        if self.cache.iter().any(|r| r.transaction_id == transaction_id) {
+            return Err(String::from_str(
+                env,
+                "Transaction with this ID already exists",
+            ));
+        }
+
         let current_time = env.ledger().timestamp();
 
         let record = TransactionStateRecord {

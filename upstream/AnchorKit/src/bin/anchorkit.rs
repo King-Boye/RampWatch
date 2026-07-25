@@ -1856,13 +1856,17 @@ fn run_session_get(session_id: u64) {
     println!();
 
     match fetch_session_from_chain(session_id) {
-        Some(session) => {
+        Ok(Some(session)) => {
             print_session(&session);
             println!();
             println!("✔ Session retrieved successfully");
         }
-        None => {
+        Ok(None) => {
             eprintln!("✖ Session {} not found", session_id);
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("✖ Failed to fetch session {}: {}", session_id, e);
             std::process::exit(1);
         }
     }
@@ -1878,7 +1882,13 @@ fn run_session_list(format: &str, pretty: bool, limit: Option<u64>) {
         std::process::exit(1);
     }
 
-    let sessions = fetch_sessions_from_chain(limit);
+    let sessions = match fetch_sessions_from_chain(limit) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("✖ Failed to fetch sessions: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     if sessions.is_empty() {
         println!("\n✗ No sessions found");
@@ -1958,23 +1968,24 @@ fn create_session_on_chain(initiator: Option<String>) -> Result<u64, String> {
     create_session_rpc(initiator)
 }
 
-fn fetch_session_from_chain(session_id: u64) -> Option<SessionRecord> {
+fn fetch_session_from_chain(session_id: u64) -> Result<Option<SessionRecord>, String> {
     match get_session_rpc(session_id) {
-        Ok(session_data) => Some(SessionRecord {
+        Ok(session_data) => Ok(Some(SessionRecord {
             session_id: session_data.session_id,
             initiator: session_data.initiator,
             created_at: session_data.created_at,
             nonce: session_data.nonce,
             operation_count: session_data.operation_count,
             expires_at: session_data.expires_at,
-        }),
-        Err(_) => None,
+        })),
+        // #914: surface the descriptive RPC error instead of silently returning None
+        Err(e) => Err(e),
     }
 }
 
-fn fetch_sessions_from_chain(limit: u64) -> Vec<SessionRecord> {
+fn fetch_sessions_from_chain(limit: u64) -> Result<Vec<SessionRecord>, String> {
     match list_sessions_rpc(limit) {
-        Ok(sessions) => sessions
+        Ok(sessions) => Ok(sessions
             .into_iter()
             .map(|s| SessionRecord {
                 session_id: s.session_id,
@@ -1984,8 +1995,9 @@ fn fetch_sessions_from_chain(limit: u64) -> Vec<SessionRecord> {
                 operation_count: s.operation_count,
                 expires_at: s.expires_at,
             })
-            .collect(),
-        Err(_) => vec![],
+            .collect()),
+        // #914: surface the descriptive RPC error instead of silently returning vec![]
+        Err(e) => Err(e),
     }
 }
 
