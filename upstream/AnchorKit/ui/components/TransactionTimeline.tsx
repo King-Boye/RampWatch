@@ -363,14 +363,6 @@ export function TransactionTimeline({
                           animation: "txs-fade-in-out 1.8s ease-in-out infinite",
                         }}>LIVE</span>
                       )}
-                      <span style={{
-                        ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em",
-                        padding: "2px 7px", borderRadius: 10,
-                        background: step.m.bg, color: step.m.color,
-                        border: `1px solid ${step.m.border}`,
-                        animation: "txs-fade-in-out 1.8s ease-in-out infinite",
-                      }}>LIVE</span>
-                    )}
                     {/* Expand toggle — only when step has event data */}
                     {step.event && (
                       <button
