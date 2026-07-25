@@ -25,7 +25,7 @@ pub use response_validator::{
     validate_anchor_info_response, validate_deposit_response, validate_quote_response,
     validate_withdraw_response, AnchorInfoResponse, QuoteResponse,
 };
-pub use retry::{retry_with_backoff, is_retryable, RetryConfig};
+pub use retry::{retry_with_backoff, is_retryable, RetryConfig, RetryErrorCode};
 pub use deterministic_hash::{compute_payload_hash, verify_payload_hash};
 pub use domain_validator::validate_anchor_domain;
 

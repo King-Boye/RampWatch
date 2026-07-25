@@ -110,14 +110,25 @@ impl RetryConfig {
 /// InvalidQuote, InvalidServiceType, InvalidTransactionIntent, ComplianceNotMet.
 pub fn is_retryable(code: u32) -> bool {
     use crate::errors::ErrorCode;
-    match code {
-        ErrorCode::ServicesNotConfigured as u32
-            | ErrorCode::AttestationNotFound as u32
-            | ErrorCode::StaleQuote as u32
-            | ErrorCode::NoQuotesAvailable as u32
-            | ErrorCode::CacheExpired as u32
-            | ErrorCode::CacheNotFound as u32 => true,
-        _ => false,
+    code == ErrorCode::ServicesNotConfigured as u32
+        || code == ErrorCode::AttestationNotFound as u32
+        || code == ErrorCode::StaleQuote as u32
+        || code == ErrorCode::NoQuotesAvailable as u32
+        || code == ErrorCode::CacheExpired as u32
+        || code == ErrorCode::CacheNotFound as u32
+}
+
+/// Extract a numeric error code for [`RetryConfig::non_retryable`] checks.
+///
+/// Return `None` when the error type has no numeric code; in that case only
+/// the caller-supplied `retryable` callback decides whether to retry.
+pub trait RetryErrorCode {
+    fn error_code(&self) -> Option<u32>;
+}
+
+impl RetryErrorCode for crate::errors::AnchorKitError {
+    fn error_code(&self) -> Option<u32> {
+        Some(self.code as u32)
     }
 }
 
@@ -135,7 +146,8 @@ pub fn is_retryable(code: u32) -> bool {
 /// wall-clock nonce, or a value sampled once at startup). It is mixed with the
 /// attempt index so concurrent clients do not share identical retry delays.
 ///
-/// Errors in the `non_retryable` list will fail immediately without retrying,
+/// Errors whose [`RetryErrorCode::error_code`] is listed in
+/// [`RetryConfig::non_retryable`] fail immediately without retrying,
 /// regardless of the `retryable` callback.
 pub fn retry_with_backoff<T, E, F, S>(
     config: &RetryConfig,
@@ -145,6 +157,7 @@ pub fn retry_with_backoff<T, E, F, S>(
     mut sleep_fn: S,
 ) -> Result<T, E>
 where
+    E: RetryErrorCode,
     F: FnMut(u32) -> Result<T, E>,
     S: FnMut(u64), // delay_ms: millisecond delay value
 {
@@ -155,9 +168,12 @@ where
         match f(attempt) {
             Ok(val) => return Ok(val),
             Err(e) => {
-                // Check if error is in non_retryable list
-                // This requires E to have a way to extract error code
-                // For now, we rely on the retryable callback
+                if e.error_code()
+                    .map(|code| config.is_non_retryable(code))
+                    .unwrap_or(false)
+                {
+                    return Err(e);
+                }
                 if !retryable(&e) || attempt + 1 >= config.max_attempts {
                     return Err(e);
                 }
@@ -189,6 +205,23 @@ mod retry_tests {
     enum TestError {
         Transient,
         Permanent,
+    }
+
+    impl RetryErrorCode for TestError {
+        fn error_code(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct CodedError {
+        code: u32,
+    }
+
+    impl RetryErrorCode for CodedError {
+        fn error_code(&self) -> Option<u32> {
+            Some(self.code)
+        }
     }
 
     fn is_retryable_test(e: &TestError) -> bool {
@@ -383,5 +416,42 @@ mod retry_tests {
         assert_eq!(delays_b.len(), 2);
         // Distinct per-call seeds must not produce identical delay sequences.
         assert_ne!(delays_a, delays_b);
+    }
+
+    #[test]
+    fn test_config_non_retryable_stops_even_if_callback_allows() {
+        // Config lists code 42 as non-retryable; callback would otherwise retry.
+        let config = RetryConfig::new(5, 10, 1000, 2).with_non_retryable(alloc::vec![42]);
+        let mut calls = 0u32;
+        let result = retry_with_backoff(
+            &config,
+            0,
+            |_| {
+                calls += 1;
+                Err::<i32, _>(CodedError { code: 42 })
+            },
+            |_| true,
+            |_| {},
+        );
+        assert_eq!(result, Err(CodedError { code: 42 }));
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn test_config_non_retryable_does_not_block_other_codes() {
+        let config = RetryConfig::new(3, 10, 1000, 2).with_non_retryable(alloc::vec![42]);
+        let mut calls = 0u32;
+        let result = retry_with_backoff(
+            &config,
+            0,
+            |_| {
+                calls += 1;
+                Err::<i32, _>(CodedError { code: 7 })
+            },
+            |_| true,
+            |_| {},
+        );
+        assert_eq!(result, Err(CodedError { code: 7 }));
+        assert_eq!(calls, 3);
     }
 }
