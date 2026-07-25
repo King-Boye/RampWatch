@@ -2789,6 +2789,55 @@ fn verify_attestation_signature(
     pub fn get_rate_limit_rejections(env: Env, attestor: Address) -> u64 {
         crate::rate_limiter::RateLimiter::get_rate_limit_rejections(env, attestor)
     }
+
+    /// Update the global rate limit configuration.
+    /// Admin-only. Rejects invalid configurations (window_length=0 or max_submissions=0).
+    pub fn update_rate_limit_config(
+        env: Env,
+        admin: Address,
+        config: crate::rate_limiter::RateLimitConfig,
+    ) -> Result<(), ErrorCode> {
+        Self::require_not_paused(&env);
+        admin.require_auth();
+        let contract_admin = Self::get_admin(env.clone());
+        if admin != contract_admin {
+            return Err(ErrorCode::UnauthorizedAttestor);
+        }
+        crate::rate_limiter::RateLimiter::update_config(&env, &admin, config, None)
+    }
+
+    /// Configure rate limits for a specific attestor.
+    /// Admin-only. Rejects invalid configurations (window_length=0 or max_submissions=0).
+    pub fn set_attestor_rate_limit(
+        env: Env,
+        admin: Address,
+        attestor: Address,
+        config: crate::rate_limiter::RateLimitConfig,
+    ) -> Result<(), ErrorCode> {
+        Self::require_not_paused(&env);
+        admin.require_auth();
+        let contract_admin = Self::get_admin(env.clone());
+        if admin != contract_admin {
+            return Err(ErrorCode::UnauthorizedAttestor);
+        }
+        crate::rate_limiter::RateLimiter::update_config(&env, &admin, config, Some(&attestor))
+    }
+
+    /// Reset the rate limit for a specified attestor.
+    /// Admin-only. Clears submission_count and window_start_ledger; preserves total_requests.
+    pub fn reset_attestor_rate_limit(
+        env: Env,
+        admin: Address,
+        attestor: Address,
+    ) -> Result<(), ErrorCode> {
+        Self::require_not_paused(&env);
+        admin.require_auth();
+        let contract_admin = Self::get_admin(env.clone());
+        if admin != contract_admin {
+            return Err(ErrorCode::UnauthorizedAttestor);
+        }
+        crate::rate_limiter::RateLimiter::reset_rate_limit(&env, &admin, &attestor)
+    }
 }
 
 pub fn get_endpoint(env: Env, attestor: Address) -> String {
