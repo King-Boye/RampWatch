@@ -65,19 +65,61 @@ fn contains_subslice(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|w| w == needle)
 }
 
-fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+/// Find `needle` as a top-level JSON object key marker (e.g. `"exp":`).
+///
+/// #893: A naive byte search matches nested objects too — e.g. `{"jti":{"exp":1},"exp":9}`
+/// would return the nested `exp`. Track brace depth and skip string contents so only
+/// depth-1 (top-level object) keys are accepted.
+fn find_top_level_key(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
     }
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    let mut depth: i32 = 0;
+    let mut in_string = false;
+    let mut escape = false;
+    let mut i = 0usize;
+    while i < haystack.len() {
+        let b = haystack[i];
+        if in_string {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        match b {
+            b'"' => {
+                // Candidate start of a key (or a string value). Only accept at depth 1.
+                if depth == 1
+                    && i + needle.len() <= haystack.len()
+                    && &haystack[i..i + needle.len()] == needle
+                {
+                    return Some(i);
+                }
+                in_string = true;
+            }
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth < 0 {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }
 
-/// Parse `"exp": <digits>` (first occurrence).
+/// Parse top-level `"exp": <digits>`.
 fn parse_json_exp(payload: &[u8]) -> Result<u64, ()> {
     let key = b"\"exp\":";
-    let pos = find_bytes(payload, key).ok_or(())?;
+    let pos = find_top_level_key(payload, key).ok_or(())?;
     let mut i = pos + key.len();
     while i < payload.len() && payload[i].is_ascii_whitespace() {
         i += 1;
@@ -101,10 +143,10 @@ fn parse_json_exp(payload: &[u8]) -> Result<u64, ()> {
     Ok(n)
 }
 
-/// Parse first `"sub":"..."` string value, handling `\"` escape sequences.
+/// Parse top-level `"sub":"..."` string value, handling `\"` escape sequences.
 fn parse_json_sub(env: &Env, payload: &[u8]) -> Result<String, ()> {
     let key = b"\"sub\":";
-    let pos = find_bytes(payload, key).ok_or(())?;
+    let pos = find_top_level_key(payload, key).ok_or(())?;
     let mut i = pos + key.len();
     while i < payload.len() && payload[i].is_ascii_whitespace() {
         i += 1;
@@ -132,10 +174,10 @@ fn parse_json_sub(env: &Env, payload: &[u8]) -> Result<String, ()> {
     Err(())
 }
 
-/// Parse first `"scp":"..."` string value from the JWT payload.
+/// Parse top-level `"scp":"..."` string value from the JWT payload.
 fn parse_json_scp(payload: &[u8]) -> Result<Vec<u8>, ()> {
     let key = b"\"scp\":";
-    let pos = find_bytes(payload, key).ok_or(())?;
+    let pos = find_top_level_key(payload, key).ok_or(())?;
     let mut i = pos + key.len();
     while i < payload.len() && payload[i].is_ascii_whitespace() {
         i += 1;
@@ -161,10 +203,10 @@ fn parse_json_scp(payload: &[u8]) -> Result<Vec<u8>, ()> {
     Err(())
 }
 
-/// Parse first `"alg":"..."` string value from the JWT header.
+/// Parse top-level `"alg":"..."` string value from the JWT header.
 fn parse_json_alg(header: &[u8]) -> Result<Vec<u8>, ()> {
     let key = b"\"alg\":";
-    let pos = find_bytes(header, key).ok_or(())?;
+    let pos = find_top_level_key(header, key).ok_or(())?;
     let mut i = pos + key.len();
     while i < header.len() && header[i].is_ascii_whitespace() {
         i += 1;
@@ -582,6 +624,20 @@ mod tests {
         // exp value exceeding u64::MAX is treated as malformed
         let payload = b"{\"exp\":99999999999999999999}";
         assert!(parse_json_exp(payload).is_err());
+    }
+
+    #[test]
+    fn parse_json_claims_ignore_nested_keys() {
+        // #893: nested objects that reuse claim names must not shadow top-level values.
+        let env = Env::default();
+        let payload = br#"{"jti":{"exp":1,"sub":"nested","scp":"kyc"},"sub":"GABC","exp":9999999999,"scp":"deposit"}"#;
+        assert_eq!(parse_json_exp(payload).unwrap(), 9_999_999_999);
+        let sub = parse_json_sub(&env, payload).unwrap();
+        assert_eq!(sub, String::from_str(&env, "GABC"));
+        assert_eq!(parse_json_scp(payload).unwrap(), b"deposit");
+
+        // Nested-only key with no top-level counterpart must fail (not pick nested).
+        assert!(parse_json_exp(br#"{"jti":{"exp":1},"sub":"GABC"}"#).is_err());
     }
 
     #[test]
