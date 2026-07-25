@@ -420,7 +420,7 @@ impl AnchorKitContract {
         let clock_skew: u64 = env.storage().instance()
             .get(&key_clock_skew(&env))
             .unwrap_or(60u64);
-        if sep10_jwt::verify_sep10_jwt(&env, &token, &keys, None, clock_skew).is_err() {
+        if sep10_jwt::verify_sep10_jwt(&env, &token, &keys, None, clock_skew, None).is_err() {
             panic_with_error!(&env, ErrorCode::InvalidSep10Token);
         }
     }
@@ -480,10 +480,7 @@ impl AnchorKitContract {
         let clock_skew: u64 = env.storage().instance()
             .get(&key_clock_skew(&env))
             .unwrap_or(60u64);
-        if sep10_jwt::verify_sep10_jwt(&env, &token, &keys, None, clock_skew).is_err() {
-            panic_with_error!(&env, ErrorCode::InvalidSep10Token);
-        }
-        if sep10_jwt::check_token_scope(&env, &token, service).is_err() {
+        if sep10_jwt::verify_sep10_jwt(&env, &token, &keys, None, clock_skew, Some(service)).is_err() {
             panic_with_error!(&env, ErrorCode::InvalidSep10Token);
         }
     }
@@ -506,7 +503,7 @@ impl AnchorKitContract {
             .get(&key_clock_skew(env))
             .unwrap_or(60u64);
         let expected = attestor.to_string();
-        if sep10_jwt::verify_sep10_jwt(env, token, &keys, Some(&expected), clock_skew).is_err() {
+        if sep10_jwt::verify_sep10_jwt(env, token, &keys, Some(&expected), clock_skew, None).is_err() {
             panic_with_error!(env, ErrorCode::InvalidSep10Token);
         }
     }
