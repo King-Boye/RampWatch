@@ -366,6 +366,10 @@ pub fn verify_sep10_jwt(
 /// header.payload with their own key. All tokens must have the same header+payload;
 /// at least `threshold` of the provided `keys` must produce a valid signature.
 ///
+/// # Preconditions
+/// `keys.len()` must be ≤ [`MAX_VERIFYING_KEYS`]. Larger key sets are rejected so the
+/// distinct-signer bookkeeping cannot silently overflow (#891).
+///
 /// Returns `Ok(())` if the signature threshold is met and the payload is valid
 /// (non-expired, correct `sub` if supplied). Returns `Err(())` otherwise.
 pub fn verify_sep10_jwt_multisig(
@@ -376,6 +380,11 @@ pub fn verify_sep10_jwt_multisig(
     expected_sub: Option<&soroban_sdk::String>,
     clock_skew_seconds: u64,
 ) -> Result<(), ()> {
+    // #891: enforce the same key-set bound used by on-chain storage so used-key
+    // tracking cannot silently skip indices.
+    if keys.len() > MAX_VERIFYING_KEYS {
+        return Err(());
+    }
     if threshold == 0 || threshold > keys.len() {
         return Err(());
     }
@@ -424,7 +433,8 @@ pub fn verify_sep10_jwt_multisig(
     // Count how many distinct keys produce a valid signature across all tokens.
     let signing_input = &first_buf[..d1]; // header.payload
     let mut valid_sig_count: u32 = 0;
-    let mut used_key_indices: [bool; 10] = [false; 10]; // up to 10 keys (MAX_VERIFYING_KEYS=3 in practice)
+    let mut used_key_indices: [bool; MAX_VERIFYING_KEYS as usize] =
+        [false; MAX_VERIFYING_KEYS as usize];
 
     for t_idx in 0..tokens.len() {
         let token = tokens.get(t_idx).ok_or(())?;
@@ -456,14 +466,14 @@ pub fn verify_sep10_jwt_multisig(
 
         for k_idx in 0..keys.len() {
             let k_idx_usize = k_idx as usize;
-            if k_idx_usize < 10 && used_key_indices[k_idx_usize] { continue; }
+            if used_key_indices[k_idx_usize] { continue; }
             let key = keys.get(k_idx).unwrap();
             if key.len() != 32 { continue; }
             let mut pk_arr = [0u8; 32];
             key.copy_into_slice(&mut pk_arr);
             if let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) {
                 if vk.verify(signing_input, &dalek_sig).is_ok() {
-                    if k_idx_usize < 10 { used_key_indices[k_idx_usize] = true; }
+                    used_key_indices[k_idx_usize] = true;
                     valid_sig_count += 1;
                     break;
                 }
@@ -764,5 +774,51 @@ mod tests {
         let jwt_no_alg = build_jwt_without_alg(&signing_key, sub_str.as_str(), 2_000);
         let token_no_alg = String::from_str(&env, jwt_no_alg.as_str());
         assert!(verify_sep10_jwt(&env, &token_no_alg, &keys, Some(&sub), 0).is_err());
+    }
+
+    #[test]
+    fn multisig_rejects_oversized_key_set() {
+        // #891: keys beyond MAX_VERIFYING_KEYS must fail closed, not silently
+        // skip distinct-signer bookkeeping.
+        let env = Env::default();
+        ledger(&env, 1_000);
+        let sk = SigningKey::generate(&mut OsRng);
+        let jwt = build_jwt(&sk, "any", 2_000);
+        let token = String::from_str(&env, jwt.as_str());
+
+        let mut keys = soroban_sdk::Vec::new(&env);
+        for _ in 0..(MAX_VERIFYING_KEYS + 1) {
+            let extra = SigningKey::generate(&mut OsRng);
+            keys.push_back(Bytes::from_slice(&env, extra.verifying_key().as_bytes()));
+        }
+        let mut tokens = soroban_sdk::Vec::new(&env);
+        tokens.push_back(token);
+        assert!(verify_sep10_jwt_multisig(&env, &tokens, &keys, 1, None, 0).is_err());
+    }
+
+    #[test]
+    fn multisig_accepts_2_of_2_distinct_signers() {
+        let env = Env::default();
+        ledger(&env, 1_000);
+        let sk1 = SigningKey::generate(&mut OsRng);
+        let sk2 = SigningKey::generate(&mut OsRng);
+        let sub = "GA_TEST_SUB";
+        let jwt1 = build_jwt(&sk1, sub, 2_000);
+        // Second token must share the same header.payload; re-sign the same signing input.
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        let parts: std::vec::Vec<&str> = jwt1.split('.').collect();
+        let signing_input = format!("{}.{}", parts[0], parts[1]);
+        let sig2 = sk2.sign(signing_input.as_bytes());
+        let jwt2 = format!("{}.{}", signing_input, URL_SAFE_NO_PAD.encode(sig2.to_bytes()));
+
+        let mut keys = soroban_sdk::Vec::new(&env);
+        keys.push_back(Bytes::from_slice(&env, sk1.verifying_key().as_bytes()));
+        keys.push_back(Bytes::from_slice(&env, sk2.verifying_key().as_bytes()));
+        let mut tokens = soroban_sdk::Vec::new(&env);
+        tokens.push_back(String::from_str(&env, jwt1.as_str()));
+        tokens.push_back(String::from_str(&env, jwt2.as_str()));
+
+        assert!(verify_sep10_jwt_multisig(&env, &tokens, &keys, 2, None, 0).is_ok());
+        assert!(verify_sep10_jwt_multisig(&env, &tokens, &keys, 2, None, 0).is_ok());
     }
 }

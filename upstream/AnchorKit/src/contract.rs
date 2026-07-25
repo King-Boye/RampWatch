@@ -425,6 +425,44 @@ impl AnchorKitContract {
         }
     }
 
+    /// Verify a SEP-10 multi-signature set (M-of-N) against the issuer's stored keys.
+    ///
+    /// Each entry in `tokens` is a JWS compact JWT sharing the same header.payload but
+    /// signed by a different key. At least `threshold` distinct stored verifying keys
+    /// must produce a valid signature (#891).
+    pub fn verify_sep10_token_multisig(
+        env: Env,
+        tokens: Vec<String>,
+        issuer: Address,
+        threshold: u32,
+    ) {
+        let keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::Sep10Key(issuer.clone()))
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::MissingSigningKey));
+        if keys.is_empty() {
+            panic_with_error!(&env, ErrorCode::MissingSigningKey);
+        }
+        let clock_skew: u64 = env
+            .storage()
+            .instance()
+            .get(&key_clock_skew(&env))
+            .unwrap_or(60u64);
+        if sep10_jwt::verify_sep10_jwt_multisig(
+            &env,
+            &tokens,
+            &keys,
+            threshold,
+            None,
+            clock_skew,
+        )
+        .is_err()
+        {
+            panic_with_error!(&env, ErrorCode::InvalidSep10Token);
+        }
+    }
+
     /// Verify a SEP-10 token and additionally confirm it is scoped for `service`.
     ///
     /// `service` must be one of the `SERVICE_*` constants (1 = Deposits, 2 = Withdrawals,
