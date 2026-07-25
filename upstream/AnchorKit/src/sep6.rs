@@ -301,7 +301,7 @@ where
     // that makes the actual HTTP call and wraps it with this retry logic.
     // 
     // The retry logic would be applied at the HTTP transport layer like:
-    // fetch_transaction_status(retry_with_backoff(&config, fetch_from_api, is_retryable_http_error, sleep_fn))
+    // fetch_transaction_status(retry_with_backoff(&config, jitter_seed, fetch_from_api, is_retryable_http_error, sleep_fn))
     fetch_transaction_status(raw)
 }
 

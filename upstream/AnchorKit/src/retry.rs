@@ -131,10 +131,15 @@ pub fn is_retryable(code: u32) -> bool {
 /// (avoids pulling in `std::thread::sleep` or async runtimes).
 /// The delay value passed to `sleep_fn` is in **milliseconds**.
 ///
+/// `jitter_seed` must vary per caller/process (e.g. `env.prng()` output, a
+/// wall-clock nonce, or a value sampled once at startup). It is mixed with the
+/// attempt index so concurrent clients do not share identical retry delays.
+///
 /// Errors in the `non_retryable` list will fail immediately without retrying,
 /// regardless of the `retryable` callback.
 pub fn retry_with_backoff<T, E, F, S>(
     config: &RetryConfig,
+    jitter_seed: u64,
     mut f: F,
     retryable: impl Fn(&E) -> bool,
     mut sleep_fn: S,
@@ -156,7 +161,12 @@ where
                 if !retryable(&e) || attempt + 1 >= config.max_attempts {
                     return Err(e);
                 }
-                let delay = config.delay_for_attempt(attempt, attempt as u64 * 17 + 3);
+                // Mix caller-supplied entropy with the attempt index so the
+                // same attempt number does not yield identical delays across clients.
+                let seed = jitter_seed
+                    .wrapping_mul(31)
+                    .wrapping_add(attempt as u64 * 17 + 3);
+                let delay = config.delay_for_attempt(attempt, seed);
                 cumulative_delay_ms = cumulative_delay_ms.saturating_add(delay);
                 if cumulative_delay_ms >= config.budget_ms {
                     return Err(e);
@@ -191,6 +201,7 @@ mod retry_tests {
         let mut calls = 0u32;
         let result = retry_with_backoff(
             &config,
+            0,
             |_| {
                 calls += 1;
                 Ok::<_, TestError>(42)
@@ -208,6 +219,7 @@ mod retry_tests {
         let mut calls = 0u32;
         let result = retry_with_backoff(
             &config,
+            0,
             |attempt| {
                 calls += 1;
                 if attempt < 2 {
@@ -229,6 +241,7 @@ mod retry_tests {
         let mut calls = 0u32;
         let result = retry_with_backoff(
             &config,
+            0,
             |_| {
                 calls += 1;
                 Err::<i32, _>(TestError::Transient)
@@ -246,6 +259,7 @@ mod retry_tests {
         let mut calls = 0u32;
         let result = retry_with_backoff(
             &config,
+            0,
             |_| {
                 calls += 1;
                 Err::<i32, _>(TestError::Permanent)
@@ -282,6 +296,7 @@ mod retry_tests {
         let mut sleep_calls = 0u32;
         let _ = retry_with_backoff(
             &config,
+            0,
             |_| Err::<i32, _>(TestError::Transient),
             is_retryable_test,
             |_| sleep_calls += 1,
@@ -296,6 +311,7 @@ mod retry_tests {
         let mut delays = Vec::new();
         let _ = retry_with_backoff(
             &config,
+            0,
             |_| Err::<i32, _>(TestError::Transient),
             is_retryable_test,
             |delay_ms| delays.push(delay_ms),
@@ -315,12 +331,13 @@ mod retry_tests {
 
     #[test]
     fn test_budget_ms_stops_retries_early() {
-        // Full jitter with seed (attempt * 17 + 3): attempt 0 seed=3, delay = 3 % 101 = 3
+        // With jitter_seed=0: attempt 0 seed = 0*31 + 3 = 3, delay = 3 % 101 = 3
         // budget_ms=2 means cumulative (3) >= budget (2) on first retry → stops after 2 calls
         let config = RetryConfig { budget_ms: 2, ..RetryConfig::new(5, 100, 5000, 2) };
         let mut calls = 0u32;
         let result = retry_with_backoff(
             &config,
+            0,
             |_| { calls += 1; Err::<i32, _>(TestError::Transient) },
             is_retryable_test,
             |_| {},
@@ -335,10 +352,36 @@ mod retry_tests {
         let mut calls = 0u32;
         let _ = retry_with_backoff(
             &config,
+            0,
             |_| { calls += 1; Err::<i32, _>(TestError::Transient) },
             is_retryable_test,
             |_| {},
         );
         assert_eq!(calls, 3); // all attempts used
+    }
+
+    #[test]
+    fn test_jitter_seed_desynchronizes_clients() {
+        let config = RetryConfig::new(3, 100, 5000, 2);
+        let mut delays_a = Vec::new();
+        let mut delays_b = Vec::new();
+        let _ = retry_with_backoff(
+            &config,
+            11,
+            |_| Err::<i32, _>(TestError::Transient),
+            is_retryable_test,
+            |d| delays_a.push(d),
+        );
+        let _ = retry_with_backoff(
+            &config,
+            99,
+            |_| Err::<i32, _>(TestError::Transient),
+            is_retryable_test,
+            |d| delays_b.push(d),
+        );
+        assert_eq!(delays_a.len(), 2);
+        assert_eq!(delays_b.len(), 2);
+        // Distinct per-call seeds must not produce identical delay sequences.
+        assert_ne!(delays_a, delays_b);
     }
 }
