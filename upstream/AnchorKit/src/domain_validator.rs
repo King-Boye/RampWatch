@@ -235,11 +235,44 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
     Ok(())
 }
 
+/// Returns true if `url` contains a percent-encoded C0 control byte or DEL.
+///
+/// #890: `is_control()` only sees literal control characters. Encoded forms such as
+/// `%0D` / `%0A` (CRLF) are printable ASCII in the raw string and must be rejected
+/// explicitly — the same treatment already given to `%00`.
+fn contains_percent_encoded_control(url: &str) -> bool {
+    let bytes = url.as_bytes();
+    let mut i = 0;
+    while i + 2 < bytes.len() {
+        if bytes[i] == b'%' {
+            if let (Some(hi), Some(lo)) = (hex_nibble(bytes[i + 1]), hex_nibble(bytes[i + 2])) {
+                let decoded = (hi << 4) | lo;
+                // C0 controls (0x00..=0x1F) and DEL (0x7F)
+                if decoded < 0x20 || decoded == 0x7F {
+                    return true;
+                }
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
+fn hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
 /// Validates URL characters
 fn validate_url_characters(url: &str) -> Result<(), AnchorKitError> {
-    // #269: Reject percent-encoded null byte before iterating chars so that
-    // the encoded form (%00) is caught even though '%', '0' are individually valid.
-    if url.contains("%00") {
+    // #269 / #890: Reject percent-encoded control bytes before iterating chars so that
+    // encoded forms (%00, %0D, %0A, …) are caught even though '%', hex digits are
+    // individually valid printable characters.
+    if contains_percent_encoded_control(url) {
         return Err(AnchorKitError::invalid_endpoint_format());
     }
     for c in url.chars() {
@@ -439,6 +472,16 @@ mod tests {
         assert!(validate_anchor_domain("https://example.com/%00").is_err());
         assert!(validate_anchor_domain("https://example.com/path%00/resource").is_err());
         assert!(validate_anchor_domain("https://example.com?q=%00").is_err());
+        // #890: percent-encoded CRLF / other C0 controls must also be rejected
+        assert!(validate_anchor_domain("https://example.com/path%0D%0AInjected-Header:%20evil").is_err());
+        assert!(validate_anchor_domain("https://example.com/path%0d%0aInjected").is_err());
+        assert!(validate_anchor_domain("https://example.com/%0A").is_err());
+        assert!(validate_anchor_domain("https://example.com/%0D").is_err());
+        assert!(validate_anchor_domain("https://example.com/%09").is_err()); // TAB
+        assert!(validate_anchor_domain("https://example.com/%7F").is_err()); // DEL
+        // Benign percent-encoding (non-control) remains accepted
+        assert!(validate_anchor_domain("https://example.com/path%20resource").is_ok());
+        assert!(validate_anchor_domain("https://example.com/path%2Fok").is_ok());
     }
 
     #[test]
