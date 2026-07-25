@@ -21,9 +21,6 @@
       }
     }
   },
-  "mounts": [
-    "source=${localWorkspaceFolder}/target,target=/workspace/target,type=bind,consistency=cached"
-  ],
   "workspaceFolder": "/workspace",
   "overrideCommand": false
 }
