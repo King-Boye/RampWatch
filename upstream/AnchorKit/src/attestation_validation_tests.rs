@@ -1,30 +1,58 @@
 use super::*;
-use soroban_sdk::{testutils::{Address as _}, Address, Env, Bytes};
-use crate::errors::ErrorCode;
+use soroban_sdk::{
+    testutils::{Address as _, Ledger, LedgerInfo},
+    Address, Bytes, Env,
+};
+use ed25519_dalek::SigningKey;
 use crate::contract::{AnchorKitContract, AnchorKitContractClient};
+use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
 
 #[test]
 fn test_submit_attestation_happy_path() {
     let env = Env::default();
     env.mock_all_auths();
+    env.ledger().set(LedgerInfo {
+        timestamp: 1_700_000_000,
+        protocol_version: 21,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 100,
+        min_persistent_entry_ttl: 4096,
+        min_temp_entry_ttl: 16,
+        max_entry_ttl: 6_312_000,
+    });
 
     let contract_id = env.register_contract(None, AnchorKitContract);
     let client = AnchorKitContractClient::new(&env, &contract_id);
 
+    let admin = Address::generate(&env);
     let issuer = Address::generate(&env);
     let subject = Address::generate(&env);
-    
-    // Valid 32-byte hash
+    client.initialize(&admin, &100_u64, &None, &None);
+
+    // Deterministic key material so the happy path registers a real SEP-10
+    // verifying key and submits a valid attestation signature.
+    let secret_bytes: [u8; 32] = [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+        17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+    ];
+    let keypair = SigningKey::from_bytes(&secret_bytes);
+    register_attestor_with_sep10(&env, &client, &issuer, &issuer, &keypair);
+
     let mut hash_data = [0u8; 32];
     hash_data[0] = 1;
     let payload_hash = Bytes::from_slice(&env, &hash_data);
-    let signature = Bytes::from_slice(&env, &[0u8; 64]);
-    let timestamp = 123456789;
+    let signature = sign_payload(&env, &keypair, &payload_hash);
+    let timestamp = env.ledger().timestamp();
 
-    // Register issuer
-    client.register_attestor(&issuer, &soroban_sdk::String::from_str(&env, "mock"), &Address::generate(&env));
-
-    let id = client.submit_attestation(&issuer, &subject, &timestamp, &payload_hash, &signature, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+    let id = client.submit_attestation(
+        &issuer,
+        &subject,
+        &timestamp,
+        &payload_hash,
+        &signature,
+        &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>,
+    );
 
     assert_eq!(id, 0);
 }

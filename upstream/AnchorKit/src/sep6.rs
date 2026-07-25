@@ -301,7 +301,7 @@ where
     // that makes the actual HTTP call and wraps it with this retry logic.
     // 
     // The retry logic would be applied at the HTTP transport layer like:
-    // fetch_transaction_status(retry_with_backoff(&config, fetch_from_api, is_retryable_http_error, sleep_fn))
+    // fetch_transaction_status(retry_with_backoff(&config, jitter_seed, fetch_from_api, is_retryable_http_error, sleep_fn))
     fetch_transaction_status(raw)
 }
 
@@ -488,6 +488,9 @@ pub fn get_transaction_status(
 /// The `cursor` field in `req` is available for callers to pass to the anchor's API;
 /// this function applies it as a filter — items up to and including the cursor ID are
 /// dropped, mirroring standard cursor-based pagination.
+///
+/// Returns `Err(Error::ValidationError)` if `cursor` is set but no item in
+/// `raw_items` has a matching `transaction_id` (stale, foreign, or garbage cursor).
 pub fn list_transactions(
     req: RawTransactionListRequest,
     raw_items: Vec<RawTransactionResponse>,
@@ -508,12 +511,14 @@ pub fn list_transactions(
     }
 
     let mut skip = req.cursor.is_some();
+    let mut cursor_found = req.cursor.is_none();
     let mut results = Vec::new();
 
     for item in raw_items {
         if let Some(ref cursor) = req.cursor {
             if item.transaction_id == *cursor {
                 skip = false;
+                cursor_found = true;
                 continue;
             }
             if skip {
@@ -526,6 +531,14 @@ pub fn list_transactions(
         if let Ok(normalized) = fetch_transaction_status(item) {
             results.push(normalized);
         }
+    }
+
+    if !cursor_found {
+        return Err(Error::with_context(
+            ErrorCode::ValidationError,
+            "cursor not found in result set",
+            req.cursor.as_deref().unwrap_or(""),
+        ));
     }
 
     Ok(results)
@@ -1060,6 +1073,19 @@ mod tests {
         // t1 is the cursor — items after it are t2, t3
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].transaction_id, "t2");
+    }
+
+    #[test]
+    fn test_list_transactions_unknown_cursor_returns_error() {
+        let items = alloc::vec![
+            make_raw_tx("t1", "completed"),
+            make_raw_tx("t2", "completed"),
+        ];
+        let mut req = base_req();
+        req.cursor = Some("missing-cursor".to_string());
+        let err = list_transactions(req, items).unwrap_err();
+        assert_eq!(err.code, ErrorCode::ValidationError);
+        assert!(err.message.contains("cursor not found"));
     }
 
     #[test]
