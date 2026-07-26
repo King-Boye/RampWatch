@@ -32,41 +32,49 @@ use alloc::string::String;
 ///
 /// The `#[contracterror]` attribute keeps Soroban on-chain compatibility.
 ///
-/// ## Migration note
+/// Error codes are non-contiguous. The values are assigned as follows:
 ///
-/// Prior to this fix the codes were non-contiguous: values 1-19 were followed
-/// by a gap (20-47) and then 48-54, with `NotInitialized` at 101.
-/// All codes have been renumbered to the contiguous range **1-30**.
-/// Clients that matched on raw numeric values must update their mappings:
-///
-/// | Old code | New code | Name                    |
-/// |----------|----------|-------------------------|
-/// | 1        | 1        | AlreadyInitialized      |
-/// | 2        | 2        | AttestorAlreadyRegistered |
-/// | 3        | 3        | AttestorNotRegistered   |
-/// | 4        | 4        | UnauthorizedAttestor    |
-/// | 5        | 5        | InvalidTimestamp        |
-/// | 6        | 6        | ReplayAttack            |
-/// | 7        | 7        | InvalidQuote            |
-/// | 8        | 8        | InvalidServiceType      |
-/// | 9        | 9        | InvalidTransactionIntent |
-/// | 10       | 10       | StaleQuote              |
-/// | 11       | 11       | ComplianceNotMet        |
-/// | 12       | 12       | InvalidEndpointFormat   |
-/// | 13       | 13       | NoQuotesAvailable       |
-/// | 14       | 14       | ServicesNotConfigured   |
-/// | 15       | 15       | ValidationError         |
-/// | 16       | 16       | RateLimitExceeded       |
-/// | 17       | 17       | AttestationNotFound     |
-/// | 18       | 18       | InvalidSep10Token       |
-/// | 19       | 19       | StorageCorrupted        |
-/// | 48       | 20       | CacheExpired            |
-/// | 49       | 21       | CacheNotFound           |
-/// | 51       | 22       | AuditLogMaxSizeInvalid  |
-/// | 52       | 23       | UnauthorizedProposeAdmin |
-/// | 53       | 24       | NoPendingAdmin          |
-/// | 54       | 25       | NotPendingAdmin         |
-/// | 101      | 26       | NotInitialized          |
+/// | Code | Name                        |
+/// |------|-----------------------------|
+/// | 1    | AlreadyInitialized          |
+/// | 2    | AttestorAlreadyRegistered   |
+/// | 3    | AttestorNotRegistered       |
+/// | 4    | UnauthorizedAttestor        |
+/// | 5    | InvalidTimestamp            |
+/// | 6    | ReplayAttack                |
+/// | 7    | InvalidQuote                |
+/// | 8    | InvalidServiceType          |
+/// | 9    | InvalidTransactionIntent    |
+/// | 10   | StaleQuote                  |
+/// | 11   | ComplianceNotMet            |
+/// | 12   | InvalidEndpointFormat       |
+/// | 13   | NoQuotesAvailable           |
+/// | 14   | ServicesNotConfigured       |
+/// | 15   | ValidationError             |
+/// | 16   | RateLimitExceeded           |
+/// | 17   | AttestationNotFound         |
+/// | 18   | InvalidSep10Token           |
+/// | 19   | StorageCorrupted            |
+/// | 26   | NotInitialized              |
+/// | 48   | CacheExpired                |
+/// | 49   | CacheNotFound               |
+/// | 51   | AuditLogMaxSizeInvalid      |
+/// | 52   | PendingAdminAlreadyExists   |
+/// | 53   | NoPendingAdmin              |
+/// | 54   | NotPendingAdmin             |
+/// | 55   | SessionNotFound             |
+/// | 56   | SessionExpired              |
+/// | 57   | MissingSigningKey           |
+/// | 58   | UnauthorizedProposeAdmin    |
+/// | 59   | InvalidStrategy             |
+/// | 60   | AttestationLimitReached     |
+/// | 61   | AttestorCapExceeded         |
+/// | 62   | PathTraversalDetected       |
+/// | 63   | InvalidAmount               |
+/// | 64   | AttestationRevoked          |
+/// | 121  | AttestationExpired          |
+/// | 122  | ContractPaused              |
+/// | 123  | AdminTransferPending        |
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
