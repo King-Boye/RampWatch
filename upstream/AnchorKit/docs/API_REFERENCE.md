@@ -345,7 +345,17 @@ Submits an attestation and records a `TracingSpan` keyed by `request_id`.
 fn get_attestation(env: Env, id: u64) -> Option<Attestation>
 ```
 
-Returns the `Attestation` for the given ID, or `None` if not found.
+Returns the `Attestation` for the given ID, or `None` if not found, has been revoked, or has expired.
+
+---
+
+### `get_attestation_or_panic`
+
+```rust
+fn get_attestation_or_panic(env: Env, id: u64) -> Attestation
+```
+
+Returns the `Attestation` for the given ID, panicking if it does not exist, has been revoked, or has expired.
 
 ---
 

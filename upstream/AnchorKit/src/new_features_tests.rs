@@ -132,9 +132,9 @@ mod new_features_tests {
 
         client.revoke_attestation(&attestor, &id);
 
-        // After revocation, get_attestation should panic with AttestationRevoked
-        let result = client.try_get_attestation(&id);
-        assert!(result.is_err());
+        // After revocation, get_attestation should return None
+        let result = client.get_attestation(&id);
+        assert!(result.is_none());
     }
 
     #[test]
@@ -162,7 +162,7 @@ mod new_features_tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn get_attestation_panics_when_expired() {
+    fn get_attestation_returns_none_when_expired() {
         let env = make_env();
         setup_ledger(&env);
         let (client, _, attestor, signing_key) = setup_contract(&env);
