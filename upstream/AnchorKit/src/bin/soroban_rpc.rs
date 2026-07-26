@@ -55,7 +55,6 @@ pub struct SessionData {
     pub session_id: u64,
     pub initiator: String,
     pub created_at: u64,
-    pub nonce: u64,
     pub operation_count: u64,
     pub expires_at: u64,
 }

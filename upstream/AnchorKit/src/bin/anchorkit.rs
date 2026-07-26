@@ -1829,7 +1829,6 @@ struct SessionRecord {
     session_id: u64,
     initiator: String,
     created_at: u64,
-    nonce: u64,
     operation_count: u64,
     expires_at: u64,
 }
@@ -1961,7 +1960,6 @@ fn print_session(session: &SessionRecord) {
     println!("  Created At:       {} ({})", 
              session.created_at, 
              format_timestamp(session.created_at));
-    println!("  Nonce:            {}", session.nonce);
     println!("  Operation Count:  {}", session.operation_count);
     println!("  Expires At:       {} ({})", 
              session.expires_at,
