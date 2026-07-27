@@ -152,6 +152,99 @@ describe('ApiRequestPanel', () => {
       const curlSection = container.querySelector('.curl-section');
       expect(curlSection?.textContent).not.toContain('-d');
     });
+
+    // --- Shell-injection safety tests ---
+
+    it('wraps endpoint in single quotes in cURL', () => {
+      const { container } = render(
+        <ApiRequestPanel endpoint={mockEndpoint} method="GET" />
+      );
+      const curlSection = container.querySelector('.curl-section');
+      // Endpoint must be surrounded by single quotes, not double quotes
+      expect(curlSection?.textContent).toContain(`'${mockEndpoint}'`);
+      expect(curlSection?.textContent).not.toContain(`"${mockEndpoint}"`);
+    });
+
+    it('wraps header values in single quotes in cURL', () => {
+      const headers = { Authorization: 'Bearer token123' };
+      const { container } = render(
+        <ApiRequestPanel endpoint={mockEndpoint} method="GET" headers={headers} />
+      );
+      const curlSection = container.querySelector('.curl-section');
+      expect(curlSection?.textContent).toContain("-H 'Authorization: Bearer token123'");
+    });
+
+    it('does not allow backtick command substitution in header values to escape quoting', () => {
+      const headers = { 'X-Evil': '`id`' };
+      const { container } = render(
+        <ApiRequestPanel endpoint={mockEndpoint} method="GET" headers={headers} />
+      );
+      const curlSection = container.querySelector('.curl-section');
+      // Backtick must appear inside single-quoted string — not bare
+      expect(curlSection?.textContent).toContain("-H 'X-Evil: `id`'");
+    });
+
+    it('does not allow $() command substitution in header values to escape quoting', () => {
+      const headers = { 'X-Evil': '$(id)' };
+      const { container } = render(
+        <ApiRequestPanel endpoint={mockEndpoint} method="GET" headers={headers} />
+      );
+      const curlSection = container.querySelector('.curl-section');
+      expect(curlSection?.textContent).toContain("-H 'X-Evil: $(id)'");
+    });
+
+    it('escapes embedded single quotes in header values using POSIX \\'\\''\\' idiom', () => {
+      const headers = { Authorization: "Bearer it's-a-token" };
+      const { container } = render(
+        <ApiRequestPanel endpoint={mockEndpoint} method="GET" headers={headers} />
+      );
+      const curlSection = container.querySelector('.curl-section');
+      // Single quote must be escaped as '\'' so the shell never sees a bare '
+      expect(curlSection?.textContent).toContain("Authorization: Bearer it'\\''s-a-token");
+    });
+
+    it('does not allow a single quote in body to break out of -d quoting', () => {
+      const requestBody = "it's dangerous";
+      const { container } = render(
+        <ApiRequestPanel
+          endpoint={mockEndpoint}
+          method="POST"
+          requestBody={requestBody}
+        />
+      );
+      const curlSection = container.querySelector('.curl-section');
+      // Body must be wrapped in single quotes with the embedded quote properly escaped
+      expect(curlSection?.textContent).toContain("-d 'it'\\''s dangerous'");
+      // There must be no unquoted single-quote that would break the shell string
+      // i.e. the raw substring -d 'it's should NOT appear
+      expect(curlSection?.textContent).not.toMatch(/-d 'it's/);
+    });
+
+    it('does not allow ${VAR} expansion in body to escape quoting', () => {
+      const requestBody = { token: '${HOME}' };
+      const { container } = render(
+        <ApiRequestPanel
+          endpoint={mockEndpoint}
+          method="POST"
+          requestBody={requestBody}
+        />
+      );
+      const curlSection = container.querySelector('.curl-section');
+      // ${HOME} must sit inside single quotes — never evaluated
+      expect(curlSection?.textContent).toContain('${HOME}');
+      // Confirm it's surrounded by the single-quote wrapper, not bare
+      expect(curlSection?.textContent).toContain("-d '");
+    });
+
+    it('handles backslashes in header values without creating escape sequences', () => {
+      const headers = { 'X-Path': 'C:\\Users\\test' };
+      const { container } = render(
+        <ApiRequestPanel endpoint={mockEndpoint} method="GET" headers={headers} />
+      );
+      const curlSection = container.querySelector('.curl-section');
+      // Inside single quotes backslashes are literal — no doubling needed
+      expect(curlSection?.textContent).toContain("-H 'X-Path: C:\\Users\\test'");
+    });
   });
 
   describe('Copy to Clipboard', () => {
