@@ -1426,9 +1426,14 @@ export function AnchorCapabilityCard({
       >
         {/* Loading skeleton */}
         {isLoading && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 0" }}>
+          <div
+            role="status"
+            aria-busy="true"
+            aria-label="Loading anchor capabilities"
+            style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 0" }}
+          >
             {[100, 80, 60, 90, 70].map((w, i) => (
-              <div key={i} style={{
+              <div key={i} aria-hidden="true" style={{
                 height: 16, width: `${w}%`, borderRadius: 8,
                 background: "linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%)",
                 backgroundSize: "200% 100%",
@@ -1436,6 +1441,9 @@ export function AnchorCapabilityCard({
               }} />
             ))}
             <style>{`@keyframes cap-shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }`}</style>
+            <span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)" }}>
+              Loading anchor capabilities
+            </span>
           </div>
         )}
 
