@@ -48,7 +48,7 @@ mod routing_tests {
         services.push_back(1u32);
         services.push_back(3u32);
         client.configure_services(anchor, &services);
-        client.set_anchor_metadata(anchor, &5000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
+        client.set_anchor_metadata(anchor, &5000u32, &300u64, &7500u32, &9900u32, &1_000_000u64, &None);
     }
 
     fn make_request(env: &Env) -> RoutingRequest {
@@ -640,6 +640,7 @@ mod routing_tests {
             max_anchors: 1,
             require_kyc: false,
             jurisdiction: None,
+            fallback_chain: Vec::new(&env),
         };
 
         // Expect RoutingDecision event with correct fields
@@ -651,9 +652,6 @@ mod routing_tests {
         };
         let topics = (symbol_short!("routing"),);
         let _ = (&topics, &event);
-
-            fallback_chain: Vec::new(&env),
-        };
 
         let best = client.route_transaction(&options);
         assert_eq!(best.anchor, anchor);
@@ -747,6 +745,7 @@ mod routing_tests {
             max_anchors: 2,
             require_kyc: false,
             jurisdiction: None,
+            fallback_chain: Vec::new(&env),
         };
 
         // Should succeed and select anchor2 (valid quote)
@@ -813,6 +812,7 @@ mod routing_tests {
             max_anchors: 2,
             require_kyc: false,
             jurisdiction: jurisdiction(&env, "DEU"),
+            fallback_chain: Vec::new(&env),
         };
 
         let best = client.route_transaction(&options);
@@ -844,6 +844,7 @@ mod routing_tests {
             max_anchors: 2,
             require_kyc: false,
             jurisdiction: jurisdiction(&env, "USA"),
+            fallback_chain: Vec::new(&env),
         };
 
         let best = client.route_transaction(&options);
@@ -870,6 +871,7 @@ mod routing_tests {
             max_anchors: 1,
             require_kyc: false,
             jurisdiction: jurisdiction(&env, "GBR"),
+            fallback_chain: Vec::new(&env),
         };
 
         assert!(client.try_route_transaction(&options).is_err());
@@ -903,6 +905,7 @@ mod routing_tests {
             max_anchors: 0,
             require_kyc: false,
             jurisdiction: None,
+            fallback_chain: Vec::new(env),
         }
     }
 
@@ -1013,6 +1016,7 @@ mod routing_tests {
             max_anchors: 0,
             require_kyc: false,
             jurisdiction: jurisdiction(&env, "EU"),
+            fallback_chain: Vec::new(&env),
         };
 
         let dry_run_anchor = client.route_transaction_dry_run(&options);

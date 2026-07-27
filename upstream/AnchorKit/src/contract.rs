@@ -870,7 +870,7 @@ impl AnchorKitContract {
             env.storage().persistent().extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
             env.events().publish(
-                (symbol_short!("attest"), symbol_short!("recorded"), id, input.subject),
+                (symbol_short!("attest"), symbol_short!("recorded"), id, input.subject.clone()),
                 AttestEvent { payload_hash: input.payload_hash, timestamp: input.timestamp, subject: input.subject },
             );
 
@@ -1900,7 +1900,7 @@ impl AnchorKitContract {
         let inst = env.storage().instance();
 
         // Track migration completion to prevent re-running the same migration
-        let migration_key = Symbol::new(&env, migration_name.to_buffer().as_slice());
+        let migration_key = Symbol::new(&env, &migration_name.to_string());
         if inst.has(&migration_key) {
             panic_with_error!(&env, ErrorCode::ValidationError);
         }
@@ -2345,10 +2345,10 @@ impl AnchorKitContract {
 
             if total_score == 0 {
                 // If all health scores are 0, fall back to random selection
-                let random_idx = env.prng().gen_range(0u64..candidates.len() as u64);
+                let random_idx: u64 = env.prng().gen_range(0u64..candidates.len() as u64);
                 best = candidates.get(random_idx as u32).unwrap();
             } else {
-                let mut threshold = env.prng().gen_range(0..total_score);
+                let mut threshold: i64 = env.prng().gen_range(0..total_score);
                 for q in candidates.iter() {
                     threshold -= health_score(&env, &q);
                     if threshold <= 0 {
@@ -2768,6 +2768,7 @@ fn verify_attestation_signature(
     let mut sig_arr = [0u8; 64];
     signature.copy_into_slice(&mut sig_arr);
     let dalek_sig = Signature::from_bytes(&sig_arr);
+    let signature_n: BytesN<64> = signature.clone().try_into().unwrap();
 
     let mut msg = alloc::vec::Vec::with_capacity(payload_hash.len() as usize);
     msg.resize(payload_hash.len() as usize, 0u8);
@@ -2778,7 +2779,7 @@ fn verify_attestation_signature(
             continue;
         }
         let pk_n: BytesN<32> = key.clone().try_into().unwrap();
-        env.crypto().ed25519_verify(&pk_n, payload_hash, signature);
+        env.crypto().ed25519_verify(&pk_n, payload_hash, &signature_n);
         return;
     }
 
