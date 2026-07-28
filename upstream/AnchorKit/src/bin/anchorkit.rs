@@ -1573,6 +1573,12 @@ fn run_export_audit(format: &str, output: &str) {
     println!("Fetching audit log entries...");
     let entries = fetch_audit_entries();
     let total = entries.len();
+
+    if total == 0 {
+        eprintln!("error: no audit log entries found — verify ANCHORKIT_CONTRACT_ID and ANCHORKIT_RPC_URL are set correctly");
+        std::process::exit(1);
+    }
+
     let content = match format {
         "csv" => {
             let mut out = String::from("id,operation,actor,timestamp,result\n");
@@ -1616,8 +1622,66 @@ fn fetch_audit_entries() -> Vec<AuditEntry> {
 }
 
 fn fetch_page(page: u64, page_size: u64) -> Vec<AuditEntry> {
-    let _ = (page, page_size);
-    vec![]
+    let rpc_url = std::env::var("ANCHORKIT_RPC_URL")
+        .or_else(|_| std::env::var("SOROBAN_RPC_URL"))
+        .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string());
+    let contract_id = std::env::var("ANCHORKIT_CONTRACT_ID").unwrap_or_default();
+
+    if contract_id.is_empty() {
+        eprintln!("warning: ANCHORKIT_CONTRACT_ID not set; cannot fetch audit entries from chain");
+        return vec![];
+    }
+
+    let offset = page * page_size;
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getEvents",
+        "params": {
+            "startLedger": 0,
+            "filters": [{"type": "contract", "contractIds": [contract_id], "topics": [["audit_log"]]}],
+            "pagination": {"limit": page_size, "offset": offset}
+        }
+    });
+
+    let client = reqwest::blocking::Client::new();
+    let resp = match client.post(&rpc_url).json(&body).send() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("warning: RPC request failed: {e}");
+            return vec![];
+        }
+    };
+
+    let json: serde_json::Value = match resp.json() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("warning: failed to parse RPC response: {e}");
+            return vec![];
+        }
+    };
+
+    let events = match json["result"]["events"].as_array() {
+        Some(arr) => arr.clone(),
+        None => return vec![],
+    };
+
+    events
+        .iter()
+        .enumerate()
+        .filter_map(|(i, ev)| {
+            Some(AuditEntry {
+                id: offset + i as u64,
+                operation: ev["topic"].as_str().unwrap_or("unknown").to_string(),
+                actor: ev["value"]["address"].as_str().unwrap_or("unknown").to_string(),
+                timestamp: ev["ledgerClosedAt"]
+                    .as_str()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0),
+                result: ev["value"]["result"].as_str().unwrap_or("ok").to_string(),
+            })
+        })
+        .collect()
 }
 
 // ── audit get ───────────────────────────────────────────────────────────────
@@ -1793,9 +1857,58 @@ fn fetch_audit_log_entry(log_id: u64) -> Option<AuditLogEntry> {
     // 5. Parse result and extract AuditLog structure
     // 6. Map to AuditLogEntry with actor address and operation context
     
-    let _ = log_id;
-    // Placeholder: return None (no entries fetched)
-    None
+    let rpc_url = std::env::var("ANCHORKIT_RPC_URL")
+        .or_else(|_| std::env::var("SOROBAN_RPC_URL"))
+        .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string());
+    let contract_id = std::env::var("ANCHORKIT_CONTRACT_ID").unwrap_or_default();
+
+    if contract_id.is_empty() {
+        eprintln!("warning: ANCHORKIT_CONTRACT_ID not set; cannot fetch audit entry from chain");
+        return None;
+    }
+
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getEvents",
+        "params": {
+            "startLedger": 0,
+            "filters": [{"type": "contract", "contractIds": [contract_id], "topics": [["audit_log"]]}],
+            "pagination": {"limit": 1, "offset": log_id}
+        }
+    });
+
+    let client = reqwest::blocking::Client::new();
+    let resp = match client.post(&rpc_url).json(&body).send() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("warning: RPC request failed: {e}");
+            return None;
+        }
+    };
+
+    let json: serde_json::Value = match resp.json() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("warning: failed to parse RPC response: {e}");
+            return None;
+        }
+    };
+
+    let ev = json["result"]["events"].as_array()?.first()?.clone();
+    Some(AuditLogEntry {
+        log_id,
+        operation_type: ev["topic"].as_str().unwrap_or("unknown").to_string(),
+        operation_index: ev["value"]["operation_index"].as_u64().unwrap_or(0),
+        actor: ev["value"]["address"].as_str().unwrap_or("unknown").to_string(),
+        timestamp: ev["ledgerClosedAt"]
+            .as_str()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0),
+        status: ev["value"]["status"].as_str().unwrap_or("ok").to_string(),
+        result: ev["value"]["result"].as_str().unwrap_or("ok").to_string(),
+        session_id: ev["value"]["session_id"].as_u64().unwrap_or(0),
+    })
 }
 
 /// Fetch audit logs filtered by session ID.
@@ -1816,9 +1929,86 @@ fn fetch_audit_logs_by_session(session_id: u64, from: Option<u64>, to: Option<u6
     // 5. Accumulate until complete or limit reached
     // 6. Map AuditLog results to AuditLogEntry with formatted timestamps
     
-    let _ = (session_id, from, to);
-    // Placeholder: return empty vec (no entries fetched)
-    vec![]
+    let rpc_url = std::env::var("ANCHORKIT_RPC_URL")
+        .or_else(|_| std::env::var("SOROBAN_RPC_URL"))
+        .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string());
+    let contract_id = std::env::var("ANCHORKIT_CONTRACT_ID").unwrap_or_default();
+
+    if contract_id.is_empty() {
+        eprintln!("warning: ANCHORKIT_CONTRACT_ID not set; cannot fetch session audit logs from chain");
+        return vec![];
+    }
+
+    let batch_size = 100u64;
+    let range_start = from.unwrap_or(0);
+    let range_end = to.unwrap_or(u64::MAX);
+    let mut results = Vec::new();
+    let mut offset = range_start;
+    let client = reqwest::blocking::Client::new();
+
+    loop {
+        let limit = batch_size.min(range_end.saturating_sub(offset) + 1);
+        if limit == 0 { break; }
+
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getEvents",
+            "params": {
+                "startLedger": 0,
+                "filters": [{"type": "contract", "contractIds": [contract_id], "topics": [["audit_log"]]}],
+                "pagination": {"limit": limit, "offset": offset}
+            }
+        });
+
+        let resp = match client.post(&rpc_url).json(&body).send() {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("warning: RPC request failed: {e}");
+                break;
+            }
+        };
+
+        let json: serde_json::Value = match resp.json() {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("warning: failed to parse RPC response: {e}");
+                break;
+            }
+        };
+
+        let events = match json["result"]["events"].as_array() {
+            Some(arr) => arr.clone(),
+            None => break,
+        };
+
+        let count = events.len() as u64;
+        for (i, ev) in events.iter().enumerate() {
+            let entry_session = ev["value"]["session_id"].as_u64().unwrap_or(u64::MAX);
+            if entry_session != session_id {
+                continue;
+            }
+            results.push(AuditLogEntry {
+                log_id: offset + i as u64,
+                operation_type: ev["topic"].as_str().unwrap_or("unknown").to_string(),
+                operation_index: ev["value"]["operation_index"].as_u64().unwrap_or(0),
+                actor: ev["value"]["address"].as_str().unwrap_or("unknown").to_string(),
+                timestamp: ev["ledgerClosedAt"]
+                    .as_str()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0),
+                status: ev["value"]["status"].as_str().unwrap_or("ok").to_string(),
+                result: ev["value"]["result"].as_str().unwrap_or("ok").to_string(),
+                session_id,
+            });
+        }
+
+        if count < limit { break; }
+        offset += count;
+        if offset > range_end { break; }
+    }
+
+    results
 }
 
 // ── Session data structures ──────────────────────────────────────────────────
