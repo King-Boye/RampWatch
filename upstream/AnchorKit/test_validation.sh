@@ -9,7 +9,7 @@ echo "1. Testing valid configuration..."
 echo ""
 
 echo "2. Testing invalid configuration (missing fields)..."
-./target/debug/anchorkit validate configs/test-invalid.json
+./target/debug/anchorkit validate tests/fixtures/invalid_configs/test-invalid.json
 echo ""
 
 echo "3. Testing all configs in directory..."
