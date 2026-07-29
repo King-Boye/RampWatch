@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { unstable_batchedUpdates } from 'react-dom';
 
 // ── Service constants ─────────────────────────────────────────────────────────
 // Mirror of src/types.rs SERVICE_* constants kept in sync with the on-chain values.
@@ -61,11 +60,9 @@ function subscribe(key: string, listener: () => void): () => void {
 }
 
 function notify(key: string): void {
-  // Batch all subscriber state updates into a single React render cycle.
-  // This also satisfies React Testing Library's act() boundary in tests.
-  unstable_batchedUpdates(() => {
-    subscribers.get(key)?.forEach(fn => fn());
-  });
+  // React 18 automatically batches state updates from promises, timeouts, and
+  // event handlers, so explicit batching is no longer needed.
+  subscribers.get(key)?.forEach(fn => fn());
 }
 
 /**

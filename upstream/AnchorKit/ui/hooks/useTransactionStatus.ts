@@ -16,6 +16,10 @@ export interface UseTransactionStatusOptions {
   interval?: number;
   /** Set to false to pause polling without unmounting. Defaults to true. */
   enabled?: boolean;
+  /** Maximum number of consecutive retries before giving up. Defaults to Infinity. */
+  maxRetries?: number;
+  /** Maximum backoff delay in milliseconds. Defaults to 60000 (1 minute). */
+  maxBackoff?: number;
 }
 
 export interface UseTransactionStatusResult {
@@ -45,7 +49,12 @@ export function useTransactionStatus(
   txId: string | null | undefined,
   options: UseTransactionStatusOptions
 ): UseTransactionStatusResult {
-  const { interval = 5000, enabled = true } = options;
+  const { 
+    interval = 5000, 
+    enabled = true,
+    maxRetries = Infinity,
+    maxBackoff = 60000
+  } = options;
 
   // Ref so that an inline fetchStatus function doesn't restart the polling loop
   const fetchStatusRef = useRef<FetchStatusFn>(options.fetchStatus);
@@ -64,6 +73,7 @@ export function useTransactionStatus(
     const tracker = new TransactionStateTracker((id) => fetchStatusRef.current(id));
     let cancelled = false;
     let timerId: ReturnType<typeof setTimeout> | null = null;
+    let consecutiveErrors = 0;
 
     const poll = async () => {
       try {
@@ -71,13 +81,26 @@ export function useTransactionStatus(
         if (cancelled) return;
         setSnapshot(snap);
         setError(null);
+        consecutiveErrors = 0; // reset on success
         if (!snap.isTerminal) {
           timerId = setTimeout(poll, interval);
         }
       } catch (err) {
         if (cancelled) return;
+        consecutiveErrors++;
         setError(err instanceof Error ? err : new Error(String(err)));
-        timerId = setTimeout(poll, interval);
+        
+        // Stop retrying if max attempts reached
+        if (consecutiveErrors >= maxRetries) {
+          return;
+        }
+        
+        // Exponential backoff with cap: min(interval * 2^attempts, maxBackoff)
+        const backoffDelay = Math.min(
+          interval * Math.pow(2, consecutiveErrors - 1),
+          maxBackoff
+        );
+        timerId = setTimeout(poll, backoffDelay);
       }
     };
 
@@ -88,7 +111,7 @@ export function useTransactionStatus(
       if (timerId !== null) clearTimeout(timerId);
       tracker.reset();
     };
-  }, [txId, enabled, interval]);
+  }, [txId, enabled, interval, maxRetries, maxBackoff]);
 
   return {
     status: snapshot?.status ?? null,
