@@ -316,6 +316,10 @@ anchorkit health --attestor GANCHOR123... --watch --interval 30
 - `test` - Run contract tests
 - `validate` - Validate configuration files
 - `doctor` - Run environment diagnostics
+- `config` - Manage configuration (validate/initialize config files)
+- `audit` - Fetch and display audit log entries
+- `export-audit` - Export audit logs in JSON or CSV format
+- `session` - Manage interaction sessions
 
 Each command includes:
 - Clear description of when to use it
