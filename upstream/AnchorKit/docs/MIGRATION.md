@@ -177,7 +177,7 @@ This guide covers every breaking change introduced in 0.1.0 and shows exactly wh
 
 ### 1. `initialize()`
 
-The function now accepts a second parameter to configure the replay-attack detection window.
+The function now accepts two additional parameters: `max_audit_log_size` and `replay_window_seconds`.
 
 **Before (0.0.1)**
 ```rust
@@ -186,14 +186,14 @@ client.initialize(&admin);
 
 **After (0.1.0)**
 ```rust
-// Pass None to keep the default 300-second (5-minute) window.
-client.initialize(&admin, &None);
+// Pass a max_audit_log_size and None for default replay window (300 seconds)
+client.initialize(&admin, &1000u64, &None);
 
-// Or set a custom window (in seconds):
-client.initialize(&admin, &Some(600u64)); // 10-minute window
+// Or set both parameters explicitly:
+client.initialize(&admin, &1000u64, &Some(600u64)); // 10-minute window
 ```
 
-The `replay_window_seconds` parameter controls how far in the past or future an attestation timestamp may be relative to the current ledger time. Attestations outside `[now - window, now + window]` are rejected with `InvalidTimestamp`. Passing `None` defaults to **300 seconds**.
+The `max_audit_log_size` parameter caps the number of audit entries retained on-chain. The `replay_window_seconds` parameter controls how far in the past or future an attestation timestamp may be relative to the current ledger time. Attestations outside `[now - window, now + window]` are rejected with `InvalidTimestamp`. Passing `None` for the window defaults to **300 seconds**.
 
 ---
 
