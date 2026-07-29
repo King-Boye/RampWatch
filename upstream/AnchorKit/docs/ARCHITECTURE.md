@@ -131,7 +131,9 @@ All contract state is managed via the `StorageKey` enum defined in `src/storage.
 | `Sep10Key(Address)` | Persistent | `Bytes` | SEP-10 JWT verification key for an attestor; used for cryptographic signature validation |
 | `Attestor(Address)` | Persistent | `bool` | Registration flag; `true` indicates the address is a registered attestor |
 | `AttestorRevoked(Address)` | Persistent | `bool` | Revocation marker; present when attestor has been revoked; used to populate `issuer_revoked` in attestation responses |
+| `AttestorCount` | Instance | `u64` | Running count of registered attestors; used for statistics and pagination |
 | `Endpoint(Address)` | Persistent | `String` | HTTPS endpoint URL for an attestor's discovery or metadata service |
+| `PerAttestorCount(Address)` | Persistent | `u64` | Per-attestor attestation count; tracks total attestations submitted by a specific attestor |
 
 #### Attestation Records
 | Variant | Storage | Type | Description |
@@ -139,6 +141,7 @@ All contract state is managed via the `StorageKey` enum defined in `src/storage.
 | `Attest(u64)` | Persistent | `Attestation` | Complete attestation record indexed by attestation ID |
 | `SubjectCount(Address)` | Persistent | `u64` | Per-subject attestation count; used for pagination and statistics |
 | `SubjectAttestation(Address, u64)` | Persistent | `u64` | Per-subject attestation index entry; maps subject + index → attestation ID for efficient retrieval |
+| `AttestationRevoked(u64)` | Persistent | `bool` | Revocation marker for an individual attestation; marks a specific attestation as revoked |
 | `Used(Bytes)` | Persistent | `bool` | Replay-protection flag; marks a payload hash as consumed to prevent duplicate submissions |
 
 #### Session Management
@@ -165,6 +168,7 @@ All contract state is managed via the `StorageKey` enum defined in `src/storage.
 | `Services(Address)` | Persistent | `AnchorServices` | Supported services record for an anchor; lists available deposit/withdrawal endpoints |
 | `Health(Address)` | Persistent | `HealthStatus` | Health status snapshot for an anchor; tracks latency, failure count, and availability |
 | `AnchorMeta(Address)` | Persistent | Metadata object | Routing and operational metadata for an anchor; used for intelligent request routing |
+| `AnchorJurisdiction(Address)` | Persistent | `String` | ISO 3166-1 alpha-3 jurisdiction code for an anchor; used for regulatory compliance and geographic routing |
 
 #### Caching (Temporary Storage)
 | Variant | Storage | Type | Description |
@@ -184,6 +188,7 @@ All contract state is managed via the `StorageKey` enum defined in `src/storage.
 | Variant | Storage | Type | Description |
 |---------|---------|------|-------------|
 | `MaxPageSize` | Instance | `u32` | Configuration: maximum allowed page size for list operations (e.g., `list_attestations`) |
+| `IsPaused` | Instance | `bool` | Contract pause state; when `true`, most contract operations are blocked for emergency situations |
 
 ### Instance Storage Keys (Vec<Symbol>)
 

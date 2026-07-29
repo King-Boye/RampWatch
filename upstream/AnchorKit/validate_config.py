@@ -73,6 +73,12 @@ def validate_attestor(attestor: Dict[str, Any], index: int) -> None:
     endpoint = attestor.get("endpoint", "")
     role = attestor.get("role", "")
     
+    # Check for unknown/extra properties (additionalProperties: false in schema)
+    allowed_fields = {"name", "address", "endpoint", "role", "enabled", "description"}
+    extra_fields = set(attestor.keys()) - allowed_fields
+    if extra_fields:
+        raise ValidationError(f"Attestor {index}: unknown fields: {', '.join(sorted(extra_fields))}")
+    
     if not name or len(name) > 64:
         raise ValidationError(f"Attestor {index}: invalid name length")
     
@@ -89,8 +95,12 @@ def validate_attestor(attestor: Dict[str, Any], index: int) -> None:
     if not endpoint.startswith(("http://", "https://")):
         raise ValidationError(f"Attestor {index} ({name}): endpoint must start with http:// or https://")
     
-    if not role or len(role) > 32:
-        raise ValidationError(f"Attestor {index} ({name}): role must be 1-32 chars")
+    # Validate role against enum from config_schema.json
+    valid_roles = {"kyc-issuer", "transfer-verifier", "compliance-approver", "rate-provider", "attestor"}
+    if not role:
+        raise ValidationError(f"Attestor {index} ({name}): role is required")
+    if role not in valid_roles:
+        raise ValidationError(f"Attestor {index} ({name}): role must be one of {sorted(valid_roles)}, got '{role}'")
 
 def validate_attestors(attestors: List[Dict[str, Any]]) -> None:
     """Validate attestor registry"""
