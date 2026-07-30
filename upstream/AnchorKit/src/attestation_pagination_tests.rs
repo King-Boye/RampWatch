@@ -301,4 +301,65 @@ mod attestation_pagination_tests {
 
         client.set_max_page_size(&100);
     }
+
+    #[test]
+    fn test_list_attestations_skips_revoked_by_id() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let attestor = Address::generate(&env);
+        let subject = Address::generate(&env);
+        client.initialize(&admin, &100_u64, &None, &None);
+
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
+
+        // Submit 2 attestations
+        let p1 = payload(&env, 0xAA);
+        let id1 = client.submit_attestation(&attestor, &subject, &env.ledger().timestamp(), &p1, &sign_payload(&env, &sk, &p1));
+
+        let p2 = payload(&env, 0xBB);
+        let id2 = client.submit_attestation(&attestor, &subject, &env.ledger().timestamp(), &p2, &sign_payload(&env, &sk, &p2));
+
+        // Revoke the first attestation by ID
+        client.revoke_attestation(&attestor, &id1);
+
+        // list_attestations should only return the non-revoked attestation
+        let results = client.list_attestations(&subject, &0, &10);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results.get(0).unwrap().id, id2);
+    }
+
+    #[test]
+    fn test_list_attestations_skips_expired() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let attestor = Address::generate(&env);
+        let subject = Address::generate(&env);
+        client.initialize(&admin, &100_u64, &None, &None);
+
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
+
+        // Submit an attestation with expires_at in the past
+        let p = payload(&env, 0xCC);
+        let id = client.submit_attestation(&attestor, &subject, &env.ledger().timestamp(), &p, &sign_payload(&env, &sk, &p));
+
+        // Directly update the stored attestation to have a past expires_at
+        let main_key = crate::storage::StorageKey::Attest(id);
+        let mut attestation = env.storage().persistent().get::<_, crate::types::Attestation>(&main_key).unwrap();
+        attestation.expires_at = Some(env.ledger().timestamp() - 100);
+        env.storage().persistent().set(&main_key, &attestation);
+
+        // list_attestations should not return the expired attestation
+        let results = client.list_attestations(&subject, &0, &10);
+        assert_eq!(results.len(), 0);
+    }
 }

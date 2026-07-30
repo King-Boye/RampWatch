@@ -1079,6 +1079,14 @@ impl AnchorKitContract {
                     if env.storage().persistent().has(&StorageKey::AttestorRevoked(attestation.issuer.clone())) {
                         attestation.issuer_revoked = true;
                     }
+                    if env.storage().persistent().has(&StorageKey::AttestationRevoked(attestation_id)) {
+                        continue;
+                    }
+                    if let Some(expires_at) = attestation.expires_at {
+                        if env.ledger().timestamp() > expires_at {
+                            continue;
+                        }
+                    }
                     results.push_back(attestation);
                 }
             }
