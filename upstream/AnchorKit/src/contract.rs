@@ -529,6 +529,9 @@ impl AnchorKitContract {
         if env.storage().persistent().has(&key) {
             panic_with_error!(&env, ErrorCode::AttestorAlreadyRegistered);
         }
+        // Clear any prior revocation marker so re-registered attestors are not
+        // permanently flagged as revoked on new attestations.
+        env.storage().persistent().remove(&StorageKey::AttestorRevoked(attestor.clone()));
         let inst = env.storage().instance();
         let cnt_key = key_attestor_count(&env);
         let count: u64 = inst.get(&cnt_key).unwrap_or(0u64);
@@ -1374,6 +1377,9 @@ impl AnchorKitContract {
         if env.storage().persistent().has(&key) {
             panic_with_error!(&env, ErrorCode::AttestorAlreadyRegistered);
         }
+        // Clear any prior revocation marker so re-registered attestors are not
+        // permanently flagged as revoked on new attestations.
+        env.storage().persistent().remove(&StorageKey::AttestorRevoked(attestor.clone()));
         let inst = env.storage().instance();
         let cnt_key = key_attestor_count(&env);
         let count: u64 = inst.get(&cnt_key).unwrap_or(0u64);
