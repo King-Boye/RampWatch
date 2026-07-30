@@ -215,21 +215,33 @@ export const ApiRequestPanel: React.FC<ApiRequestPanelProps> = ({
 
   const isSubmitDisabled = !!jsonError || isLoading;
 
+  /**
+   * Wraps a value in single quotes and escapes any embedded single quotes
+   * using the POSIX '\'' idiom so the result is safe to paste into any
+   * POSIX shell without risk of command injection via backticks, $(), ${},
+   * backslashes, or other metacharacters.
+   *
+   * Examples:
+   *   hello world  →  'hello world'
+   *   it's a test  →  'it'\''s a test'
+   */
+  const shellQuoteSingle = (value: string): string =>
+    `'${value.replace(/'/g, "'\\''")}'`;
+
   const generateCurl = (): string => {
     const headerFlags = Object.entries(headers)
-      .map(([key, value]) => `-H "${key}: ${value.replace(/"/g, '\\"')}"`)
-
+      .map(([key, value]) => `-H ${shellQuoteSingle(`${key}: ${value}`)}`)
       .join(' \\\n  ');
 
-    let curl = `curl -X ${method} \\\n  "${endpoint}"`;
-    
+    let curl = `curl -X ${method} \\\n  ${shellQuoteSingle(endpoint)}`;
+
     if (headerFlags) {
       curl += ` \\\n  ${headerFlags}`;
     }
 
     if (requestBody && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
       const body = formatJson(requestBody);
-      curl += ` \\\n  -d '${body}'`;
+      curl += ` \\\n  -d ${shellQuoteSingle(body)}`;
     }
 
     return curl;
