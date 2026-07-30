@@ -45,9 +45,9 @@ clean:
 	cargo clean
 
 ## deploy-testnet: Deploy contract to Stellar testnet
-deploy-testnet:
+deploy-testnet: build-wasm
 	soroban contract deploy \
-		--wasm target/wasm32-unknown-unknown/release/anchor_kit.wasm \
+		--wasm target/wasm32-unknown-unknown/release/anchorkit.wasm \
 		--network testnet
 
 ## help: Show this help message

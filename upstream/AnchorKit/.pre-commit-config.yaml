@@ -15,7 +15,7 @@ repos:
 
       - id: eslint-staged
         name: eslint (staged)
-        entry: bash -c 'files="$@"; if [ -z "$files" ]; then exit 0; fi; command -v eslint >/dev/null 2>&1 || exit 0; npx eslint --max-warnings=0 $files'
+        entry: bash -c 'files="$@"; if [ -z "$files" ]; then exit 0; fi; command -v eslint >/dev/null 2>&1 || exit 0; npx eslint --max-warnings=0 $files' --
         language: system
         pass_filenames: true
         types_or: [javascript, jsx, ts, tsx]
