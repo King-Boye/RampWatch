@@ -269,6 +269,27 @@ mod attestation_pagination_tests {
     }
 
     #[test]
+    fn test_get_all_attestors_large_offset_returns_empty() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let attestor = Address::generate(&env);
+        client.initialize(&admin, &100_u64, &None, &None);
+
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
+
+        // Use an offset that exceeds usize::MAX on 32-bit targets (u64::MAX would
+        // truncate to a small number on a 32-bit usize platform, returning wrong
+        // data instead of an empty page).
+        let results = client.get_all_attestors(&u64::MAX, &10);
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
     fn test_set_max_page_size_admin_success() {
         let env = make_env();
         setup_ledger(&env);

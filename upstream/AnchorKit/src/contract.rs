@@ -652,7 +652,7 @@ impl AnchorKitContract {
             .get::<_, Vec<Address>>(&list_key)
             .unwrap_or_else(|| Vec::new(&env));
 
-        let start = offset as usize;
+        let start = usize::try_from(offset).unwrap_or(usize::MAX);
         let limit = limit as usize;
         let mut result = Vec::new(&env);
 
