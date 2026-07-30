@@ -1003,6 +1003,30 @@ impl AnchorKitContract {
             attestation.issuer_revoked = true;
         }
         if env.storage().persistent().has(&StorageKey::AttestationRevoked(id)) {
+            return None;
+        }
+        if let Some(expires_at) = attestation.expires_at {
+            if env.ledger().timestamp() > expires_at {
+                return None;
+            }
+        }
+        Some(attestation)
+    }
+
+    /// Like `get_attestation`, but panics if the attestation does not exist,
+    /// has been revoked, or has expired.
+    pub fn get_attestation_or_panic(env: Env, id: u64) -> Attestation {
+        let key = StorageKey::Attest(id);
+        let mut attestation = env
+            .storage()
+            .persistent()
+            .get::<_, Attestation>(&key)
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound));
+        env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+        if env.storage().persistent().has(&StorageKey::AttestorRevoked(attestation.issuer.clone())) {
+            attestation.issuer_revoked = true;
+        }
+        if env.storage().persistent().has(&StorageKey::AttestationRevoked(id)) {
             panic_with_error!(&env, ErrorCode::AttestationRevoked);
         }
         if let Some(expires_at) = attestation.expires_at {
@@ -1010,7 +1034,7 @@ impl AnchorKitContract {
                 panic_with_error!(&env, ErrorCode::AttestationExpired);
             }
         }
-        Some(attestation)
+        attestation
     }
 
     /// Convenience check combining revocation, expiry, and attestor status (#627).

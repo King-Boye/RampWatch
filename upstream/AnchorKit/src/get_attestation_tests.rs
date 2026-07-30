@@ -39,16 +39,53 @@ mod get_attestation_tests {
     }
 
     #[test]
-    fn returns_none_for_missing_id() {
+    fn returns_none_for_revoked_id() {
         let env = make_env();
         setup_ledger(&env);
         let contract_id = env.register_contract(None, AnchorKitContract);
         let client = AnchorKitContractClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
+        let attestor = Address::generate(&env);
+        let subject = Address::generate(&env);
         client.initialize(&admin, &100_u64, &None, &None);
 
-        assert!(client.get_attestation(&999).is_none());
+        let mut csprng = OsRng;
+        let signing_key = SigningKey::generate(&mut csprng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &signing_key);
+
+        let p = payload(&env, 0xAB);
+        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_payload(&env, &signing_key, &p), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+
+        client.revoke_attestation(&attestor, &id);
+
+        assert!(client.get_attestation(&id).is_none());
+    }
+
+    #[test]
+    fn is_attestation_valid_returns_false_for_revoked_id() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let attestor = Address::generate(&env);
+        let subject = Address::generate(&env);
+        client.initialize(&admin, &100_u64, &None, &None);
+
+        let mut csprng = OsRng;
+        let signing_key = SigningKey::generate(&mut csprng);
+        register_attestor_with_sep10(&env, &client, &attestor, &attestor, &signing_key);
+
+        let p = payload(&env, 0xAB);
+        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_payload(&env, &signing_key, &p), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+
+        assert!(client.is_attestation_valid(&id));
+
+        client.revoke_attestation(&attestor, &id);
+
+        assert!(!client.is_attestation_valid(&id));
     }
 
     #[test]
