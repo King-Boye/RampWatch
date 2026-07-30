@@ -1,5 +1,6 @@
 use soroban_sdk::{contracttype, String};
 
+use crate::domain_validator;
 use crate::errors::Error;
 
 /// Network type for SDK operations
@@ -26,7 +27,7 @@ const MAX_TIMEOUT: u32 = 300;
 const MIN_RETRY: u32 = 0;
 const MAX_RETRY: u32 = 10;
 const MIN_ANCHOR_LEN: u32 = 3;
-const MAX_ANCHOR_LEN: u32 = 256;
+pub const MAX_ANCHOR_LEN: u32 = 256;
 
 /// Default timeout for HTTP requests (10 seconds)
 pub const DEFAULT_TIMEOUT_SECONDS: u32 = 10;
@@ -66,6 +67,17 @@ impl SdkConfig {
         if anchor_len < MIN_ANCHOR_LEN || anchor_len > MAX_ANCHOR_LEN {
             return Err(Error::invalid_config());
         }
+
+        // Copy the Soroban String bytes into a plain &str and run full
+        // domain-format validation (HTTPS-only, valid domain structure, no
+        // path traversal, etc.).  This catches garbage values like "abc" or
+        // "not a domain!!" that pass the length check but are unusable as
+        // real anchor endpoints.
+        let len = anchor_len as usize;
+        let mut buf = [0u8; MAX_ANCHOR_LEN as usize];
+        self.default_anchor.copy_into_slice(&mut buf[..len]);
+        let anchor_str = core::str::from_utf8(&buf[..len]).map_err(|_| Error::invalid_config())?;
+        domain_validator::validate_anchor_domain(anchor_str).map_err(|_| Error::invalid_config())?;
 
         Ok(())
     }
