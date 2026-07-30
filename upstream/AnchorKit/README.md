@@ -101,8 +101,7 @@ Use the new CLI binary for machine-friendly command output:
 
 ```bash
 cargo run --bin anchorkit -- query --output json --transaction-id TX123
-cargo run --bin anchorkit -- attest --subject GUSER123 --payload-file payload.bin
-cat payload.bin | cargo run --bin anchorkit -- attest --subject GUSER123 --payload-hash -
+cargo run --bin anchorkit -- attest --subject GUSER123 --payload-hash <64-char-hex>
 ```
 
 See **[docs/guides/DOCTOR_COMMAND.md](./docs/guides/DOCTOR_COMMAND.md)** for CLI documentation.

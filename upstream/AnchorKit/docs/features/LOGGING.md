@@ -1,6 +1,6 @@
 # AnchorKit Structured Logging
 
-This document describes the structured logging implementation in AnchorKit, including debug mode toggle and request/response logging with sensitive data redaction.
+This document describes the structured logging implementation in AnchorKit, including request/response logging with sensitive data redaction.
 
 ## Features
 
@@ -10,12 +10,6 @@ This document describes the structured logging implementation in AnchorKit, incl
 - **Request correlation**: Request IDs for distributed tracing
 - **Timestamp tracking**: Automatic timestamping of all log entries
 - **Actor tracking**: Log which address performed each operation
-
-### ✅ Debug Mode Toggle
-- **CLI flags**: `--debug` and `--verbose` for enabling debug output
-- **Runtime configuration**: Configure logging via contract methods
-- **Level filtering**: Debug/trace logs filtered out in production mode
-- **Performance optimized**: No overhead when debug mode is disabled
 
 ### ✅ Request/Response Logging
 - **HTTP request logging**: Method, endpoint, payload, timing
@@ -32,20 +26,6 @@ This document describes the structured logging implementation in AnchorKit, incl
 
 ## Usage
 
-### CLI Integration
-
-```bash
-# Enable debug mode
-anchorkit --debug build
-anchorkit --debug --verbose deploy --network testnet
-
-# Disable request logging (reduce log volume)
-anchorkit --debug --no-request-logging health
-
-# Disable redaction (development only)
-anchorkit --debug --no-redaction attest --subject GUSER123 --payload-hash abc123
-```
-
 ### Contract Integration
 
 ```rust
@@ -53,7 +33,6 @@ use anchorkit::{Logger, LoggingConfig, RequestId};
 
 // Configure logging
 let config = LoggingConfig {
-    debug_mode: true,
     log_requests: true,
     log_responses: true,
     redact_sensitive: true,
@@ -92,7 +71,6 @@ Logger::log_response(&env, request_id, status, duration_ms, response_payload);
 
 ```rust
 pub struct LoggingConfig {
-    pub debug_mode: bool,        // Enable debug/trace logs
     pub log_requests: bool,      // Log HTTP requests
     pub log_responses: bool,     // Log HTTP responses
     pub redact_sensitive: bool,  // Redact sensitive data
@@ -104,7 +82,6 @@ pub struct LoggingConfig {
 
 ```rust
 LoggingConfig {
-    debug_mode: false,           // Production-safe default
     log_requests: true,          // Monitor network activity
     log_responses: true,         // Monitor network activity
     redact_sensitive: true,      // Security-first approach
@@ -119,8 +96,8 @@ LoggingConfig {
 | **ERROR** | System errors, failures | Always logged, triggers alerts |
 | **WARN** | Warnings, degraded performance | Always logged, monitoring |
 | **INFO** | Normal operations, state changes | Always logged, audit trail |
-| **DEBUG** | Detailed debugging information | Only in debug mode |
-| **TRACE** | Very detailed execution flow | Only in debug mode |
+| **DEBUG** | Detailed debugging information | Development and troubleshooting |
+| **TRACE** | Very detailed execution flow | Development and troubleshooting |
 
 ## Sensitive Data Patterns
 
@@ -153,11 +130,6 @@ env.events().publish(("http", "response"), RequestLog { ... });
 
 ## Performance Considerations
 
-### Debug Mode Filtering
-- Debug/trace logs are filtered at the source when debug mode is disabled
-- No performance overhead for disabled log levels
-- String formatting only occurs when logs will be emitted
-
 ### Log Size Limits
 - Configurable maximum log size prevents memory issues
 - Large payloads are truncated with `[TRUNCATED]` indicator
@@ -173,7 +145,6 @@ env.events().publish(("http", "response"), RequestLog { ... });
 ### Production Configuration
 ```rust
 LoggingConfig {
-    debug_mode: false,          // Disable verbose logging
     log_requests: true,         // Monitor for security
     log_responses: true,        // Monitor for security  
     redact_sensitive: true,     // Always redact in production
@@ -184,7 +155,6 @@ LoggingConfig {
 ### Development Configuration
 ```rust
 LoggingConfig {
-    debug_mode: true,           // Enable debugging
     log_requests: true,         // Full request logging
     log_responses: true,        // Full response logging
     redact_sensitive: false,    // Optional: disable for debugging
@@ -236,11 +206,6 @@ cargo test logging_tests
 cargo run --example logging_example
 ```
 
-### Run Demo Script
-```bash
-./examples/logging_demo.sh
-```
-
 ## Migration Guide
 
 ### Existing Code
@@ -273,9 +238,9 @@ env.events().subscribe(("http", "request"), |event| {
 
 ### Common Issues
 
-1. **Debug logs not appearing**
-   - Ensure `debug_mode: true` in configuration
-   - Check that you're using `--debug` CLI flag
+1. **Logs not appearing**
+   - Check that the logging configuration is properly set
+   - Verify event subscription is active
 
 2. **Sensitive data not redacted**
    - Verify `redact_sensitive: true` in configuration
@@ -286,22 +251,8 @@ env.events().subscribe(("http", "request"), |event| {
    - Consider if full payload logging is necessary
 
 4. **Performance impact**
-   - Disable debug mode in production
    - Reduce `max_log_size` if needed
    - Consider disabling request/response logging for high-volume endpoints
-
-### Debug Commands
-
-```bash
-# Check current logging configuration
-anchorkit --debug query --id 1  # Should show debug logs
-
-# Test redaction
-anchorkit --debug --no-redaction attest --subject GUSER123 --payload-hash abc123
-
-# Test without request logging
-anchorkit --debug --no-request-logging health
-```
 
 ## Future Enhancements
 
