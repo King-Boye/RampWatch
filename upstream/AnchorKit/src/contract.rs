@@ -951,6 +951,8 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::ServicesNotConfigured);
         }
 
+        Self::validate_quote_params(&env, amount, min_amount, max_amount, expires_at);
+
         let inst = env.storage().instance();
         let qcnt_key = key_quote_counter(&env);
         let next: u64 = inst.get(&qcnt_key).unwrap_or(0u64) + 1;
@@ -1189,16 +1191,7 @@ impl AnchorKitContract {
         Self::check_attestor(&env, &anchor);
 
         // Validate quote parameters
-        if rate == 0 {
-            panic_with_error!(&env, ErrorCode::InvalidQuote);
-        }
-        if minimum_amount > maximum_amount {
-            panic_with_error!(&env, ErrorCode::InvalidQuote);
-        }
-        let now = env.ledger().timestamp();
-        if valid_until <= now {
-            panic_with_error!(&env, ErrorCode::InvalidQuote);
-        }
+        Self::validate_quote_params(&env, rate, minimum_amount, maximum_amount, valid_until);
 
         let inst = env.storage().instance();
         let qcnt_key = key_quote_counter(&env);
@@ -2640,6 +2633,25 @@ impl AnchorKitContract {
             .unwrap_or(false)
         {
             panic_with_error!(env, ErrorCode::ContractPaused);
+        }
+    }
+
+    /// Validate quote parameters shared by `submit_quote` and `quote_with_request_id`.
+    ///
+    /// Panics with [`ErrorCode::InvalidQuote`] if:
+    /// - `rate` is zero
+    /// - `minimum_amount` exceeds `maximum_amount`
+    /// - `valid_until` is not strictly in the future
+    fn validate_quote_params(env: &Env, rate: u64, minimum_amount: u64, maximum_amount: u64, valid_until: u64) {
+        if rate == 0 {
+            panic_with_error!(env, ErrorCode::InvalidQuote);
+        }
+        if minimum_amount > maximum_amount {
+            panic_with_error!(env, ErrorCode::InvalidQuote);
+        }
+        let now = env.ledger().timestamp();
+        if valid_until <= now {
+            panic_with_error!(env, ErrorCode::InvalidQuote);
         }
     }
 
