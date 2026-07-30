@@ -55,6 +55,20 @@ impl TransactionStatus {
             Self::Unknown(s) => s.as_str(),
         }
     }
+
+    /// Returns `true` if this status represents a terminal (non-retryable) state.
+    ///
+    /// Terminal statuses are those where no further state transitions are expected:
+    /// - `Completed` — transaction settled successfully
+    /// - `Refunded`  — funds returned to sender
+    /// - `Expired`   — transaction window closed
+    /// - `Error`     — unrecoverable anchor-side failure
+    ///
+    /// All pending and incomplete variants return `false` since they may still
+    /// progress to a final state.
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Completed | Self::Refunded | Self::Expired | Self::Error)
+    }
 }
 
 /// Canonical merged DepositResponse combining fields from sep6 normalization and response validation.
@@ -317,6 +331,41 @@ pub fn anchor_matches_jurisdiction(
     match required {
         None => true,
         Some(req) => anchor_jurisdiction.as_ref().is_some_and(|j| j == req),
+    }
+}
+
+#[cfg(test)]
+mod transaction_status_tests {
+    use super::*;
+
+    #[test]
+    fn terminal_statuses_are_detected() {
+        assert!(TransactionStatus::Completed.is_terminal());
+        assert!(TransactionStatus::Refunded.is_terminal());
+        assert!(TransactionStatus::Expired.is_terminal());
+        assert!(TransactionStatus::Error.is_terminal());
+    }
+
+    #[test]
+    fn non_terminal_statuses_are_not_terminal() {
+        assert!(!TransactionStatus::Pending.is_terminal());
+        assert!(!TransactionStatus::Incomplete.is_terminal());
+        assert!(!TransactionStatus::PendingExternal.is_terminal());
+        assert!(!TransactionStatus::PendingAnchor.is_terminal());
+        assert!(!TransactionStatus::PendingTrust.is_terminal());
+        assert!(!TransactionStatus::PendingUser.is_terminal());
+        assert!(!TransactionStatus::Unknown(alloc::string::String::from("custom")).is_terminal());
+    }
+
+    #[test]
+    fn roundtrip_from_str_as_str() {
+        let cases = [
+            "pending", "incomplete", "pending_external", "pending_anchor",
+            "pending_trust", "pending_user", "completed", "refunded", "expired", "error",
+        ];
+        for s in cases {
+            assert_eq!(TransactionStatus::from_str(s).as_str(), s);
+        }
     }
 }
 
