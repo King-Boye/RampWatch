@@ -48,6 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Request ID Propagation**: UUID per flow with tracing
 - **Event Emission**: Emit events for all state changes
 - **Comprehensive Error Handling**: Stable error codes (100-120) for API compatibility
+- **SEP-10 JWT Authentication**: Secure JWT-based authentication for Stellar protocol compliance
+- **Webhook Middleware**: Middleware for processing webhook events with reliability guarantees
+- **Webhook Monitoring**: Real-time monitoring and tracking of webhook delivery and processing
+- **Rate Limiting**: Configurable rate limiting to protect services from overload
+- **Retry/Backoff Mechanisms**: Intelligent retry strategies with exponential backoff for resilience
+- **Response Normalization**: Normalize and standardize responses from multiple anchor providers
+- **Response Validation**: Validate responses against expected schemas and formats
+- **Routing Strategy Selection**: Flexible routing strategies for anchor selection and failover
 - **CLI Tool**: Command-line interface for contract interaction
 - **Cross-Platform Support**: Linux, macOS, and Windows compatibility
 - **Configuration Validation**: Validate configuration files with JSON schema

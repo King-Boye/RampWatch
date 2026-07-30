@@ -356,6 +356,6 @@ Potential future improvements:
 ## See Also
 
 - [REQUEST_ID_PROPAGATION.md](./REQUEST_ID_PROPAGATION.md) - Request ID tracking
-- [SESSION_TRACEABILITY.md](./SESSION_TRACEABILITY.md) - Session management
-- [API_SPEC.md](./API_SPEC.md) - Complete API specification
-- [HEALTH_MONITORING.md](./HEALTH_MONITORING.md) - Health monitoring features
+- [TRANSACTION_STATE_TRACKER.md](./TRANSACTION_STATE_TRACKER.md) - Session and transaction management
+- [API_REFERENCE.md](../API_REFERENCE.md) - Complete API specification
+- [STATUS_MONITOR.md](./STATUS_MONITOR.md) - Health monitoring features
