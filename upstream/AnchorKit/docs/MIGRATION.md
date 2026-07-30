@@ -114,21 +114,51 @@ The following methods were present in 0.x and have been **removed** in 1.0:
 
 ### 4. Error Code Renumbering
 
-Error codes were renumbered to a contiguous range. Update any code that matches on raw numeric values:
+Error codes are non-contiguous. The `ErrorCode` enum currently assigns the following numeric values:
 
-| Old code | New code | Name |
-|----------|----------|------|
-| 48 | 20* | `CacheExpired` |
-| 49 | 21* | `CacheNotFound` |
-| 51 | 22* | `AuditLogMaxSizeInvalid` |
-| 52 | 23* | `UnauthorizedProposeAdmin` |
-| 53 | 24* | `NoPendingAdmin` |
-| 54 | 25* | `NotPendingAdmin` |
-| 101 | 26* | `NotInitialized` |
+| Code | Name                        |
+|------|-----------------------------|
+| 1    | AlreadyInitialized          |
+| 2    | AttestorAlreadyRegistered   |
+| 3    | AttestorNotRegistered       |
+| 4    | UnauthorizedAttestor        |
+| 5    | InvalidTimestamp            |
+| 6    | ReplayAttack                |
+| 7    | InvalidQuote                |
+| 8    | InvalidServiceType          |
+| 9    | InvalidTransactionIntent    |
+| 10   | StaleQuote                  |
+| 11   | ComplianceNotMet            |
+| 12   | InvalidEndpointFormat       |
+| 13   | NoQuotesAvailable           |
+| 14   | ServicesNotConfigured       |
+| 15   | ValidationError             |
+| 16   | RateLimitExceeded           |
+| 17   | AttestationNotFound         |
+| 18   | InvalidSep10Token           |
+| 19   | StorageCorrupted            |
+| 26   | NotInitialized              |
+| 48   | CacheExpired                |
+| 49   | CacheNotFound               |
+| 51   | AuditLogMaxSizeInvalid      |
+| 52   | PendingAdminAlreadyExists   |
+| 53   | NoPendingAdmin              |
+| 54   | NotPendingAdmin             |
+| 55   | SessionNotFound             |
+| 56   | SessionExpired              |
+| 57   | MissingSigningKey           |
+| 58   | UnauthorizedProposeAdmin    |
+| 59   | InvalidStrategy             |
+| 60   | AttestationLimitReached     |
+| 61   | AttestorCapExceeded         |
+| 62   | PathTraversalDetected       |
+| 63   | InvalidAmount               |
+| 64   | AttestationRevoked          |
+| 121  | AttestationExpired          |
+| 122  | ContractPaused              |
+| 123  | AdminTransferPending        |
 
-> \* The current `src/errors.rs` retains the original discriminant values (48, 49, 51–54) in the `ErrorCode` enum for on-chain compatibility. The table above reflects the logical renaming; numeric codes in the on-chain ABI are unchanged unless you compiled against the renumbered intermediate build. Always match on `ErrorCode` variants, never on raw integers.
-
-Use `AnchorKitError::from_code(ErrorCode::CacheExpired)` and match on `err.code` instead of raw numbers.
+Always match on `ErrorCode` variants, never on raw integers, to remain stable across future non-contiguous additions.
 
 ---
 
