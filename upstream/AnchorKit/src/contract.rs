@@ -1147,12 +1147,10 @@ impl AnchorKitContract {
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
 
         let now = env.ledger().timestamp();
-        let nonce: u64 = env.prng().gen_range(u64::MIN..=u64::MAX);
         let session = Session {
             session_id,
             initiator: initiator.clone(),
             created_at: now,
-            nonce,
             operation_count: 0,
             expires_at: now + SESSION_TTL,
         };

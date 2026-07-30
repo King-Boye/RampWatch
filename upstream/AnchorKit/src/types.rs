@@ -154,7 +154,12 @@ pub struct Session {
     pub session_id: u64,
     pub initiator: Address,
     pub created_at: u64,
-    pub nonce: u64,
+    // NOTE: No per-session nonce field. Replay protection for attestations is
+    // provided by the payload-hash Used marker in the attestation flow, which
+    // is entirely independent of sessions. Adding a nonce here without a
+    // corresponding "echo-back and increment" check on every session-scoped
+    // call would be decorative and misleading, so the field is intentionally
+    // absent.
     pub operation_count: u64,
     pub expires_at: u64,
 }
