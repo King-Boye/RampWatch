@@ -163,6 +163,30 @@ impl TransactionStateTracker {
         )
     }
 
+    /// Check whether a state transition is valid according to the documented
+    /// state machine:
+    ///
+    /// ```text
+    /// Pending → InProgress → Completed (terminal)
+    ///         ↘             ↘
+    ///           Failed ←──────── (terminal)
+    /// ```
+    ///
+    /// `Completed` and `Failed` are terminal states; no transitions out of
+    /// them are permitted.  `Unknown` is never a valid target state.
+    fn is_valid_transition(from: TransactionState, to: TransactionState) -> bool {
+        match (from, to) {
+            // Forward transitions
+            (TransactionState::Pending, TransactionState::InProgress) => true,
+            (TransactionState::Pending, TransactionState::Failed) => true,
+            (TransactionState::InProgress, TransactionState::Completed) => true,
+            (TransactionState::InProgress, TransactionState::Failed) => true,
+            // Everything else — including any transition out of a terminal
+            // state, backwards moves, and Unknown as a target — is invalid.
+            _ => false,
+        }
+    }
+
     /// Update transaction state
     fn update_state(
         &mut self,
@@ -177,11 +201,17 @@ impl TransactionStateTracker {
         for record in self.cache.iter_mut() {
             if record.transaction_id == transaction_id {
                 let old_state = record.state;
+
+                // Enforce the documented state machine.
+                if !Self::is_valid_transition(old_state, new_state) {
+                    return Err(String::from_str(
+                        env,
+                        "Invalid state transition",
+                    ));
+                }
+
                 record.state = new_state;
                 record.last_updated = current_time;
-                if new_state == TransactionState::Failed {
-                    record.error_message = error_message.clone();
-                }
                 record.error_message = error_message;
                 record.history.push_back(StateTransition {
                     state: new_state,
@@ -470,5 +500,156 @@ mod tests {
         env.as_contract(&contract_id, || {
             tracker.clear_cache(&different_admin, &env).ok();
         });
+    }
+
+    // -----------------------------------------------------------------------
+    // State-machine transition validation tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_completed_is_terminal_rejects_start() {
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new();
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        tracker.create_transaction(1, initiator, &env).unwrap();
+        tracker.start_transaction(1, &env).unwrap();
+        tracker.complete_transaction(1, &env).unwrap();
+
+        // Attempting to restart a completed transaction must fail
+        let err = tracker.start_transaction(1, &env);
+        assert!(err.is_err(), "start_transaction on Completed should be rejected");
+    }
+
+    #[test]
+    fn test_completed_is_terminal_rejects_fail() {
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new();
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        tracker.create_transaction(1, initiator, &env).unwrap();
+        tracker.start_transaction(1, &env).unwrap();
+        tracker.complete_transaction(1, &env).unwrap();
+
+        let err = tracker.fail_transaction(1, String::from_str(&env, "late failure"), &env);
+        assert!(err.is_err(), "fail_transaction on Completed should be rejected");
+    }
+
+    #[test]
+    fn test_completed_is_terminal_rejects_complete_again() {
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new();
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        tracker.create_transaction(1, initiator, &env).unwrap();
+        tracker.start_transaction(1, &env).unwrap();
+        tracker.complete_transaction(1, &env).unwrap();
+
+        let err = tracker.complete_transaction(1, &env);
+        assert!(err.is_err(), "complete_transaction on Completed should be rejected");
+    }
+
+    #[test]
+    fn test_failed_is_terminal_rejects_start() {
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new();
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        tracker.create_transaction(1, initiator, &env).unwrap();
+        tracker.fail_transaction(1, String::from_str(&env, "error"), &env).unwrap();
+
+        let err = tracker.start_transaction(1, &env);
+        assert!(err.is_err(), "start_transaction on Failed should be rejected");
+    }
+
+    #[test]
+    fn test_failed_is_terminal_rejects_complete() {
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new();
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        tracker.create_transaction(1, initiator, &env).unwrap();
+        tracker.fail_transaction(1, String::from_str(&env, "error"), &env).unwrap();
+
+        let err = tracker.complete_transaction(1, &env);
+        assert!(err.is_err(), "complete_transaction on Failed should be rejected");
+    }
+
+    #[test]
+    fn test_failed_is_terminal_rejects_fail_again() {
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new();
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        tracker.create_transaction(1, initiator, &env).unwrap();
+        tracker.fail_transaction(1, String::from_str(&env, "first error"), &env).unwrap();
+
+        let err = tracker.fail_transaction(1, String::from_str(&env, "second error"), &env);
+        assert!(err.is_err(), "fail_transaction on Failed should be rejected");
+    }
+
+    #[test]
+    fn test_cannot_skip_inprogress_to_complete() {
+        // Pending → Completed is not a valid forward transition; InProgress is required.
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new();
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        tracker.create_transaction(1, initiator, &env).unwrap();
+
+        let err = tracker.complete_transaction(1, &env);
+        assert!(err.is_err(), "complete_transaction on Pending (skipping InProgress) should be rejected");
+    }
+
+    #[test]
+    fn test_valid_transition_pending_to_failed() {
+        // Pending → Failed is allowed (e.g., validation failure before processing starts).
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new();
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        tracker.create_transaction(1, initiator, &env).unwrap();
+        let result = tracker.fail_transaction(1, String::from_str(&env, "pre-flight error"), &env);
+        assert!(result.is_ok(), "Pending → Failed should be allowed");
+        assert_eq!(result.unwrap().state, TransactionState::Failed);
+    }
+
+    #[test]
+    fn test_state_counts_stay_consistent_on_rejected_transition() {
+        // After a rejected transition the counts must not change.
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new();
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        tracker.create_transaction(1, initiator, &env).unwrap();
+        tracker.start_transaction(1, &env).unwrap();
+        tracker.complete_transaction(1, &env).unwrap();
+
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::Completed), 1);
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::InProgress), 0);
+
+        // Rejected transition — counts must remain unchanged
+        tracker.start_transaction(1, &env).ok();
+
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::Completed), 1);
+        assert_eq!(tracker.get_transaction_count_by_state(TransactionState::InProgress), 0);
+    }
+
+    #[test]
+    fn test_full_nonsensical_sequence_is_rejected() {
+        // Reproduces the exact scenario from the issue report.
+        let env = Env::default();
+        let mut tracker = TransactionStateTracker::new();
+        let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+        tracker.create_transaction(1, initiator, &env).unwrap();
+        tracker.complete_transaction(1, &env).unwrap_err(); // Pending → Completed invalid
+        tracker.start_transaction(1, &env).unwrap();        // Pending → InProgress OK
+        tracker.complete_transaction(1, &env).unwrap();     // InProgress → Completed OK
+
+        // All further transitions must be rejected
+        assert!(tracker.start_transaction(1, &env).is_err());
+        assert!(tracker.fail_transaction(1, String::from_str(&env, "msg"), &env).is_err());
+        assert!(tracker.complete_transaction(1, &env).is_err());
     }
 }
