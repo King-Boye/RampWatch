@@ -35,6 +35,13 @@ jobs:
       - name: Build
         run: cargo build --verbose
 
+      - name: Check test compilation
+        run: cargo check --tests
+        # Explicitly verify the test target compiles before running tests.
+        # This catches syntax errors in #[cfg(test)] mod blocks (e.g. missing
+        # closing braces) as early as possible and surfaces them as a distinct
+        # CI step rather than a buried cargo test failure. Closes #884.
+
       - name: Run tests
         run: cargo test --verbose
 
