@@ -282,10 +282,10 @@ When creating a PR, please include:
 
 ### Existing Documentation
 
-- **[QUICK_START.md](./QUICK_START.md)** - Quick reference guide with examples
-- **[README.md](./README.md)** - Main project documentation
-- **[API_SPEC.md](./API_SPEC.md)** - API specification and error codes
-- **[IMPLEMENTATION_GUIDE.md](./IMPLEMENTATION_GUIDE.md)** - Technical implementation details
+- **[QUICK_START.md](../../QUICK_START.md)** - Quick reference guide with examples
+- **[README.md](../../README.md)** - Main project documentation
+- **[API_REFERENCE.md](../API_REFERENCE.md)** - API specification and reference
+- **[ERROR_IMPLEMENTATION_GUIDE.md](./ERROR_IMPLEMENTATION_GUIDE.md)** - Technical implementation details
 
 ### Writing Documentation
 

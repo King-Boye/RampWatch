@@ -230,7 +230,7 @@ An HTML form is provided in `sdk_config_form.html` for easy configuration genera
 
 ### Header Security
 - Never include sensitive credentials directly in headers
-- Use secure credential management (see `SECURE_CREDENTIALS.md`)
+- Use secure credential management (see `credential_management.sh` in examples)
 - Rotate tokens regularly
 - Use HTTPS for all anchor communications
 
@@ -389,9 +389,8 @@ Potential improvements:
 
 ## Related Documentation
 
-- [SECURE_CREDENTIALS.md](./SECURE_CREDENTIALS.md) - Credential management
-- [HEALTH_MONITORING.md](./HEALTH_MONITORING.md) - Health check configuration
-- [API_SPEC.md](./API_SPEC.md) - API specifications
-- [QUICK_START.md](./QUICK_START.md) - Getting started guide
-- [STATUS_MONITOR.md](./STATUS_MONITOR.md) - Mock server and testing setup
-- [Mock Mode Example](../examples/mock_mode_example.sh) - Mock testing script
+- [Credential Management](../../examples/credential_management.sh) - Credential management
+- [STATUS_MONITOR.md](./STATUS_MONITOR.md) - Status monitoring and health checks
+- [API_REFERENCE.md](../API_REFERENCE.md) - API specifications
+- [QUICK_START.md](../../QUICK_START.md) - Getting started guide
+- [Mock Mode Example](../../examples/mock_mode_example.sh) - Mock testing script
