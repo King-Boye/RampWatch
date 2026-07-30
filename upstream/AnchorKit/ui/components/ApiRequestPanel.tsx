@@ -4,6 +4,30 @@ import './ApiRequestPanel.css';
 const HISTORY_KEY = 'anchorkit_api_history';
 const HISTORY_MAX = 20;
 
+/** Key names (matched case-insensitively, as a substring) redacted from history by default. */
+const DEFAULT_SENSITIVE_FIELDS = [
+  'token',
+  'jwt',
+  'authorization',
+  'password',
+  'secret',
+  'apikey',
+  'api_key',
+  'privatekey',
+  'private_key',
+  'seed',
+  'mnemonic',
+  'signature',
+  'ssn',
+  'passport',
+  'id_number',
+  'idnumber',
+  'dob',
+  'date_of_birth',
+];
+
+const REDACTED = '[REDACTED]';
+
 export interface HistoryEntry {
   id: string;
   timestamp: number;
@@ -12,6 +36,34 @@ export interface HistoryEntry {
   requestBody?: Record<string, any> | string;
   response?: Record<string, any> | string;
   error?: string;
+}
+
+function redactValue(value: any, fields: string[]): any {
+  if (Array.isArray(value)) return value.map((v) => redactValue(v, fields));
+  if (value && typeof value === 'object') {
+    const out: Record<string, any> = {};
+    for (const [key, val] of Object.entries(value)) {
+      const isSensitive = fields.some((f) => key.toLowerCase().includes(f.toLowerCase()));
+      out[key] = isSensitive ? REDACTED : redactValue(val, fields);
+    }
+    return out;
+  }
+  return value;
+}
+
+function redactEntry(entry: HistoryEntry, fields: string[]): HistoryEntry {
+  if (fields.length === 0) return entry;
+  return {
+    ...entry,
+    requestBody:
+      entry.requestBody && typeof entry.requestBody === 'object'
+        ? redactValue(entry.requestBody, fields)
+        : entry.requestBody,
+    response:
+      entry.response && typeof entry.response === 'object'
+        ? redactValue(entry.response, fields)
+        : entry.response,
+  };
 }
 
 function loadHistory(): HistoryEntry[] {
@@ -40,8 +92,30 @@ export interface ApiRequestPanelProps {
   error?: string;
   editable?: boolean;
   onSubmit?: (body: Record<string, any> | string) => void;
-  /** Persist requests to localStorage and show history panel. Default: true */
+  /**
+   * Persist request/response history to localStorage and show a history panel.
+   *
+   * SECURITY: entries are written to localStorage in plaintext by default, which is
+   * readable by any script on the page (XSS amplification) and persists across
+   * sessions on shared/public machines. If the endpoint/body/response you pass in may
+   * carry auth tokens, signed XDR, or KYC PII, keep this disabled, or provide
+   * `sensitiveFields`/`redactHistoryEntry` to strip that data before it is persisted.
+   *
+   * Default: false
+   */
   persistHistory?: boolean;
+  /**
+   * Object key names (matched case-insensitively, as a substring, recursively) whose
+   * values are replaced with '[REDACTED]' before a history entry is persisted.
+   * Ignored if `redactHistoryEntry` is provided. Default: a built-in list covering
+   * common auth/PII field names (token, jwt, password, ssn, etc).
+   */
+  sensitiveFields?: string[];
+  /**
+   * Custom redaction applied to each entry before it is persisted (and stored in
+   * memory) as history. Takes precedence over `sensitiveFields` when provided.
+   */
+  redactHistoryEntry?: (entry: HistoryEntry) => HistoryEntry;
 }
 
 export const ApiRequestPanel: React.FC<ApiRequestPanelProps> = ({
@@ -54,7 +128,9 @@ export const ApiRequestPanel: React.FC<ApiRequestPanelProps> = ({
   error,
   editable = false,
   onSubmit,
-  persistHistory = true,
+  persistHistory = false,
+  sensitiveFields = DEFAULT_SENSITIVE_FIELDS,
+  redactHistoryEntry,
 }) => {
   const formatJson = (data: any): string => {
     if (typeof data === 'string') return data;
@@ -81,7 +157,7 @@ export const ApiRequestPanel: React.FC<ApiRequestPanelProps> = ({
     if (!persistHistory || isLoading) return;
     // Only record when we have a response or error for the current endpoint
     if (response === undefined && !error) return;
-    const entry: HistoryEntry = {
+    const rawEntry: HistoryEntry = {
       id: crypto.randomUUID(),
       timestamp: Date.now(),
       endpoint,
@@ -90,6 +166,9 @@ export const ApiRequestPanel: React.FC<ApiRequestPanelProps> = ({
       response,
       error,
     };
+    const entry = redactHistoryEntry
+      ? redactHistoryEntry(rawEntry)
+      : redactEntry(rawEntry, sensitiveFields);
     setHistory((prev) => [entry, ...prev].slice(0, HISTORY_MAX));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [response, error]);

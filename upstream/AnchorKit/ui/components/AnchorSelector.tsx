@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export interface AnchorOption {
   id: string;
@@ -44,18 +44,38 @@ export function AnchorSelector({
   const [selected, setSelected] = useState<string | null>(
     selectedId ?? best?.id ?? null
   );
+  // Tracks whether `selected` reflects an explicit user pick (click/keyboard) rather
+  // than the component's own auto-selected "best" anchor.
+  const userPicked = useRef(selectedId !== undefined);
 
-  // Sync if selectedId prop changes
+  // Re-derive the effective selection whenever the caller controls selectedId, or
+  // when the anchors list changes. While uncontrolled and not yet manually picked by
+  // the user, this keeps tracking the current "best" anchor (e.g. as a live
+  // health-score poll updates the anchors array) instead of freezing on the first
+  // auto-selection. A manual pick is preserved as long as it stays eligible; if it
+  // drops below minHealthScore it falls back to the new best.
   useEffect(() => {
-    if (selectedId !== undefined) setSelected(selectedId);
-  }, [selectedId]);
+    if (selectedId !== undefined) {
+      setSelected(selectedId);
+      return;
+    }
+    if (!userPicked.current) {
+      setSelected(best?.id ?? null);
+      return;
+    }
+    setSelected((prev) => {
+      const prevStillEligible = prev != null && eligible.some((a) => a.id === prev);
+      return prevStillEligible ? prev : best?.id ?? null;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchors, selectedId, minHealthScore]);
 
-  // Notify parent when internal selection changes
+  // Notify parent when the selected anchor (or its data) changes
   useEffect(() => {
     if (selected == null) return;
     const anchor = anchors.find((a) => a.id === selected);
     if (anchor) onChange(anchor);
-  }, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected, anchors, onChange]);
 
   if (anchors.length === 0) {
     return (
@@ -89,11 +109,15 @@ export function AnchorSelector({
             aria-disabled={isDisabled}
             tabIndex={isDisabled ? -1 : 0}
             onClick={() => {
-              if (!isDisabled) setSelected(anchor.id);
+              if (!isDisabled) {
+                userPicked.current = true;
+                setSelected(anchor.id);
+              }
             }}
             onKeyDown={(e) => {
               if (!isDisabled && (e.key === "Enter" || e.key === " ")) {
                 e.preventDefault();
+                userPicked.current = true;
                 setSelected(anchor.id);
               }
             }}
