@@ -11,6 +11,20 @@ use soroban_rpc::*;
 const MIN_RUST_MAJOR: u32 = 1;
 const MIN_RUST_MINOR: u32 = 74;
 
+const VALID_NETWORKS: &[&str] = &["testnet", "mainnet", "futurenet"];
+
+fn validate_network_arg(s: &str) -> Result<String, String> {
+    if VALID_NETWORKS.contains(&s) {
+        Ok(s.to_string())
+    } else {
+        Err(format!(
+            "invalid network '{}'; expected one of: {}",
+            s,
+            VALID_NETWORKS.join(", ")
+        ))
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "anchorkit", about = "AnchorKit CLI for Soroban anchor management")]
 struct Cli {
@@ -29,7 +43,7 @@ enum Commands {
     /// Deploy to Stellar network
     Deploy {
         /// Target network (testnet, mainnet)
-        #[arg(long, default_value = "testnet")]
+        #[arg(long, default_value = "testnet", value_parser = validate_network_arg)]
         network: String,
     },
     /// Initialize contract with admin
@@ -717,12 +731,37 @@ fn check_wallet() -> bool {
 
 fn check_rpc() -> bool {
     let vars = ["ANCHORKIT_RPC_URL", "SOROBAN_RPC_URL", "STELLAR_RPC_URL"];
-    if vars.iter().any(|v| std::env::var(v).is_ok()) {
-        println!("✔ RPC endpoint reachable");
-        true
-    } else {
-        println!("✖ RPC endpoint not configured → set ANCHORKIT_RPC_URL, SOROBAN_RPC_URL, or STELLAR_RPC_URL");
-        false
+    let url = vars.iter().find_map(|v| std::env::var(v).ok());
+
+    let url = match url {
+        Some(u) => u,
+        None => {
+            println!("✖ RPC endpoint not configured → set ANCHORKIT_RPC_URL, SOROBAN_RPC_URL, or STELLAR_RPC_URL");
+            return false;
+        }
+    };
+
+    let result = Command::new("curl")
+        .args(["-s", "--max-time", "5", "-o", "/dev/null", "-w", "%{http_code}", &url])
+        .output();
+
+    match result {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            println!("✖ curl not found → install curl to verify RPC reachability");
+            false
+        }
+        Err(e) => {
+            println!("✖ RPC probe failed: {}", e);
+            false
+        }
+        Ok(o) if String::from_utf8_lossy(&o.stdout).trim() == "000" => {
+            println!("✖ RPC endpoint unreachable → check that {} is accessible", url);
+            false
+        }
+        Ok(_) => {
+            println!("✔ RPC endpoint reachable ({})", url);
+            true
+        }
     }
 }
 
@@ -754,18 +793,31 @@ fn check_configs() -> bool {
 }
 
 fn check_network() -> bool {
-    let ok = Command::new("curl")
-        .args(["-s", "--max-time", "3", "-o", "/dev/null", "-w", "%{http_code}",
-               "https://horizon-testnet.stellar.org"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim() != "000")
-        .unwrap_or(false);
-    if ok {
-        println!("✔ Network responding");
-    } else {
-        println!("✖ Network unreachable → check internet connection");
+    let url = std::env::var("ANCHORKIT_HEALTH_URL")
+        .unwrap_or_else(|_| "https://horizon-testnet.stellar.org".to_string());
+
+    let result = Command::new("curl")
+        .args(["-s", "--max-time", "3", "-o", "/dev/null", "-w", "%{http_code}", &url])
+        .output();
+
+    match result {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            println!("✖ curl not found → install curl to enable network checks");
+            false
+        }
+        Err(e) => {
+            println!("✖ failed to run curl: {}", e);
+            false
+        }
+        Ok(o) if String::from_utf8_lossy(&o.stdout).trim() == "000" => {
+            println!("✖ Network unreachable → check internet connection (probe: {})", url);
+            false
+        }
+        Ok(_) => {
+            println!("✔ Network responding (probe: {})", url);
+            true
+        }
     }
-    ok
 }
 
 // ── validate ─────────────────────────────────────────────────────────────────
@@ -773,8 +825,14 @@ fn check_network() -> bool {
 fn run_validate(path: &str) {
     let p = std::path::Path::new(path);
     if p.is_dir() {
-        let mut entries: Vec<_> = std::fs::read_dir(p)
-            .expect("cannot read directory")
+        let read_dir = match std::fs::read_dir(p) {
+            Ok(rd) => rd,
+            Err(e) => {
+                eprintln!("error: cannot read directory '{}': {}", path, e);
+                std::process::exit(1);
+            }
+        };
+        let mut entries: Vec<_> = read_dir
             .filter_map(|e| e.ok())
             .filter(|e| {
                 matches!(
