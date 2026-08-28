@@ -235,7 +235,16 @@ impl Storage {
 
     pub fn get_quote(env: &Env, anchor: &Address, quote_id: u64) -> Option<QuoteData> {
         let key = StorageKey::Quote(anchor.clone(), quote_id).to_storage_key(env);
-        env.storage().persistent().get(&key)
+        let quote: Option<QuoteData> = env.storage().persistent().get(&key);
+        // Bump TTL on read so actively-queried quotes don't expire (#1164).
+        if quote.is_some() {
+            env.storage().persistent().extend_ttl(
+                &key,
+                Self::PERSISTENT_LIFETIME,
+                Self::PERSISTENT_LIFETIME,
+            );
+        }
+        quote
     }
 
     pub fn get_next_quote_id(env: &Env) -> u64 {
