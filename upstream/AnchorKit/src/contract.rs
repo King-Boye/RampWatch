@@ -1541,11 +1541,18 @@ impl AnchorKitContract {
             return result;
         }
         let cap: u64 = 100;
-        let end = if to_id - from_id + 1 > cap { from_id + cap - 1 } else { to_id };
+        let end = if to_id.saturating_sub(from_id) >= cap {
+            from_id.saturating_add(cap - 1)
+        } else {
+            to_id
+        };
         let mut id = from_id;
         while id <= end {
             if let Some(log) = env.storage().persistent().get::<_, AuditLog>(&StorageKey::AuditLog(id)) {
                 result.push_back(log);
+            }
+            if id == end {
+                break;
             }
             id += 1;
         }

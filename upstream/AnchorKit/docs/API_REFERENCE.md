@@ -28,7 +28,7 @@ Every public method on the `AnchorKitContract` Soroban contract. Methods are gro
 ### `initialize`
 
 ```rust
-fn initialize(env: Env, admin: Address, max_audit_log_size: u64, replay_window_seconds: Option<u64>)
+fn initialize(env: Env, admin: Address, max_audit_log_size: u64, replay_window_seconds: Option<u64>, clock_skew_seconds: Option<u64>)
 ```
 
 Initialises the contract. Must be called once before any other method.
@@ -38,12 +38,13 @@ Initialises the contract. Must be called once before any other method.
 | `admin` | `Address` | Initial admin address |
 | `max_audit_log_size` | `u64` | Maximum number of audit log entries to retain |
 | `replay_window_seconds` | `Option<u64>` | Replay-attack window in seconds; `None` defaults to 300 |
+| `clock_skew_seconds` | `Option<u64>` | SEP-10 clock-skew tolerance in seconds; `None` defaults to 60 |
 
 **Errors:** `AlreadyInitialized (1)`
 
 **Example**
 ```rust
-client.initialize(&admin, &1000u64, &None);
+client.initialize(&admin, &1000u64, &None, &None);
 ```
 
 ---

@@ -33,7 +33,7 @@ This guide covers every breaking change introduced in 0.1.0 and shows exactly wh
 
 ### 1. `initialize()`
 
-The function now accepts two additional parameters: `max_audit_log_size` and `replay_window_seconds`.
+The function now accepts three additional parameters: `max_audit_log_size`, `replay_window_seconds`, and `clock_skew_seconds`.
 
 **Before (0.0.1)**
 ```rust
@@ -43,13 +43,13 @@ client.initialize(&admin);
 **After (0.1.0)**
 ```rust
 // Pass a max_audit_log_size and None for default replay window (300 seconds)
-client.initialize(&admin, &1000u64, &None);
+client.initialize(&admin, &1000u64, &None, &None);
 
-// Or set both parameters explicitly:
-client.initialize(&admin, &1000u64, &Some(600u64)); // 10-minute window
+// Or set the replay window explicitly and use the default clock skew (60 seconds):
+client.initialize(&admin, &1000u64, &Some(600u64), &None); // 10-minute window
 ```
 
-The `max_audit_log_size` parameter caps the number of audit entries retained on-chain. The `replay_window_seconds` parameter controls how far in the past or future an attestation timestamp may be relative to the current ledger time. Attestations outside `[now - window, now + window]` are rejected with `InvalidTimestamp`. Passing `None` for the window defaults to **300 seconds**.
+The `max_audit_log_size` parameter caps the number of audit entries retained on-chain. The `replay_window_seconds` parameter controls how far in the past or future an attestation timestamp may be relative to the current ledger time. Attestations outside `[now - window, now + window]` are rejected with `InvalidTimestamp`. Passing `None` for the replay window defaults to **300 seconds**. The `clock_skew_seconds` parameter controls SEP-10 token expiry tolerance; passing `None` defaults to **60 seconds**.
 
 ---
 
