@@ -940,7 +940,9 @@ impl AnchorKitContract {
         max_amount: u64,
         expires_at: u64,
     ) {
+        Self::require_not_paused(&env);
         anchor.require_auth();
+        Self::check_attestor(&env, &anchor);
 
         let services_record = env
             .storage()
