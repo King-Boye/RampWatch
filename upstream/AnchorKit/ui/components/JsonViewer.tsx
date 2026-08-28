@@ -660,6 +660,7 @@ export function JsonViewer({
         @keyframes jv-expand { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
         @keyframes jv-pulse  { 0%,100%{opacity:1} 50%{opacity:0.4} }
         .jv-node-row:hover { background: rgba(255,255,255,0.025) !important; }
+        .jv-search-input::placeholder { color: ${t.lineNum}; }
       `}</style>
 
       {/* ── Titlebar ── */}
@@ -827,6 +828,7 @@ export function JsonViewer({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search keys & values…"
+              className="jv-search-input"
               style={{
                 flex: 1,
                 background: "transparent",
@@ -835,7 +837,6 @@ export function JsonViewer({
                 fontFamily: "monospace",
                 fontSize: 11,
                 color: t.text,
-                "::placeholder": { color: t.lineNum } as React.CSSProperties,
               }}
             />
             {search && (
