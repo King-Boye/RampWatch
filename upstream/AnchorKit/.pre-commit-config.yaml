@@ -6,12 +6,14 @@ repos:
         entry: cargo fmt --check
         language: system
         types: [rust]
+        pass_filenames: false
 
       - id: cargo-clippy
         name: cargo clippy
         entry: cargo clippy -- -D warnings
         language: system
         types: [rust]
+        pass_filenames: false
 
       - id: eslint-staged
         name: eslint (staged)
