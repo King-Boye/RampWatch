@@ -143,12 +143,13 @@ if client.supports_service(&anchor, &ServiceType::Deposits.as_u32()) { ... }
 
 ### 5. `StellarToml` struct
 
-Two fields changed:
+Three fields changed:
 
-| Field            | 0.0.1          | 0.1.0                    |
-|------------------|----------------|--------------------------|
-| `signing_key`    | `String`       | `Option<String>`         |
-| `fiat_currencies`| *(not present)*| `Vec<FiatCurrency>` (new)|
+| Field                        | 0.0.1          | 0.1.0                    |
+|------------------------------|----------------|--------------------------|
+| `signing_key`                | `String`       | `Option<String>`         |
+| `fiat_currencies`            | *(not present)*| `Vec<FiatCurrency>` (new)|
+| `claimable_balance_supported`| *(not present)*| `bool` (new)             |
 
 **Before (0.0.1)**
 ```rust
@@ -178,10 +179,11 @@ let toml = StellarToml {
     transfer_server_sep0024: String::from_str(&env, "https://anchor.example.com/sep24"),
     kyc_server: String::from_str(&env, "https://anchor.example.com/kyc"),
     web_auth_endpoint: String::from_str(&env, "https://anchor.example.com/auth"),
+    claimable_balance_supported: false,                     // new required field
 };
 ```
 
-Use `None` for `signing_key` when the anchor does not publish a signing key. Use an empty `Vec` for `fiat_currencies` if the anchor does not support fiat currencies.
+Use `None` for `signing_key` when the anchor does not publish a signing key. Use an empty `Vec` for `fiat_currencies` if the anchor does not support fiat currencies. Set `claimable_balance_supported` to `true` if the anchor accepts claimable balances as a deposit destination (sourced from `CLAIMABLE_BALANCE_SUPPORTED` in stellar.toml).
 
 ---
 
