@@ -2108,6 +2108,8 @@ impl AnchorKitContract {
     /// - `"LowestFee"` — lowest `fee_percentage`
     /// - `"FastestSettlement"` — lowest `average_settlement_time`
     /// - `"HighestReputation"` — highest `reputation_score`
+    /// - `"Balanced"` — composite score blending fee, speed, and reputation
+    /// - `"Weighted"` — health-score-proportional random selection among candidates
     ///
     /// An empty `strategy` vec panics with `NoQuotesAvailable`.
     /// An unrecognised symbol panics with `InvalidStrategy`.
