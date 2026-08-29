@@ -550,6 +550,12 @@ function collectPaths(
   }
 }
 
+function buildExpandedPaths(value: JsonValue, maxDepth: number): Set<string> {
+  const acc = new Set<string>();
+  collectPaths(value, "root", 0, maxDepth, acc);
+  return acc;
+}
+
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status?: number }) {
@@ -601,11 +607,13 @@ export function JsonViewer({
   // Remove circular references before processing
   const safeData = useMemo(() => removeCircularReferences(data), [data]);
   
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
-    const acc = new Set<string>();
-    collectPaths(safeData, "root", 0, defaultExpandDepth, acc);
-    return acc;
-  });
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() =>
+    buildExpandedPaths(safeData, defaultExpandDepth),
+  );
+
+  useEffect(() => {
+    setExpandedPaths(buildExpandedPaths(safeData, defaultExpandDepth));
+  }, [safeData, defaultExpandDepth]);
 
   const json = useMemo(() => JSON.stringify(safeData, null, 2), [safeData]);
   const lineRef = useRef(0);
