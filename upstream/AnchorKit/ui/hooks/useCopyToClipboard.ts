@@ -82,17 +82,20 @@ export function useCopyToClipboard(
   const copy = useCallback(
     async (text: string): Promise<boolean> => {
       try {
-        // Try modern clipboard API first
+        let copied = false;
+
         if (navigator?.clipboard?.writeText) {
-          await navigator.clipboard.writeText(text);
-          setCopiedText(text);
-          setIsCopied(true);
-          onSuccess?.();
-          return true;
+          try {
+            await navigator.clipboard.writeText(text);
+            copied = true;
+          } catch (err) {
+            // Fall back to execCommand for permission issues, iframe restrictions,
+            // or other browsers where the modern API is present but rejected.
+            copied = false;
+          }
         }
-        
-        // Fallback to execCommand for older browsers or non-secure contexts
-        if (document.execCommand) {
+
+        if (!copied && typeof document !== 'undefined' && document.execCommand) {
           const textArea = document.createElement('textarea');
           textArea.value = text;
           textArea.style.position = 'fixed';
@@ -101,20 +104,22 @@ export function useCopyToClipboard(
           document.body.appendChild(textArea);
           textArea.focus();
           textArea.select();
-          
-          const successful = document.execCommand('copy');
-          document.body.removeChild(textArea);
-          
-          if (successful) {
-            setCopiedText(text);
-            setIsCopied(true);
-            onSuccess?.();
-            return true;
+
+          try {
+            copied = document.execCommand('copy');
+          } finally {
+            document.body.removeChild(textArea);
           }
         }
-        
-        // If both methods fail
-        throw new Error('Clipboard API and execCommand are not available');
+
+        if (!copied) {
+          throw new Error('Clipboard API and execCommand are not available');
+        }
+
+        setCopiedText(text);
+        setIsCopied(true);
+        onSuccess?.();
+        return true;
       } catch (err) {
         const error = err instanceof Error ? err : new Error('Failed to copy');
         console.error('Copy failed:', error);
