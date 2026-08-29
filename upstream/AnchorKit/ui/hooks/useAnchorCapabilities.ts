@@ -49,14 +49,43 @@ interface CacheEntry {
   fetchedAt: number;
 }
 
+const CACHE_TTL_MS = 30_000;
+const MAX_CACHE_ENTRIES = 128;
+
 const cache       = new Map<string, CacheEntry>();
 const inFlight    = new Map<string, Promise<AnchorServicesResult>>();
 const subscribers = new Map<string, Set<() => void>>();
 
+function evictExpiredEntries(): void {
+  const now = Date.now();
+  for (const [key, entry] of cache.entries()) {
+    if (now - entry.fetchedAt > CACHE_TTL_MS) {
+      cache.delete(key);
+      inFlight.delete(key);
+      subscribers.delete(key);
+    }
+  }
+}
+
+function pruneCache(): void {
+  while (cache.size > MAX_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value as string | undefined;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
+    inFlight.delete(oldestKey);
+    subscribers.delete(oldestKey);
+  }
+}
+
 function subscribe(key: string, listener: () => void): () => void {
   if (!subscribers.has(key)) subscribers.set(key, new Set());
   subscribers.get(key)!.add(listener);
-  return () => subscribers.get(key)?.delete(listener);
+  return () => {
+    const set = subscribers.get(key);
+    if (!set) return;
+    set.delete(listener);
+    if (set.size === 0) subscribers.delete(key);
+  };
 }
 
 function notify(key: string): void {
@@ -85,7 +114,9 @@ async function fetchAndCache(
 
   const promise = fetchFn(key)
     .then(data => {
+      evictExpiredEntries();
       cache.set(key, { data, fetchedAt: Date.now() });
+      pruneCache();
       inFlight.delete(key);
       notify(key); // wake all cross-component subscribers
       return data;
@@ -106,6 +137,7 @@ async function fetchAndCache(
 export function clearCapabilitiesCache(): void {
   cache.clear();
   inFlight.clear();
+  subscribers.clear();
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
