@@ -99,24 +99,25 @@ describe('useTheme – CSS class on document.documentElement', () => {
     expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
 
-  it('removes the "dark" class when switching from dark to light via override', () => {
+  it('does not mutate the class when an override changes', () => {
     let override = true;
     const { rerender } = renderHook(() => useTheme(override));
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
 
     override = false;
     rerender();
     expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
 
-  it('adds the "dark" class when switching from light to dark via override', () => {
+  it('does not let an override mutate the class owned by a non-overridden hook', () => {
     let override = false;
     const { rerender } = renderHook(() => useTheme(override));
+    renderHook(() => useTheme());
     expect(document.documentElement.classList.contains('dark')).toBe(false);
 
     override = true;
     rerender();
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
 });
 
@@ -134,20 +135,21 @@ describe('useTheme – data-theme attribute on document.documentElement', () => 
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
   });
 
-  it('updates data-theme when override toggles from light to dark', () => {
+  it('does not update data-theme when an override toggles', () => {
     let override = false;
     const { rerender } = renderHook(() => useTheme(override));
-    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(document.documentElement.getAttribute('data-theme')).toBeNull();
 
     override = true;
     rerender();
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(document.documentElement.getAttribute('data-theme')).toBeNull();
   });
 
-  it('updates data-theme when override toggles from dark to light', () => {
+  it('does not let an override update data-theme owned by a non-overridden hook', () => {
     let override = true;
     const { rerender } = renderHook(() => useTheme(override));
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    renderHook(() => useTheme());
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
 
     override = false;
     rerender();
@@ -169,20 +171,20 @@ describe('useTheme – localStorage persistence', () => {
     expect(localStorage.getItem('theme')).toBe('dark');
   });
 
-  it('updates localStorage when override changes from light to dark', () => {
+  it('does not persist an override', () => {
     let override = false;
     const { rerender } = renderHook(() => useTheme(override));
-    expect(localStorage.getItem('theme')).toBe('light');
+    expect(localStorage.getItem('theme')).toBeNull();
 
     override = true;
     rerender();
-    expect(localStorage.getItem('theme')).toBe('dark');
+    expect(localStorage.getItem('theme')).toBeNull();
   });
 
-  it('updates localStorage when override changes from dark to light', () => {
+  it('does not let an override overwrite the persisted preference', () => {
     let override = true;
     const { rerender } = renderHook(() => useTheme(override));
-    expect(localStorage.getItem('theme')).toBe('dark');
+    localStorage.setItem('theme', 'light');
 
     override = false;
     rerender();
