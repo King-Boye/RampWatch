@@ -64,6 +64,7 @@ describe('TransactionStateTracker', () => {
     ['processing', false],
     ['completed', true],
     ['failed', true],
+    ['refunded', true],
   ])('isTerminalStatus(%s) === %s', (status, expected) => {
     expect(isTerminalStatus(status)).toBe(expected);
   });
@@ -161,6 +162,21 @@ describe('useTransactionStatus', () => {
 
     await waitFor(() => expect(result.current.isTerminal).toBe(true));
     expect(result.current.status).toBe('failed');
+
+    const callsBefore = fetchStatus.mock.calls.length;
+    act(() => { jest.advanceTimersByTime(500); });
+    expect(fetchStatus.mock.calls.length).toBe(callsBefore);
+  });
+
+  test('stops polling when refunded is reached', async () => {
+    const fetchStatus = jest.fn().mockResolvedValue('refunded' as TxStatus);
+
+    const { result } = renderHook(() =>
+      useTransactionStatus('tx1', { fetchStatus, interval: 100 })
+    );
+
+    await waitFor(() => expect(result.current.isTerminal).toBe(true));
+    expect(result.current.status).toBe('refunded');
 
     const callsBefore = fetchStatus.mock.calls.length;
     act(() => { jest.advanceTimersByTime(500); });
