@@ -31,6 +31,8 @@ export interface UseRateLimitStatusResult {
   /** The latest rate-limit snapshot, or `null` before the first successful fetch. */
   status: RateLimitStatus | null;
   /** `true` while an RPC call is in-flight. */
+  isLoading: boolean;
+  /** @deprecated Use isLoading instead. */
   loading: boolean;
   /** The last fetch error, or `null` on success / before the first fetch. */
   error: Error | null;
@@ -169,5 +171,5 @@ export function useRateLimitStatus(
     fetchStatus();
   }, [attestor, fetchStatus]);
 
-  return { status, loading, error, refresh };
+  return { status, isLoading: loading, loading, error, refresh };
 }
