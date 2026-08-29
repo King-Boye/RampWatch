@@ -1554,10 +1554,14 @@ impl AnchorKitContract {
 
     pub fn get_session_operation_count(env: Env, session_id: u64) -> Option<u64> {
         let sess_key = StorageKey::Session(session_id);
-        if !env.storage().persistent().has(&sess_key) {
+        let session: Session = match env.storage().persistent().get::<_, Session>(&sess_key) {
+            Some(s) => s,
+            None => return None,
+        };
+        let now = env.ledger().timestamp();
+        if now >= session.expires_at {
             return None;
         }
-        Self::check_session_expiry(&env, session_id);
         Some(
             env.storage()
                 .persistent()
