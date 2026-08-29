@@ -14,10 +14,26 @@ export interface TransactionSnapshot {
   isTerminal: boolean;
 }
 
+const VALID_STATUSES = new Set<TxStatus>([
+  'initiated',
+  'awaiting_user',
+  'pending',
+  'processing',
+  'completed',
+  'failed',
+  'refunded',
+]);
+
 const TERMINAL_STATUSES = new Set<TxStatus>(['completed', 'failed']);
 
 export function isTerminalStatus(status: TxStatus): boolean {
   return TERMINAL_STATUSES.has(status);
+}
+
+function assertValidStatus(status: unknown): asserts status is TxStatus {
+  if (typeof status !== 'string' || !VALID_STATUSES.has(status as TxStatus)) {
+    throw new Error(`Invalid transaction status: ${String(status)}`);
+  }
 }
 
 /**
@@ -32,6 +48,7 @@ export class TransactionStateTracker {
 
   async poll(txId: string): Promise<TransactionSnapshot> {
     const newStatus = await this.fetchStatus(txId);
+    assertValidStatus(newStatus);
     if (newStatus !== this._status) {
       this._transitions = [
         ...this._transitions,
