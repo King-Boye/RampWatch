@@ -53,6 +53,18 @@
   --ak-status-failed-bg:     #fef2f2;
   --ak-status-failed-border: #fecaca;
 
+  /* Status – awaiting_user */
+  --ak-status-awaiting-user-color:  #d97706;
+  --ak-status-awaiting-user-bg:     #fffbeb;
+  --ak-status-awaiting-user-border: #fcd34d;
+
+  /* Status – refunded */
+  --ak-status-refunded-color:        #7c3aed;
+  --ak-status-refunded-color-strong: #5b21b6;
+  --ak-status-refunded-color-subtle: #a78bfa;
+  --ak-status-refunded-bg:           #f5f3ff;
+  --ak-status-refunded-border:       #c4b5fd;
+
   /* KYC levels */
   --ak-kyc-none-color:     #22c55e;
   --ak-kyc-none-bg:        #f0fdf4;
@@ -143,6 +155,16 @@
     --ak-status-failed-bg:     rgba(220,38,38,0.15);
     --ak-status-failed-border: rgba(220,38,38,0.35);
 
+    --ak-status-awaiting-user-color:  #fbbf24;
+    --ak-status-awaiting-user-bg:     rgba(217,119,6,0.15);
+    --ak-status-awaiting-user-border: rgba(217,119,6,0.35);
+
+    --ak-status-refunded-color:        #c4b5fd;
+    --ak-status-refunded-color-strong: #a78bfa;
+    --ak-status-refunded-color-subtle: #7c3aed;
+    --ak-status-refunded-bg:           rgba(124,58,237,0.15);
+    --ak-status-refunded-border:       rgba(124,58,237,0.35);
+
     --ak-kyc-none-color:     #4ade80;
     --ak-kyc-none-bg:        rgba(34,197,94,0.12);
     --ak-kyc-none-border:    rgba(34,197,94,0.3);
@@ -216,6 +238,14 @@
   --ak-status-failed-color:  #f87171;
   --ak-status-failed-bg:     rgba(220,38,38,0.15);
   --ak-status-failed-border: rgba(220,38,38,0.35);
+  --ak-status-awaiting-user-color:  #fbbf24;
+  --ak-status-awaiting-user-bg:     rgba(217,119,6,0.15);
+  --ak-status-awaiting-user-border: rgba(217,119,6,0.35);
+  --ak-status-refunded-color:        #c4b5fd;
+  --ak-status-refunded-color-strong: #a78bfa;
+  --ak-status-refunded-color-subtle: #7c3aed;
+  --ak-status-refunded-bg:           rgba(124,58,237,0.15);
+  --ak-status-refunded-border:       rgba(124,58,237,0.35);
   --ak-kyc-none-color:     #4ade80;
   --ak-kyc-none-bg:        rgba(34,197,94,0.12);
   --ak-kyc-none-border:    rgba(34,197,94,0.3);
@@ -278,6 +308,14 @@
   --ak-status-failed-color:  #dc2626;
   --ak-status-failed-bg:     #fef2f2;
   --ak-status-failed-border: #fecaca;
+  --ak-status-awaiting-user-color:  #d97706;
+  --ak-status-awaiting-user-bg:     #fffbeb;
+  --ak-status-awaiting-user-border: #fcd34d;
+  --ak-status-refunded-color:        #7c3aed;
+  --ak-status-refunded-color-strong: #5b21b6;
+  --ak-status-refunded-color-subtle: #a78bfa;
+  --ak-status-refunded-bg:           #f5f3ff;
+  --ak-status-refunded-border:       #c4b5fd;
   --ak-kyc-none-color:     #22c55e;
   --ak-kyc-none-bg:        #f0fdf4;
   --ak-kyc-none-border:    #bbf7d0;

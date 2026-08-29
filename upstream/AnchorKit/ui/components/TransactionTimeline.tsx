@@ -37,12 +37,12 @@ const STATUS_ORDER: TxStatus[] = ["initiated", "awaiting_user", "pending", "proc
 
 const STATUS_META: Record<TxStatus, { label: string; color: string; bg: string; border: string; icon: string }> = {
   initiated:     { label: "Initiated",      color: "var(--ak-status-initiated-color)",  bg: "var(--ak-status-initiated-bg)",  border: "var(--ak-status-initiated-border)",  icon: "◎"  },
-  awaiting_user: { label: "Action Required", color: "#d97706",                           bg: "#fffbeb",                         border: "#fcd34d",                             icon: "⚠"  },
+  awaiting_user: { label: "Action Required", color: "var(--ak-status-awaiting-user-color)",  bg: "var(--ak-status-awaiting-user-bg)",  border: "var(--ak-status-awaiting-user-border)",  icon: "⚠"  },
   pending:       { label: "Pending",         color: "var(--ak-status-pending-color)",    bg: "var(--ak-status-pending-bg)",    border: "var(--ak-status-pending-border)",    icon: "◌"  },
   processing:    { label: "Processing",      color: "var(--ak-status-processing-color)", bg: "var(--ak-status-processing-bg)", border: "var(--ak-status-processing-border)", icon: "◈"  },
   completed:     { label: "Completed",       color: "var(--ak-status-completed-color)",  bg: "var(--ak-status-completed-bg)",  border: "var(--ak-status-completed-border)",  icon: "✓"  },
   failed:        { label: "Failed",          color: "var(--ak-status-failed-color)",     bg: "var(--ak-status-failed-bg)",     border: "var(--ak-status-failed-border)",     icon: "✕"  },
-  refunded:      { label: "Refunded",        color: "#7c3aed",                           bg: "#f5f3ff",                         border: "#c4b5fd",                             icon: "↩"  },
+  refunded:      { label: "Refunded",        color: "var(--ak-status-refunded-color)",       bg: "var(--ak-status-refunded-bg)",       border: "var(--ak-status-refunded-border)",       icon: "↩"  },
 };
 
 const DEFAULT_DESCRIPTIONS: Record<TxStatus, Record<TxType, string>> = {
@@ -544,21 +544,21 @@ export function TransactionTimeline({
                 <div style={{
                   width: 40, height: 40, borderRadius: "50%",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  border: `2px solid #7c3aed`,
-                  background: "#f5f3ff",
-                  boxShadow: "0 0 0 4px #f5f3ff, 0 2px 12px rgba(124,58,237,0.2)",
-                  fontSize: 16, color: "#7c3aed", fontWeight: 700, zIndex: 1, position: "relative",
+                  border: `2px solid var(--ak-status-refunded-color)`,
+                  background: "var(--ak-status-refunded-bg)",
+                  boxShadow: "0 0 0 4px var(--ak-status-refunded-bg), 0 2px 12px rgba(124,58,237,0.2)",
+                  fontSize: 16, color: "var(--ak-status-refunded-color)", fontWeight: 700, zIndex: 1, position: "relative",
                 }}>↩</div>
               </div>
               <div style={{ flex: 1, paddingTop: 8 }}>
-                <div style={{ ...sans, fontSize: 13, fontWeight: 600, color: "#5b21b6", marginBottom: 4 }}>
+                <div style={{ ...sans, fontSize: 13, fontWeight: 600, color: "var(--ak-status-refunded-color-strong)", marginBottom: 4 }}>
                   {events.find(e => e.status === "refunded")?.label ?? "Transaction Refunded"}
                 </div>
-                <p style={{ ...sans, fontSize: 12, color: "#7c3aed", lineHeight: 1.55, margin: 0 }}>
+                <p style={{ ...sans, fontSize: 12, color: "var(--ak-status-refunded-color)", lineHeight: 1.55, margin: 0 }}>
                   {events.find(e => e.status === "refunded")?.description ?? DEFAULT_DESCRIPTIONS.refunded[type]}
                 </p>
                 {events.find(e => e.status === "refunded")?.timestamp && (
-                  <span style={{ ...mono, fontSize: 10, color: "#a78bfa", marginTop: 4, display: "block" }}>
+                  <span style={{ ...mono, fontSize: 10, color: "var(--ak-status-refunded-color-subtle)", marginTop: 4, display: "block" }}>
                     {formatTs(events.find(e => e.status === "refunded")!.timestamp)}
                   </span>
                 )}
