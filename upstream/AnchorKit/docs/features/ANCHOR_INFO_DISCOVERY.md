@@ -20,8 +20,12 @@ pub struct StellarToml {
     pub version: String,
     pub network_passphrase: String,
     pub accounts: Vec<String>,
-    pub signing_key: String,
+    /// The SIGNING_KEY from stellar.toml, used for SEP-10 verification.
+    /// `None` when the anchor does not publish a signing key.
+    pub signing_key: Option<String>,
     pub currencies: Vec<AssetInfo>,
+    /// Fiat currencies supported by this anchor (USD, EUR, etc.).
+    pub fiat_currencies: Vec<FiatCurrency>,
     pub transfer_server: String,
     pub transfer_server_sep0024: String,
     pub kyc_server: String,
@@ -47,6 +51,9 @@ pub struct AssetInfo {
     pub deposit_max_amount: u64,
     pub withdrawal_min_amount: u64,
     pub withdrawal_max_amount: u64,
+    /// Number of decimal places for the asset (e.g. 7 for USDC on Stellar).
+    /// Parsed from the `significant_decimals` field of stellar.toml; defaults to 7.
+    pub decimals: u32,
 }
 ```
 
