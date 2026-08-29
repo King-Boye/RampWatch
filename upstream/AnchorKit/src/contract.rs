@@ -2569,14 +2569,22 @@ impl AnchorKitContract {
         Ok((asset.withdrawal_min_amount, asset.withdrawal_max_amount))
     }
 
-    pub fn get_anchor_deposit_fees(env: Env, anchor: Address, asset_code: String) -> (u64, u32) {
+    pub fn get_anchor_deposit_fees(env: Env, anchor: Address, asset_code: String) -> Result<(u64, u32), ErrorCode> {
+        let key = StorageKey::TomlCache(anchor.clone());
+        if !env.storage().temporary().has(&key) {
+            return Err(ErrorCode::CacheNotFound);
+        }
         let asset = Self::get_anchor_asset_info(env, anchor, asset_code);
-        (asset.deposit_fee_fixed, asset.deposit_fee_percent)
+        Ok((asset.deposit_fee_fixed, asset.deposit_fee_percent))
     }
 
-    pub fn get_anchor_withdrawal_fees(env: Env, anchor: Address, asset_code: String) -> (u64, u32) {
+    pub fn get_anchor_withdrawal_fees(env: Env, anchor: Address, asset_code: String) -> Result<(u64, u32), ErrorCode> {
+        let key = StorageKey::TomlCache(anchor.clone());
+        if !env.storage().temporary().has(&key) {
+            return Err(ErrorCode::CacheNotFound);
+        }
         let asset = Self::get_anchor_asset_info(env, anchor, asset_code);
-        (asset.withdrawal_fee_fixed, asset.withdrawal_fee_percent)
+        Ok((asset.withdrawal_fee_fixed, asset.withdrawal_fee_percent))
     }
 
     pub fn anchor_supports_deposits(
