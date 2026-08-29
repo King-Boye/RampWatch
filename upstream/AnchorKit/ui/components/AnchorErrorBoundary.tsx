@@ -237,17 +237,30 @@ export class AnchorErrorBoundary extends Component<
     props: AnchorErrorBoundaryProps,
     state: State,
   ): Partial<State> | null {
-    if (
-      state.hasError &&
-      props.resetKeys !== undefined &&
-      state.prevResetKeys !== undefined &&
-      props.resetKeys.some((key, i) => !Object.is(key, state.prevResetKeys![i]))
-    ) {
+    // Check if resetKeys has actually changed
+    const resetKeysChanged =
+      props.resetKeys !== state.prevResetKeys &&
+      !(
+        props.resetKeys === undefined &&
+        state.prevResetKeys === undefined
+      ) &&
+      !(
+        Array.isArray(props.resetKeys) &&
+        Array.isArray(state.prevResetKeys) &&
+        props.resetKeys.length === state.prevResetKeys.length &&
+        props.resetKeys.every((key, i) => Object.is(key, state.prevResetKeys![i]))
+      );
+
+    // If there's an error and resetKeys changed, reset the error state
+    if (state.hasError && resetKeysChanged && props.resetKeys !== undefined) {
       return { hasError: false, error: null, prevResetKeys: props.resetKeys, retryKey: state.retryKey + 1 };
     }
+
+    // Always update prevResetKeys to track changes
     if (props.resetKeys !== state.prevResetKeys) {
       return { prevResetKeys: props.resetKeys };
     }
+
     return null;
   }
 
