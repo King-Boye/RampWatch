@@ -51,7 +51,6 @@ fn test_submit_attestation_happy_path() {
         &timestamp,
         &payload_hash,
         &signature,
-        &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>,
     );
 
     assert_eq!(id, 0);
@@ -77,7 +76,7 @@ fn test_submit_attestation_empty_hash() {
     // Register issuer
     client.register_attestor(&issuer, &soroban_sdk::String::from_str(&env, "mock"), &Address::generate(&env));
 
-    client.submit_attestation(&issuer, &subject, &timestamp, &payload_hash, &signature, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+    client.submit_attestation(&issuer, &subject, &timestamp, &payload_hash, &signature);
 }
 
 #[test]
@@ -100,7 +99,7 @@ fn test_submit_attestation_short_hash() {
     // Register issuer
     client.register_attestor(&issuer, &soroban_sdk::String::from_str(&env, "mock"), &Address::generate(&env));
 
-    client.submit_attestation(&issuer, &subject, &timestamp, &payload_hash, &signature, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+    client.submit_attestation(&issuer, &subject, &timestamp, &payload_hash, &signature);
 }
 
 #[test]
@@ -155,7 +154,7 @@ fn test_submit_attestation_valid_signature() {
         env.storage().persistent().set(&crate::storage::StorageKey::Attestor(issuer.clone()), &true);
     });
 
-    let id = client.submit_attestation(&issuer, &subject, &timestamp, &payload_hash, &signature, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+    let id = client.submit_attestation(&issuer, &subject, &timestamp, &payload_hash, &signature);
 
     assert_eq!(id, 0);
 }
@@ -197,5 +196,5 @@ fn test_submit_attestation_tampered_signature() {
         env.storage().persistent().set(&crate::storage::StorageKey::Attestor(issuer.clone()), &true);
     });
 
-    client.submit_attestation(&issuer, &subject, &timestamp, &payload_hash, &signature, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+    client.submit_attestation(&issuer, &subject, &timestamp, &payload_hash, &signature);
 }

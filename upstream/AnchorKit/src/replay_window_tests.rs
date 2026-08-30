@@ -61,7 +61,7 @@ mod replay_window_tests {
         let ts: u64 = 1_000_000 - 299;
         let hash = dummy_hash(&env, 1);
         let sig = sign_payload(&env, &sk, &hash);
-        let id = client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        let id = client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
         assert_eq!(id, 0);
     }
 
@@ -79,7 +79,7 @@ mod replay_window_tests {
         let ts: u64 = 1_000_000 - 301;
         let hash = dummy_hash(&env, 2);
         let sig = sign_payload(&env, &sk, &hash);
-        client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
     }
 
     // -----------------------------------------------------------------------
@@ -100,7 +100,7 @@ mod replay_window_tests {
         let ts: u64 = 1_000_000 - 3599;
         let hash = dummy_hash(&env, 3);
         let sig = sign_payload(&env, &sk, &hash);
-        let id = client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        let id = client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
         assert_eq!(id, 0);
     }
 
@@ -119,7 +119,7 @@ mod replay_window_tests {
         let ts: u64 = 1_000_000 - 61;
         let hash = dummy_hash(&env, 4);
         let sig = sign_payload(&env, &sk, &hash);
-        client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
     }
 
     // -----------------------------------------------------------------------
@@ -140,7 +140,7 @@ mod replay_window_tests {
         let ts: u64 = 1_000_000 + 1;
         let hash = dummy_hash(&env, 6);
         let sig = sign_payload(&env, &sk, &hash);
-        client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
     }
 
     #[test]
@@ -156,7 +156,7 @@ mod replay_window_tests {
         let ts: u64 = 1_000_000; // exact match
         let hash = dummy_hash(&env, 5);
         let sig = sign_payload(&env, &sk, &hash);
-        let id = client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        let id = client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
         assert_eq!(id, 0);
     }
 }
