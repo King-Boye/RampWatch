@@ -81,7 +81,7 @@ export function AnchorSelector({
     return (
       <div
         role="status"
-        style={{ padding: "12px 16px", color: "#64748b", fontSize: 13 }}
+        style={{ padding: "12px 16px", color: "var(--ak-text-muted)", fontSize: 13 }}
         className={className}
       >
         No anchors available.
@@ -127,8 +127,8 @@ export function AnchorSelector({
               justifyContent: "space-between",
               padding: "10px 14px",
               borderRadius: 10,
-              border: `2px solid ${isSelected ? color : "#e2e8f0"}`,
-              background: isSelected ? `${color}12` : "#fff",
+              border: `2px solid ${isSelected ? color : "var(--ak-border)"}`,
+              background: isSelected ? `${color}12` : "var(--ak-surface)",
               cursor: isDisabled ? "not-allowed" : "pointer",
               opacity: isDisabled ? 0.5 : 1,
               transition: "border-color 0.15s, background 0.15s",
@@ -137,7 +137,7 @@ export function AnchorSelector({
           >
             {/* Left: name + endpoint */}
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              <span style={{ fontWeight: 600, fontSize: 14, color: "#0f172a" }}>
+              <span style={{ fontWeight: 600, fontSize: 14, color: "var(--ak-text)" }}>
                 {anchor.name}
                 {anchor.id === best?.id && (
                   <span
@@ -149,8 +149,8 @@ export function AnchorSelector({
                       textTransform: "uppercase",
                       padding: "1px 6px",
                       borderRadius: 8,
-                      background: "#dcfce7",
-                      color: "#16a34a",
+                      background: "var(--ak-status-completed-bg)",
+                      color: "var(--ak-status-completed-color)",
                     }}
                   >
                     Best
@@ -158,7 +158,7 @@ export function AnchorSelector({
                 )}
               </span>
               {anchor.endpoint && (
-                <span style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace" }}>
+                <span style={{ fontSize: 11, color: "var(--ak-text-muted)", fontFamily: "monospace" }}>
                   {anchor.endpoint}
                 </span>
               )}
