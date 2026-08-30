@@ -73,8 +73,6 @@ export default function PrecisionFintech() {
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;700;800&display=swap');
-
         .mint { color: var(--pf-mint); }
         .mint-bg { background: var(--pf-mint); }
 

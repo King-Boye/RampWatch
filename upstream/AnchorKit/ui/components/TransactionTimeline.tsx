@@ -615,7 +615,6 @@ export function TransactionTimeline({
 
       {/* Keyframes */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
         @keyframes txs-ping        { 0%{transform:scale(1);opacity:.8} 100%{transform:scale(2.2);opacity:0} }
         @keyframes txs-ping-slow   { 0%,100%{opacity:1} 50%{opacity:0.4} }
         @keyframes txs-spin        { to{transform:rotate(360deg)} }
@@ -737,7 +736,6 @@ export default function TransactionTimelineDemo() {
       padding: "40px 24px",
     }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         button:hover { opacity: 0.88; }
       `}</style>
