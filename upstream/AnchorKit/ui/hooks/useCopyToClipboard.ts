@@ -63,9 +63,10 @@ export function useCopyToClipboard(
 
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+  const [copyCount, setCopyCount] = useState(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reset isCopied after successDuration whenever it becomes true
+  // Reset isCopied after successDuration whenever copy is called
   useEffect(() => {
     if (!isCopied) return;
     timerRef.current = setTimeout(() => {
@@ -77,7 +78,7 @@ export function useCopyToClipboard(
         timerRef.current = null;
       }
     };
-  }, [isCopied, successDuration]);
+  }, [copyCount, isCopied, successDuration]);
 
   const copy = useCallback(
     async (text: string): Promise<boolean> => {
@@ -87,10 +88,11 @@ export function useCopyToClipboard(
           await navigator.clipboard.writeText(text);
           setCopiedText(text);
           setIsCopied(true);
+          setCopyCount(c => c + 1);
           onSuccess?.();
           return true;
         }
-        
+
         // Fallback to execCommand for older browsers or non-secure contexts
         if (document.execCommand) {
           const textArea = document.createElement('textarea');
@@ -101,18 +103,19 @@ export function useCopyToClipboard(
           document.body.appendChild(textArea);
           textArea.focus();
           textArea.select();
-          
+
           const successful = document.execCommand('copy');
           document.body.removeChild(textArea);
-          
+
           if (successful) {
             setCopiedText(text);
             setIsCopied(true);
+            setCopyCount(c => c + 1);
             onSuccess?.();
             return true;
           }
         }
-        
+
         // If both methods fail
         throw new Error('Clipboard API and execCommand are not available');
       } catch (err) {
