@@ -1928,6 +1928,22 @@ impl AnchorKitContract {
         Self::require_admin(&env);
         let inst = env.storage().instance();
 
+        // Validate migration_name: Symbol is limited to 32 chars from charset [a-zA-Z0-9_]
+        let name_len = migration_name.len() as usize;
+        if name_len > 32 {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        for ch in migration_name.iter() {
+            let byte = ch as u8;
+            let is_valid = (byte >= b'a' && byte <= b'z') 
+                || (byte >= b'A' && byte <= b'Z')
+                || (byte >= b'0' && byte <= b'9')
+                || byte == b'_';
+            if !is_valid {
+                panic_with_error!(&env, ErrorCode::ValidationError);
+            }
+        }
+
         // Track migration completion to prevent re-running the same migration
         let migration_key = Symbol::new(&env, &migration_name.to_string());
         if inst.has(&migration_key) {
@@ -2024,6 +2040,18 @@ impl AnchorKitContract {
         homepage_url: Option<String>,
     ) {
         Self::require_admin(&env);
+        let meta_key = StorageKey::AnchorMeta(anchor.clone());
+        
+        // Preserve existing is_active state: only set to true if no prior record exists.
+        // This ensures update_health_status's auto-deactivation is not silently undone
+        // by an unrelated metadata update.
+        let is_active = env
+            .storage()
+            .persistent()
+            .get::<_, AnchorMetadata>(&meta_key)
+            .map(|existing| existing.is_active)
+            .unwrap_or(true);
+        
         let meta = AnchorMetadata {
             anchor: anchor.clone(),
             reputation_score,
@@ -2031,10 +2059,9 @@ impl AnchorKitContract {
             liquidity_score,
             uptime_percentage,
             total_volume,
-            is_active: true,
+            is_active,
             homepage_url,
         };
-        let meta_key = StorageKey::AnchorMeta(anchor.clone());
         env.storage().persistent().set(&meta_key, &meta);
         env.storage().persistent().extend_ttl(&meta_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
