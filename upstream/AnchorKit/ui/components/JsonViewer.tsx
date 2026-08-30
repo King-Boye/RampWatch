@@ -364,6 +364,9 @@ function TreeNode({
     <div>
       {/* Opening line */}
       <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
         style={{
           display: "flex",
           alignItems: "flex-start",
@@ -373,6 +376,12 @@ function TreeNode({
           borderLeft: "2px solid transparent",
         }}
         onClick={() => onToggle(path)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle(path);
+          }
+        }}
       >
         <div
           style={{

@@ -300,6 +300,7 @@ mod attestation_pagination_tests {
         client.initialize(&admin, &100_u64, &None, &None);
 
         client.set_max_page_size(&100);
+        assert_eq!(client.get_max_page_size(), 100);
     }
 
     #[test]
