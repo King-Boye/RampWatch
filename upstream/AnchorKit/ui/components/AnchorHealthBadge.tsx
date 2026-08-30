@@ -26,8 +26,11 @@ export function AnchorHealthBadge({ score, showScore = true, className }: Anchor
       role="status"
       aria-label={`Anchor health: ${tier.label} (${clamped}/100)`}
       className={className}
+      tabIndex={0}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onBlur={() => setHovered(false)}
       style={{
         position: 'relative',
         display: 'inline-flex',
@@ -44,6 +47,7 @@ export function AnchorHealthBadge({ score, showScore = true, className }: Anchor
         userSelect: 'none',
         cursor: 'default',
         whiteSpace: 'nowrap',
+        outline: 'none',
       }}
     >
       <span aria-hidden="true" style={{ fontSize: '0.6rem' }}>●</span>
