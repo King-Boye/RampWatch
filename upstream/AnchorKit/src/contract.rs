@@ -802,7 +802,6 @@ impl AnchorKitContract {
         timestamp: u64,
         payload_hash: Bytes,
         signature: Bytes,
-        metadata: Option<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>,
     ) -> u64 {
         Self::require_not_paused(&env);
         issuer.require_auth();
@@ -894,7 +893,6 @@ impl AnchorKitContract {
         timestamp: u64,
         payload_hash: Bytes,
         signature: Bytes,
-        metadata: Option<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>,
     ) -> u64 {
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
@@ -1289,7 +1287,6 @@ impl AnchorKitContract {
         timestamp: u64,
         payload_hash: Bytes,
         signature: Bytes,
-        metadata: Option<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>,
     ) -> u64 {
         Self::require_not_paused(&env);
         if let Err(e) = Self::check_session_expiry(&env, session_id) {

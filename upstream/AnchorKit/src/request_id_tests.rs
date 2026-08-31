@@ -106,7 +106,7 @@ mod request_id_tests {
 
         let req_id = client.generate_request_id();
         let p = payload(&env, 0x01);
-        let attest_id = client.submit_with_request_id(&req_id, &attestor, &subject, &1000u64, &p, &sign_payload(&env, &signing_key, &p), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        let attest_id = client.submit_with_request_id(&req_id, &attestor, &subject, &1000u64, &p, &sign_payload(&env, &signing_key, &p));
 
         assert_eq!(attest_id, 0);
 
@@ -142,7 +142,7 @@ mod request_id_tests {
 
         let req_id = client.generate_request_id();
         let p = payload(&env, 0x01);
-        client.submit_with_request_id(&req_id, &attestor, &subject, &1000u64, &p, &sign_payload(&env, &signing_key, &p), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        client.submit_with_request_id(&req_id, &attestor, &subject, &1000u64, &p, &sign_payload(&env, &signing_key, &p));
 
         let span = client.get_tracing_span(&req_id.id).unwrap();
         assert_eq!(span.started_at, 1000);
@@ -173,7 +173,7 @@ mod request_id_tests {
 
         let req_id = client.generate_request_id();
 
-        let result = client.try_submit_with_request_id(&req_id, &unregistered, &subject, &1000u64, &payload(&env, 0x01), &Bytes::new(&env), &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        let result = client.try_submit_with_request_id(&req_id, &unregistered, &subject, &1000u64, &payload(&env, 0x01), &Bytes::new(&env));
         assert!(result.is_err());
 
         let span = client.get_tracing_span(&req_id.id);
