@@ -1959,9 +1959,10 @@ impl AnchorKitContract {
         if name_len > 32 {
             panic_with_error!(&env, ErrorCode::ValidationError);
         }
-        for ch in migration_name.iter() {
-            let byte = ch as u8;
-            let is_valid = (byte >= b'a' && byte <= b'z') 
+        let mut name_buf = [0u8; 32];
+        migration_name.copy_into_slice(&mut name_buf[..name_len]);
+        for &byte in name_buf[..name_len].iter() {
+            let is_valid = (byte >= b'a' && byte <= b'z')
                 || (byte >= b'A' && byte <= b'Z')
                 || (byte >= b'0' && byte <= b'9')
                 || byte == b'_';
@@ -1971,7 +1972,8 @@ impl AnchorKitContract {
         }
 
         // Track migration completion to prevent re-running the same migration
-        let migration_key = Symbol::new(&env, &migration_name.to_string());
+        let name_str = core::str::from_utf8(&name_buf[..name_len]).unwrap_or_else(|_| panic_with_error!(&env, ErrorCode::ValidationError));
+        let migration_key = Symbol::new(&env, name_str);
         if inst.has(&migration_key) {
             panic_with_error!(&env, ErrorCode::ValidationError);
         }
@@ -2052,7 +2054,13 @@ impl AnchorKitContract {
     // -----------------------------------------------------------------------
 
     pub fn get_quote(env: Env, anchor: Address, quote_id: u64) -> Option<Quote> {
-        env.storage().persistent().get::<_, Quote>(&StorageKey::Quote(anchor, quote_id))
+        let key = StorageKey::Quote(anchor, quote_id);
+        let quote = env.storage().persistent().get::<_, Quote>(&key);
+        // Bump TTL on read so actively-queried quotes don't expire (#1164).
+        if quote.is_some() {
+            env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+        }
+        quote
     }
 
     pub fn set_anchor_metadata(
@@ -2250,7 +2258,7 @@ impl AnchorKitContract {
         if candidates.is_empty() && !options.fallback_chain.is_empty() {
             for fallback_anchor in options.fallback_chain.iter() {
                 // Check if fallback anchor is in the main anchor list
-                if !anchors.contains(fallback_anchor) {
+                if !anchors.contains(&fallback_anchor) {
                     continue;
                 }
 
@@ -2447,7 +2455,8 @@ impl AnchorKitContract {
                 let random_idx: u64 = env.prng().gen_range(0u64..candidates.len() as u64);
                 best = candidates.get(random_idx as u32).unwrap();
             } else {
-                let mut threshold: i64 = env.prng().gen_range(0..total_score);
+                let random_score: u64 = env.prng().gen_range(0u64..total_score as u64);
+                let mut threshold: i64 = random_score as i64;
                 for q in candidates.iter() {
                     threshold -= health_score(&env, &q);
                     if threshold <= 0 {
