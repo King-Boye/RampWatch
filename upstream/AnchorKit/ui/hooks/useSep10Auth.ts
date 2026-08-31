@@ -23,8 +23,14 @@ export interface UseSep10AuthResult {
   isAuthenticated: boolean;
   /** True while authenticate() is running */
   isAuthenticating: boolean;
-  /** User-friendly error from the most recent failed authenticate() call */
-  error: string | null;
+  /** Standardized loading flag for hook consumers. */
+  isLoading: boolean;
+  /** @deprecated Use isLoading instead. */
+  loading: boolean;
+  /** The most recent authentication error, or null if none. */
+  error: Error | null;
+  /** @deprecated Use error.message instead. */
+  errorMessage: string | null;
   /**
    * Executes the full SEP-10 challenge-response flow:
    * fetchChallenge → signChallenge → submitChallenge.
@@ -44,7 +50,7 @@ export function useSep10Auth(
 ): UseSep10AuthResult {
   const [token, setToken] = useState<string | null>(null);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Error | null>(null);
 
   // Keep refs so authenticate() always reads the latest domain and adapters
   // even when callers pass new inline objects on every render.
@@ -72,8 +78,8 @@ export function useSep10Auth(
     } catch (err) {
       setError(
         err instanceof Error
-          ? err.message
-          : 'Authentication failed. Please try again.',
+          ? err
+          : new Error('Authentication failed. Please try again.'),
       );
     } finally {
       setIsAuthenticating(false);
@@ -92,7 +98,10 @@ export function useSep10Auth(
     token,
     isAuthenticated: token !== null,
     isAuthenticating,
+    isLoading: isAuthenticating,
+    loading: isAuthenticating,
     error,
+    errorMessage: error?.message ?? null,
     authenticate,
     reset,
   };
