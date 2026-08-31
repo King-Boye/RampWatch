@@ -76,25 +76,9 @@ pub enum StorageKey {
     // requires a Vec<Symbol> key; they are defined as named constants below.
 }
 
-/// Module-specific storage key variants for Sessions module.
-#[contracttype]
-#[derive(Clone)]
-pub enum SessionModuleKey {
-    /// Session counter for generating unique session IDs.
-    Counter,
-}
-
-pub struct Storage;
-
-impl Storage {
-    const DAY_IN_LEDGERS: u32 = 17280;
-    const INSTANCE_LIFETIME: u32 = Self::DAY_IN_LEDGERS * 30;
-    const PERSISTENT_LIFETIME: u32 = Self::DAY_IN_LEDGERS * 90;
-
-    pub fn has_admin(env: &Env) -> bool {
-        let key = StorageKey::Admin.to_storage_key(env);
-        env.storage().instance().has(&key)
-    }
+// Instance-storage counter keys (Vec<Symbol>).
+// Defined as functions returning the canonical key to avoid repetition.
+use soroban_sdk::{symbol_short, Env, Symbol, Vec};
 
     pub fn set_admin(env: &Env, admin: &Address) {
         let key = StorageKey::Admin.to_storage_key(env);

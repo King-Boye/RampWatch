@@ -125,7 +125,6 @@ pub fn validate_anchor_domain(domain: &str) -> Result<(), AnchorKitError> {
 /// Results are returned in the same order as the input slice.
 /// Each entry is `Ok(())` when the corresponding URL is valid, or
 /// `Err(AnchorKitError)` when it fails validation.
-#[allow(dead_code)]
 pub fn validate_anchor_domain_batch(urls: &[&str]) -> Vec<Result<(), AnchorKitError>> {
     urls.iter().map(|url| validate_anchor_domain(url)).collect()
 }
