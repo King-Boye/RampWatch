@@ -1690,7 +1690,7 @@ impl AnchorKitContract {
         env.storage().temporary().remove(&key);
 
         // Issue #276: remove from CACHED_ANCHORS set
-        let list_key = key_anchor_list(&env);
+        let list_key = soroban_sdk::vec![&env, symbol_short!("CANCHORS")];
         if let Some(list) = env.storage().persistent().get::<_, Vec<Address>>(&list_key) {
             let mut new_list = Vec::new(&env);
             for a in list.iter() {

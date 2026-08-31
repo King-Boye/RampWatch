@@ -223,8 +223,9 @@ function highlight(
 function syntaxHighlightRaw(
   json: string,
   t: (typeof THEMES)[ViewerTheme],
+  search?: string,
 ): string {
-  return json
+  let result = json
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -239,6 +240,20 @@ function syntaxHighlightRaw(
       },
     )
     .replace(/([{}[\],])/g, `<span style="color:${t.punct}">$1</span>`);
+
+  // Apply search highlighting last, wrapping matched text
+  if (search) {
+    const searchRegex = new RegExp(
+      search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      "gi",
+    );
+    result = result.replace(
+      searchRegex,
+      `<mark style="background:${t.matchBg};color:${t.matchText};border-radius:2px;padding:0 1px">$&</mark>`,
+    );
+  }
+
+  return result;
 }
 
 // ─── Tree Node ────────────────────────────────────────────────────────────────
@@ -654,7 +669,7 @@ export function JsonViewer({
   // Reset line counter on each render
   lineRef.current = 0;
 
-  const rawHighlighted = useMemo(() => syntaxHighlightRaw(json, t), [json, t]);
+  const rawHighlighted = useMemo(() => syntaxHighlightRaw(json, t, search), [json, t, search]);
   const lineCount = json.split("\n").length;
 
   return (
