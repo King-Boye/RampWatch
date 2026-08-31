@@ -20,10 +20,8 @@ function getInitialDark(): boolean {
  * Components that have their own manual toggle can pass `override`
  * to bypass the media query.
  *
- * This hook also:
- * - Applies a `dark` CSS class and `data-theme` attribute to the document element
- * - Persists the resolved theme to `localStorage` under the key "theme"
- * - Restores the saved preference on initialization
+ * The non-overridden hook instance also applies the theme to the document
+ * element and persists it to `localStorage` under the key "theme".
  */
 export function useTheme(override?: boolean): boolean {
   const [sysDark, setSysDark] = useState<boolean>(getInitialDark);
@@ -43,6 +41,8 @@ export function useTheme(override?: boolean): boolean {
   }, []);
 
   useEffect(() => {
+    if (override !== undefined) return;
+
     if (typeof document !== "undefined") {
       document.documentElement.classList.toggle("dark", isDark);
       document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
