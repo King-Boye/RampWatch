@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect, memo, CSSProperties } from "react";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -257,7 +257,7 @@ interface TreeNodeProps {
   lineRef: React.MutableRefObject<number>;
 }
 
-function TreeNode({
+const TreeNode = memo(function TreeNode({
   nodeKey,
   value,
   depth,
@@ -525,7 +525,12 @@ function TreeNode({
       )}
     </div>
   );
-}
+}, (prevProps, nextProps) => {
+  return prevProps.expandedPaths === nextProps.expandedPaths &&
+         prevProps.search === nextProps.search &&
+         prevProps.value === nextProps.value &&
+         prevProps.path === nextProps.path;
+});
 
 // ─── Path Collector ───────────────────────────────────────────────────────────
 
@@ -660,6 +665,8 @@ export function JsonViewer({
         @keyframes jv-expand { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
         @keyframes jv-pulse  { 0%,100%{opacity:1} 50%{opacity:0.4} }
         .jv-node-row:hover { background: rgba(255,255,255,0.025) !important; }
+        .jv-search-input::placeholder { color: ${t.lineNum}; }
+        .jv-content { contain: layout style paint; }
       `}</style>
 
       {/* ── Titlebar ── */}
@@ -827,6 +834,7 @@ export function JsonViewer({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search keys & values…"
+              className="jv-search-input"
               style={{
                 flex: 1,
                 background: "transparent",
@@ -835,7 +843,6 @@ export function JsonViewer({
                 fontFamily: "monospace",
                 fontSize: 11,
                 color: t.text,
-                "::placeholder": { color: t.lineNum } as React.CSSProperties,
               }}
             />
             {search && (
@@ -884,6 +891,7 @@ export function JsonViewer({
 
       {/* ── Content ── */}
       <div
+        className="jv-content"
         style={{
           overflowX: "auto",
           maxHeight: 560,
@@ -909,7 +917,7 @@ export function JsonViewer({
           </div>
         ) : (
           <div style={{ display: "flex" }}>
-            {/* Line numbers */}
+            {/* Line numbers - virtualized */}
             <div
               style={{
                 background: t.gutter,
@@ -918,23 +926,26 @@ export function JsonViewer({
                 flexShrink: 0,
                 minWidth: 44,
                 textAlign: "right",
+                contain: "strict",
               }}
             >
-              {json.split("\n").map((_, i) => (
-                <div
-                  key={i}
-                  style={{
-                    fontFamily: "monospace",
-                    fontSize: 10,
-                    color: t.lineNum,
-                    lineHeight: "20px",
-                    paddingRight: 12,
-                    userSelect: "none",
-                  }}
-                >
-                  {i + 1}
-                </div>
-              ))}
+              <pre
+                style={{
+                  margin: 0,
+                  padding: "8px 0",
+                  fontFamily: "monospace",
+                  fontSize: 10,
+                  color: t.lineNum,
+                  lineHeight: "20px",
+                  whiteSpace: "pre",
+                  userSelect: "none",
+                }}
+              >
+                {json
+                  .split("\n")
+                  .map((_, i) => String(i + 1).padEnd(4))
+                  .join("\n")}
+              </pre>
             </div>
             {/* Code */}
             <pre

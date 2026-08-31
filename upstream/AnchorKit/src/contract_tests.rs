@@ -96,6 +96,9 @@ fn test_admin_unchanged_after_propose_before_accept() {
     client.propose_admin(&admin2);
     // admin must not change until accept
     assert_eq!(client.get_admin(), admin1);
+}
+
+#[test]
 fn test_accept_no_pending() {
     let (env, client) = setup();
     let admin1 = Address::generate(&env);
