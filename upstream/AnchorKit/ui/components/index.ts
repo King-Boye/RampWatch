@@ -41,5 +41,7 @@ export type { JsonViewerProps, ViewerTheme, ViewerMode } from './JsonViewer';
 
 export { default as Sep10AuthFlow } from './Sep10AuthFlow';
 
+export { default as PrecisionFintech } from './PrecisionFintech';
+
 export { SkeletonLoader, AssetListSkeleton, FeeTableSkeleton, LimitsSkeleton } from './SkeletonLoader';
 export type { SkeletonLoaderProps } from './SkeletonLoader';
