@@ -2,7 +2,7 @@
 
 ## Overview
 
-This design specifies comprehensive test coverage for the existing tracing span and request ID functionality in the AnchorKit smart contract. The system already implements request ID generation (`RequestId::generate`), tracing span storage (`RequestTracker::store_span`), and retrieval (`RequestTracker::get_span`). This feature adds systematic validation to ensure these mechanisms work correctly across all operations, edge cases, and failure scenarios.
+This design specifies comprehensive test coverage for the existing tracing span and request ID functionality in the AnchorKit smart contract. The system already implements request ID generation (`generate_request_id(env) -> RequestId`), tracing span storage via persistent storage, and retrieval (`get_tracing_span(env, request_id_bytes) -> Option<TracingSpan>`). This feature adds systematic validation to ensure these mechanisms work correctly across all operations, edge cases, and failure scenarios.
 
 The validation framework will use property-based testing to verify universal correctness properties and unit tests for specific examples and edge cases. All tests will be implemented using the Soroban SDK's built-in testing utilities.
 
@@ -23,7 +23,7 @@ The testing approach follows a layered strategy:
 
 ### Request ID Generator Tests
 
-Tests the `RequestId::generate` function to ensure:
+Tests the `generate_request_id(env)` contract method to ensure:
 - Correct byte length (16 bytes)
 - Uniqueness across multiple generations
 - Accurate timestamp capture
@@ -31,11 +31,11 @@ Tests the `RequestId::generate` function to ensure:
 
 ### Tracing Span Validator Tests
 
-Tests the `TracingSpan` structure and `RequestTracker` to ensure:
+Tests the `TracingSpan` structure and tracing span persistent storage to ensure:
 - Complete metadata capture (request_id, operation, actor, timestamps, status)
 - Accurate timing information
 - Correct status values
-- Proper storage and retrieval
+- Proper storage and retrieval via `get_tracing_span(env, request_id_bytes)`
 
 ### Operation Integration Tests
 

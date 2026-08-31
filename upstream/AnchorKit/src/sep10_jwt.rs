@@ -239,6 +239,7 @@ pub fn service_scope_name(service_code: u32) -> Option<&'static [u8]> {
         2 => Some(b"withdrawal"),
         3 => Some(b"quote"),
         4 => Some(b"kyc"),
+        5 => Some(b"exchange_quotes"),
         _ => None,
     }
 }

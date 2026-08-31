@@ -16,7 +16,7 @@ pub struct RateLimitConfig {
     pub max_submissions: u32,
     /// Length of the rate limit window in ledgers. Can be set per-attestor via update_config or set_attestor_config.
     pub window_length: u32,
-    /// One-time burst allowance: extra submissions permitted in the first window only.
+    /// Per-window burst allowance: extra submissions permitted each time the rate-limit window rolls over.
     /// Set to 0 to disable burst tolerance.
     pub burst: u32,
 }

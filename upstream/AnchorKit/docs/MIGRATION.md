@@ -33,7 +33,7 @@ This guide covers every breaking change introduced in 0.1.0 and shows exactly wh
 
 ### 1. `initialize()`
 
-The function now accepts two additional parameters: `max_audit_log_size` and `replay_window_seconds`.
+The function now accepts three additional parameters: `max_audit_log_size`, `replay_window_seconds`, and `clock_skew_seconds`.
 
 **Before (0.0.1)**
 ```rust
@@ -43,13 +43,13 @@ client.initialize(&admin);
 **After (0.1.0)**
 ```rust
 // Pass a max_audit_log_size and None for default replay window (300 seconds)
-client.initialize(&admin, &1000u64, &None);
+client.initialize(&admin, &1000u64, &None, &None);
 
-// Or set both parameters explicitly:
-client.initialize(&admin, &1000u64, &Some(600u64)); // 10-minute window
+// Or set the replay window explicitly and use the default clock skew (60 seconds):
+client.initialize(&admin, &1000u64, &Some(600u64), &None); // 10-minute window
 ```
 
-The `max_audit_log_size` parameter caps the number of audit entries retained on-chain. The `replay_window_seconds` parameter controls how far in the past or future an attestation timestamp may be relative to the current ledger time. Attestations outside `[now - window, now + window]` are rejected with `InvalidTimestamp`. Passing `None` for the window defaults to **300 seconds**.
+The `max_audit_log_size` parameter caps the number of audit entries retained on-chain. The `replay_window_seconds` parameter controls how far in the past or future an attestation timestamp may be relative to the current ledger time. Attestations outside `[now - window, now + window]` are rejected with `InvalidTimestamp`. Passing `None` for the replay window defaults to **300 seconds**. The `clock_skew_seconds` parameter controls SEP-10 token expiry tolerance; passing `None` defaults to **60 seconds**.
 
 ---
 
@@ -143,12 +143,13 @@ if client.supports_service(&anchor, &ServiceType::Deposits.as_u32()) { ... }
 
 ### 5. `StellarToml` struct
 
-Two fields changed:
+Three fields changed:
 
-| Field            | 0.0.1          | 0.1.0                    |
-|------------------|----------------|--------------------------|
-| `signing_key`    | `String`       | `Option<String>`         |
-| `fiat_currencies`| *(not present)*| `Vec<FiatCurrency>` (new)|
+| Field                        | 0.0.1          | 0.1.0                    |
+|------------------------------|----------------|--------------------------|
+| `signing_key`                | `String`       | `Option<String>`         |
+| `fiat_currencies`            | *(not present)*| `Vec<FiatCurrency>` (new)|
+| `claimable_balance_supported`| *(not present)*| `bool` (new)             |
 
 **Before (0.0.1)**
 ```rust
@@ -178,10 +179,11 @@ let toml = StellarToml {
     transfer_server_sep0024: String::from_str(&env, "https://anchor.example.com/sep24"),
     kyc_server: String::from_str(&env, "https://anchor.example.com/kyc"),
     web_auth_endpoint: String::from_str(&env, "https://anchor.example.com/auth"),
+    claimable_balance_supported: false,                     // new required field
 };
 ```
 
-Use `None` for `signing_key` when the anchor does not publish a signing key. Use an empty `Vec` for `fiat_currencies` if the anchor does not support fiat currencies.
+Use `None` for `signing_key` when the anchor does not publish a signing key. Use an empty `Vec` for `fiat_currencies` if the anchor does not support fiat currencies. Set `claimable_balance_supported` to `true` if the anchor accepts claimable balances as a deposit destination (sourced from `CLAIMABLE_BALANCE_SUPPORTED` in stellar.toml).
 
 ---
 
@@ -407,7 +409,7 @@ All new methods are additive and do not affect existing integrations unless you 
 | `RateLimitExceeded` | 16 | Request rate limit exceeded |
 | `CacheExpired` | 48 | Cache entry exists but its TTL has elapsed |
 | `CacheNotFound` | 49 | No cache entry found for the given key |
-| `StorageCorrupted` | 50 | On-chain storage entry is unreadable |
+| `StorageCorrupted` | 19 | On-chain storage entry is unreadable |
 | `AuditLogMaxSizeInvalid` | 51 | `max_audit_log_size` was set to zero |
 
 ---

@@ -27,8 +27,12 @@ export interface UseTransactionStatusResult {
   status: TxStatus | null;
   /** Ordered list of recorded status transitions. */
   transitions: TransactionTransition[];
-  /** True when status is "completed" or "failed" (polling has stopped). */
+  /** True when status is terminal (completed, failed, or refunded). */
   isTerminal: boolean;
+  /** True while the initial fetch is still waiting on the first successful poll. */
+  isLoading: boolean;
+  /** @deprecated Use isLoading instead. */
+  loading: boolean;
   /** Last fetch error, if any. Cleared on the next successful poll. */
   error: Error | null;
 }
@@ -113,10 +117,14 @@ export function useTransactionStatus(
     };
   }, [txId, enabled, interval, maxRetries, maxBackoff]);
 
+  const isLoading = snapshot === null && error === null;
+
   return {
     status: snapshot?.status ?? null,
     transitions: snapshot?.transitions ?? [],
     isTerminal: snapshot?.isTerminal ?? false,
+    isLoading,
+    loading: isLoading,
     error,
   };
 }

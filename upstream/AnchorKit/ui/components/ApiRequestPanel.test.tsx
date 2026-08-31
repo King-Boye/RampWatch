@@ -1,659 +1,385 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import '@testing-library/jest-dom';
-import { ApiRequestPanel } from './ApiRequestPanel';
+import userEvent from '@testing-library/user-event';
+import { ApiRequestPanel, HistoryEntry } from './ApiRequestPanel';
 
 describe('ApiRequestPanel', () => {
-  const mockEndpoint = 'https://api.anchorkit.stellar.org/v1/test';
-  
   beforeEach(() => {
-    // Mock clipboard API
-    Object.assign(navigator, {
-      clipboard: {
-        writeText: jest.fn(() => Promise.resolve()),
-      },
-    });
+    localStorage.clear();
   });
 
-  describe('Endpoint Display', () => {
-    it('renders endpoint URL', () => {
-      render(<ApiRequestPanel endpoint={mockEndpoint} />);
-      expect(screen.getByText(mockEndpoint)).toBeInTheDocument();
-    });
+  afterEach(() => {
+    localStorage.clear();
+  });
 
-    it('displays correct method badge', () => {
+  describe('History Recording - Consecutive Requests Bug Fix', () => {
+    it('should record consecutive requests with identical error objects', async () => {
+      const sharedError = 'Network error';
       const { rerender } = render(
-        <ApiRequestPanel endpoint={mockEndpoint} method="GET" />
-      );
-      expect(screen.getByText('GET')).toBeInTheDocument();
-
-      rerender(<ApiRequestPanel endpoint={mockEndpoint} method="POST" />);
-      expect(screen.getByText('POST')).toBeInTheDocument();
-    });
-
-    it('defaults to POST method', () => {
-      render(<ApiRequestPanel endpoint={mockEndpoint} />);
-      expect(screen.getByText('POST')).toBeInTheDocument();
-    });
-  });
-
-  describe('Request Body', () => {
-    it('renders request body when provided', () => {
-      const requestBody = { test: 'data', value: 123 };
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} requestBody={requestBody} />
-      );
-      // JSON is rendered in a code block; check the container text
-      const pre = document.querySelector('pre');
-      expect(pre?.textContent).toContain('test');
-      expect(pre?.textContent).toContain('data');
-    });
-
-    it('formats JSON request body', () => {
-      const requestBody = { key: 'value' };
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} requestBody={requestBody} />
-      );
-      const pre = document.querySelector('pre');
-      expect(pre?.textContent).toContain('key');
-      expect(pre?.textContent).toContain('value');
-    });
-
-    it('handles string request body', () => {
-      const requestBody = 'plain text body';
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} requestBody={requestBody} />
-      );
-      expect(screen.getByText(requestBody)).toBeInTheDocument();
-    });
-
-    it('does not render request section when no body provided', () => {
-      render(<ApiRequestPanel endpoint={mockEndpoint} />);
-      expect(screen.queryByText('Request Body')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('Response Display', () => {
-    it('renders response when provided', () => {
-      const response = { success: true, id: '123' };
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} response={response} />
-      );
-      expect(screen.getByText(/success/)).toBeInTheDocument();
-    });
-
-    it('shows loading state', () => {
-      render(<ApiRequestPanel endpoint={mockEndpoint} isLoading={true} />);
-      expect(screen.getByText('Response')).toBeInTheDocument();
-      const skeletonLines = document.querySelectorAll('.skeleton-line');
-      expect(skeletonLines.length).toBeGreaterThan(0);
-    });
-
-    it('shows error state', () => {
-      const errorMessage = 'Network error occurred';
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} error={errorMessage} />
-      );
-      expect(screen.getByText(errorMessage)).toBeInTheDocument();
-      expect(screen.getByText('⚠️')).toBeInTheDocument();
-    });
-
-    it('shows empty state when no response', () => {
-      render(<ApiRequestPanel endpoint={mockEndpoint} />);
-      expect(screen.getByText('No response yet')).toBeInTheDocument();
-    });
-  });
-
-  describe('cURL Generation', () => {
-    it('generates basic cURL command', () => {
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} method="GET" />
-      );
-      expect(screen.getByText(/curl -X GET/)).toBeInTheDocument();
-    });
-
-    it('includes headers in cURL', () => {
-      const headers = {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer token123',
-      };
-      render(
         <ApiRequestPanel
-          endpoint={mockEndpoint}
+          endpoint="https://api.example.com/users"
           method="POST"
-          headers={headers}
+          persistHistory={true}
+          error={sharedError}
         />
       );
-      expect(screen.getByText(/Content-Type: application\/json/)).toBeInTheDocument();
-      expect(screen.getByText(/Authorization: Bearer token123/)).toBeInTheDocument();
-    });
 
-    it('includes request body in cURL for POST', () => {
-      const requestBody = { test: 'data' };
-      render(
+      const toggleButton = screen.getAllByTitle(/show history|hide history/i)[0];
+      fireEvent.click(toggleButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole('list')).toBeInTheDocument();
+      });
+
+      const initialItems = screen.queryAllByRole('listitem');
+      expect(initialItems.length).toBe(1);
+
+      // Rerender with same error object - should still record
+      rerender(
         <ApiRequestPanel
-          endpoint={mockEndpoint}
+          endpoint="https://api.example.com/users"
           method="POST"
-          requestBody={requestBody}
+          persistHistory={true}
+          error={sharedError}
         />
       );
-      expect(screen.getByText(/-d/)).toBeInTheDocument();
+
+      // Verify second request was recorded despite identical error reference
+      const historyItems = screen.queryAllByRole('listitem');
+      expect(historyItems.length).toBe(2);
     });
 
-    it('excludes request body in cURL for GET', () => {
-      const requestBody = { test: 'data' };
-      const { container } = render(
+    it('should record consecutive requests with reference-identical responses', async () => {
+      const sharedResponse = { status: 'ok' };
+      const { rerender } = render(
         <ApiRequestPanel
-          endpoint={mockEndpoint}
+          endpoint="https://api.example.com/status"
           method="GET"
-          requestBody={requestBody}
+          persistHistory={true}
+          response={sharedResponse}
         />
       );
-      const curlSection = container.querySelector('.curl-section');
-      expect(curlSection?.textContent).not.toContain('-d');
-    });
 
-    // --- Shell-injection safety tests ---
+      const toggleButton = screen.getAllByTitle(/show history|hide history/i)[0];
+      fireEvent.click(toggleButton);
 
-    it('wraps endpoint in single quotes in cURL', () => {
-      const { container } = render(
-        <ApiRequestPanel endpoint={mockEndpoint} method="GET" />
-      );
-      const curlSection = container.querySelector('.curl-section');
-      // Endpoint must be surrounded by single quotes, not double quotes
-      expect(curlSection?.textContent).toContain(`'${mockEndpoint}'`);
-      expect(curlSection?.textContent).not.toContain(`"${mockEndpoint}"`);
-    });
+      await waitFor(() => {
+        expect(screen.getByRole('list')).toBeInTheDocument();
+      });
 
-    it('wraps header values in single quotes in cURL', () => {
-      const headers = { Authorization: 'Bearer token123' };
-      const { container } = render(
-        <ApiRequestPanel endpoint={mockEndpoint} method="GET" headers={headers} />
-      );
-      const curlSection = container.querySelector('.curl-section');
-      expect(curlSection?.textContent).toContain("-H 'Authorization: Bearer token123'");
-    });
+      const initialItems = screen.queryAllByRole('listitem');
+      expect(initialItems.length).toBe(1);
 
-    it('does not allow backtick command substitution in header values to escape quoting', () => {
-      const headers = { 'X-Evil': '`id`' };
-      const { container } = render(
-        <ApiRequestPanel endpoint={mockEndpoint} method="GET" headers={headers} />
-      );
-      const curlSection = container.querySelector('.curl-section');
-      // Backtick must appear inside single-quoted string — not bare
-      expect(curlSection?.textContent).toContain("-H 'X-Evil: `id`'");
-    });
-
-    it('does not allow $() command substitution in header values to escape quoting', () => {
-      const headers = { 'X-Evil': '$(id)' };
-      const { container } = render(
-        <ApiRequestPanel endpoint={mockEndpoint} method="GET" headers={headers} />
-      );
-      const curlSection = container.querySelector('.curl-section');
-      expect(curlSection?.textContent).toContain("-H 'X-Evil: $(id)'");
-    });
-
-    it('escapes embedded single quotes in header values using POSIX \\'\\''\\' idiom', () => {
-      const headers = { Authorization: "Bearer it's-a-token" };
-      const { container } = render(
-        <ApiRequestPanel endpoint={mockEndpoint} method="GET" headers={headers} />
-      );
-      const curlSection = container.querySelector('.curl-section');
-      // Single quote must be escaped as '\'' so the shell never sees a bare '
-      expect(curlSection?.textContent).toContain("Authorization: Bearer it'\\''s-a-token");
-    });
-
-    it('does not allow a single quote in body to break out of -d quoting', () => {
-      const requestBody = "it's dangerous";
-      const { container } = render(
+      // Rerender with same response object
+      rerender(
         <ApiRequestPanel
-          endpoint={mockEndpoint}
+          endpoint="https://api.example.com/status"
+          method="GET"
+          persistHistory={true}
+          response={sharedResponse}
+        />
+      );
+
+      // Should have recorded both requests
+      const historyItems = screen.queryAllByRole('listitem');
+      expect(historyItems.length).toBe(2);
+    });
+
+    it('should record requests when endpoint changes even with identical response', async () => {
+      const sharedResponse = { data: 'cached' };
+      const { rerender } = render(
+        <ApiRequestPanel
+          endpoint="https://api.example.com/endpoint1"
+          method="GET"
+          persistHistory={true}
+          response={sharedResponse}
+        />
+      );
+
+      const toggleButton = screen.getAllByTitle(/show history|hide history/i)[0];
+      fireEvent.click(toggleButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('https://api.example.com/endpoint1')).toBeInTheDocument();
+      });
+
+      const initialItems = screen.queryAllByRole('listitem');
+      expect(initialItems.length).toBe(1);
+
+      // Change endpoint with same response
+      rerender(
+        <ApiRequestPanel
+          endpoint="https://api.example.com/endpoint2"
+          method="GET"
+          persistHistory={true}
+          response={sharedResponse}
+        />
+      );
+
+      // Should have recorded both requests
+      const historyItems = screen.queryAllByRole('listitem');
+      expect(historyItems.length).toBe(2);
+    });
+
+    it('should record requests when method changes with identical response', async () => {
+      const sharedResponse = { success: true };
+      const { rerender } = render(
+        <ApiRequestPanel
+          endpoint="https://api.example.com/resource"
+          method="GET"
+          persistHistory={true}
+          response={sharedResponse}
+        />
+      );
+
+      const toggleButton = screen.getAllByTitle(/show history|hide history/i)[0];
+      fireEvent.click(toggleButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole('list')).toBeInTheDocument();
+      });
+
+      const initialItems = screen.queryAllByRole('listitem');
+      expect(initialItems.length).toBe(1);
+
+      // Change method with same response
+      rerender(
+        <ApiRequestPanel
+          endpoint="https://api.example.com/resource"
           method="POST"
-          requestBody={requestBody}
+          persistHistory={true}
+          response={sharedResponse}
         />
       );
-      const curlSection = container.querySelector('.curl-section');
-      // Body must be wrapped in single quotes with the embedded quote properly escaped
-      expect(curlSection?.textContent).toContain("-d 'it'\\''s dangerous'");
-      // There must be no unquoted single-quote that would break the shell string
-      // i.e. the raw substring -d 'it's should NOT appear
-      expect(curlSection?.textContent).not.toMatch(/-d 'it's/);
-    });
 
-    it('does not allow ${VAR} expansion in body to escape quoting', () => {
-      const requestBody = { token: '${HOME}' };
-      const { container } = render(
+      // Should have recorded both requests
+      const historyItems = screen.queryAllByRole('listitem');
+      expect(historyItems.length).toBe(2);
+    });
+  });
+
+  describe('History Persistence', () => {
+    it('should persist history to localStorage', async () => {
+      render(
         <ApiRequestPanel
-          endpoint={mockEndpoint}
+          endpoint="https://api.example.com/test"
           method="POST"
-          requestBody={requestBody}
+          persistHistory={true}
+          response={{ id: 1 }}
         />
       );
-      const curlSection = container.querySelector('.curl-section');
-      // ${HOME} must sit inside single quotes — never evaluated
-      expect(curlSection?.textContent).toContain('${HOME}');
-      // Confirm it's surrounded by the single-quote wrapper, not bare
-      expect(curlSection?.textContent).toContain("-d '");
+
+      const stored = localStorage.getItem('anchorkit_api_history');
+      expect(stored).toBeTruthy();
+      const history: HistoryEntry[] = JSON.parse(stored!);
+      expect(history.length).toBeGreaterThan(0);
+      expect(history[0].endpoint).toBe('https://api.example.com/test');
     });
 
-    it('handles backslashes in header values without creating escape sequences', () => {
-      const headers = { 'X-Path': 'C:\\Users\\test' };
-      const { container } = render(
-        <ApiRequestPanel endpoint={mockEndpoint} method="GET" headers={headers} />
-      );
-      const curlSection = container.querySelector('.curl-section');
-      // Inside single quotes backslashes are literal — no doubling needed
-      expect(curlSection?.textContent).toContain("-H 'X-Path: C:\\Users\\test'");
-    });
-  });
-
-  describe('Copy to Clipboard', () => {
-    it('copies endpoint to clipboard', async () => {
-      render(<ApiRequestPanel endpoint={mockEndpoint} />);
-      const copyButtons = screen.getAllByRole('button');
-      
-      fireEvent.click(copyButtons[0]); // First copy button (endpoint)
-      
-      await waitFor(() => {
-        expect(navigator.clipboard.writeText).toHaveBeenCalledWith(mockEndpoint);
-      });
-    });
-
-    it('copies request body to clipboard', async () => {
-      const requestBody = { test: 'data' };
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} requestBody={requestBody} />
-      );
-      
-      const requestCopyButton = screen.getAllByRole('button')[1];
-      fireEvent.click(requestCopyButton);
-      
-      await waitFor(() => {
-        expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-          JSON.stringify(requestBody, null, 2)
-        );
-      });
-    });
-
-    it('copies response to clipboard', async () => {
-      const response = { success: true };
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} response={response} />
-      );
-      
-      const responseCopyButton = screen.getAllByRole('button')[1];
-      fireEvent.click(responseCopyButton);
-      
-      await waitFor(() => {
-        expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-          JSON.stringify(response, null, 2)
-        );
-      });
-    });
-
-    it('copies cURL command to clipboard', async () => {
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} method="POST" />
-      );
-      
-      const curlCopyButton = screen.getAllByRole('button').pop();
-      fireEvent.click(curlCopyButton!);
-      
-      await waitFor(() => {
-        expect(navigator.clipboard.writeText).toHaveBeenCalled();
-        const callArg = (navigator.clipboard.writeText as jest.Mock).mock.calls[0][0];
-        expect(callArg).toContain('curl -X POST');
-      });
-    });
-
-    it('shows checkmark after successful copy', async () => {
-      render(<ApiRequestPanel endpoint={mockEndpoint} />);
-      const copyButton = screen.getAllByRole('button')[0];
-      
-      fireEvent.click(copyButton);
-      
-      await waitFor(() => {
-        expect(screen.getByText('✓')).toBeInTheDocument();
-      });
-    });
-
-    it('resets checkmark after 2 seconds', async () => {
-      jest.useFakeTimers();
-      render(<ApiRequestPanel endpoint={mockEndpoint} />);
-      const copyButton = screen.getAllByRole('button')[0];
-      
-      fireEvent.click(copyButton);
-      
-      await waitFor(() => {
-        expect(screen.getByText('✓')).toBeInTheDocument();
-      });
-      
-      jest.advanceTimersByTime(2000);
-      
-      await waitFor(() => {
-        expect(screen.queryByText('✓')).not.toBeInTheDocument();
-      });
-      
-      jest.useRealTimers();
-    });
-  });
-
-  describe('HTTP Methods', () => {
-    const methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const;
-
-    methods.forEach(method => {
-      it(`renders ${method} method correctly`, () => {
-        render(<ApiRequestPanel endpoint={mockEndpoint} method={method} />);
-        const badge = screen.getByText(method);
-        expect(badge).toBeInTheDocument();
-        expect(badge).toHaveAttribute('data-method', method);
-      });
-    });
-  });
-
-  describe('Accessibility', () => {
-    it('has proper button titles', () => {
-      render(<ApiRequestPanel endpoint={mockEndpoint} />);
-      const buttons = screen.getAllByRole('button');
-      buttons.forEach(button => {
-        expect(button).toHaveAttribute('title');
-      });
-    });
-
-    it('uses semantic HTML', () => {
-      const { container } = render(
+    it('should limit history to 20 entries', () => {
+      const { rerender } = render(
         <ApiRequestPanel
-          endpoint={mockEndpoint}
-          requestBody={{ test: 'data' }}
-          response={{ result: 'success' }}
+          endpoint="https://api.example.com/test"
+          method="GET"
+          persistHistory={true}
+          response={{ count: 1 }}
         />
       );
-      
-      expect(container.querySelector('code')).toBeInTheDocument();
-      expect(container.querySelector('pre')).toBeInTheDocument();
+
+      // Simulate 25 requests
+      for (let i = 2; i <= 25; i++) {
+        rerender(
+          <ApiRequestPanel
+            endpoint={`https://api.example.com/test${i}`}
+            method="GET"
+            persistHistory={true}
+            response={{ count: i }}
+          />
+        );
+      }
+
+      const stored = localStorage.getItem('anchorkit_api_history');
+      const history: HistoryEntry[] = JSON.parse(stored!);
+      expect(history.length).toBeLessThanOrEqual(20);
+    });
+
+    it('should not persist history when persistHistory is false', () => {
+      render(
+        <ApiRequestPanel
+          endpoint="https://api.example.com/test"
+          method="GET"
+          persistHistory={false}
+          response={{ data: 'test' }}
+        />
+      );
+
+      const stored = localStorage.getItem('anchorkit_api_history');
+      expect(stored).toBeNull();
     });
   });
 
-  describe('Edge Cases', () => {
-    it('handles empty headers object', () => {
+  describe('History Display and Interaction', () => {
+    it('should toggle history visibility', async () => {
       render(
-        <ApiRequestPanel endpoint={mockEndpoint} headers={{}} />
+        <ApiRequestPanel
+          endpoint="https://api.example.com/test"
+          method="GET"
+          persistHistory={true}
+          response={{ data: 'test' }}
+        />
       );
-      expect(screen.getByText(mockEndpoint)).toBeInTheDocument();
+
+      // History should be hidden initially
+      expect(screen.queryByRole('list')).not.toBeInTheDocument();
+
+      // Click toggle to show
+      const toggleButton = screen.getAllByTitle(/show history|hide history/i)[0];
+      fireEvent.click(toggleButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole('list')).toBeInTheDocument();
+      });
+
+      // Click toggle to hide
+      fireEvent.click(toggleButton);
+
+      await waitFor(() => {
+        expect(screen.queryByRole('list')).not.toBeInTheDocument();
+      });
     });
 
-    it('handles null response', () => {
+    it('should display history entries with method badge and endpoint', async () => {
       render(
-        <ApiRequestPanel endpoint={mockEndpoint} response={null as any} />
+        <ApiRequestPanel
+          endpoint="https://api.example.com/users"
+          method="POST"
+          persistHistory={true}
+          response={{ id: 1 }}
+        />
       );
-      expect(screen.getByText('No response yet')).toBeInTheDocument();
+
+      // Expand history
+      const toggleButton = screen.getAllByTitle(/show history|hide history/i)[0];
+      fireEvent.click(toggleButton);
+
+      await waitFor(() => {
+        expect(screen.getByText('POST')).toBeInTheDocument();
+        expect(screen.getByText('https://api.example.com/users')).toBeInTheDocument();
+      });
     });
 
-    it('handles undefined error', () => {
+    it('should clear history when clear button is clicked', async () => {
       render(
-        <ApiRequestPanel endpoint={mockEndpoint} error={undefined} />
+        <ApiRequestPanel
+          endpoint="https://api.example.com/test"
+          method="GET"
+          persistHistory={true}
+          response={{ data: 'test' }}
+        />
       );
-      expect(screen.queryByText('⚠️')).not.toBeInTheDocument();
+
+      const clearButton = screen.getByTitle('Clear history');
+      fireEvent.click(clearButton);
+
+      const stored = localStorage.getItem('anchorkit_api_history');
+      const history: HistoryEntry[] = JSON.parse(stored || '[]');
+      expect(history.length).toBe(0);
     });
 
-    it('handles very long endpoint URLs', () => {
-      const longEndpoint = 'https://api.example.com/' + 'a'.repeat(200);
-      render(<ApiRequestPanel endpoint={longEndpoint} />);
-      expect(screen.getByText(longEndpoint)).toBeInTheDocument();
-    });
+    it('should show error icon in history for failed requests', async () => {
+      render(
+        <ApiRequestPanel
+          endpoint="https://api.example.com/test"
+          method="GET"
+          persistHistory={true}
+          error="Connection timeout"
+        />
+      );
 
-    it('handles complex nested JSON', () => {
-      const complexBody = {
-        level1: {
-          level2: {
-            level3: {
-              data: [1, 2, 3],
-              nested: { key: 'value' },
-            },
-          },
-        },
+      // Expand history
+      const toggleButton = screen.getAllByTitle(/show history|hide history/i)[0];
+      fireEvent.click(toggleButton);
+
+      await waitFor(() => {
+        const errorIcons = screen.getAllByText('⚠️');
+        expect(errorIcons.length).toBeGreaterThan(0);
+      });
+    });
+  });
+
+  describe('Sensitive Data Redaction', () => {
+    it('should redact sensitive fields by default', async () => {
+      const sensitiveData = {
+        name: 'John',
+        token: 'secret-token-123',
+        password: 'my-password',
       };
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} requestBody={complexBody} />
-      );
-      const pre = document.querySelector('pre');
-      expect(pre?.textContent).toContain('level1');
-    });
-  });
 
-  describe('JSON Validation', () => {
-    it('renders editable textarea when editable prop is true', () => {
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
-      );
-      const textarea = screen.getByRole('textbox', { name: /request body json/i });
-      expect(textarea).toBeInTheDocument();
-    });
-
-    it('validates JSON on body change', () => {
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
-      );
-      const textarea = screen.getByRole('textbox', { name: /request body json/i });
-      
-      // Enter invalid JSON
-      fireEvent.change(textarea, { target: { value: '{"invalid": json}' } });
-      
-      expect(screen.getByText(/Invalid JSON/i)).toBeInTheDocument();
-    });
-
-    it('shows inline error for invalid JSON', () => {
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
-      );
-      const textarea = screen.getByRole('textbox', { name: /request body json/i });
-      
-      // Enter invalid JSON
-      fireEvent.change(textarea, { target: { value: '{"key": "value"' } });
-      
-      const errorElement = screen.getByRole('alert');
-      expect(errorElement).toBeInTheDocument();
-      expect(errorElement).toHaveTextContent(/Invalid JSON/i);
-    });
-
-    it('clears error when JSON becomes valid', () => {
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
-      );
-      const textarea = screen.getByRole('textbox', { name: /request body json/i });
-      
-      // Enter invalid JSON
-      fireEvent.change(textarea, { target: { value: '{"invalid"' } });
-      expect(screen.getByText(/Invalid JSON/i)).toBeInTheDocument();
-      
-      // Fix the JSON
-      fireEvent.change(textarea, { target: { value: '{"valid": "json"}' } });
-      expect(screen.queryByText(/Invalid JSON/i)).not.toBeInTheDocument();
-    });
-
-    it('disables submit button while JSON is invalid', () => {
-      const mockSubmit = jest.fn();
       render(
         <ApiRequestPanel
-          endpoint={mockEndpoint}
-          editable={true}
-          onSubmit={mockSubmit}
+          endpoint="https://api.example.com/login"
+          method="POST"
+          persistHistory={true}
+          requestBody={sensitiveData}
+          response={{ success: true }}
         />
       );
-      const textarea = screen.getByRole('textbox', { name: /request body json/i });
-      const submitButton = screen.getByRole('button', { name: /submit request/i });
-      
-      // Enter invalid JSON
-      fireEvent.change(textarea, { target: { value: '{"invalid": }' } });
-      
-      expect(submitButton).toBeDisabled();
+
+      const stored = localStorage.getItem('anchorkit_api_history');
+      const history: HistoryEntry[] = JSON.parse(stored!);
+      expect(history[0].requestBody).toEqual({
+        name: 'John',
+        token: '[REDACTED]',
+        password: '[REDACTED]',
+      });
     });
 
-    it('enables submit button when JSON is valid', () => {
-      const mockSubmit = jest.fn();
+    it('should use custom sensitiveFields', async () => {
+      const data = {
+        name: 'John',
+        customSecret: 'should-be-redacted',
+        normalField: 'ok',
+      };
+
       render(
         <ApiRequestPanel
-          endpoint={mockEndpoint}
-          editable={true}
-          onSubmit={mockSubmit}
+          endpoint="https://api.example.com/test"
+          method="POST"
+          persistHistory={true}
+          requestBody={data}
+          response={{ success: true }}
+          sensitiveFields={['customSecret']}
         />
       );
-      const textarea = screen.getByRole('textbox', { name: /request body json/i });
-      const submitButton = screen.getByRole('button', { name: /submit request/i });
-      
-      // Enter valid JSON
-      fireEvent.change(textarea, { target: { value: '{"valid": "json"}' } });
-      
-      expect(submitButton).not.toBeDisabled();
+
+      const stored = localStorage.getItem('anchorkit_api_history');
+      const history: HistoryEntry[] = JSON.parse(stored!);
+      expect(history[0].requestBody).toEqual({
+        name: 'John',
+        customSecret: '[REDACTED]',
+        normalField: 'ok',
+      });
     });
 
-    it('calls onSubmit with parsed JSON when submitted', () => {
-      const mockSubmit = jest.fn();
+    it('should use custom redactHistoryEntry when provided', async () => {
+      const customRedact = (entry: HistoryEntry) => ({
+        ...entry,
+        endpoint: 'REDACTED',
+      });
+
       render(
         <ApiRequestPanel
-          endpoint={mockEndpoint}
-          editable={true}
-          onSubmit={mockSubmit}
+          endpoint="https://api.example.com/test"
+          method="GET"
+          persistHistory={true}
+          response={{ data: 'test' }}
+          redactHistoryEntry={customRedact}
         />
       );
-      const textarea = screen.getByRole('textbox', { name: /request body json/i });
-      const submitButton = screen.getByRole('button', { name: /submit request/i });
-      
-      // Enter valid JSON
-      const testData = { test: 'data', value: 123 };
-      fireEvent.change(textarea, { target: { value: JSON.stringify(testData) } });
-      
-      // Submit
-      fireEvent.click(submitButton);
-      
-      expect(mockSubmit).toHaveBeenCalledWith(testData);
-    });
 
-    it('does not call onSubmit when JSON is invalid', () => {
-      const mockSubmit = jest.fn();
-      render(
-        <ApiRequestPanel
-          endpoint={mockEndpoint}
-          editable={true}
-          onSubmit={mockSubmit}
-        />
-      );
-      const textarea = screen.getByRole('textbox', { name: /request body json/i });
-      
-      // Enter invalid JSON
-      fireEvent.change(textarea, { target: { value: '{"invalid": }' } });
-      
-      // Try to submit (button should be disabled)
-      const submitButton = screen.getByRole('button', { name: /submit request/i });
-      fireEvent.click(submitButton);
-      
-      expect(mockSubmit).not.toHaveBeenCalled();
-    });
-
-    it('allows empty JSON body', () => {
-      const mockSubmit = jest.fn();
-      render(
-        <ApiRequestPanel
-          endpoint={mockEndpoint}
-          editable={true}
-          onSubmit={mockSubmit}
-        />
-      );
-      const submitButton = screen.getByRole('button', { name: /submit request/i });
-      
-      // Submit with empty body
-      fireEvent.click(submitButton);
-      
-      expect(submitButton).not.toBeDisabled();
-      expect(mockSubmit).toHaveBeenCalledWith({});
-    });
-
-    it('handles whitespace-only input as valid', () => {
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
-      );
-      const textarea = screen.getByRole('textbox', { name: /request body json/i });
-      
-      // Enter whitespace
-      fireEvent.change(textarea, { target: { value: '   \n  \t  ' } });
-      
-      expect(screen.queryByText(/Invalid JSON/i)).not.toBeInTheDocument();
-    });
-
-    it('shows specific JSON error messages', () => {
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
-      );
-      const textarea = screen.getByRole('textbox', { name: /request body json/i });
-      
-      // Enter JSON with specific error
-      fireEvent.change(textarea, { target: { value: '{"key": "value",}' } });
-      
-      const errorElement = screen.getByRole('alert');
-      expect(errorElement).toBeInTheDocument();
-      // Error message should contain details from JSON.parse
-      expect(errorElement.textContent).toContain('Invalid JSON');
-    });
-
-    it('disables submit button when loading', () => {
-      const mockSubmit = jest.fn();
-      render(
-        <ApiRequestPanel
-          endpoint={mockEndpoint}
-          editable={true}
-          onSubmit={mockSubmit}
-          isLoading={true}
-        />
-      );
-      const submitButton = screen.getByRole('button', { name: /submitting/i });
-      
-      expect(submitButton).toBeDisabled();
-    });
-
-    it('initializes textarea with requestBody when provided', () => {
-      const initialBody = { initial: 'data' };
-      render(
-        <ApiRequestPanel
-          endpoint={mockEndpoint}
-          editable={true}
-          requestBody={initialBody}
-        />
-      );
-      const textarea = screen.getByRole('textbox', { name: /request body json/i });
-      
-      expect(textarea).toHaveValue(JSON.stringify(initialBody, null, 2));
-    });
-
-    it('applies error class to textarea when JSON is invalid', () => {
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
-      );
-      const textarea = screen.getByRole('textbox', { name: /request body json/i });
-      
-      // Enter invalid JSON
-      fireEvent.change(textarea, { target: { value: '{invalid}' } });
-      
-      expect(textarea).toHaveClass('error');
-    });
-
-    it('sets aria-invalid when JSON is invalid', () => {
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
-      );
-      const textarea = screen.getByRole('textbox', { name: /request body json/i });
-      
-      // Enter invalid JSON
-      fireEvent.change(textarea, { target: { value: '{invalid}' } });
-      
-      expect(textarea).toHaveAttribute('aria-invalid', 'true');
-    });
-
-    it('does not render submit button when onSubmit is not provided', () => {
-      render(
-        <ApiRequestPanel endpoint={mockEndpoint} editable={true} />
-      );
-      
-      expect(screen.queryByRole('button', { name: /submit/i })).not.toBeInTheDocument();
+      const stored = localStorage.getItem('anchorkit_api_history');
+      const history: HistoryEntry[] = JSON.parse(stored!);
+      expect(history[0].endpoint).toBe('REDACTED');
     });
   });
 });

@@ -238,9 +238,9 @@ function RowDivider() {
     <div
       style={{
         height: 1,
-        background:
-          "linear-gradient(90deg, transparent, rgba(226,232,240,0.19), rgba(226,232,240,0.38), rgba(226,232,240,0.19), transparent)",
+        background: "linear-gradient(90deg, transparent, var(--ak-border), var(--ak-border), transparent)",
         margin: "2px 0",
+        opacity: 0.5,
       }}
     />
   );
@@ -410,6 +410,23 @@ function AssetsPanel({
                   {n}
                 </span>
               ))}
+              {asset.networks && asset.networks.length > 2 && (
+                <span
+                  title={asset.networks.slice(2).join(", ")}
+                  style={{
+                    fontFamily: "'Source Code Pro', monospace",
+                    fontSize: 9,
+                    fontWeight: 600,
+                    color: "var(--ak-text-muted)",
+                    background: "var(--ak-surface-2)",
+                    padding: "2px 6px",
+                    borderRadius: 4,
+                    cursor: "help",
+                  }}
+                >
+                  +{asset.networks.length - 2}
+                </span>
+              )}
             </div>
             <div
               style={{
@@ -1147,7 +1164,6 @@ export function AnchorCapabilityCard({
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Source+Code+Pro:wght@400;500;600&display=swap');
         @keyframes cap-slide-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
         @keyframes cap-fade-in  { from { opacity:0; } to { opacity:1; } }
       `}</style>
@@ -1713,7 +1729,6 @@ export default function AnchorCapabilityDemo() {
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Source+Code+Pro:wght@400;500;600&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
       `}</style>
 

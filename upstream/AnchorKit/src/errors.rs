@@ -428,7 +428,7 @@ mod tests {
 
     #[test]
     fn test_error_code_default_messages_are_non_empty() {
-let codes = [
+        let codes = [
             ErrorCode::AlreadyInitialized,
             ErrorCode::PendingAdminAlreadyExists,
             ErrorCode::NoPendingAdmin,
@@ -458,6 +458,16 @@ let codes = [
             ErrorCode::SessionNotFound,
             ErrorCode::SessionExpired,
             ErrorCode::MissingSigningKey,
+            ErrorCode::UnauthorizedProposeAdmin,
+            ErrorCode::AttestationLimitReached,
+            ErrorCode::AttestorCapExceeded,
+            ErrorCode::PathTraversalDetected,
+            ErrorCode::InvalidAmount,
+            ErrorCode::AttestationRevoked,
+            ErrorCode::AttestationExpired,
+            ErrorCode::ContractPaused,
+            ErrorCode::AdminTransferPending,
+            ErrorCode::AuditLogMaxSizeInvalid,
         ];
         for code in codes {
             assert!(!code.default_message().is_empty());

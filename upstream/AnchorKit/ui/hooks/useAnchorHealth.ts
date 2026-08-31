@@ -9,9 +9,13 @@ export interface UseAnchorHealthResult {
   /** Latest health score (0-100), or null before the first successful poll. */
   score: number | null;
   /** True only during the initial fetch before any score or error has arrived. */
+  isLoading: boolean;
+  /** @deprecated Use isLoading instead. */
   loading: boolean;
-  /** User-friendly message from the most recent failed poll; null when healthy. */
-  error: string | null;
+  /** The most recent failed poll, or null when healthy. */
+  error: Error | null;
+  /** @deprecated Use error.message instead. */
+  errorMessage: string | null;
   /** Timestamp of the most recent successful score fetch; null until first success. */
   lastUpdated: Date | null;
 }
@@ -57,7 +61,7 @@ export function useAnchorHealth(
 ): UseAnchorHealthResult {
   const [score, setScore] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Error | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // Keeps the latest function reference without adding it to effect deps,
@@ -120,8 +124,8 @@ export function useAnchorHealth(
         if (!cancelled) {
           setError(
             err instanceof Error
-              ? err.message
-              : 'Failed to fetch health score. Please try again.',
+              ? err
+              : new Error('Failed to fetch health score. Please try again.'),
           );
           setLoading(false);
         }
