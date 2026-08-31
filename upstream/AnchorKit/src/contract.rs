@@ -2227,6 +2227,19 @@ impl AnchorKitContract {
                 if !meta.is_active { continue; }
                 if meta.reputation_score < options.min_reputation { continue; }
 
+                // Check jurisdiction filter (regulated flows)
+                if options.jurisdiction.is_some() {
+                    let j_key = StorageKey::AnchorJurisdiction(fallback_anchor.clone());
+                    let anchor_jurisdiction: Option<String> =
+                        env.storage().persistent().get(&j_key);
+                    if !crate::types::anchor_matches_jurisdiction(
+                        &options.jurisdiction,
+                        &anchor_jurisdiction,
+                    ) {
+                        continue;
+                    }
+                }
+
                 // Check KYC requirement filter
                 if options.require_kyc {
                     let services_key = StorageKey::Services(fallback_anchor.clone());
@@ -2252,14 +2265,16 @@ impl AnchorKitContract {
                 };
 
                 if quote.valid_until <= now {
-                    env.events().publish(
-                        (symbol_short!("quote"),),
-                        crate::events::QuoteExpiredEvent {
-                            anchor: fallback_anchor.clone(),
-                            quote_id,
-                            valid_until: quote.valid_until,
-                        },
-                    );
+                    if emit_events {
+                        env.events().publish(
+                            (symbol_short!("quote"),),
+                            crate::events::QuoteExpiredEvent {
+                                anchor: fallback_anchor.clone(),
+                                quote_id,
+                                valid_until: quote.valid_until,
+                            },
+                        );
+                    }
                     continue;
                 }
                 if options.request.amount < quote.minimum_amount || options.request.amount > quote.maximum_amount {
@@ -2511,15 +2526,17 @@ impl AnchorKitContract {
         Self::add_to_cached_anchors(&env, &anchor);
     }
 
-    pub fn get_anchor_toml(env: Env, anchor: Address) -> StellarToml {
+    pub fn get_anchor_toml(env: Env, anchor: Address) -> Result<StellarToml, ErrorCode> {
         let key = StorageKey::TomlCache(anchor);
-        let cached: CachedToml = env.storage().temporary().get(&key)
-            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::CacheNotFound));
+        let cached: CachedToml = match env.storage().temporary().get(&key) {
+            Some(c) => c,
+            None => return Err(ErrorCode::CacheNotFound),
+        };
         let now = env.ledger().timestamp();
-        if cached.cached_at.saturating_add(cached.ttl_seconds) <= now {
-            panic_with_error!(&env, ErrorCode::CacheExpired);
+        if cached.cached_at + cached.ttl_seconds <= now {
+            return Err(ErrorCode::CacheExpired);
         }
-        cached.toml
+        Ok(cached.toml)
     }
 
     pub fn refresh_anchor_info(env: Env, anchor: Address, force: bool) {
@@ -2541,7 +2558,7 @@ impl AnchorKitContract {
         if !env.storage().temporary().has(&key) {
             return Err(ErrorCode::CacheNotFound);
         }
-        let toml = Self::get_anchor_toml(env.clone(), anchor);
+        let toml = Self::get_anchor_toml(env.clone(), anchor)?;
         let mut assets = Vec::new(&env);
         for asset in toml.currencies.iter() {
             assets.push_back(asset.code.clone());
@@ -2551,6 +2568,7 @@ impl AnchorKitContract {
 
     /// Return the fiat currencies supported by `anchor` from its cached stellar.toml.
     /// Returns `Err(ErrorCode::CacheNotFound)` when no TOML has been cached for this anchor.
+    /// Returns `Err(ErrorCode::CacheExpired)` when the cached TOML has expired.
     pub fn get_anchor_currencies(
         env: Env,
         anchor: Address,
@@ -2559,18 +2577,18 @@ impl AnchorKitContract {
         if !env.storage().temporary().has(&key) {
             return Err(ErrorCode::CacheNotFound);
         }
-        let toml = Self::get_anchor_toml(env.clone(), anchor);
+        let toml = Self::get_anchor_toml(env.clone(), anchor)?;
         Ok(toml.fiat_currencies)
     }
 
-    pub fn get_anchor_asset_info(env: Env, anchor: Address, asset_code: String) -> AssetInfo {
-        let toml = Self::get_anchor_toml(env.clone(), anchor);
+    pub fn get_anchor_asset_info(env: Env, anchor: Address, asset_code: String) -> Result<AssetInfo, ErrorCode> {
+        let toml = Self::get_anchor_toml(env.clone(), anchor)?;
         for asset in toml.currencies.iter() {
             if asset.code == asset_code {
-                return asset;
+                return Ok(asset);
             }
         }
-        panic_with_error!(&env, ErrorCode::ValidationError);
+        Err(ErrorCode::ValidationError)
     }
 
     pub fn get_anchor_deposit_limits(env: Env, anchor: Address, asset_code: String) -> Result<(u64, u64), ErrorCode> {
@@ -2578,7 +2596,7 @@ impl AnchorKitContract {
         if !env.storage().temporary().has(&key) {
             return Err(ErrorCode::CacheNotFound);
         }
-        let asset = Self::get_anchor_asset_info(env, anchor, asset_code);
+        let asset = Self::get_anchor_asset_info(env, anchor, asset_code)?;
         Ok((asset.deposit_min_amount, asset.deposit_max_amount))
     }
 
@@ -2587,34 +2605,36 @@ impl AnchorKitContract {
         if !env.storage().temporary().has(&key) {
             return Err(ErrorCode::CacheNotFound);
         }
-        let asset = Self::get_anchor_asset_info(env, anchor, asset_code);
+        let asset = Self::get_anchor_asset_info(env, anchor, asset_code)?;
         Ok((asset.withdrawal_min_amount, asset.withdrawal_max_amount))
     }
 
-    pub fn get_anchor_deposit_fees(env: Env, anchor: Address, asset_code: String) -> (u64, u32) {
-        let asset = Self::get_anchor_asset_info(env, anchor, asset_code);
-        (asset.deposit_fee_fixed, asset.deposit_fee_percent)
+    pub fn get_anchor_deposit_fees(env: Env, anchor: Address, asset_code: String) -> Result<(u64, u32), ErrorCode> {
+        let asset = Self::get_anchor_asset_info(env, anchor, asset_code)?;
+        Ok((asset.deposit_fee_fixed, asset.deposit_fee_percent))
     }
 
-    pub fn get_anchor_withdrawal_fees(env: Env, anchor: Address, asset_code: String) -> (u64, u32) {
-        let asset = Self::get_anchor_asset_info(env, anchor, asset_code);
-        (asset.withdrawal_fee_fixed, asset.withdrawal_fee_percent)
+    pub fn get_anchor_withdrawal_fees(env: Env, anchor: Address, asset_code: String) -> Result<(u64, u32), ErrorCode> {
+        let asset = Self::get_anchor_asset_info(env, anchor, asset_code)?;
+        Ok((asset.withdrawal_fee_fixed, asset.withdrawal_fee_percent))
     }
 
     pub fn anchor_supports_deposits(
         env: Env,
         anchor: Address,
         asset_code: String,
-    ) -> bool {
-        Self::get_anchor_asset_info(env, anchor, asset_code).deposit_enabled
+    ) -> Result<bool, ErrorCode> {
+        let asset = Self::get_anchor_asset_info(env, anchor, asset_code)?;
+        Ok(asset.deposit_enabled)
     }
 
     pub fn anchor_supports_withdrawals(
         env: Env,
         anchor: Address,
         asset_code: String,
-    ) -> bool {
-        Self::get_anchor_asset_info(env, anchor, asset_code).withdrawal_enabled
+    ) -> Result<bool, ErrorCode> {
+        let asset = Self::get_anchor_asset_info(env, anchor, asset_code)?;
+        Ok(asset.withdrawal_enabled)
     }
 
     // -----------------------------------------------------------------------
