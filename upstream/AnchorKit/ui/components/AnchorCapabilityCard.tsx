@@ -238,9 +238,9 @@ function RowDivider() {
     <div
       style={{
         height: 1,
-        background:
-          "linear-gradient(90deg, transparent, rgba(226,232,240,0.19), rgba(226,232,240,0.38), rgba(226,232,240,0.19), transparent)",
+        background: "linear-gradient(90deg, transparent, var(--ak-border), var(--ak-border), transparent)",
         margin: "2px 0",
+        opacity: 0.5,
       }}
     />
   );
@@ -410,6 +410,23 @@ function AssetsPanel({
                   {n}
                 </span>
               ))}
+              {asset.networks && asset.networks.length > 2 && (
+                <span
+                  title={asset.networks.slice(2).join(", ")}
+                  style={{
+                    fontFamily: "'Source Code Pro', monospace",
+                    fontSize: 9,
+                    fontWeight: 600,
+                    color: "var(--ak-text-muted)",
+                    background: "var(--ak-surface-2)",
+                    padding: "2px 6px",
+                    borderRadius: 4,
+                    cursor: "help",
+                  }}
+                >
+                  +{asset.networks.length - 2}
+                </span>
+              )}
             </div>
             <div
               style={{
