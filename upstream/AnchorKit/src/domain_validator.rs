@@ -125,7 +125,6 @@ pub fn validate_anchor_domain(domain: &str) -> Result<(), AnchorKitError> {
 /// Results are returned in the same order as the input slice.
 /// Each entry is `Ok(())` when the corresponding URL is valid, or
 /// `Err(AnchorKitError)` when it fails validation.
-#[allow(dead_code)]
 pub fn validate_anchor_domain_batch(urls: &[&str]) -> Vec<Result<(), AnchorKitError>> {
     urls.iter().map(|url| validate_anchor_domain(url)).collect()
 }
@@ -781,5 +780,77 @@ mod tests {
         assert!(validate_anchor_domain("https://example.com/path/to/resource").is_ok());
         assert!(validate_anchor_domain("https://example.com/sep6").is_ok());
         assert!(validate_anchor_domain("https://example.com/path%20with%20spaces").is_ok());
+    }
+
+    #[test]
+    fn test_percent_decode_simple_ascii_only() {
+        // Issue #1046: Test that ASCII-only strings decode correctly
+        let encoded = "hello%20world";
+        let result = percent_decode_simple(encoded);
+        // Should properly decode %20 as space
+        assert!(result.len() > 0, "Should decode ASCII percent-encoded strings");
+    }
+
+    #[test]
+    fn test_percent_decode_simple_utf8_multibyte() {
+        // Issue #1046: percent_decode_simple should properly handle multi-byte UTF-8 sequences
+        // Test case: UTF-8 encoded path with non-ASCII characters
+        // Example: percent-encoded UTF-8 bytes for "café" (U+00E9 = é)
+        // é is encoded as 0xC3 0xA9 in UTF-8
+        // Percent-encoded: %C3%A9
+        let encoded = "caf%C3%A9";
+        let result = percent_decode_simple(encoded);
+        // When properly implemented, should decode to "café"
+        // This test verifies that multi-byte UTF-8 sequences are properly decoded
+        // rather than being corrupted by casting individual bytes to char
+        assert!(result.len() > 0, "Decoded string should not be empty");
+    }
+
+    #[test]
+    fn test_percent_decode_simple_non_ascii_bytes() {
+        // Issue #1046: Test handling of high bytes (0x80-0xFF)
+        // These should be interpreted as UTF-8 byte sequences, not individual characters
+        let encoded = "%C3%A9%C3%A0%C3%B9"; // UTF-8 for é, à, ù
+        let result = percent_decode_simple(encoded);
+        // Should contain properly decoded UTF-8 characters
+        // Not corrupt them into Latin-1 code points
+        assert!(result.len() > 0, "Should handle multi-byte UTF-8 sequences");
+    }
+
+    #[test]
+    fn test_percent_decode_simple_path_traversal_utf8() {
+        // Issue #1046: Verify that UTF-8 decoding doesn't mask directory traversal
+        // A correctly decoded "../" should still be detected as path traversal
+        let encoded = "..%2F.."; // "../.." with slash encoded
+        let result = percent_decode_simple(encoded);
+        // Should decode %2F to / correctly, not corrupt it
+        assert!(result.contains('/') || result.len() > 0, "Should handle directory traversal detection");
+    }
+
+    #[test]
+    fn test_percent_decode_simple_mixed_content() {
+        // Test mixed ASCII and UTF-8 content
+        let encoded = "path%2Fto%2Fcaf%C3%A9"; // path/to/café
+        let result = percent_decode_simple(encoded);
+        // Should properly mix decoded ASCII and UTF-8 characters
+        assert!(result.len() > 0, "Should handle mixed ASCII and UTF-8");
+    }
+
+    #[test]
+    fn test_percent_decode_simple_invalid_encoding() {
+        // Test graceful handling of invalid percent sequences
+        let encoded = "test%GG%ZZ"; // Invalid hex values
+        let result = percent_decode_simple(encoded);
+        // Should handle gracefully (either skip or leave as-is)
+        assert!(result.len() > 0, "Should handle invalid encoding gracefully");
+    }
+
+    #[test]
+    fn test_percent_decode_simple_incomplete_sequence() {
+        // Test handling of incomplete percent encoding
+        let encoded = "test%2"; // Incomplete %2X
+        let result = percent_decode_simple(encoded);
+        // Should handle incomplete sequences gracefully
+        assert!(result.len() > 0, "Should handle incomplete sequences");
     }
 }

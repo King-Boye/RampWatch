@@ -170,8 +170,7 @@ export const ApiRequestPanel: React.FC<ApiRequestPanelProps> = ({
       ? redactHistoryEntry(rawEntry)
       : redactEntry(rawEntry, sensitiveFields);
     setHistory((prev) => [entry, ...prev].slice(0, HISTORY_MAX));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [response, error]);
+  }, [response, error, endpoint, method, requestBody, persistHistory, isLoading, redactHistoryEntry, sensitiveFields]);
 
   useEffect(() => {
     setEditableBody(requestBody ? formatJson(requestBody) : '');

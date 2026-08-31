@@ -31,6 +31,8 @@ export interface UseRateLimitStatusResult {
   /** The latest rate-limit snapshot, or `null` before the first successful fetch. */
   status: RateLimitStatus | null;
   /** `true` while an RPC call is in-flight. */
+  isLoading: boolean;
+  /** @deprecated Use isLoading instead. */
   loading: boolean;
   /** The last fetch error, or `null` on success / before the first fetch. */
   error: Error | null;
@@ -52,10 +54,55 @@ export interface UseRateLimitStatusOptions {
 }
 
 // ── Module-level cache ────────────────────────────────────────────────────────
-// Keyed by attestor address.  Shared across hook instances to avoid duplicate
+// Keyed by attestor address. Shared across hook instances to avoid duplicate
 // RPC calls when multiple components mount with the same attestor.
+// Implements LRU (Least Recently Used) eviction to prevent unbounded growth.
 
-const cache = new Map<string, { status: RateLimitStatus; fetchedAt: number }>();
+const MAX_CACHE_SIZE = 50; // Maximum number of cached attestors
+
+class LRUCache<K, V> {
+  private map = new Map<K, { value: V; timestamp: number }>();
+  private maxSize: number;
+
+  constructor(maxSize: number = MAX_CACHE_SIZE) {
+    this.maxSize = maxSize;
+  }
+
+  get(key: K): V | undefined {
+    const entry = this.map.get(key);
+    if (entry) {
+      // Move to end (most recently used)
+      this.map.delete(key);
+      this.map.set(key, entry);
+      return entry.value;
+    }
+    return undefined;
+  }
+
+  set(key: K, value: V): void {
+    // Remove if exists to update position
+    this.map.delete(key);
+
+    // Add new entry at end
+    this.map.set(key, { value, timestamp: Date.now() });
+
+    // Evict least recently used if over capacity
+    if (this.map.size > this.maxSize) {
+      const firstKey = this.map.keys().next().value;
+      this.map.delete(firstKey);
+    }
+  }
+
+  delete(key: K): void {
+    this.map.delete(key);
+  }
+
+  clear(): void {
+    this.map.clear();
+  }
+}
+
+const cache = new LRUCache<string, { status: RateLimitStatus; fetchedAt: number }>(MAX_CACHE_SIZE);
 
 /** Clear the module-level cache.  Call in `afterEach` to isolate tests. */
 export function clearRateLimitCache(): void {
@@ -169,5 +216,5 @@ export function useRateLimitStatus(
     fetchStatus();
   }, [attestor, fetchStatus]);
 
-  return { status, loading, error, refresh };
+  return { status, isLoading: loading, loading, error, refresh };
 }

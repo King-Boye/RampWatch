@@ -76,30 +76,6 @@ pub enum StorageKey {
     // requires a Vec<Symbol> key; they are defined as named constants below.
 }
 
-/// Module-specific storage key variants for Sessions module.
-#[contracttype]
-#[derive(Clone)]
-pub enum SessionModuleKey {
-    /// Session counter for generating unique session IDs.
-    Counter,
-}
-
-/// Module-specific storage key variants for Attestations module.
-#[contracttype]
-#[derive(Clone)]
-pub enum AttestationModuleKey {
-    /// Attestation counter for generating unique attestation IDs.
-    Counter,
-}
-
-/// Module-specific storage key variants for RateLimiter module.
-#[contracttype]
-#[derive(Clone)]
-pub enum RateLimiterModuleKey {
-    /// Rate limiter configuration key.
-    Config,
-}
-
 // Instance-storage counter keys (Vec<Symbol>).
 // Defined as functions returning the canonical key to avoid repetition.
 use soroban_sdk::{symbol_short, Env, Symbol, Vec};

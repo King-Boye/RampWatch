@@ -83,7 +83,8 @@ export function useCopyToClipboard(
   const copy = useCallback(
     async (text: string): Promise<boolean> => {
       try {
-        // Try modern clipboard API first
+        let copied = false;
+
         if (navigator?.clipboard?.writeText) {
           await navigator.clipboard.writeText(text);
           setCopiedText(text);

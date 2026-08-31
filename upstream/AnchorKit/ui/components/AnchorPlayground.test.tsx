@@ -232,6 +232,40 @@ describe('AnchorPlayground', () => {
       const toggleButton = screen.getByRole('button', { name: /Light Mode|Dark Mode/i });
       expect(toggleButton).toBeInTheDocument();
     });
+
+    it('updates when the OS theme changes after mount', () => {
+      const listeners = new Set<(event: MediaQueryListEvent) => void>();
+      let matches = false;
+
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        value: jest.fn().mockImplementation(() => ({
+          matches,
+          media: '(prefers-color-scheme: dark)',
+          addEventListener: (_event: string, listener: (event: MediaQueryListEvent) => void) => {
+            listeners.add(listener);
+          },
+          removeEventListener: (_event: string, listener: (event: MediaQueryListEvent) => void) => {
+            listeners.delete(listener);
+          },
+          addListener: (_listener: (event: MediaQueryListEvent) => void) => {
+            listeners.add(_listener);
+          },
+          removeListener: (_listener: (event: MediaQueryListEvent) => void) => {
+            listeners.delete(_listener);
+          },
+          dispatchEvent: () => false,
+        })),
+      });
+
+      render(<AnchorPlayground />);
+      expect(screen.getByRole('button', { name: /Dark Mode/i })).toBeInTheDocument();
+
+      matches = true;
+      listeners.forEach((listener) => listener({ matches: true } as MediaQueryListEvent));
+
+      expect(screen.getByRole('button', { name: /Light Mode/i })).toBeInTheDocument();
+    });
   });
 
   describe('Request Functionality', () => {
