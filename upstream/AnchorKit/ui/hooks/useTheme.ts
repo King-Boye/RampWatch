@@ -8,7 +8,7 @@ function getInitialDark(): boolean {
     if (saved === "dark") return true;
     if (saved === "light") return false;
   }
-  if (typeof window !== "undefined") {
+  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   }
   return false;
@@ -31,6 +31,10 @@ export function useTheme(override?: boolean): boolean {
   const isDark = override !== undefined ? override : sysDark;
 
   useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     setSysDark(mq.matches);
     const handler = (e: MediaQueryListEvent) => setSysDark(e.matches);

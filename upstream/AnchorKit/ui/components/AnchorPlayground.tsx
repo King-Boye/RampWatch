@@ -546,8 +546,8 @@ const SendIcon = () => (
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function AnchorPlayground() {
-  const sysDark = useTheme();
-  const [dark, setDark] = useState(sysDark);
+  const [manualDark, setManualDark] = useState<boolean | undefined>(undefined);
+  const dark = useTheme(manualDark);
   const [domain, setDomain] = useState("testanchor.stellar.org");
   const [activeSEP, setActiveSEP] = useState<SEPProtocol>(SEP_PROTOCOLS[0]);
   const [activeEp, setActiveEp] = useState<Endpoint>(
@@ -1003,7 +1003,7 @@ export default function AnchorPlayground() {
 
           {/* Dark/Light toggle */}
           <button
-            onClick={() => setDark((d) => !d)}
+            onClick={() => setManualDark((prev) => (prev === undefined ? !dark : !prev))}
             style={{
               display: "flex",
               alignItems: "center",

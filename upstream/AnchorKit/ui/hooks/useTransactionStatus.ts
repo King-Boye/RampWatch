@@ -27,7 +27,7 @@ export interface UseTransactionStatusResult {
   status: TxStatus | null;
   /** Ordered list of recorded status transitions. */
   transitions: TransactionTransition[];
-  /** True when status is "completed" or "failed" (polling has stopped). */
+  /** True when status is terminal (completed, failed, or refunded). */
   isTerminal: boolean;
   /** True while the initial fetch is still waiting on the first successful poll. */
   isLoading: boolean;
