@@ -959,7 +959,6 @@ export default function SEP10AuthFlow() {
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
         @keyframes sep10-ping { 0%{transform:scale(1);opacity:0.7} 100%{transform:scale(1.9);opacity:0} }
         @keyframes sep10-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
         @keyframes sep10-spin { to{transform:rotate(360deg)} }

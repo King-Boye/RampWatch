@@ -684,7 +684,6 @@ export function JsonViewer({
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap');
         @keyframes jv-expand { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
         @keyframes jv-pulse  { 0%,100%{opacity:1} 50%{opacity:0.4} }
         .jv-node-row:hover { background: rgba(255,255,255,0.025) !important; }
@@ -1267,7 +1266,6 @@ export default function JsonViewerDemo() {
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }

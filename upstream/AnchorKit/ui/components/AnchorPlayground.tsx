@@ -2473,7 +2473,6 @@ export default function AnchorPlayground() {
 
       {/* CSS keyframes */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
         @keyframes skeleton-shimmer {
