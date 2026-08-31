@@ -108,6 +108,10 @@ const INSTANCE_TTL: u32 = 518_400;
 const SESSION_TTL: u64 = 86_400;
 /// Session storage TTL in ledgers (~24 hours at 5s/ledger).
 const SESSION_LEDGER_TTL: u32 = 17_280;
+/// Maximum caller-supplied TTL for cached TOML entries (~136 years). Caps
+/// ttl_override in fetch_anchor_info so that cached_at + ttl_seconds never
+/// overflows u64 in the expiry arithmetic inside get_anchor_toml.
+const MAX_TTL_SECONDS: u64 = u32::MAX as u64;
 
 /// Maximum number of attestors that can be registered simultaneously.
 pub const MAX_ATTESTORS: u64 = 100;
@@ -1563,10 +1567,14 @@ impl AnchorKitContract {
 
     pub fn get_session_operation_count(env: Env, session_id: u64) -> Option<u64> {
         let sess_key = StorageKey::Session(session_id);
-        if !env.storage().persistent().has(&sess_key) {
+        let session: Session = match env.storage().persistent().get::<_, Session>(&sess_key) {
+            Some(s) => s,
+            None => return None,
+        };
+        let now = env.ledger().timestamp();
+        if now >= session.expires_at {
             return None;
         }
-        Self::check_session_expiry(&env, session_id);
         Some(
             env.storage()
                 .persistent()
@@ -2109,6 +2117,8 @@ impl AnchorKitContract {
     /// - `"LowestFee"` — lowest `fee_percentage`
     /// - `"FastestSettlement"` — lowest `average_settlement_time`
     /// - `"HighestReputation"` — highest `reputation_score`
+    /// - `"Balanced"` — composite score blending fee, speed, and reputation
+    /// - `"Weighted"` — health-score-proportional random selection among candidates
     ///
     /// An empty `strategy` vec panics with `NoQuotesAvailable`.
     /// An unrecognised symbol panics with `InvalidStrategy`.
@@ -2485,6 +2495,9 @@ impl AnchorKitContract {
 
         let now = env.ledger().timestamp();
         let ttl_seconds = ttl_override.unwrap_or(3600);
+        if ttl_seconds > MAX_TTL_SECONDS {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
         let cached = CachedToml {
             toml: toml_data,
             cached_at: now,
@@ -2503,7 +2516,7 @@ impl AnchorKitContract {
         let cached: CachedToml = env.storage().temporary().get(&key)
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::CacheNotFound));
         let now = env.ledger().timestamp();
-        if cached.cached_at + cached.ttl_seconds <= now {
+        if cached.cached_at.saturating_add(cached.ttl_seconds) <= now {
             panic_with_error!(&env, ErrorCode::CacheExpired);
         }
         cached.toml
