@@ -502,6 +502,23 @@ mod tests {
         });
     }
 
+    #[test]
+    fn test_clear_cache_allows_self_authorization_vulnerability() {
+        with_contract(|env| {
+            let mut tracker = TransactionStateTracker::new();
+            let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+            let unprivileged_user = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+            tracker.create_transaction(1, initiator.clone(), &env).ok();
+            assert_eq!(tracker.cache_size(), 1);
+
+            // Vulnerability: unprivileged user can clear cache by self-authorizing when mock_all_auths is enabled
+            let clear_result = tracker.clear_cache(&unprivileged_user, &env);
+            assert!(clear_result.is_ok());
+            assert_eq!(tracker.cache_size(), 0);
+        });
+    }
+
     // -----------------------------------------------------------------------
     // State-machine transition validation tests
     // -----------------------------------------------------------------------
