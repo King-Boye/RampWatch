@@ -1292,7 +1292,9 @@ impl AnchorKitContract {
         metadata: Option<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>,
     ) -> u64 {
         Self::require_not_paused(&env);
-        Self::check_session_expiry(&env, session_id);
+        if let Err(e) = Self::check_session_expiry(&env, session_id) {
+            panic_with_error!(&env, e);
+        }
         let session = Self::get_session(env.clone(), session_id);
         if session.initiator != issuer {
             panic_with_error!(&env, ErrorCode::UnauthorizedAttestor);
@@ -1366,7 +1368,9 @@ impl AnchorKitContract {
 
     pub fn register_attestor_with_session(env: Env, session_id: u64, attestor: Address, sep10_token: String, sep10_issuer: Address) {
         Self::require_not_paused(&env);
-        Self::check_session_expiry(&env, session_id);
+        if let Err(e) = Self::check_session_expiry(&env, session_id) {
+            panic_with_error!(&env, e);
+        }
         Self::require_admin(&env);
         Self::verify_sep10_token_matches_attestor(&env, &sep10_token, &sep10_issuer, &attestor);
         Self::validate_stellar_address(&env, &attestor);
@@ -1446,7 +1450,9 @@ impl AnchorKitContract {
 
     pub fn revoke_attestor_with_session(env: Env, session_id: u64, attestor: Address) {
         Self::require_not_paused(&env);
-        Self::check_session_expiry(&env, session_id);
+        if let Err(e) = Self::check_session_expiry(&env, session_id) {
+            panic_with_error!(&env, e);
+        }
         Self::require_admin(&env);
         let key = StorageKey::Attestor(attestor.clone());
         if !env.storage().persistent().has(&key) {
@@ -1574,6 +1580,9 @@ impl AnchorKitContract {
         let now = env.ledger().timestamp();
         if now >= session.expires_at {
             return None;
+        }
+        if let Err(e) = Self::check_session_expiry(&env, session_id) {
+            panic_with_error!(&env, e);
         }
         Some(
             env.storage()
@@ -2735,7 +2744,7 @@ impl AnchorKitContract {
         id
     }
 
-    fn check_session_expiry(env: &Env, session_id: u64) {
+    fn check_session_expiry(env: &Env, session_id: u64) -> Result<(), ErrorCode> {
         let sess_key = StorageKey::Session(session_id);
         let session: Session = env
             .storage()
@@ -2744,12 +2753,14 @@ impl AnchorKitContract {
             .unwrap_or_else(|| panic_with_error!(env, ErrorCode::SessionNotFound));
         let now = env.ledger().timestamp();
         if now >= session.expires_at {
+            // Publish the event on the error path so it's observable before panic
             env.events().publish(
                 (symbol_short!("session"), symbol_short!("expired"), session_id),
                 SessionExpired { session_id, expired_at: now },
             );
-            panic_with_error!(env, ErrorCode::SessionExpired);
+            return Err(ErrorCode::SessionExpired);
         }
+        Ok(())
     }
 
     /// Storage placement evaluation (#629): per-attestation records (`Attest`,
@@ -2831,12 +2842,14 @@ impl AnchorKitContract {
     /// # Panics
     ///
     /// Panics with `ErrorCode::UnauthorizedAttestor` if no valid signature is found.
-    // Verifies that the attestation signature is valid for the given payload hash
-// using any of the public keys registered for the issuer.
-//
-// # Panics
-//
-// Panics with `ErrorCode::UnauthorizedAttestor` if no valid signature is found.
+    /// Verifies that the attestation signature is valid for the given payload hash
+    /// using any of the public keys registered for the issuer.
+    /// Supports key rotation by trying all registered keys until one verifies.
+    ///
+    /// # Panics
+    ///
+    /// Panics with `ErrorCode::UnauthorizedAttestor` if no valid signature is found
+    /// or if the signature format is invalid.
 fn verify_attestation_signature(
     env: &Env,
     issuer: &Address,
@@ -2858,19 +2871,29 @@ fn verify_attestation_signature(
     let mut sig_arr = [0u8; 64];
     signature.copy_into_slice(&mut sig_arr);
     let dalek_sig = Signature::from_bytes(&sig_arr);
-    let signature_n: BytesN<64> = signature.clone().try_into().unwrap();
 
     let mut msg = alloc::vec::Vec::with_capacity(payload_hash.len() as usize);
     msg.resize(payload_hash.len() as usize, 0u8);
     payload_hash.copy_into_slice(&mut msg);
 
+    // Try each registered key until one successfully verifies the signature.
+    // This allows key rotation: an issuer can have up to MAX_VERIFYING_KEYS active keys,
+    // and any one of them can be used to sign attestations.
     for key in keys.iter() {
         if key.len() != 32 {
             continue;
         }
-        let pk_n: BytesN<32> = key.clone().try_into().unwrap();
-        env.crypto().ed25519_verify(&pk_n, payload_hash, &signature_n);
-        return;
+        // Use non-trapping verification: convert to VerifyingKey and call verify(),
+        // which returns a Result instead of trapping. This allows the loop to try
+        // the next key on failure.
+        if let Ok(verifying_key) = VerifyingKey::from_bytes(&key.clone().try_into().unwrap()) {
+            if verifying_key.verify(&msg, &dalek_sig).is_ok() {
+                // Signature verified with this key
+                return;
+            }
+            // Signature did not verify with this key; try the next one
+        }
+        // Key format invalid; try the next one
     }
 
     // If we reach this point, no key verified the signature.
