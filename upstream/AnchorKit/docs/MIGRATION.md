@@ -407,7 +407,7 @@ All new methods are additive and do not affect existing integrations unless you 
 | `RateLimitExceeded` | 16 | Request rate limit exceeded |
 | `CacheExpired` | 48 | Cache entry exists but its TTL has elapsed |
 | `CacheNotFound` | 49 | No cache entry found for the given key |
-| `StorageCorrupted` | 50 | On-chain storage entry is unreadable |
+| `StorageCorrupted` | 19 | On-chain storage entry is unreadable |
 | `AuditLogMaxSizeInvalid` | 51 | `max_audit_log_size` was set to zero |
 
 ---
