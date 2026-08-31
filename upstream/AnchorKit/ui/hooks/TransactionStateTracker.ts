@@ -14,6 +14,16 @@ export interface TransactionSnapshot {
   isTerminal: boolean;
 }
 
+const VALID_STATUSES = new Set<TxStatus>([
+  'initiated',
+  'awaiting_user',
+  'pending',
+  'processing',
+  'completed',
+  'failed',
+  'refunded',
+]);
+
 const TERMINAL_STATUSES = new Set<TxStatus>(['completed', 'failed', 'refunded']);
 
 export function isTerminalStatus(status: TxStatus): boolean {
