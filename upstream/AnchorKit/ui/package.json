@@ -12,7 +12,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "lint": "eslint components/**/*.{ts,tsx}",
+    "lint": "eslint \"{components,hooks,src,.storybook}/**/*.{ts,tsx}\"",
     "type-check": "tsc --noEmit",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
