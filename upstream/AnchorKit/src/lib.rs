@@ -15,7 +15,7 @@ mod storage;
 mod transaction_state_tracker;
 pub mod transport;
 mod types;
-mod sep6;
+pub mod sep6;
 
 pub use errors::{AnchorKitError, ErrorCode};
 
