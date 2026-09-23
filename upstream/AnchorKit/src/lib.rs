@@ -9,7 +9,7 @@ mod events;
 mod rate_limiter;
 mod response_validator;
 mod retry;
-mod sep10_jwt;
+pub mod sep10_jwt;
 pub mod sdk_config;
 mod storage;
 mod transaction_state_tracker;
