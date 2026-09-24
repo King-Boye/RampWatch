@@ -41,6 +41,8 @@ list every role they accept.
 | POST | `/api/agents` | `adminApiKey \|\| agent/admin token` | Audit-logged |
 | GET | `/api/agents/:id` | `public` | Returns only non-sensitive registration data |
 | PUT | `/api/agents/:id/payout-address` | `adminApiKey \|\| agent/admin token` | Redirects money — audit-logged |
+| GET | `/api/agents/:id/reputation` | `public` | Aggregated reputation score and history; no sensitive data |
+| POST | `/api/agents/:id/reputation` | `adminApiKey \|\| agent/admin token` | Records a reputation event — audit-logged |
 | GET | `/api/accounts/:address/stellar-fees` | `requireAuth` | Exposes per-account chain data |
 | GET | `/api/analytics/corridors` | `adminApiKey` | Pre-existing; audit-logged |
 | GET | `/api/analytics/timeseries` | `adminApiKey` | Pre-existing; audit-logged |
@@ -73,6 +75,21 @@ written by `services/auditLog.ts` and carry:
 Audit records are append-only and never include secrets, tokens, or password
 material. The routes marked "audit-logged" above are the ones that must emit a
 record; `src/__tests__/audit-log.test.ts` asserts each one does.
+
+## Agent reputation
+
+The agent reputation system (roadmap item #1570) exposes a per-agent score
+derived from append-only reputation events. It follows the same authorisation
+and audit rules as the rest of the agent surface:
+
+- `GET /api/agents/:id/reputation` is `public` and returns only the aggregate
+  score, event count, and non-sensitive event history — never payout addresses,
+  credentials, or other private registration data.
+- `POST /api/agents/:id/reputation` records a new event and is restricted to
+  `adminApiKey` or an `agent`/`admin` token, matching the other agent-mutating
+  routes. Every write is audit-logged with action `agent.reputation.record`.
+- Reputation events are append-only; the score is recomputed from the event log
+  rather than mutated in place, so history cannot be silently rewritten.
 
 ## GraphQL
 
