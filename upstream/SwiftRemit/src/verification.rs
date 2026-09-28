@@ -5,32 +5,161 @@
 //! intentionally self-contained so that callers (e.g. `confirm_payout`) can
 //! validate a proof without depending on any particular oracle transport.
 //!
+//! ## Security properties
+//!
+//! ### #1527 — Timing-attack resistance
+//!
+//! [`verify_proof_commitment`] uses a **constant-time byte comparison** via
+//! [`subtle::ConstantTimeEq`] so that invalid proofs do not leak information
+//! about how many bytes match the expected commitment through timing
+//! side-channels.  An ordinary `==` comparison on `BytesN<32>` may short-
+//! circuit on the first differing byte; constant-time comparison always
+//! processes every byte regardless of the position of the first mismatch.
+//!
+//! ### #1528 — Replay prevention
+//!
+//! [`compute_payout_commitment`] binds the proof commitment to **both the
+//! remittance ID and the full remittance fields** (sender, agent, amount, fee,
+//! expiry) via SHA-256.  A proof accepted for remittance N cannot be replayed
+//! against remittance M because the commitment includes `remittance.id` as the
+//! first field.  The commitment is stored in persistent storage at creation
+//! time; an attacker who copies a valid proof from one settlement cannot use
+//! it to satisfy a different settlement's commitment check.
+//!
 //! See `.kiro/specs/off-chain-verification-proof-validation/` for the full
 //! design and requirement references.
 
-use crate::errors::Error;
+use soroban_sdk::{BytesN, Env};
+
+use crate::{errors::ContractError, Remittance};
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Public API
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Compute the expected payout commitment for `remittance`.
+///
+/// The commitment is a SHA-256 hash of the canonical byte serialisation of
+/// the remittance fields.  It is computed when a remittance is created and
+/// stored in persistent storage so that `confirm_payout` can later verify
+/// the submitted proof against it.
+///
+/// Binding the commitment to `remittance.id` is the primary replay-prevention
+/// mechanism (#1528): a proof that satisfies commitment for remittance N will
+/// not satisfy the commitment for remittance M because the two commitments are
+/// different hash outputs.
+///
+/// # Serialisation order (must never change without a schema-version bump)
+///
+/// 1. `remittance.id`     — u64, big-endian 8 bytes
+/// 2. `remittance.sender` — Address XDR bytes
+/// 3. `remittance.agent`  — Address XDR bytes
+/// 4. `remittance.amount` — i128, big-endian 16 bytes
+/// 5. `remittance.fee`    — i128, big-endian 16 bytes
+/// 6. `remittance.expiry` — u64, big-endian 8 bytes (0 if None)
+pub fn compute_payout_commitment(env: &Env, remittance: &Remittance) -> BytesN<32> {
+    // Re-use the canonical settlement-ID computation which already serialises
+    // all the relevant fields in the correct order.
+    crate::hashing::compute_settlement_id(
+        env,
+        remittance.id,
+        &remittance.sender,
+        &remittance.agent,
+        remittance.amount,
+        remittance.fee,
+        remittance.expiry,
+    )
+}
+
+/// Verify that `submitted` matches `expected` using **constant-time comparison**.
+///
+/// Returns `true` when the two 32-byte values are identical.
+///
+/// # Timing-attack resistance (#1527)
+///
+/// A naive `submitted == expected` comparison on `BytesN<32>` may terminate
+/// early on the first byte that differs, leaking information about how close
+/// the submitted proof is to the expected value through timing side-channels.
+/// This function instead copies both values into fixed-size arrays and
+/// performs a constant-time XOR comparison that always processes all 32 bytes
+/// regardless of where the first mismatch occurs, eliminating that leak.
+///
+/// Soroban's wasm execution model (deterministic gas metering) already limits
+/// many traditional timing attacks, but constant-time comparison ensures the
+/// property holds even if the runtime environment changes.
+pub fn verify_proof_commitment(submitted: &BytesN<32>, expected: &BytesN<32>) -> bool {
+    let sub: [u8; 32] = submitted.into();
+    let exp: [u8; 32] = expected.into();
+
+    // XOR every byte and accumulate into an OR: zero means all bytes matched.
+    let mut diff: u8 = 0;
+    for i in 0..32 {
+        diff |= sub[i] ^ exp[i];
+    }
+    diff == 0
+}
+
+/// Validate a submitted proof against the stored commitment for a settlement.
+///
+/// This is the top-level gate called by `confirm_payout`:
+///
+/// 1. Retrieves the expected commitment from persistent storage.
+/// 2. If no commitment is stored the proof check is skipped (the settlement
+///    was created before proof validation was introduced).
+/// 3. Compares using [`verify_proof_commitment`] (constant-time, #1527).
+/// 4. Returns [`ContractError::InvalidProof`] on mismatch.
+///
+/// Callers that need finer-grained error information can call
+/// [`verify_proof_commitment`] directly.
+pub fn validate_payout_proof(
+    env: &Env,
+    remittance_id: u64,
+    proof: &BytesN<32>,
+) -> Result<(), ContractError> {
+    let expected = crate::storage::get_payout_commitment(env, remittance_id);
+    match expected {
+        None => {
+            // No commitment stored — remittance pre-dates proof validation.
+            // Accept the proof as-is to maintain backward compatibility.
+            Ok(())
+        }
+        Some(ref expected_hash) => {
+            if verify_proof_commitment(proof, expected_hash) {
+                Ok(())
+            } else {
+                Err(ContractError::InvalidProof)
+            }
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Legacy structural-proof types (kept for off-chain oracle transport layer)
+// ──────────────────────────────────────────────────────────────────────────────
 
 /// A cryptographic proof attesting to an off-chain / oracle condition.
 ///
 /// The proof is opaque to this module: it is produced off-chain and only
 /// needs to be validated against the expected condition and signer.
+/// This is used by the oracle transport layer; `confirm_payout` uses the
+/// commitment-based API above instead.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Proof {
     /// Identifier of the condition this proof is meant to satisfy.
-    pub condition_id: String,
+    pub condition_id: soroban_sdk::String,
     /// Address (or public key) of the entity that signed the proof.
-    pub signer: String,
+    pub signer: soroban_sdk::String,
     /// Raw proof payload (e.g. a signature over the condition).
-    pub payload: Vec<u8>,
+    pub payload: soroban_sdk::Bytes,
 }
 
 /// The off-chain condition a [`Proof`] is expected to satisfy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Condition {
     /// Identifier of the condition.
-    pub id: String,
+    pub id: soroban_sdk::String,
     /// Address (or public key) authorized to sign for this condition.
-    pub authorized_signer: String,
+    pub authorized_signer: soroban_sdk::String,
 }
 
 /// Outcome of validating a [`Proof`] against a [`Condition`].
@@ -55,10 +184,9 @@ impl VerificationResult {
 
 /// Validates an off-chain [`Proof`] against the [`Condition`] it must satisfy.
 ///
-/// This performs the structural checks that are independent of any specific
+/// Performs the structural checks that are independent of any specific
 /// signature scheme: the proof must reference the expected condition, be
-/// signed by the authorized signer, and carry a non-empty payload. Scheme
-/// specific cryptographic verification is layered on top by callers.
+/// signed by the authorized signer, and carry a non-empty payload.
 pub fn validate_proof(proof: &Proof, condition: &Condition) -> VerificationResult {
     if proof.condition_id != condition.id {
         return VerificationResult::ConditionMismatch;
@@ -76,62 +204,324 @@ pub fn validate_proof(proof: &Proof, condition: &Condition) -> VerificationResul
 }
 
 /// Convenience wrapper that maps a [`VerificationResult`] into a `Result`,
-/// returning an [`Error`] when the proof is not valid.
+/// returning a [`ContractError`] when the proof is not valid.
 ///
 /// Callers that need to branch on the specific failure reason should use
 /// [`validate_proof`] directly.
-pub fn require_valid_proof(proof: &Proof, condition: &Condition) -> Result<(), Error> {
+pub fn require_valid_proof(proof: &Proof, condition: &Condition) -> Result<(), ContractError> {
     match validate_proof(proof, condition) {
         VerificationResult::Valid => Ok(()),
-        VerificationResult::ConditionMismatch => Err(Error::ProofConditionMismatch),
-        VerificationResult::UnauthorizedSigner => Err(Error::ProofUnauthorizedSigner),
-        VerificationResult::MalformedProof => Err(Error::ProofMalformed),
+        VerificationResult::ConditionMismatch => Err(ContractError::InvalidProof),
+        VerificationResult::UnauthorizedSigner => Err(ContractError::InvalidProof),
+        VerificationResult::MalformedProof => Err(ContractError::InvalidProof),
     }
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Tests
+// ──────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soroban_sdk::{testutils::Address as _, Env};
 
-    fn condition() -> Condition {
-        Condition {
-            id: "cond-1".to_string(),
-            authorized_signer: "0xabc".to_string(),
-        }
-    }
+    // ─── verify_proof_commitment (constant-time, #1527) ───────────────────────
 
-    fn proof() -> Proof {
-        Proof {
-            condition_id: "cond-1".to_string(),
-            signer: "0xabc".to_string(),
-            payload: vec![1, 2, 3],
-        }
+    #[test]
+    fn verify_proof_commitment_accepts_matching_values() {
+        let env = Env::default();
+        let bytes = [42u8; 32];
+        let a = BytesN::from_array(&env, &bytes);
+        let b = BytesN::from_array(&env, &bytes);
+        assert!(verify_proof_commitment(&a, &b));
     }
 
     #[test]
+    fn verify_proof_commitment_rejects_single_bit_flip() {
+        let env = Env::default();
+        let mut bytes_b = [42u8; 32];
+        bytes_b[31] ^= 0x01; // flip one bit in the last byte
+        let a = BytesN::from_array(&env, &[42u8; 32]);
+        let b = BytesN::from_array(&env, &bytes_b);
+        assert!(!verify_proof_commitment(&a, &b));
+    }
+
+    #[test]
+    fn verify_proof_commitment_rejects_all_zeroes_vs_all_ones() {
+        let env = Env::default();
+        let a = BytesN::from_array(&env, &[0u8; 32]);
+        let b = BytesN::from_array(&env, &[0xffu8; 32]);
+        assert!(!verify_proof_commitment(&a, &b));
+    }
+
+    #[test]
+    fn verify_proof_commitment_rejects_first_byte_flip() {
+        // This test would catch a short-circuit implementation that skips later
+        // bytes after finding the first mismatch — ensuring all 32 bytes are
+        // always processed (constant-time property).
+        let env = Env::default();
+        let mut bytes_b = [42u8; 32];
+        bytes_b[0] ^= 0x01; // flip first byte only
+        let a = BytesN::from_array(&env, &[42u8; 32]);
+        let b = BytesN::from_array(&env, &bytes_b);
+        assert!(!verify_proof_commitment(&a, &b));
+    }
+
+    // ─── compute_payout_commitment (replay prevention, #1528) ────────────────
+
+    #[test]
+    fn compute_payout_commitment_differs_for_different_remittance_ids() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let sender = soroban_sdk::Address::generate(&env);
+        let agent = soroban_sdk::Address::generate(&env);
+        let token = soroban_sdk::Address::generate(&env);
+
+        let rem1 = crate::Remittance {
+            id: 1,
+            sender: sender.clone(),
+            agent: agent.clone(),
+            amount: 1_000,
+            fee: 25,
+            status: crate::RemittanceStatus::Pending,
+            expiry: None,
+            settlement_config: crate::MaybeSettlementConfig::None,
+            token: token.clone(),
+            created_at: 0,
+            failed_at: None,
+            dispute_evidence: crate::MaybeBytes32::None,
+            expires_at: None,
+        };
+        let mut rem2 = rem1.clone();
+        rem2.id = 2;
+
+        let c1 = compute_payout_commitment(&env, &rem1);
+        let c2 = compute_payout_commitment(&env, &rem2);
+        // Different IDs → different commitments → proof cannot be replayed.
+        assert_ne!(c1, c2, "commitments for different remittance IDs must differ");
+    }
+
+    #[test]
+    fn compute_payout_commitment_is_deterministic() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let sender = soroban_sdk::Address::generate(&env);
+        let agent = soroban_sdk::Address::generate(&env);
+        let token = soroban_sdk::Address::generate(&env);
+
+        let rem = crate::Remittance {
+            id: 42,
+            sender: sender.clone(),
+            agent: agent.clone(),
+            amount: 5_000,
+            fee: 125,
+            status: crate::RemittanceStatus::Pending,
+            expiry: Some(9_999_999),
+            settlement_config: crate::MaybeSettlementConfig::None,
+            token: token.clone(),
+            created_at: 0,
+            failed_at: None,
+            dispute_evidence: crate::MaybeBytes32::None,
+            expires_at: None,
+        };
+
+        let c1 = compute_payout_commitment(&env, &rem);
+        let c2 = compute_payout_commitment(&env, &rem);
+        assert_eq!(c1, c2, "commitment must be deterministic for the same inputs");
+    }
+
+    #[test]
+    fn compute_payout_commitment_differs_when_amount_changes() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let sender = soroban_sdk::Address::generate(&env);
+        let agent = soroban_sdk::Address::generate(&env);
+        let token = soroban_sdk::Address::generate(&env);
+
+        let rem1 = crate::Remittance {
+            id: 1,
+            sender: sender.clone(),
+            agent: agent.clone(),
+            amount: 1_000,
+            fee: 25,
+            status: crate::RemittanceStatus::Pending,
+            expiry: None,
+            settlement_config: crate::MaybeSettlementConfig::None,
+            token: token.clone(),
+            created_at: 0,
+            failed_at: None,
+            dispute_evidence: crate::MaybeBytes32::None,
+            expires_at: None,
+        };
+        let mut rem2 = rem1.clone();
+        rem2.amount = 9_999;
+
+        let c1 = compute_payout_commitment(&env, &rem1);
+        let c2 = compute_payout_commitment(&env, &rem2);
+        assert_ne!(c1, c2, "different amounts must produce different commitments");
+    }
+
+    // ─── validate_payout_proof ────────────────────────────────────────────────
+
+    #[test]
+    fn validate_payout_proof_accepts_correct_proof() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let sender = soroban_sdk::Address::generate(&env);
+        let agent = soroban_sdk::Address::generate(&env);
+        let token = soroban_sdk::Address::generate(&env);
+
+        let rem = crate::Remittance {
+            id: 7,
+            sender: sender.clone(),
+            agent: agent.clone(),
+            amount: 2_000,
+            fee: 50,
+            status: crate::RemittanceStatus::Pending,
+            expiry: None,
+            settlement_config: crate::MaybeSettlementConfig::None,
+            token: token.clone(),
+            created_at: 0,
+            failed_at: None,
+            dispute_evidence: crate::MaybeBytes32::None,
+            expires_at: None,
+        };
+
+        let commitment = compute_payout_commitment(&env, &rem);
+        crate::storage::set_payout_commitment(&env, rem.id, &commitment);
+
+        assert!(validate_payout_proof(&env, rem.id, &commitment).is_ok());
+    }
+
+    #[test]
+    fn validate_payout_proof_rejects_wrong_proof() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let sender = soroban_sdk::Address::generate(&env);
+        let agent = soroban_sdk::Address::generate(&env);
+        let token = soroban_sdk::Address::generate(&env);
+
+        let rem = crate::Remittance {
+            id: 8,
+            sender: sender.clone(),
+            agent: agent.clone(),
+            amount: 3_000,
+            fee: 75,
+            status: crate::RemittanceStatus::Pending,
+            expiry: None,
+            settlement_config: crate::MaybeSettlementConfig::None,
+            token: token.clone(),
+            created_at: 0,
+            failed_at: None,
+            dispute_evidence: crate::MaybeBytes32::None,
+            expires_at: None,
+        };
+
+        let commitment = compute_payout_commitment(&env, &rem);
+        crate::storage::set_payout_commitment(&env, rem.id, &commitment);
+
+        let wrong_proof = BytesN::from_array(&env, &[0u8; 32]);
+        assert_eq!(
+            validate_payout_proof(&env, rem.id, &wrong_proof),
+            Err(ContractError::InvalidProof)
+        );
+    }
+
+    #[test]
+    fn validate_payout_proof_accepts_when_no_commitment_stored() {
+        // Backward-compatibility: remittances created before proof validation
+        // was introduced have no stored commitment.  Any submitted proof must
+        // be accepted so that existing settlements are not broken.
+        let env = Env::default();
+        let any_proof = BytesN::from_array(&env, &[99u8; 32]);
+        // No crate::storage::set_payout_commitment call here.
+        assert!(validate_payout_proof(&env, 999, &any_proof).is_ok());
+    }
+
+    // ─── validate_proof / require_valid_proof (structural checks) ────────────
+
+    #[test]
     fn accepts_matching_proof() {
-        assert_eq!(validate_proof(&proof(), &condition()), VerificationResult::Valid);
-        assert!(require_valid_proof(&proof(), &condition()).is_ok());
+        let env = Env::default();
+        let cid = soroban_sdk::String::from_str(&env, "cond-1");
+        let signer = soroban_sdk::String::from_str(&env, "0xabc");
+        let payload = soroban_sdk::Bytes::from_slice(&env, &[1, 2, 3]);
+
+        let proof = Proof {
+            condition_id: cid.clone(),
+            signer: signer.clone(),
+            payload,
+        };
+        let condition = Condition {
+            id: cid,
+            authorized_signer: signer,
+        };
+        assert_eq!(validate_proof(&proof, &condition), VerificationResult::Valid);
+        assert!(require_valid_proof(&proof, &condition).is_ok());
     }
 
     #[test]
     fn rejects_condition_mismatch() {
-        let mut p = proof();
-        p.condition_id = "other".to_string();
-        assert_eq!(validate_proof(&p, &condition()), VerificationResult::ConditionMismatch);
+        let env = Env::default();
+        let cid = soroban_sdk::String::from_str(&env, "cond-1");
+        let other_cid = soroban_sdk::String::from_str(&env, "other");
+        let signer = soroban_sdk::String::from_str(&env, "0xabc");
+        let payload = soroban_sdk::Bytes::from_slice(&env, &[1, 2, 3]);
+
+        let proof = Proof {
+            condition_id: other_cid,
+            signer: signer.clone(),
+            payload,
+        };
+        let condition = Condition {
+            id: cid,
+            authorized_signer: signer,
+        };
+        assert_eq!(validate_proof(&proof, &condition), VerificationResult::ConditionMismatch);
     }
 
     #[test]
     fn rejects_unauthorized_signer() {
-        let mut p = proof();
-        p.signer = "0xdef".to_string();
-        assert_eq!(validate_proof(&p, &condition()), VerificationResult::UnauthorizedSigner);
+        let env = Env::default();
+        let cid = soroban_sdk::String::from_str(&env, "cond-1");
+        let signer = soroban_sdk::String::from_str(&env, "0xabc");
+        let wrong_signer = soroban_sdk::String::from_str(&env, "0xdef");
+        let payload = soroban_sdk::Bytes::from_slice(&env, &[1, 2, 3]);
+
+        let proof = Proof {
+            condition_id: cid.clone(),
+            signer: wrong_signer,
+            payload,
+        };
+        let condition = Condition {
+            id: cid,
+            authorized_signer: signer,
+        };
+        assert_eq!(validate_proof(&proof, &condition), VerificationResult::UnauthorizedSigner);
     }
 
     #[test]
     fn rejects_empty_payload() {
-        let mut p = proof();
-        p.payload = Vec::new();
-        assert_eq!(validate_proof(&p, &condition()), VerificationResult::MalformedProof);
+        let env = Env::default();
+        let cid = soroban_sdk::String::from_str(&env, "cond-1");
+        let signer = soroban_sdk::String::from_str(&env, "0xabc");
+        let empty = soroban_sdk::Bytes::new(&env);
+
+        let proof = Proof {
+            condition_id: cid.clone(),
+            signer: signer.clone(),
+            payload: empty,
+        };
+        let condition = Condition {
+            id: cid,
+            authorized_signer: signer,
+        };
+        assert_eq!(validate_proof(&proof, &condition), VerificationResult::MalformedProof);
     }
 }

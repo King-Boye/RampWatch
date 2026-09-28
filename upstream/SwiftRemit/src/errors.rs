@@ -3,6 +3,10 @@
 //! This module defines all possible error conditions that can occur
 //! during contract execution. All errors are explicitly defined with
 //! unique error codes to ensure deterministic error handling.
+//!
+//! The discriminant values are the on-chain error codes and MUST match
+//! the table in README.md exactly. Run `node scripts/generate-error-table.js`
+//! after any change to regenerate the README table.
 
 use soroban_sdk::contracterror;
 
@@ -15,11 +19,9 @@ pub enum ContractError {
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// Contract has already been initialized.
-    /// Cause: Attempting to call initialize() on an already initialized contract.
     AlreadyInitialized = 1,
 
     /// Contract has not been initialized yet.
-    /// Cause: Attempting operations before calling initialize().
     NotInitialized = 2,
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -27,35 +29,27 @@ pub enum ContractError {
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// Amount must be greater than zero.
-    /// Cause: Providing zero or negative amount in remittance creation.
     InvalidAmount = 3,
 
     /// Fee must be between 0 and 10000 basis points (0-100%).
-    /// Cause: Setting platform fee outside valid range.
     InvalidFeeBps = 4,
 
     /// Agent is not registered in the system.
-    /// Cause: Attempting to create remittance with unregistered agent.
     AgentNotRegistered = 5,
 
     /// Remittance not found.
-    /// Cause: Querying or operating on non-existent remittance ID.
     RemittanceNotFound = 6,
 
     /// Invalid remittance status for this operation.
-    /// Cause: Attempting operation on remittance in wrong status (e.g., settling completed remittance).
     InvalidStatus = 7,
 
     /// Invalid state transition attempted.
-    /// Cause: Attempting to transition remittance to invalid state.
     InvalidStateTransition = 8,
 
     /// No fees available to withdraw.
-    /// Cause: Attempting to withdraw fees when accumulated fees is zero or negative.
     NoFeesToWithdraw = 9,
 
     /// Invalid address format or validation failed.
-    /// Cause: Address does not meet validation requirements.
     InvalidAddress = 10,
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -63,64 +57,49 @@ pub enum ContractError {
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// Settlement window has expired.
-    /// Cause: Attempting to settle remittance after expiry timestamp.
     SettlementExpired = 11,
 
     /// Settlement has already been executed.
-    /// Cause: Attempting to settle the same remittance twice (duplicate prevention).
     DuplicateSettlement = 12,
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // Contract State & User Errors (13-22)
+    // Contract State & User Errors (13-25)
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// Contract is paused. Settlements are temporarily disabled.
-    /// Cause: Attempting confirm_payout() while contract is in paused state.
     ContractPaused = 13,
 
     /// Asset verification record not found.
     AssetNotFound = 14,
 
     /// User is blacklisted and cannot perform transactions.
-    /// Cause: User address is on the blacklist.
     UserBlacklisted = 15,
 
     /// Reputation score must be between 0 and 100.
     InvalidReputationScore = 16,
 
     /// User KYC is not approved.
-    /// Cause: User has not completed KYC verification.
     KycNotApproved = 17,
 
     /// Asset has been flagged as suspicious.
     SuspiciousAsset = 18,
 
     /// Anchor transaction failed.
-    /// Cause: Anchor withdrawal/deposit operation failed.
     AnchorTransactionFailed = 19,
 
     /// Caller is not authorized to perform admin operations.
-    /// Cause: Non-admin attempting to perform admin-only operations.
     Unauthorized = 20,
 
     /// Daily send limit exceeded for this user.
-    /// Cause: User's total transfers in the last 24 hours exceed the configured limit.
     DailySendLimitExceeded = 21,
 
     /// Token is already whitelisted in the system.
-    /// Cause: Attempting to add a token that is already whitelisted.
     TokenAlreadyWhitelisted = 22,
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // KYC / Transaction Errors (23-25)
-    // ═══════════════════════════════════════════════════════════════════════════
-
     /// User KYC has expired.
-    /// Cause: User's KYC verification has expired and needs renewal.
     KycExpired = 23,
 
     /// Transaction record not found.
-    /// Cause: Querying non-existent transaction record.
     TransactionNotFound = 24,
 
     /// Rate limit exceeded.
@@ -131,23 +110,15 @@ pub enum ContractError {
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// Admin address already exists in the system.
-    /// Cause: Attempting to add an admin that is already registered.
     AdminAlreadyExists = 26,
 
     /// Admin address does not exist in the system.
-    /// Cause: Attempting to remove an admin that is not registered.
     AdminNotFound = 27,
 
     /// Cannot remove the last admin from the system.
-    /// Cause: Attempting to remove the only remaining admin.
     CannotRemoveLastAdmin = 28,
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Token Whitelist Errors (29)
-    // ═══════════════════════════════════════════════════════════════════════════
-
     /// Token is not whitelisted for use in the system.
-    /// Cause: Attempting to initialize contract with non-whitelisted token.
     TokenNotWhitelisted = 29,
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -155,59 +126,205 @@ pub enum ContractError {
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// Migration hash verification failed.
-    /// Cause: Snapshot hash doesn't match computed hash (data tampering or corruption).
     InvalidMigrationHash = 30,
 
     /// Migration already in progress or completed.
-    /// Cause: Attempting to start migration when one is already active.
     MigrationInProgress = 31,
 
     /// Migration batch out of order or invalid.
-    /// Cause: Importing batches in wrong order or invalid batch number.
     InvalidMigrationBatch = 32,
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // Rate Limiting / Abuse Errors (33-36)
+    // Rate Limiting / Abuse Errors (33-35)
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// Cooldown period is still active.
-    /// Cause: Attempting action before cooldown period has elapsed.
     CooldownActive = 33,
 
     /// Suspicious activity detected.
-    /// Cause: Pattern matching known abuse behaviors (rapid retries, unusual patterns).
     SuspiciousActivity = 34,
 
     /// Action temporarily blocked due to abuse protection.
-    /// Cause: Multiple violations or severe abuse detected.
     ActionBlocked = 35,
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // Arithmetic / Data Errors (36-52)
+    // Arithmetic / Data Errors (36-50)
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// Arithmetic overflow occurred during calculation.
-    /// Cause: Result of arithmetic operation exceeds maximum value.
     Overflow = 36,
 
     /// Net settlement validation failed.
-    /// Cause: Net settlement calculations don't match expected values.
     NetSettlementValidationFailed = 37,
 
     /// Escrow not found.
-    /// Cause: Querying non-existent escrow record.
     EscrowNotFound = 38,
 
     /// Invalid escrow status for this operation.
-    /// Cause: Attempting operation on escrow in wrong status.
     InvalidEscrowStatus = 39,
 
     /// Settlement counter overflow.
-    /// Cause: Settlement counter would exceed u64::MAX.
     SettlementCounterOverflow = 40,
 
-    /// Off-chain proof validation failed.
-    /// Cause: The provided off-chain/oracle proof is missing, malformed, or does not
-    /// satisfy the required verification conditions for settlement.
-    InvalidProof = 24,
+    /// Invalid batch size for batch operations.
+    InvalidBatchSize = 41,
+
+    /// Data corruption detected in stored values.
+    DataCorruption = 42,
+
+    /// Index out of bounds.
+    IndexOutOfBounds = 43,
+
+    /// Collection is empty.
+    EmptyCollection = 44,
+
+    /// Key not found in map.
+    KeyNotFound = 45,
+
+    /// String conversion failed.
+    StringConversionFailed = 46,
+
+    /// Invalid or malformed symbol string.
+    InvalidSymbol = 47,
+
+    /// Arithmetic underflow occurred.
+    Underflow = 48,
+
+    /// No pending admin transfer to accept.
+    NoPendingAdminTransfer = 49,
+
+    /// Idempotency key conflict with different payload.
+    IdempotencyConflict = 50,
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Off-Chain Proof / Oracle Errors (51-53)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Off-chain proof validation failed — proof doesn't match commitment.
+    ///
+    /// The submitted proof does not match the expected commitment for this
+    /// settlement. Proof validation uses constant-time comparison to prevent
+    /// timing-based side-channel attacks (#1527).
+    InvalidProof = 51,
+
+    /// Proof is required but not provided.
+    ///
+    /// The settlement config mandates a proof (`require_proof = true`) but
+    /// the caller did not supply one.
+    MissingProof = 52,
+
+    /// Oracle address is invalid or not configured.
+    InvalidOracleAddress = 53,
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Circuit Breaker / Pause Errors (54-55)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Contract is already paused.
+    AlreadyPaused = 54,
+
+    /// Contract is not currently paused.
+    NotPaused = 55,
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Multi-Sig / Operation Errors (56-61)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Pending admin operation not found.
+    OperationNotFound = 56,
+
+    /// Caller has already approved this pending operation.
+    AlreadyApproved = 57,
+
+    /// Pending operation has exceeded its time-to-live.
+    OperationExpired = 58,
+
+    /// Multi-sig threshold is invalid.
+    InvalidMultiSigThreshold = 59,
+
+    /// Address is already in the admin set.
+    AlreadyAdmin = 60,
+
+    /// Removing this admin would drop the admin count below quorum.
+    InsufficientAdmins = 61,
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Governance Errors (62-68)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Quorum must be >= 1 and <= current admin count.
+    InvalidQuorum = 62,
+
+    /// Admin has already cast a vote on this proposal.
+    AlreadyVoted = 63,
+
+    /// Proposal is not in the required state for this operation.
+    InvalidProposalState = 64,
+
+    /// A fee-update proposal is already pending or approved.
+    ProposalAlreadyPending = 65,
+
+    /// Proposal timelock has not elapsed.
+    TimelockActive = 66,
+
+    /// Governance has already been initialized.
+    GovernanceAlreadyInitialized = 67,
+
+    /// Proposal with the given ID does not exist.
+    ProposalNotFound = 68,
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Agent Errors (69-70)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Agent is already registered in the system.
+    AgentAlreadyRegistered = 69,
+
+    /// Agent does not meet the minimum reputation threshold.
+    BelowMinReputation = 70,
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Dispute Errors (71-72)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// This operation requires the remittance to be in a Disputed state.
+    NotDisputed = 71,
+
+    /// The dispute window has expired.
+    DisputeWindowExpired = 72,
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Recipient Hash / Verification Errors (73-76)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Recipient hash is required but not provided.
+    MissingRecipientHash = 73,
+
+    /// Recipient hash scheme mismatch.
+    RecipientHashSchemaMismatch = 74,
+
+    /// Recipient hash does not match stored value.
+    RecipientHashMismatch = 75,
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Misc / Extended Errors (76-90)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Migration validation failed.
+    MigrationValidationFailed = 76,
+
+    /// Multi-sig quorum requirement not met.
+    MultisigQuorumRequired = 77,
+
+    /// Timelock duration is invalid.
+    InvalidTimelockDuration = 78,
+
+    /// Pause record not found.
+    PauseRecordNotFound = 79,
+
+    /// Generic "not found" error for miscellaneous lookups.
+    NotFound = 80,
+
+    /// Evidence hash for a dispute is not a valid 32-byte SHA-256 commitment.
+    MalformedEvidenceHash = 83,
 }
