@@ -913,8 +913,8 @@ and genuinely pending work.
 <!-- handsoff-issue-1461 -->
 - #1461: Idempotency protection: Implement idempotency record storage
 
-<!-- handsoff-issue-1471 -->
-- #1471: Idempotency protection: Implement backward compatibility and validation
+<!-- handsoff-issue-1451 -->
+- #1451: Idempotency protection: Implement storage helper functions
 
-<!-- handsoff-issue-1472 -->
-- #1472: Idempotency protection: Add idempotency key validation
+<!-- handsoff-issue-1452 -->
+- #1452: Idempotency protection: Write property test for storage functions
