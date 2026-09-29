@@ -18,6 +18,26 @@ The asset verification system validates ownership and authenticity of assets sub
 - Cross-referencing of identifiers with external registries
 - Consistency checks between declared and documented attributes
 
+## Anchor Registries
+
+The system cross-references asset identifiers against external anchor registries. Each registry is integrated through a common adapter interface so that additional registries can be added without changing the verification flow.
+
+### Supported Registries
+
+| Registry | Identifier Type | Notes |
+| --- | --- | --- |
+| Default anchor registry | Anchor ID | Built-in registry used when no other registry is specified |
+
+### Adding a Registry
+
+To integrate an additional anchor registry:
+
+1. Implement the registry adapter interface, mapping the registry's identifier format to the platform's anchor identifier.
+2. Register the adapter with the verification system so it is consulted during the automated cross-referencing step.
+3. Document the registry in the table above, including the identifier type it resolves.
+
+Registries are consulted in order, and a match from any registered registry satisfies the cross-referencing check. Failures from a single registry do not block verification; they are recorded and surfaced to the reviewer.
+
 ## Manual Review
 
 Reviewers inspect the submitted documentation and confirm that it matches the declared asset attributes. Reviewers can approve, reject, or request more information.
