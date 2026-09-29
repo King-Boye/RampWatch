@@ -232,6 +232,23 @@ describe('AnchorPlayground', () => {
       const toggleButton = screen.getByRole('button', { name: /Light Mode|Dark Mode/i });
       expect(toggleButton).toBeInTheDocument();
     });
+
+    it('animates the decorative scanline with CSS', () => {
+      const previousTheme = localStorage.getItem('theme');
+      localStorage.setItem('theme', 'dark');
+
+      const { container } = render(<AnchorPlayground />);
+
+      expect(container.querySelector('.playground-scanline-sweep')).toHaveStyle({
+        animation: 'playground-scanline-sweep 8s linear infinite',
+      });
+
+      if (previousTheme === null) {
+        localStorage.removeItem('theme');
+      } else {
+        localStorage.setItem('theme', previousTheme);
+      }
+    });
   });
 
   describe('Request Functionality', () => {
