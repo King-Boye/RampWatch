@@ -51,6 +51,35 @@ Reviewers inspect the submitted documentation and confirm that it matches the de
 | `rejected` | Failed verification |
 | `needs_info` | Additional information requested from the user |
 
+## Real-Time Verification Updates
+
+Clients can subscribe to verification status changes for an asset instead of polling. Whenever an asset's verification status transitions (for example `pending` → `verified`), the system emits a verification event that is streamed to all active subscribers for that asset.
+
+### Event Shape
+
+Each verification event carries the following fields:
+
+| Field | Description |
+| --- | --- |
+| `assetId` | Identifier of the asset whose status changed |
+| `status` | The new verification status (see Statuses) |
+| `previousStatus` | The status the asset held before this transition |
+| `timestamp` | When the transition occurred |
+| `reason` | Optional human-readable detail, such as the reviewer's note or the failing check |
+
+### Subscribing
+
+1. A client opens a subscription for a specific `assetId`.
+2. The system sends the asset's current status immediately so the client starts from a known state.
+3. Subsequent status transitions for that asset are pushed to the subscriber as they occur.
+4. The subscription is closed when the client disconnects or the asset reaches a terminal status (`verified` or `rejected`).
+
+### Delivery Guarantees
+
+- Events are delivered in the order the transitions occurred.
+- If a subscriber disconnects, it can re-subscribe and reconcile using the current status sent on connect; no event replay is required.
+- Streaming is best-effort and does not replace the persisted verification record, which remains the source of truth.
+
 ## Future Enhancements
 
 - Machine learning for fraud detection
