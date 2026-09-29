@@ -321,6 +321,243 @@ impl ErrorHandler {
                 ErrorCategory::Validation,
                 ErrorSeverity::Medium,
             ),
+
+            // ── Off-chain proof / oracle errors ──────────────────────────────
+            // #1527: InvalidProof uses constant-time comparison in verification.
+            // #1528: commitment binds to remittance_id preventing replay.
+            ContractError::InvalidProof => (
+                51,
+                SorobanString::from_str(env, "Proof validation failed"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::MissingProof => (
+                52,
+                SorobanString::from_str(env, "Proof is required but not provided"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::InvalidOracleAddress => (
+                53,
+                SorobanString::from_str(env, "Oracle address is invalid or not configured"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Medium,
+            ),
+
+            // ── Circuit breaker / pause ───────────────────────────────────────
+            ContractError::AlreadyPaused => (
+                54,
+                SorobanString::from_str(env, "Contract is already paused"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            ContractError::NotPaused => (
+                55,
+                SorobanString::from_str(env, "Contract is not currently paused"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+
+            // ── Multi-sig / operation ─────────────────────────────────────────
+            ContractError::OperationNotFound => (
+                56,
+                SorobanString::from_str(env, "Pending admin operation not found"),
+                ErrorCategory::Resource,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::AlreadyApproved => (
+                57,
+                SorobanString::from_str(env, "Caller already approved this operation"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            ContractError::OperationExpired => (
+                58,
+                SorobanString::from_str(env, "Pending operation has expired"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            ContractError::InvalidMultiSigThreshold => (
+                59,
+                SorobanString::from_str(env, "Multi-sig threshold is invalid"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Medium,
+            ),
+
+            // ── Governance ────────────────────────────────────────────────────
+            ContractError::AlreadyAdmin => (
+                60,
+                SorobanString::from_str(env, "Address is already an admin"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            ContractError::InsufficientAdmins => (
+                61,
+                SorobanString::from_str(env, "Removing this admin would break quorum"),
+                ErrorCategory::State,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::InvalidQuorum => (
+                62,
+                SorobanString::from_str(env, "Quorum value is invalid"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::AlreadyVoted => (
+                63,
+                SorobanString::from_str(env, "Admin already voted on this proposal"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            ContractError::InvalidProposalState => (
+                64,
+                SorobanString::from_str(env, "Proposal is not in the required state"),
+                ErrorCategory::State,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::ProposalAlreadyPending => (
+                65,
+                SorobanString::from_str(env, "A proposal is already pending"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            ContractError::TimelockActive => (
+                66,
+                SorobanString::from_str(env, "Proposal timelock has not elapsed"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            ContractError::GovernanceAlreadyInitialized => (
+                67,
+                SorobanString::from_str(env, "Governance has already been initialized"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            ContractError::ProposalNotFound => (
+                68,
+                SorobanString::from_str(env, "Proposal not found"),
+                ErrorCategory::Resource,
+                ErrorSeverity::Medium,
+            ),
+
+            // ── Agent ─────────────────────────────────────────────────────────
+            ContractError::AgentAlreadyRegistered => (
+                69,
+                SorobanString::from_str(env, "Agent is already registered"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            ContractError::BelowMinReputation => (
+                70,
+                SorobanString::from_str(env, "Agent does not meet minimum reputation"),
+                ErrorCategory::Authorization,
+                ErrorSeverity::Medium,
+            ),
+
+            // ── Dispute ───────────────────────────────────────────────────────
+            ContractError::NotDisputed => (
+                71,
+                SorobanString::from_str(env, "Remittance is not in Disputed state"),
+                ErrorCategory::State,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::DisputeWindowExpired => (
+                72,
+                SorobanString::from_str(env, "Dispute window has expired"),
+                ErrorCategory::State,
+                ErrorSeverity::Medium,
+            ),
+
+            // ── Recipient hash ────────────────────────────────────────────────
+            ContractError::MissingRecipientHash => (
+                73,
+                SorobanString::from_str(env, "Recipient hash is required but not provided"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::RecipientHashSchemaMismatch => (
+                74,
+                SorobanString::from_str(env, "Recipient hash scheme mismatch"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::RecipientHashMismatch => (
+                75,
+                SorobanString::from_str(env, "Recipient hash does not match stored value"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Medium,
+            ),
+
+            // ── Misc / extended ───────────────────────────────────────────────
+            ContractError::MigrationValidationFailed => (
+                76,
+                SorobanString::from_str(env, "Migration validation failed"),
+                ErrorCategory::System,
+                ErrorSeverity::High,
+            ),
+            ContractError::MultisigQuorumRequired => (
+                77,
+                SorobanString::from_str(env, "Multi-sig quorum requirement not met"),
+                ErrorCategory::Authorization,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::InvalidTimelockDuration => (
+                78,
+                SorobanString::from_str(env, "Timelock duration is invalid"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::PauseRecordNotFound => (
+                79,
+                SorobanString::from_str(env, "Pause record not found"),
+                ErrorCategory::Resource,
+                ErrorSeverity::Low,
+            ),
+            ContractError::NotFound => (
+                80,
+                SorobanString::from_str(env, "Record not found"),
+                ErrorCategory::Resource,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::MalformedEvidenceHash => (
+                83,
+                SorobanString::from_str(env, "Evidence hash must be a 32-byte SHA-256 digest"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Medium,
+            ),
+
+            // ── Arithmetic ────────────────────────────────────────────────────
+            ContractError::Underflow => (
+                48,
+                SorobanString::from_str(env, "Arithmetic underflow"),
+                ErrorCategory::System,
+                ErrorSeverity::High,
+            ),
+            ContractError::NoPendingAdminTransfer => (
+                49,
+                SorobanString::from_str(env, "No pending admin transfer to accept"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            ContractError::IdempotencyConflict => (
+                50,
+                SorobanString::from_str(env, "Idempotency key conflict with different payload"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::SettlementCounterOverflow => (
+                40,
+                SorobanString::from_str(env, "Settlement counter overflow"),
+                ErrorCategory::System,
+                ErrorSeverity::High,
+            ),
+            ContractError::InvalidBatchSize => (
+                41,
+                SorobanString::from_str(env, "Invalid batch size"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Low,
+            ),
+
             _ => (
                 999,
                 SorobanString::from_str(env, "Unknown error"),

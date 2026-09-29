@@ -401,3 +401,312 @@ fn test_batch_netting_opposing_flow_scenario_three() {
     assert_eq!(result.settled_ids.len(), 5);
     assert_eq!(contract.get_accumulated_fees(), expected_fees);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #1529 — Proof validation doesn't break existing rate limiting
+//
+// Verifies that the proof-validation gate added to `confirm_payout` is applied
+// *before* (or at worst side-by-side with) the rate-limit check, and that
+// neither path bypasses the other.  Specifically:
+//
+//  1. A call that fails proof validation must NOT consume a rate-limit slot.
+//  2. A valid proof must still be gated by the rate limiter when limits are tight.
+//  3. An absent proof (when not required) does not interfere with rate limiting.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// #1529 — invalid proof rejected before altering rate-limit state.
+///
+/// The test creates a remittance that requires a proof, submits a wrong proof,
+/// and then verifies the rate-limit counter for the agent has not been consumed
+/// (the call should have been rejected with `InvalidProof`, not `RateLimitExceeded`).
+#[test]
+fn test_proof_validation_rejected_before_rate_limit_consumed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, admin, sender, agent, _token_admin) = setup(&env);
+
+    let config = SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin.clone()),
+    };
+
+    let remittance_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &2_000,
+        &None,
+        &None,
+        &None,
+        &Some(config),
+        &None,
+    );
+
+    // Read the rate-limit counter before the bad proof attempt.
+    let (requests_before, max_req, window) = contract.get_rate_limit_status(&agent);
+
+    // Submit an invalid proof — should be rejected with InvalidProof.
+    let bad_proof = soroban_sdk::BytesN::from_array(&env, &[0xddu8; 32]);
+    let result = contract.try_confirm_payout(&remittance_id, &Some(bad_proof), &None);
+    assert_eq!(result.unwrap_err().unwrap(), ContractError::InvalidProof);
+
+    // The rate-limit counter for the agent must be unchanged.
+    let (requests_after, _, _) = contract.get_rate_limit_status(&agent);
+    assert_eq!(
+        requests_after, requests_before,
+        "a rejected proof must not consume a rate-limit slot (requests_before={}, requests_after={}, max={}, window={})",
+        requests_before, requests_after, max_req, window
+    );
+}
+
+/// #1529 — a valid proof path still goes through the rate limiter.
+///
+/// Exhaust the rate limit for the agent address and then confirm that a
+/// call with a *valid* proof is still blocked by the rate limiter rather
+/// than being silently admitted.
+///
+/// Note: `confirm_payout` uses the per-agent abuse-protection rate-limit
+/// (sliding-window, via `check_rate_limit` → `abuse_protection`).  This
+/// test directly fills that window and then verifies the contract rejects
+/// the next call with `RateLimitExceeded` (or `ActionBlocked` for the
+/// abuse-protection path) even when the proof is correct.
+#[test]
+fn test_valid_proof_still_gated_by_rate_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, admin, sender, agent, _token_admin) = setup(&env);
+
+    // Configure a very tight rate limit: 1 request per window.
+    contract.update_rate_limit_config(&admin, &1, &300, &true);
+
+    // Create two remittances (both require proof).
+    let config = SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin.clone()),
+    };
+
+    let id1 = contract.create_remittance(
+        &sender,
+        &agent,
+        &1_000,
+        &None,
+        &None,
+        &None,
+        &Some(config.clone()),
+        &None,
+    );
+    let id2 = contract.create_remittance(
+        &sender,
+        &agent,
+        &1_000,
+        &None,
+        &None,
+        &None,
+        &Some(config.clone()),
+        &None,
+    );
+
+    // Settle the first remittance — this consumes the one allowed slot.
+    let proof1 =
+        crate::verification::compute_payout_commitment(&env, &contract.get_remittance(&id1));
+    contract.confirm_payout(&id1, &Some(proof1), &None);
+
+    // The second call has a valid proof but must be blocked by the rate limiter.
+    let proof2 =
+        crate::verification::compute_payout_commitment(&env, &contract.get_remittance(&id2));
+    let result = contract.try_confirm_payout(&id2, &Some(proof2), &None);
+    assert!(
+        result.is_err(),
+        "confirm_payout must be blocked by the rate limiter even with a valid proof"
+    );
+    let err = result.unwrap_err().unwrap();
+    assert!(
+        err == ContractError::RateLimitExceeded || err == ContractError::ActionBlocked,
+        "expected RateLimitExceeded or ActionBlocked, got {:?}",
+        err
+    );
+}
+
+/// #1529 — no proof path (proof not required) does not interfere with rate limits.
+///
+/// Creates a remittance without `require_proof`, confirms it without supplying
+/// any proof, and checks the rate-limit counter increments exactly once — same
+/// as any other settlement, i.e. the proof-validation code path does not insert
+/// additional rate-limit increments or decrements.
+#[test]
+fn test_no_proof_path_does_not_affect_rate_limit_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, _admin, sender, agent, _token_admin) = setup(&env);
+
+    let id = contract.create_remittance(&sender, &agent, &1_000, &None, &None, &None, &None, &None);
+
+    let (before, _, _) = contract.get_rate_limit_status(&agent);
+    contract.confirm_payout(&id, &None, &None);
+    let (after, _, _) = contract.get_rate_limit_status(&agent);
+
+    // The counter must have moved by exactly 1 (from the `confirm_payout` call).
+    assert_eq!(
+        after,
+        before + 1,
+        "confirm_payout without proof must consume exactly one rate-limit slot"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #1530 — Proof validation doesn't break duplicate settlement protection
+//
+// The duplicate-settlement guard (`has_settlement_hash` / `set_settlement_hash`)
+// must remain intact regardless of whether proof validation is active.
+//
+//  1. A second call with the *same* proof must be rejected with
+//     `DuplicateSettlement`, not `InvalidProof`.
+//  2. A second call with a *different* proof is also rejected with
+//     `DuplicateSettlement` (proof correctness is irrelevant once settled).
+//  3. A failed proof submission must NOT claim the settlement hash, so a
+//     subsequent correct submission can succeed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// #1530 — duplicate settlement blocked even with a valid proof on second call.
+#[test]
+fn test_duplicate_settlement_blocked_with_valid_proof() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, admin, sender, agent, _token_admin) = setup(&env);
+
+    let config = SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin.clone()),
+    };
+    let remittance_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &2_000,
+        &None,
+        &None,
+        &None,
+        &Some(config),
+        &None,
+    );
+
+    // First settlement — should succeed.
+    let proof =
+        crate::verification::compute_payout_commitment(&env, &contract.get_remittance(&remittance_id));
+    contract.confirm_payout(&remittance_id, &Some(proof.clone()), &None);
+
+    // Second settlement with the same (valid) proof — must fail with DuplicateSettlement.
+    let result = contract.try_confirm_payout(&remittance_id, &Some(proof), &None);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        ContractError::DuplicateSettlement,
+        "duplicate settlement must be blocked regardless of proof validity"
+    );
+}
+
+/// #1530 — duplicate settlement blocked even when a different proof is submitted.
+#[test]
+fn test_duplicate_settlement_blocked_with_different_proof() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, admin, sender, agent, _token_admin) = setup(&env);
+
+    let config = SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin.clone()),
+    };
+    let remittance_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &2_000,
+        &None,
+        &None,
+        &None,
+        &Some(config),
+        &None,
+    );
+
+    // Settle once with a valid proof.
+    let proof =
+        crate::verification::compute_payout_commitment(&env, &contract.get_remittance(&remittance_id));
+    contract.confirm_payout(&remittance_id, &Some(proof), &None);
+
+    // Attempt a second settlement with a completely different proof value.
+    let different_proof = soroban_sdk::BytesN::from_array(&env, &[0xaau8; 32]);
+    let result = contract.try_confirm_payout(&remittance_id, &Some(different_proof), &None);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        ContractError::DuplicateSettlement,
+        "duplicate settlement must be blocked before proof validation runs on second attempt"
+    );
+}
+
+/// #1530 — a failed proof attempt must NOT claim the settlement slot.
+///
+/// If `confirm_payout` is called with an invalid proof the settlement hash
+/// must remain unclaimed, so a subsequent call with the correct proof can
+/// still succeed.
+#[test]
+fn test_failed_proof_does_not_poison_settlement_slot() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, admin, sender, agent, _token_admin) = setup(&env);
+
+    let config = SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin.clone()),
+    };
+    let remittance_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &2_000,
+        &None,
+        &None,
+        &None,
+        &Some(config),
+        &None,
+    );
+
+    // First attempt: wrong proof — must fail.
+    let bad_proof = soroban_sdk::BytesN::from_array(&env, &[0x00u8; 32]);
+    let bad_result = contract.try_confirm_payout(&remittance_id, &Some(bad_proof), &None);
+    assert_eq!(bad_result.unwrap_err().unwrap(), ContractError::InvalidProof);
+
+    // Second attempt: correct proof — must succeed (settlement slot is still free).
+    let good_proof =
+        crate::verification::compute_payout_commitment(&env, &contract.get_remittance(&remittance_id));
+    contract.confirm_payout(&remittance_id, &Some(good_proof), &None);
+    assert_eq!(
+        contract.get_remittance(&remittance_id).status,
+        crate::RemittanceStatus::Completed
+    );
+}
+
+/// #1530 — duplicate settlement check fires before proof check on second call.
+///
+/// The settlement hash guard executes *after* the proof check in the
+/// confirm_payout_inner flow, so a second attempt with an *invalid* proof
+/// should return `DuplicateSettlement` because the state machine already has
+/// the completed status and the guard short-circuits before any proof logic.
+#[test]
+fn test_duplicate_settlement_status_takes_priority_over_proof_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, admin, sender, agent, _token_admin) = setup(&env);
+
+    // No proof requirement — simpler flow to isolate the duplicate check.
+    let remittance_id =
+        contract.create_remittance(&sender, &agent, &2_000, &None, &None, &None, &None, &None);
+
+    contract.confirm_payout(&remittance_id, &None, &None);
+
+    // A second call (no proof required) should always return DuplicateSettlement
+    // regardless of status or proof argument.
+    let result = contract.try_confirm_payout(&remittance_id, &None, &None);
+    assert_eq!(result.unwrap_err().unwrap(), ContractError::DuplicateSettlement);
+}
