@@ -1108,10 +1108,6 @@ impl AnchorKitContract {
     // Deterministic hash utilities
     // -----------------------------------------------------------------------
 
-    pub fn compute_payload_hash(env: Env, subject: Address, timestamp: u64, data: Bytes) -> BytesN<32> {
-        compute_payload_hash(&env, &subject, timestamp, &data)
-    }
-
     /// Compute the canonical payload hash via the contract method.
     ///
     /// Off-chain callers should prefer this method over calling
