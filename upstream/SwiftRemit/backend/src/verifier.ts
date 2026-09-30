@@ -8,6 +8,78 @@ const MAX_RETRIES = 3;
 const POSITIVE_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes for verified assets
 const NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000;  // 5 minutes for unverified/suspicious assets
 
+// ─── #1543: Reputation decay ─────────────────────────────────────────────────
+// After a result has been cached and served, its effective reputation score
+// decays linearly over time.  A "fresh" result (age = 0) keeps its full score.
+// After DECAY_HALF_LIFE_MS the score is halved; after 2× the half-life it
+// reaches zero.  Decay is applied only when reading from cache — the stored
+// score is never mutated so the original result is preserved for audit purposes.
+const DECAY_HALF_LIFE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Apply linear reputation decay to a cached score based on how long ago the
+ * result was computed.
+ *
+ * @param score       The reputation score at the time of verification (0–100).
+ * @param verifiedAt  ISO-8601 string recorded when the result was produced.
+ * @returns           The decayed score clamped to [0, 100].
+ */
+function applyReputationDecay(score: number, verifiedAt: string): number {
+  const ageMs = Date.now() - new Date(verifiedAt).getTime();
+  if (ageMs <= 0) return score;
+
+  // Linear decay: score × max(0, 1 − age / (2 × half_life))
+  const decayFactor = Math.max(0, 1 - ageMs / (2 * DECAY_HALF_LIFE_MS));
+  return Math.round(score * decayFactor);
+}
+
+// ─── #1544: Source reliability weights ──────────────────────────────────────
+// Each verification source is assigned a reliability weight that reflects how
+// trustworthy and stable that data source is.  Weights influence the final
+// weighted-average reputation score so that a high-quality source (e.g.
+// Stellar Expert) has more impact than a secondary signal (e.g. raw
+// transaction count).
+//
+// Weights are normalised internally so they do not need to sum to 1.0 — only
+// the relative magnitudes matter.
+const SOURCE_RELIABILITY_WEIGHTS: Record<string, number> = {
+  'Stellar Expert':      0.40, // curated, rated by an established community index
+  'Stellar TOML':        0.30, // issuer self-attests; valuable but not third-party
+  'Trustline Analysis':  0.20, // on-chain adoption signal; gameable at low cost
+  'Transaction History': 0.10, // activity proxy; least discriminating signal
+};
+
+/**
+ * Compute the weighted-average reputation score from all verification sources.
+ *
+ * Only sources that were marked `verified` contribute to the score.  If no
+ * source was verified, the result is 0.
+ *
+ * @param sources  Array of VerificationSource objects (each may carry a
+ *                 `reliability_weight` override; falls back to the static
+ *                 SOURCE_RELIABILITY_WEIGHTS table, then to 1.0).
+ */
+function computeWeightedScore(sources: VerificationSource[]): number {
+  let weightedSum = 0;
+  let totalWeight = 0;
+
+  for (const source of sources) {
+    if (!source.verified) continue;
+
+    const weight =
+      source.reliability_weight ??
+      SOURCE_RELIABILITY_WEIGHTS[source.name] ??
+      1.0;
+
+    weightedSum += source.score * weight;
+    totalWeight += weight;
+  }
+
+  return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 interface CacheEntry {
   result: VerificationResult;
   expiresAt: number;
@@ -29,63 +101,58 @@ export class AssetVerifier {
   async verifyAsset(assetCode: string, issuer: string): Promise<VerificationResult> {
     const cacheKey = `${assetCode}:${issuer}`;
     const cached = this.cache.get(cacheKey);
+
     if (cached && Date.now() < cached.expiresAt) {
-      return cached.result;
+      // #1543: apply decay to the cached score before returning
+      const decayedScore = applyReputationDecay(
+        cached.result.reputation_score,
+        cached.result.verified_at,
+      );
+
+      // Re-derive status from the decayed score so consumers always see a
+      // consistent (score, status) pair even for cached results.
+      const decayedStatus = this.deriveStatus(decayedScore, cached.result.sources);
+
+      return {
+        ...cached.result,
+        reputation_score: decayedScore,
+        status: decayedStatus,
+      };
     }
+
     const sources: VerificationSource[] = [];
-    let totalScore = 0;
-    let sourceCount = 0;
 
     // Check Stellar Expert
     const expertResult = await this.checkStellarExpert(assetCode, issuer);
     sources.push(expertResult);
-    if (expertResult.verified) {
-      totalScore += expertResult.score;
-      sourceCount++;
-    }
 
     // Check stellar.toml
     const tomlResult = await this.checkStellarToml(issuer);
     sources.push(tomlResult);
-    if (tomlResult.verified) {
-      totalScore += tomlResult.score;
-      sourceCount++;
-    }
 
     // Check trustline count
     const trustlineResult = await this.checkTrustlines(assetCode, issuer);
     sources.push(trustlineResult);
-    if (trustlineResult.verified) {
-      totalScore += trustlineResult.score;
-      sourceCount++;
-    }
 
     // Check transaction history
     const txHistoryResult = await this.checkTransactionHistory(assetCode, issuer);
     sources.push(txHistoryResult);
-    if (txHistoryResult.verified) {
-      totalScore += txHistoryResult.score;
-      sourceCount++;
-    }
 
-    // Calculate reputation score
-    const reputationScore = sourceCount > 0 ? Math.round(totalScore / sourceCount) : 0;
+    // #1544: compute weighted reputation score
+    const reputationScore = computeWeightedScore(sources);
 
     // Determine status
-    let status: VerificationStatus;
-    if (reputationScore >= 70 && sourceCount >= 3) {
-      status = VerificationStatus.Verified;
-    } else if (reputationScore < 30 || this.hasSuspiciousIndicators(sources)) {
-      status = VerificationStatus.Suspicious;
-    } else {
-      status = VerificationStatus.Unverified;
-    }
+    const verifiedSourceCount = sources.filter(s => s.verified).length;
+    const status = this.deriveStatus(reputationScore, sources, verifiedSourceCount);
+
+    const verifiedAt = new Date().toISOString();
 
     const result: VerificationResult = {
       asset_code: assetCode,
       issuer,
       status,
       reputation_score: reputationScore,
+      verified_at: verifiedAt,
       sources,
       trustline_count: trustlineResult.details?.count || 0,
       has_toml: tomlResult.verified,
@@ -95,6 +162,26 @@ export class AssetVerifier {
     this.cache.set(cacheKey, { result, expiresAt: Date.now() + ttl });
 
     return result;
+  }
+
+  /**
+   * Derive a VerificationStatus from a (potentially decayed) score and sources.
+   * Extracted so the same logic applies to both fresh and cached results.
+   */
+  private deriveStatus(
+    score: number,
+    sources: VerificationSource[],
+    verifiedSourceCount?: number,
+  ): VerificationStatus {
+    const count =
+      verifiedSourceCount ?? sources.filter(s => s.verified).length;
+
+    if (score >= 70 && count >= 3) {
+      return VerificationStatus.Verified;
+    } else if (score < 30 || this.hasSuspiciousIndicators(sources)) {
+      return VerificationStatus.Suspicious;
+    }
+    return VerificationStatus.Unverified;
   }
 
   private async checkStellarExpert(
@@ -114,6 +201,7 @@ export class AssetVerifier {
           name: 'Stellar Expert',
           verified: rating >= 3,
           score: Math.min(rating * 20, 100),
+          reliability_weight: SOURCE_RELIABILITY_WEIGHTS['Stellar Expert'],
           details: { rating, age: response.data.age },
         };
       }
@@ -122,6 +210,7 @@ export class AssetVerifier {
         name: 'Stellar Expert',
         verified: false,
         score: 0,
+        reliability_weight: SOURCE_RELIABILITY_WEIGHTS['Stellar Expert'],
       };
     } catch (error) {
       console.error('Stellar Expert check failed:', error);
@@ -129,6 +218,7 @@ export class AssetVerifier {
         name: 'Stellar Expert',
         verified: false,
         score: 0,
+        reliability_weight: SOURCE_RELIABILITY_WEIGHTS['Stellar Expert'],
       };
     }
   }
@@ -148,6 +238,7 @@ export class AssetVerifier {
           name: 'Stellar TOML',
           verified: false,
           score: 0,
+          reliability_weight: SOURCE_RELIABILITY_WEIGHTS['Stellar TOML'],
         };
       }
 
@@ -170,6 +261,7 @@ export class AssetVerifier {
           name: 'Stellar TOML',
           verified: true,
           score: 80,
+          reliability_weight: SOURCE_RELIABILITY_WEIGHTS['Stellar TOML'],
           details: {
             domain: homeDomain,
             has_documentation: !!tomlData.DOCUMENTATION,
@@ -182,6 +274,7 @@ export class AssetVerifier {
         name: 'Stellar TOML',
         verified: false,
         score: 30,
+        reliability_weight: SOURCE_RELIABILITY_WEIGHTS['Stellar TOML'],
       };
     } catch (error) {
       console.error('Stellar TOML check failed:', error);
@@ -189,6 +282,7 @@ export class AssetVerifier {
         name: 'Stellar TOML',
         verified: false,
         score: 0,
+        reliability_weight: SOURCE_RELIABILITY_WEIGHTS['Stellar TOML'],
       };
     }
   }
@@ -225,6 +319,7 @@ export class AssetVerifier {
           name: 'Trustline Analysis',
           verified: trustlineCount >= parseInt(process.env.MIN_TRUSTLINE_COUNT || '10'),
           score,
+          reliability_weight: SOURCE_RELIABILITY_WEIGHTS['Trustline Analysis'],
           details: { count: trustlineCount },
         };
       }
@@ -233,6 +328,7 @@ export class AssetVerifier {
         name: 'Trustline Analysis',
         verified: false,
         score: 0,
+        reliability_weight: SOURCE_RELIABILITY_WEIGHTS['Trustline Analysis'],
         details: { count: 0 },
       };
     } catch (error) {
@@ -241,6 +337,7 @@ export class AssetVerifier {
         name: 'Trustline Analysis',
         verified: false,
         score: 0,
+        reliability_weight: SOURCE_RELIABILITY_WEIGHTS['Trustline Analysis'],
         details: { count: 0 },
       };
     }
@@ -282,6 +379,7 @@ export class AssetVerifier {
         name: 'Transaction History',
         verified: hasRecentActivity && hasHistoricalActivity,
         score,
+        reliability_weight: SOURCE_RELIABILITY_WEIGHTS['Transaction History'],
         details: {
           total_transactions: txCount,
           recent_transactions: recentTxs.length,
@@ -293,6 +391,7 @@ export class AssetVerifier {
         name: 'Transaction History',
         verified: false,
         score: 0,
+        reliability_weight: SOURCE_RELIABILITY_WEIGHTS['Transaction History'],
       };
     }
   }

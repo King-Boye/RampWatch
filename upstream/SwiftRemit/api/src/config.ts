@@ -41,6 +41,13 @@ const currencySchema = Joi.object({
     .messages({
       'string.max': 'Currency name must not exceed 100 characters',
     }),
+  // #1547: optional list of human-readable aliases (e.g. "DOLLAR" → "USD")
+  aliases: Joi.array()
+    .items(Joi.string().min(1).max(50))
+    .optional()
+    .messages({
+      'array.base': 'aliases must be an array of strings',
+    }),
 });
 
 // Validation schema for the entire config
@@ -85,6 +92,9 @@ export class CurrencyConfigLoader {
 
       // Check for duplicate currency codes
       this.checkDuplicates(mergedConfig);
+
+      // #1547: ensure no alias conflicts with a code or another alias
+      this.checkDuplicateAliases(mergedConfig);
 
       this.config = mergedConfig;
       console.log(`✓ Currency configuration loaded successfully: ${mergedConfig.currencies.length} currencies`);
@@ -198,6 +208,31 @@ export class CurrencyConfigLoader {
   }
 
   /**
+   * Check that no alias collides with another code or alias.
+   * Called after checkDuplicates so codes are already unique.
+   */
+  private checkDuplicateAliases(config: CurrencyConfig): void {
+    // Build a flat set of all canonical codes (upper-cased for comparison)
+    const seen = new Set<string>(config.currencies.map(c => c.code.toUpperCase()));
+    const conflictingAliases: string[] = [];
+
+    for (const currency of config.currencies) {
+      for (const alias of currency.aliases ?? []) {
+        const key = alias.toUpperCase();
+        if (seen.has(key)) {
+          conflictingAliases.push(`"${alias}" (on ${currency.code})`);
+        } else {
+          seen.add(key);
+        }
+      }
+    }
+
+    if (conflictingAliases.length > 0) {
+      throw new Error(`Duplicate or conflicting aliases found: ${conflictingAliases.join(', ')}`);
+    }
+  }
+
+  /**
    * Get loaded configuration
    */
   public getConfig(): CurrencyConfig {
@@ -215,10 +250,47 @@ export class CurrencyConfigLoader {
   }
 
   /**
-   * Get currency by code
+   * Get currency by code (case-insensitive).
    */
   public getCurrencyByCode(code: string): Currency | undefined {
     return this.getCurrencies().find(c => c.code === code.toUpperCase());
+  }
+
+  /**
+   * #1547 — Get currency by code **or** alias (case-insensitive).
+   *
+   * Resolves in two passes:
+   *   1. Exact canonical code match (e.g. "USD").
+   *   2. Alias match (e.g. "DOLLAR", "dollars", "usd coin").
+   *
+   * Returns `undefined` when neither a code nor any alias matches.
+   */
+  public getCurrencyByCodeOrAlias(input: string): Currency | undefined {
+    const normalised = input.toUpperCase();
+    const currencies = this.getCurrencies();
+
+    // Pass 1: canonical code
+    const byCode = currencies.find(c => c.code === normalised);
+    if (byCode) return byCode;
+
+    // Pass 2: aliases
+    return currencies.find(c =>
+      (c.aliases ?? []).some(a => a.toUpperCase() === normalised),
+    );
+  }
+
+  /**
+   * Return all registered aliases as a flat map of alias → currency code.
+   * Useful for building documentation or validating user input.
+   */
+  public getAliasMap(): Record<string, string> {
+    const map: Record<string, string> = {};
+    for (const currency of this.getCurrencies()) {
+      for (const alias of currency.aliases ?? []) {
+        map[alias.toUpperCase()] = currency.code;
+      }
+    }
+    return map;
   }
 
   /**

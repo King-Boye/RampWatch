@@ -286,8 +286,13 @@ Returns all supported currencies.
 
 Returns a specific currency by code (case-insensitive).
 
+**Alias resolution (#1547):** the `:code` segment also accepts any registered
+alias for a currency (e.g. `DOLLAR`, `DOLLARS`, `NAIRA`).  Aliases are matched
+case-insensitively.  The canonical currency object is always returned, so the
+response is identical whether you request `USD` or `DOLLAR`.
+
 **Parameters:**
-- `code` - Currency code (e.g., "USD", "EUR")
+- `code` - Currency code (e.g., "USD", "EUR") **or** a registered alias (e.g., "DOLLAR", "EURO")
 
 **Response:** Same schema as above, with single currency in data array
 
@@ -300,6 +305,45 @@ Returns a specific currency by code (case-insensitive).
     "code": "CURRENCY_NOT_FOUND"
   },
   "timestamp": "2026-02-23T10:30:00.000Z"
+}
+```
+
+### GET /api/currencies/:from/rates/:to
+
+Returns the current exchange rate from one currency to another (#1545).
+
+**Parameters:**
+- `from` - Source currency code or alias (e.g., "USD", "DOLLAR")
+- `to` - Target currency code or alias (e.g., "NGN", "NAIRA")
+
+Rates are cached for 5 minutes.  When `EXCHANGE_RATE_API_URL` is set the
+service fetches live rates from the configured provider; otherwise a set of
+static seed rates (USD-pivoted) is used so development environments work
+without credentials.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "from": "USD",
+    "to": "NGN",
+    "rate": 1600.000000,
+    "fetched_at": "2026-09-30T10:00:00.000Z"
+  },
+  "timestamp": "2026-09-30T10:00:00.000Z"
+}
+```
+
+**Error Response (404):**
+```json
+{
+  "success": false,
+  "error": {
+    "message": "Currency not found: XYZ",
+    "code": "CURRENCY_NOT_FOUND"
+  },
+  "timestamp": "2026-09-30T10:00:00.000Z"
 }
 ```
 
@@ -490,6 +534,12 @@ CURRENCY_CONFIG_ENV_OVERRIDE=false
 CURRENCY_OVERRIDES=
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX_REQUESTS=100
+
+# #1545 — Currency conversion rates
+# When set, conversion rate requests are proxied to this URL.
+# Expected interface: GET {EXCHANGE_RATE_API_URL}?from=USD&to=EUR → { "rate": number }
+# When unset, a static USD-pivoted seed table is used (suitable for dev/test).
+EXCHANGE_RATE_API_URL=
 ```
 
 ### Docker Deployment
@@ -556,9 +606,9 @@ No restart required if using hot-reload.
 ## Future Enhancements
 
 Potential improvements:
-- [ ] Currency conversion rates
+- [x] Currency conversion rates — implemented: `GET /api/currencies/:from/rates/:to`. Closes #1545.
 - [ ] Historical currency data
-- [ ] Currency aliases (e.g., "DOLLAR" → "USD")
+- [x] Currency aliases (e.g., "DOLLAR" → "USD") — implemented: `aliases` field on `Currency`; `GET /api/currencies/:code` resolves by alias. Closes #1547.
 - [ ] Localized currency names
 - [ ] Currency grouping (fiat, crypto, etc.)
 - [ ] Admin API for currency management
