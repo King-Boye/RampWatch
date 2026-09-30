@@ -717,3 +717,56 @@ fn test_duplicate_settlement_status_takes_priority_over_proof_error() {
     let result = contract.try_confirm_payout(&remittance_id, &None, &None);
     assert_eq!(result.unwrap_err().unwrap(), ContractError::DuplicateSettlement);
 }
+
+/// #1519 — proof validation must not bypass the global contract pause.
+///
+/// A remittance configured to require proof is created while the contract is
+/// active. After a valid proof is computed, the contract is paused. Settlement
+/// must still be rejected with `ContractPaused`, even though the proof itself
+/// is valid.
+#[test]
+fn test_proof_validation_when_contract_is_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, admin, sender, agent, _token_admin) = setup(&env);
+
+    let config = SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin.clone()),
+    };
+
+    let remittance_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &2_000,
+        &None,
+        &None,
+        &None,
+        &Some(config),
+        &None,
+    );
+
+    let remittance = contract.get_remittance(&remittance_id);
+    let proof = crate::verification::compute_payout_commitment(&env, &remittance);
+
+    contract.pause();
+
+    assert!(contract.is_paused());
+
+    let result =
+        contract.try_confirm_payout(&remittance_id, &Some(proof), &None);
+
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        ContractError::ContractPaused,
+        "valid proof must not bypass the global contract pause"
+    );
+
+    assert_eq!(
+        contract.get_remittance(&remittance_id).status,
+        crate::types::RemittanceStatus::Pending,
+        "failed settlement while paused must leave the remittance pending"
+    );
+}
+
