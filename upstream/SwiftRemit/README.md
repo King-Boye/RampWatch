@@ -937,3 +937,15 @@ and genuinely pending work.
 
 <!-- handsoff-issue-1452 -->
 - #1452: Idempotency protection: Write property test for storage functions
+
+<!-- handsoff-issue-1495 -->
+- #1495: Off-chain proof validation: Store `settlement_config` in the `Remittance` record when creating new settlements
+
+<!-- handsoff-issue-1498 -->
+- #1498: Off-chain proof validation: Add logic to check if `remittance.settlement_config.require_proof` is true
+
+<!-- handsoff-issue-1499 -->
+- #1499: Off-chain proof validation: If proof required and proof is `None`, return `ContractError::MissingProof`
+
+<!-- handsoff-issue-1500 -->
+- #1500: Off-chain proof validation: If proof required and proof is `Some`, call `verify_proof()` with the oracle address from config
