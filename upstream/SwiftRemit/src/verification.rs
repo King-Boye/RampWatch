@@ -741,4 +741,91 @@ mod tests {
         let result = verify_proof(&env, &proof, &signer);
         assert_eq!(result, Ok(false));
     }
+
+    // ─── verify_proof unit tests (#1504, #1505, #1506, #1507) ────────────────
+
+    /// #1504: valid signature from correct signer should return Ok(true)
+    #[test]
+    fn test_verify_proof_valid_signature() {
+        let env = Env::default();
+        let signer = soroban_sdk::Address::generate(&env);
+        let payload = soroban_sdk::Bytes::from_slice(&env, b"settlement-data-12345");
+        let signature = compute_proof_signature(&env, &signer, &payload);
+
+        let proof = ProofData {
+            signature,
+            payload,
+            signer: signer.clone(),
+        };
+
+        let result = verify_proof(&env, &proof, &signer);
+        assert_eq!(result, Ok(true));
+    }
+
+    /// #1505: invalid signature should return Ok(false)
+    #[test]
+    fn test_verify_proof_invalid_signature() {
+        let env = Env::default();
+        let signer = soroban_sdk::Address::generate(&env);
+        let payload = soroban_sdk::Bytes::from_slice(&env, b"settlement-data-12345");
+
+        // Sub-case A: All-zero signature
+        let invalid_signature = BytesN::from_array(&env, &[0u8; 64]);
+        let proof = ProofData {
+            signature: invalid_signature,
+            payload: payload.clone(),
+            signer: signer.clone(),
+        };
+        let result = verify_proof(&env, &proof, &signer);
+        assert_eq!(result, Ok(false));
+
+        // Sub-case B: Corrupted non-zero signature bytes
+        let mut bad_bytes = [0x55u8; 64];
+        bad_bytes[0] = 0xef;
+        let corrupted_signature = BytesN::from_array(&env, &bad_bytes);
+        let proof_corrupted = ProofData {
+            signature: corrupted_signature,
+            payload,
+            signer: signer.clone(),
+        };
+        let result_corrupted = verify_proof(&env, &proof_corrupted, &signer);
+        assert_eq!(result_corrupted, Ok(false));
+    }
+
+    /// #1506: valid signature from wrong signer should return Ok(false)
+    #[test]
+    fn test_verify_proof_wrong_signer() {
+        let env = Env::default();
+        let signer = soroban_sdk::Address::generate(&env);
+        let wrong_signer = soroban_sdk::Address::generate(&env);
+        let payload = soroban_sdk::Bytes::from_slice(&env, b"settlement-data-12345");
+        let signature = compute_proof_signature(&env, &signer, &payload);
+
+        let proof = ProofData {
+            signature,
+            payload,
+            signer: signer.clone(),
+        };
+
+        let result = verify_proof(&env, &proof, &wrong_signer);
+        assert_eq!(result, Ok(false));
+    }
+
+    /// #1507: edge case with empty payload
+    #[test]
+    fn test_verify_proof_empty_payload() {
+        let env = Env::default();
+        let signer = soroban_sdk::Address::generate(&env);
+        let empty_payload = soroban_sdk::Bytes::new(&env);
+        let signature = BytesN::from_array(&env, &[1u8; 64]);
+
+        let proof = ProofData {
+            signature,
+            payload: empty_payload,
+            signer: signer.clone(),
+        };
+
+        let result = verify_proof(&env, &proof, &signer);
+        assert_eq!(result, Ok(false));
+    }
 }

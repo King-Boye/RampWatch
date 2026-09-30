@@ -19,7 +19,7 @@ SwiftRemit is an escrow-based remittance system that enables secure cross-border
 - **Cancellation Support**: Senders can cancel pending remittances with full refund
 - **Admin Controls**: Platform fee management and fee withdrawal capabilities
 - **Daily Send Limits**: Admin-configurable rolling 24h limits per currency/country
-- **Off-Chain Proof Commitments**: Optional proof validation before payout confirmation
+- **Off-Chain Proof Commitments**: Optional cryptographic proof validation before payout confirmation — agents must supply a valid proof that matches the settlement commitment computed at remittance creation time
 
 ## Architecture
 
@@ -360,6 +360,25 @@ This list must contain one entry per `pub fn` inside the `#[contractimpl] impl S
 3. **Overflow Protection**: Safe math operations with overflow checks
 4. **Agent Verification**: Only registered agents can receive payouts
 5. **Ownership Validation**: Senders can only cancel their own remittances
+6. **Proof Validation**: Optional cryptographic proof required before payout — agents must supply a valid 32-byte proof matching the settlement commitment, preventing payout without verified off-chain conditions
+
+## Proof Validation
+
+Proof validation ensures that `confirm_payout` cannot execute without cryptographic proof that off-chain or oracle conditions were met. When enabled, the agent must supply a valid proof that matches the commitment computed at remittance creation time.
+
+### How It Works
+
+1. **At creation**: The sender optionally attaches a `SettlementConfig` with `require_proof = true` and an `oracle_address`. The contract computes a SHA-256 commitment from the remittance fields and stores it.
+2. **At payout**: If `require_proof` is true, `confirm_payout` requires a 32-byte proof. The proof is compared against the stored commitment using constant-time comparison.
+3. **Backward compatible**: Remittances created without a commitment skip the proof check.
+
+### Key Properties
+
+- **Timing-attack resistant**: Constant-time byte comparison prevents timing side-channel leaks
+- **Replay-proof**: Commitment is bound to the specific remittance ID and all fields — proofs cannot be reused across settlements
+- **Opt-in**: Only remittances with `require_proof = true` are affected
+
+See [docs/PROOF_VALIDATION.md](docs/PROOF_VALIDATION.md) for full details and examples.
 
 ## Testing
 
