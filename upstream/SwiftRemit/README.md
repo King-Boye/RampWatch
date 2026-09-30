@@ -927,3 +927,6 @@ and genuinely pending work.
 
 <!-- handsoff-issue-1499 -->
 - #1499: Off-chain proof validation: If proof required and proof is `None`, return `ContractError::MissingProof`
+
+<!-- handsoff-issue-1500 -->
+- #1500: Off-chain proof validation: If proof required and proof is `Some`, call `verify_proof()` with the oracle address from config
