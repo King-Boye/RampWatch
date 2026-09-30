@@ -853,6 +853,11 @@ impl AnchorKitContract {
         let mut ids = Vec::new(&env);
         for i in 0..inputs.len() {
             let input = inputs.get(i).unwrap();
+            // Enforce per-issuer rate limit for each item in the batch, keeping
+            // parity with submit_attestation and submit_with_request_id.
+            if let Err(e) = crate::rate_limiter::RateLimiter::check_and_increment(&env, &issuer) {
+                panic_with_error!(&env, e);
+            }
             Self::check_timestamp(&env, input.timestamp);
 
             let used_key = StorageKey::Used(input.payload_hash.clone());
@@ -1298,6 +1303,11 @@ impl AnchorKitContract {
         }
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
+        // Enforce per-issuer rate limit, keeping parity with submit_attestation
+        // and submit_with_request_id.
+        if let Err(e) = crate::rate_limiter::RateLimiter::check_and_increment(&env, &issuer) {
+            panic_with_error!(&env, e);
+        }
         Self::check_timestamp(&env, timestamp);
         Self::verify_attestation_signature(&env, &issuer, &payload_hash, &signature);
 
