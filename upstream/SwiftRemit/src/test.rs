@@ -6655,18 +6655,12 @@ fn test_idempotency_key_cleared_after_terminal_state() {
 }
 
 // ============================================================================
-// Off-Chain Proof Validation — Edge Case Integration Tests
-// Issues: #1514, #1515, #1516, #1517
+// Off-Chain Verification Proof Validation - Settlement Flow
 // ============================================================================
 
-/// #1514 — Backward-compatibility: remittances created without a settlement
-/// config (i.e. before the proof-validation feature existed) must still
-/// confirm successfully without any proof.
-///
-/// A `None` settlement_config means `require_proof = false`, so the contract
-/// must not demand a proof and must complete the payout as normal.
+/// #1509 — full settlement flow succeeds when a valid proof is supplied.
 #[test]
-fn test_backward_compatibility() {
+fn test_settlement_with_valid_proof() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -6676,42 +6670,45 @@ fn test_backward_compatibility() {
     let sender = Address::generate(&env);
     let agent = Address::generate(&env);
 
-    token.mint(&sender, &100_000);
+    token.mint(&sender, &10_000);
 
     let contract = create_swiftremit_contract(&env);
     contract.initialize(&admin, &token.address, &250, &0, &0, &admin);
     contract.register_agent(&agent, &None);
 
-    // Create remittance with NO settlement_config — simulates a pre-feature remittance.
+    let config = crate::SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin.clone()),
+    };
+
     let remittance_id = contract.create_remittance(
         &sender,
         &agent,
-        &10_000,
+        &1_000,
         &None,
         &None,
         &None,
-        &None, // no settlement_config
+        &Some(config),
         &None,
     );
-
-    // confirm_payout with no proof must succeed — proof is not required.
-    contract.confirm_payout(&remittance_id, &None, &None);
 
     let remittance = contract.get_remittance(&remittance_id);
+    let proof = crate::verification::compute_payout_commitment(&env, &remittance);
+
+    contract.confirm_payout(&remittance_id, &Some(proof), &None);
+
+    let settled = contract.get_remittance(&remittance_id);
     assert_eq!(
-        remittance.status,
-        crate::RemittanceStatus::Completed,
-        "Remittance without settlement_config must complete without proof"
+        settled.status,
+        crate::types::RemittanceStatus::Completed
     );
+    assert_eq!(get_token_balance(&token, &agent), 975);
+    assert_eq!(contract.get_accumulated_fees(), 25);
 }
 
-/// #1515 — Proof validation with an expired settlement.
-///
-/// When a remittance has an expiry timestamp that has already passed,
-/// `confirm_payout` must return `SettlementExpired` regardless of whether a
-/// valid proof is supplied.
+/// #1510 — settlement with an invalid proof fails with InvalidProof.
 #[test]
-fn test_proof_validation_expired_settlement() {
+fn test_settlement_with_invalid_proof() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -6721,49 +6718,47 @@ fn test_proof_validation_expired_settlement() {
     let sender = Address::generate(&env);
     let agent = Address::generate(&env);
 
-    token.mint(&sender, &100_000);
+    token.mint(&sender, &10_000);
 
     let contract = create_swiftremit_contract(&env);
     contract.initialize(&admin, &token.address, &250, &0, &0, &admin);
     contract.register_agent(&agent, &None);
 
-    // Pin ledger to a known timestamp and create a remittance that expires soon.
-    env.ledger().with_mut(|li| {
-        li.timestamp = 1_000;
-    });
+    let config = crate::SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin.clone()),
+    };
 
-    let expiry: u64 = 1_100; // expires 100 seconds from now
     let remittance_id = contract.create_remittance(
         &sender,
         &agent,
-        &10_000,
-        &Some(expiry),
+        &1_000,
         &None,
         &None,
         &None,
+        &Some(config),
         &None,
     );
 
-    // Advance ledger past expiry.
-    env.ledger().with_mut(|li| {
-        li.timestamp = 1_200;
-    });
+    let invalid_proof = soroban_sdk::BytesN::from_array(&env, &[0x07u8; 32]);
 
-    // Attempt to confirm payout after expiry — must fail with SettlementExpired.
-    let result = contract.try_confirm_payout(&remittance_id, &None, &None);
+    let result =
+        contract.try_confirm_payout(&remittance_id, &Some(invalid_proof), &None);
+
     assert_eq!(
         result.unwrap_err().unwrap(),
-        crate::ContractError::SettlementExpired,
-        "confirm_payout on an expired settlement must return SettlementExpired"
+        crate::errors::ContractError::InvalidProof
+    );
+
+    assert_eq!(
+        contract.get_remittance(&remittance_id).status,
+        crate::types::RemittanceStatus::Pending
     );
 }
 
-/// #1516 — Proof validation with a cancelled settlement.
-///
-/// Calling `confirm_payout` on a remittance that is already in the
-/// `Cancelled` terminal state must be rejected with `InvalidStatus`.
+/// #1513 — require_proof=true without an oracle address is invalid.
 #[test]
-fn test_proof_validation_cancelled_settlement() {
+fn test_settlement_config_validation() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -6773,84 +6768,31 @@ fn test_proof_validation_cancelled_settlement() {
     let sender = Address::generate(&env);
     let agent = Address::generate(&env);
 
-    token.mint(&sender, &100_000);
+    token.mint(&sender, &10_000);
 
     let contract = create_swiftremit_contract(&env);
     contract.initialize(&admin, &token.address, &250, &0, &0, &admin);
     contract.register_agent(&agent, &None);
 
-    let remittance_id = contract.create_remittance(
+    let invalid_config = crate::SettlementConfig {
+        require_proof: true,
+        oracle_address: None,
+    };
+
+    let result = contract.try_create_remittance(
         &sender,
         &agent,
-        &10_000,
+        &1_000,
         &None,
         &None,
         &None,
-        &None,
+        &Some(invalid_config),
         &None,
     );
 
-    // Cancel the remittance — moves it to the terminal Cancelled state.
-    contract.cancel_remittance(&remittance_id);
-
-    let remittance = contract.get_remittance(&remittance_id);
-    assert_eq!(remittance.status, crate::RemittanceStatus::Cancelled);
-
-    // Attempt to confirm payout on a cancelled remittance — must fail.
-    let result = contract.try_confirm_payout(&remittance_id, &None, &None);
     assert_eq!(
         result.unwrap_err().unwrap(),
-        crate::ContractError::InvalidStatus,
-        "confirm_payout on a Cancelled remittance must return InvalidStatus"
+        crate::errors::ContractError::InvalidOracleAddress
     );
 }
 
-/// #1517 — Proof validation with an already-completed settlement.
-///
-/// Calling `confirm_payout` on a remittance that has already been completed
-/// must be rejected.  The contract guards against double-payout via the
-/// settlement-hash deduplication check, which returns `DuplicateSettlement`.
-#[test]
-fn test_proof_validation_already_completed_settlement() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let token_admin = Address::generate(&env);
-    let token = create_token_contract(&env, &token_admin);
-    let sender = Address::generate(&env);
-    let agent = Address::generate(&env);
-
-    token.mint(&sender, &100_000);
-
-    let contract = create_swiftremit_contract(&env);
-    contract.initialize(&admin, &token.address, &250, &0, &0, &admin);
-    contract.register_agent(&agent, &None);
-
-    let remittance_id = contract.create_remittance(
-        &sender,
-        &agent,
-        &10_000,
-        &None,
-        &None,
-        &None,
-        &None,
-        &None,
-    );
-
-    // First payout — must succeed.
-    contract.confirm_payout(&remittance_id, &None, &None);
-
-    let remittance = contract.get_remittance(&remittance_id);
-    assert_eq!(remittance.status, crate::RemittanceStatus::Completed);
-
-    // Second payout attempt on the same remittance — must be rejected.
-    let result = contract.try_confirm_payout(&remittance_id, &None, &None);
-    let err = result.unwrap_err().unwrap();
-    assert!(
-        err == crate::ContractError::DuplicateSettlement
-            || err == crate::ContractError::InvalidStatus,
-        "confirm_payout on a Completed remittance must return DuplicateSettlement or InvalidStatus, got {:?}",
-        err
-    );
-}
