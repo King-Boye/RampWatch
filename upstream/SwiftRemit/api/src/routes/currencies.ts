@@ -168,4 +168,101 @@ router.get('/:code', (req: Request, res: Response) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Issue #1553 — Currency validation endpoint (implementation plan)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// POST /api/currencies/validate
+//   Uses POST, not GET /validate/:code, so it can never collide with the
+//   GET /:code route above. The request body can also carry an amount.
+//
+//   Request body (Joi schema added to src/schemas/requestValidation.ts):
+//     { code: string (1-12 chars, [A-Za-z0-9]), amount?: string }
+//   `amount` is a decimal *string* ("10.50"), never a JS number, so precision
+//   is checked on exactly what the client sent, with no float rounding.
+//
+//   200 response. It is always 200 when the request is well-formed, because
+//   "not supported" is a validation result, not a client error:
+//     {
+//       success: true,
+//       data: {
+//         code: "USD",                 // normalised to upper case
+//         valid: boolean,              // true only if every check below passed
+//         supported: boolean,          // code exists in the currency config
+//         currency?: Currency,         // present when supported
+//         amount?: {
+//           valid: boolean,
+//           decimal_places: number,
+//           max_decimal_places: number // currency.decimal_precision
+//         },
+//         errors: Array<{ field: 'code' | 'amount', code: string, message: string }>
+//       },
+//       timestamp: string
+//     }
+//   Error codes in `errors`: CURRENCY_NOT_SUPPORTED, AMOUNT_NOT_NUMERIC,
+//   AMOUNT_NOT_POSITIVE, AMOUNT_PRECISION_EXCEEDED.
+//   400 (ErrorResponse, code INVALID_REQUEST_BODY) only when the body fails
+//   Joi validation (missing code, wrong types, oversized strings).
+//
+//   Implementation:
+//   - A pure helper `validateCurrencyInput(code, amount?, loader)` in a new
+//     src/services/currencyValidation.ts, so the bulk endpoint (#1554), the
+//     GraphQL resolvers and future callers share one definition. The code
+//     format regex is the one already used by GET /:code above; move it into
+//     the helper so the two can't drift.
+//   - Amount check: /^\d+(\.\d+)?$/ on the string, then
+//     decimal_places <= currency.decimal_precision, then > 0.
+//   - Covered by the existing global rate limiter; no auth (public, like
+//     the other currency routes).
+//
+//   Docs and tests:
+//   - Add the path to src/schemas/openapi.ts so openapi-validation.test.ts
+//     covers it.
+//   - Tick "Currency validation endpoint" under Future Enhancements in
+//     docs/implementation/CURRENCY_API.md and add a usage section there.
+//   - New src/__tests__/currencies-validate.test.ts (supertest): supported
+//     code; lower-case code normalised; unsupported code -> 200 with
+//     valid=false; amount with too many decimals for a 2-dp currency;
+//     amount "abc"; amount "0"; missing code -> 400; code with symbols -> 400.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// Issue #1554 — Bulk currency operations (implementation plan)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Scope note: currencies are read-only here. They are loaded from the config
+// file by CurrencyConfigLoader and there are no create/update/delete routes.
+// Bulk *write* operations depend on "Admin API for currency management",
+// which is a separate Future Enhancements item, so this issue covers bulk
+// *read* operations. Bulk writes are designed to slot in later behind
+// `requireAdmin` using the same request/response shape.
+//
+// POST /api/currencies/bulk
+//   Body: { codes: string[] }  (1-100 items; each 1-12 chars [A-Za-z0-9])
+//   - Codes are upper-cased and de-duplicated, and response order follows
+//     first appearance in the request.
+//   - 200: { success: true, data: Currency[], not_found: string[],
+//            count: number, timestamp }
+//   - 400 INVALID_REQUEST_BODY for an empty array, more than 100 items, or
+//     any malformed code. The whole request is rejected so a client bug
+//     can't silently drop codes.
+//   - One getCurrencies() call, indexed into a Map by code, so lookup is
+//     O(n) rather than calling getCurrencyByCode per item.
+//
+// POST /api/currencies/validate/bulk
+//   Body: { items: Array<{ code: string, amount?: string }> } (1-100 items)
+//   - Runs validateCurrencyInput (#1553) on each item. The response is
+//     { success: true, data: ValidationResult[], all_valid: boolean,
+//       timestamp }, with results in request order.
+//   - Registered before any future `/validate/:x` style route.
+//
+// Shared:
+//   - The 100-item cap is a named constant (MAX_BULK_CURRENCY_ITEMS) and the
+//     body size is still bounded by the app's express.json limit.
+//   - Both paths go in openapi.ts and CURRENCY_API.md, and "Bulk currency
+//     operations" gets ticked.
+//   - Tests (src/__tests__/currencies-bulk.test.ts): mixed found/not-found;
+//     duplicates and case variants collapsed; 101 items -> 400; empty -> 400;
+//     one malformed code -> 400; bulk validate returns per-item results and
+//     all_valid=false when any item fails.
+
 export default router;

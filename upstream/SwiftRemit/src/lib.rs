@@ -1325,6 +1325,42 @@ impl SwiftRemitContract {
         Ok(())
     }
 
+    // ── Issue #1557 — Dispute resolution mechanism: status + plan ─────────────
+    //
+    // Status: the core mechanism already exists and is marked shipped in
+    // ROADMAP.md. The flow is mark_failed -> raise_dispute (sender, within
+    // get_dispute_window, with an evidence hash) -> resolve_dispute (admin,
+    // refund to sender or net payout to agent), with 16 tests in
+    // src/test_dispute.rs, including balance invariants. The issue was
+    // generated from the README roadmap, so the first step is to ask the
+    // maintainer whether it should be closed as done or narrowed to the gaps
+    // below.
+    //
+    // Remaining gaps, as small, separately reviewable follow-ups:
+    //  1. No resolution deadline. A Disputed remittance can stay locked forever
+    //     if no admin acts. Add `dispute_resolution_timeout` (admin-set, 0 =
+    //     disabled) and a permissionless `process_stale_disputes(ids: Vec<u64>)`
+    //     that refunds the sender once `raised_at + timeout` has passed. This
+    //     mirrors process_expired_escrows, including its batch-size cap and its
+    //     pause policy (allowed while paused, because it is a user exit path).
+    //     `raised_at` goes in a separate storage key (DataKey::DisputeRaisedAt(id))
+    //     instead of a new Remittance field, so existing stored remittances
+    //     still decode.
+    //  2. Binary outcome only. Add `resolve_dispute_split(id, sender_bps: u32)`
+    //     (admin) that splits `escrow_remaining` between sender and agent,
+    //     reusing the same already-disbursed and fee accounting as
+    //     resolve_dispute. sender_bps is limited to 0..=10000, and 0 or 10000
+    //     behave exactly like the existing boolean resolution.
+    //  3. No record of the admin's reasoning. Add an optional
+    //     `resolution_hash: BytesN<32>` argument to the split function (and to
+    //     the dispute_resolved event via a new versioned event, leaving the
+    //     existing event's shape untouched for indexers).
+    //  New ContractError variants are appended after the current highest
+    //  discriminant so existing error codes stay stable. Tests are added to
+    //  src/test_dispute.rs: timeout refund, timeout not yet reached, split
+    //  50/50 balance invariant, split after partial payout, non-admin split
+    //  rejected.
+
     /// Sets the dispute window duration (admin only).
     ///
     /// Senders have this many seconds after a payout is marked Failed to raise a dispute.
@@ -2270,6 +2306,58 @@ impl SwiftRemitContract {
     }
 
     // ── Escrow Functions ───────────────────────────────────────────
+
+    // ── Issue #1558 — Time-locked escrow options: implementation plan ─────────
+    //
+    // Today: `create_escrow` applies one global TTL (`get_escrow_ttl`) as a
+    // refund *expiry*. Nothing stops `release_escrow` from paying out
+    // immediately, and there is no per-escrow choice of lock duration. ROADMAP.md
+    // lists this as pending ("per-tier lock durations").
+    //
+    // Design:
+    //  1. Admin-configured tiers, stored under DataKey::EscrowTier(u32):
+    //       #[contracttype] pub struct EscrowTier {
+    //           lock_seconds: u64,        // release_escrow blocked until created + lock
+    //           expiry_seconds: u64,      // refund-on-expiry after created + expiry (0 = none)
+    //           sender_can_cancel_early: bool, // may the sender refund_escrow during the lock?
+    //       }
+    //     Admin functions: set_escrow_tier(tier_id, tier), remove_escrow_tier(tier_id),
+    //     and a public get_escrow_tier(tier_id).
+    //     Validation: expiry_seconds == 0 || expiry_seconds > lock_seconds (otherwise
+    //     there is no window in which release is possible), and lock_seconds <= a
+    //     MAX_ESCROW_LOCK constant (e.g. 365 days). Violations return
+    //     ContractError::InvalidTimelockDuration, which already exists (= 78).
+    //  2. New `create_escrow_with_tier(sender, recipient, amount, tier_id)`.
+    //     `create_escrow` keeps its exact behaviour (global TTL, no lock), so
+    //     existing integrators and tests are unaffected.
+    //  3. Storage compatibility: `Escrow` is a stored #[contracttype]. Adding
+    //     a field would stop existing escrows from decoding after an upgrade.
+    //     The lock goes in a separate key, DataKey::EscrowLock(transfer_id) ->
+    //     EscrowLock { unlock_at: u64, tier_id: u32, sender_can_cancel_early: bool },
+    //     and an absent key means "no lock", which is exactly today's
+    //     behaviour. The expiry keeps using the existing `Escrow.expiry` field.
+    //  4. Enforcement:
+    //     - release_escrow: if a lock exists and now < unlock_at, return the new
+    //       ContractError::EscrowLocked (appended after the highest discriminant).
+    //     - refund_escrow (sender): during the lock, allowed only when
+    //       sender_can_cancel_early. After unlock, same as today.
+    //     - process_expired_escrows: unchanged. Expiry is always after unlock
+    //       by the validation above, so a locked escrow can never be
+    //       expiry-refunded early. Its pause policy (allowed while paused)
+    //       stays as it is.
+    //  5. Events: new emit_escrow_locked(transfer_id, tier_id, unlock_at),
+    //     emitted after the existing emit_escrow_created, whose shape is left
+    //     unchanged for indexers.
+    //  6. Tests (new src/test_escrow_tiers.rs), using
+    //     env.ledger().with_mut(|l| l.timestamp = ..):
+    //     - release before unlock -> EscrowLocked; at unlock -> ok.
+    //     - sender refund during lock: rejected without early-cancel, allowed with it.
+    //     - expiry refund via process_expired_escrows only after expiry.
+    //     - set_escrow_tier with expiry <= lock -> InvalidTimelockDuration.
+    //     - unknown tier_id -> NotFound; non-admin set_escrow_tier rejected.
+    //     - regression: plain create_escrow behaves exactly as before.
+    //  7. Docs: README contract function table, ROADMAP.md (move to shipped),
+    //     and the ABI in abi/ regenerated for the new functions.
 
     pub fn create_escrow(
         env: Env,
