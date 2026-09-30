@@ -918,3 +918,6 @@ and genuinely pending work.
 
 <!-- handsoff-issue-1452 -->
 - #1452: Idempotency protection: Write property test for storage functions
+
+<!-- handsoff-issue-1495 -->
+- #1495: Off-chain proof validation: Store `settlement_config` in the `Remittance` record when creating new settlements
