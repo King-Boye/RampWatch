@@ -6653,3 +6653,146 @@ fn test_idempotency_key_cleared_after_terminal_state() {
         "After terminal state, the same key must be allowed to create a new remittance"
     );
 }
+
+// ============================================================================
+// Off-Chain Verification Proof Validation - Settlement Flow
+// ============================================================================
+
+/// #1509 — full settlement flow succeeds when a valid proof is supplied.
+#[test]
+fn test_settlement_with_valid_proof() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10_000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250, &0, &0, &admin);
+    contract.register_agent(&agent, &None);
+
+    let config = crate::SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin.clone()),
+    };
+
+    let remittance_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &1_000,
+        &None,
+        &None,
+        &None,
+        &Some(config),
+        &None,
+    );
+
+    let remittance = contract.get_remittance(&remittance_id);
+    let proof = crate::verification::compute_payout_commitment(&env, &remittance);
+
+    contract.confirm_payout(&remittance_id, &Some(proof), &None);
+
+    let settled = contract.get_remittance(&remittance_id);
+    assert_eq!(
+        settled.status,
+        crate::types::RemittanceStatus::Completed
+    );
+    assert_eq!(get_token_balance(&token, &agent), 975);
+    assert_eq!(contract.get_accumulated_fees(), 25);
+}
+
+/// #1510 — settlement with an invalid proof fails with InvalidProof.
+#[test]
+fn test_settlement_with_invalid_proof() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10_000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250, &0, &0, &admin);
+    contract.register_agent(&agent, &None);
+
+    let config = crate::SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin.clone()),
+    };
+
+    let remittance_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &1_000,
+        &None,
+        &None,
+        &None,
+        &Some(config),
+        &None,
+    );
+
+    let invalid_proof = soroban_sdk::BytesN::from_array(&env, &[0x07u8; 32]);
+
+    let result =
+        contract.try_confirm_payout(&remittance_id, &Some(invalid_proof), &None);
+
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        crate::errors::ContractError::InvalidProof
+    );
+
+    assert_eq!(
+        contract.get_remittance(&remittance_id).status,
+        crate::types::RemittanceStatus::Pending
+    );
+}
+
+/// #1513 — require_proof=true without an oracle address is invalid.
+#[test]
+fn test_settlement_config_validation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = create_token_contract(&env, &token_admin);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10_000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250, &0, &0, &admin);
+    contract.register_agent(&agent, &None);
+
+    let invalid_config = crate::SettlementConfig {
+        require_proof: true,
+        oracle_address: None,
+    };
+
+    let result = contract.try_create_remittance(
+        &sender,
+        &agent,
+        &1_000,
+        &None,
+        &None,
+        &None,
+        &Some(invalid_config),
+        &None,
+    );
+
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        crate::errors::ContractError::InvalidOracleAddress
+    );
+}
+
