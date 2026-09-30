@@ -392,6 +392,318 @@ Potential improvements:
 - [ ] Currency validation endpoint
 - [ ] Bulk currency operations
 
+---
+
+<!--
+=============================================================================
+Issue #1546 — Currency API: Historical currency data
+https://github.com/Haroldwonder/SwiftRemit/issues/1546
+
+PROBLEM
+-------
+The current API serves only the present state of currency configuration.
+There is no way for clients, auditors, or the compliance team to query what
+decimal_precision or symbol was in effect for a given currency at a past
+point in time. This matters for retroactive invoice generation and audit trails.
+
+PROPOSED IMPLEMENTATION
+-----------------------
+Add a versioned history store that snapshots the full CurrencyConfig
+whenever a currency is created, updated, or deleted (via the admin API
+from issue #1550).
+
+Data model:
+
+  interface CurrencyHistoryEntry {
+    code: string;
+    snapshot: CurrencyConfig;        // full config at this point in time
+    changed_at: string;              // ISO 8601 timestamp
+    changed_by: string;              // admin actor (JWT sub)
+    change_type: 'created' | 'updated' | 'deleted';
+    previous_snapshot?: CurrencyConfig; // null for 'created'
+  }
+
+Storage options (in order of implementation simplicity):
+  1. Append-only JSONL file: api/data/currency_history.jsonl
+  2. PostgreSQL table: currency_config_history
+  3. Redis sorted set keyed by (code, timestamp)
+
+Option 1 requires no new infrastructure and is appropriate for early
+implementation; migrate to option 2 when the service adopts a DB.
+
+New endpoints:
+
+  GET /api/currencies/:code/history
+    Query params:
+      from  (ISO date, optional)
+      to    (ISO date, optional)
+      limit (integer, default 50, max 200)
+    Returns: paginated list of CurrencyHistoryEntry sorted by changed_at desc.
+
+  GET /api/currencies/:code/history/:timestamp
+    Returns the CurrencyConfig that was active at the given timestamp.
+    Algorithm: find the latest entry with changed_at <= timestamp.
+
+ACCEPTANCE CRITERIA
+-------------------
+  ✅ Every admin mutation (create/update/delete) writes a history entry
+  ✅ GET /api/currencies/:code/history returns entries in reverse chronological order
+  ✅ GET /api/currencies/:code/history/:timestamp returns the config active at that moment
+  ✅ History entries survive service restarts (persistent storage)
+  ✅ Unit tests: history records written, point-in-time lookup returns correct snapshot
+
+FILES TO ADD/MODIFY
+-------------------
+  api/src/services/currency-history.service.ts  ← new history store service
+  api/src/routes/currencies.ts                  ← add /history routes
+  api/data/currency_history.jsonl               ← new append-only history file
+  api/src/__tests__/currency-history.test.ts    ← new test file
+
+=============================================================================
+
+Issue #1548 — Currency API: Localized currency names
+https://github.com/Haroldwonder/SwiftRemit/issues/1548
+
+PROBLEM
+-------
+The `name` field in CurrencyConfig is a single English string
+(e.g. "United States Dollar"). SwiftRemit serves users across Africa,
+Asia, and Latin America where the UI is localized. A Nigerian user sees
+"United States Dollar" even when the UI language is set to Hausa or Igbo.
+
+PROPOSED IMPLEMENTATION
+-----------------------
+Extend the CurrencyConfig schema with an optional `localized_names` map:
+
+  interface CurrencyConfig {
+    code: string;
+    symbol: string;
+    decimal_precision: number;
+    name: string;                          // English fallback (required)
+    localized_names?: Record<string, string>; // locale → name
+  }
+
+Example in currencies.json:
+
+  {
+    "code": "USD",
+    "symbol": "$",
+    "decimal_precision": 2,
+    "name": "United States Dollar",
+    "localized_names": {
+      "fr": "Dollar américain",
+      "es": "Dólar estadounidense",
+      "sw": "Dola ya Marekani",
+      "ha": "Dalar Amurka",
+      "yo": "Dola Amẹrika"
+    }
+  }
+
+API behavior:
+
+  GET /api/currencies?locale=fr
+    Returns currencies with `display_name` set to localized_names["fr"]
+    if present, falling back to `name` if not.
+
+  GET /api/currencies/:code?locale=sw
+    Returns single currency with `display_name` in Swahili.
+
+The `locale` query parameter follows BCP 47 (e.g. "fr", "sw", "en-NG").
+Lookup tries exact match first, then language subtag only (e.g. "en-NG" → "en").
+
+ACCEPTANCE CRITERIA
+-------------------
+  ✅ CurrencyConfig schema extended with optional localized_names map
+  ✅ locale query param accepted on both GET /api/currencies endpoints
+  ✅ display_name field in response reflects active locale with English fallback
+  ✅ Joi validation schema updated to allow localized_names
+  ✅ Unit tests: locale lookup, fallback to English, unknown locale
+
+FILES TO MODIFY
+---------------
+  api/config/currencies.json          ← add localized_names to default currencies
+  api/src/config.ts                   ← extend Joi schema, add getLocalizedName()
+  api/src/routes/currencies.ts        ← pass locale param, set display_name
+  api/src/__tests__/config.test.ts    ← tests for localized_names validation
+  api/src/__tests__/routes.test.ts    ← tests for locale query parameter
+
+=============================================================================
+
+Issue #1549 — Currency API: Currency grouping (fiat, crypto, etc.)
+https://github.com/Haroldwonder/SwiftRemit/issues/1549
+
+PROBLEM
+-------
+The API returns all currencies in a flat list with no way to filter or
+group by type. As the platform adds more digital assets (USDC, BTC, ETH)
+alongside fiat currencies, clients need a structured way to display
+"Send with crypto" vs "Send with fiat" sections in the UI.
+
+PROPOSED IMPLEMENTATION
+-----------------------
+Add a `group` field to CurrencyConfig:
+
+  type CurrencyGroup = 'fiat' | 'crypto' | 'stablecoin' | 'commodity' | 'other';
+
+  interface CurrencyConfig {
+    code: string;
+    symbol: string;
+    decimal_precision: number;
+    name: string;
+    group: CurrencyGroup;   // required for all currencies
+    localized_names?: Record<string, string>;
+  }
+
+Default groupings for existing currencies:
+  fiat:        USD, EUR, GBP, JPY, NGN, KES, GHS, ZAR, INR, PHP
+  stablecoin:  USDC
+
+New endpoints:
+
+  GET /api/currencies/groups
+    Returns all available group names:
+      { "groups": ["fiat", "stablecoin"] }
+
+  GET /api/currencies?group=fiat
+    Returns only currencies in the "fiat" group.
+    Can be combined with ?locale= for localized fiat names.
+
+  GET /api/currencies?group=stablecoin
+    Returns only stablecoins.
+
+The existing GET /api/currencies (no group filter) continues to return all
+currencies unchanged — no breaking change.
+
+ACCEPTANCE CRITERIA
+-------------------
+  ✅ group field added to CurrencyConfig schema (required, validated enum)
+  ✅ All 11 default currencies assigned correct group values
+  ✅ GET /api/currencies?group=fiat filters correctly
+  ✅ GET /api/currencies/groups returns available groups
+  ✅ Combinable with ?locale= parameter (from issue #1548)
+  ✅ Joi validation rejects unknown group values
+  ✅ Unit and integration tests for group filtering
+
+FILES TO MODIFY
+---------------
+  api/config/currencies.json      ← add group field to all currencies
+  api/src/config.ts               ← extend Joi schema, add group to Currency type
+  api/src/routes/currencies.ts    ← add group filter and /groups endpoint
+  api/src/__tests__/config.test.ts   ← tests for group validation
+  api/src/__tests__/routes.test.ts   ← tests for group filter query param
+
+=============================================================================
+
+Issue #1552 — Currency API: GraphQL endpoint
+https://github.com/Haroldwonder/SwiftRemit/issues/1552
+
+PROBLEM
+-------
+The REST API works well for simple lookups but requires multiple round trips
+when a client needs a filtered, paginated, localized list of currencies in a
+specific group. GraphQL lets the client specify exactly what fields and filters
+it needs in one request, reducing over-fetching and under-fetching.
+
+PROPOSED IMPLEMENTATION
+-----------------------
+Add a GraphQL endpoint alongside the existing REST API (additive, not replacing).
+
+Schema:
+
+  type Currency {
+    code: String!
+    symbol: String!
+    decimal_precision: Int!
+    name: String!
+    display_name: String        # locale-aware name (requires locale arg)
+    group: CurrencyGroup!
+    localized_names: JSON       # raw map for advanced clients
+  }
+
+  enum CurrencyGroup {
+    fiat
+    crypto
+    stablecoin
+    commodity
+    other
+  }
+
+  type Query {
+    currencies(
+      group: CurrencyGroup
+      locale: String
+      codes: [String]           # filter by specific codes
+    ): [Currency!]!
+
+    currency(code: String!, locale: String): Currency
+  }
+
+Endpoint: POST /api/graphql (standard GraphQL over HTTP)
+         GET  /api/graphql (GraphiQL IDE in development mode only)
+
+Example query:
+
+  query FiatCurrencies {
+    currencies(group: fiat, locale: "fr") {
+      code
+      symbol
+      display_name
+      decimal_precision
+    }
+  }
+
+Implementation using graphql-js + express-graphql or graphql-yoga:
+
+  npm install graphql graphql-yoga   # or express-graphql
+
+The resolvers read from the same in-memory CurrencyConfig store used by
+the REST routes — no separate data source, no duplication of business logic.
+
+Security:
+  - Depth limit: max 3 levels (currencies have no nested relations)
+  - Complexity limit: max 100 (prevents field-explosion attacks)
+  - Rate limiting: same 100 req/15min as REST endpoints
+  - Auth: read-only, no mutations (mutations go through admin REST API)
+  - Introspection disabled in production (enabled in development only)
+
+DEPENDENCY ON #1548 AND #1549
+------------------------------
+GraphQL locale argument requires the localized_names field (#1548).
+GraphQL group filter requires the group field (#1549).
+Implement #1548 and #1549 first, then add the GraphQL layer on top.
+
+ACCEPTANCE CRITERIA
+-------------------
+  ✅ POST /api/graphql handles currencies and currency queries
+  ✅ group and locale args filter/localize results correctly
+  ✅ Depth and complexity limits enforced
+  ✅ Introspection disabled in production
+  ✅ GraphiQL available in development mode
+  ✅ Existing REST endpoints unchanged (additive change)
+  ✅ Unit tests for each resolver
+  ✅ Integration test: GraphQL query returns same data as equivalent REST call
+
+FILES TO ADD/MODIFY
+-------------------
+  api/src/graphql/schema.ts           ← new GraphQL type definitions
+  api/src/graphql/resolvers.ts        ← new resolvers (delegate to config store)
+  api/src/graphql/index.ts            ← new graphql-yoga or express-graphql setup
+  api/src/app.ts                      ← mount /api/graphql endpoint
+  api/src/__tests__/graphql.test.ts   ← new GraphQL test file
+  api/package.json                    ← add graphql dependency
+
+IMPLEMENTATION ORDER
+---------------------
+  1. #1548 (localized_names)   — extends CurrencyConfig schema
+  2. #1549 (currency groups)   — adds group field
+  3. #1550 (admin API)         — adds mutation capability
+  4. #1551 (webhooks)          — depends on #1550
+  5. #1552 (GraphQL)           — wraps everything above in a query layer
+
+=============================================================================
+-->
+
+
 ## Troubleshooting
 
 ### Configuration Not Loading
