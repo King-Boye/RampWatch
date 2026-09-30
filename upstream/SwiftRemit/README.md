@@ -924,3 +924,6 @@ and genuinely pending work.
 
 <!-- handsoff-issue-1498 -->
 - #1498: Off-chain proof validation: Add logic to check if `remittance.settlement_config.require_proof` is true
+
+<!-- handsoff-issue-1499 -->
+- #1499: Off-chain proof validation: If proof required and proof is `None`, return `ContractError::MissingProof`
