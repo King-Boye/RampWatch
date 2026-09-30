@@ -1,5 +1,180 @@
 # Currency Configuration API - Implementation Documentation
 
+<!--
+=============================================================================
+Issue #1551 — Currency API: Webhook notifications on config changes
+https://github.com/Haroldwonder/SwiftRemit/issues/1551
+
+Issue #1550 — Currency API: Admin API for currency management
+https://github.com/Haroldwonder/SwiftRemit/issues/1550
+
+STATUS: PENDING — listed as Future Enhancements below.
+Both issues are documented here as the canonical design specification
+so they can be implemented without ambiguity.
+=============================================================================
+
+── ISSUE #1550: Admin API for currency management ──────────────────────────
+
+PROBLEM
+-------
+The current currency configuration is file-based + env-var-based. There is
+no HTTP API to add, update, or remove currencies at runtime without restarting
+the service or editing a file/env var. An ops team managing a production
+deployment cannot add a new currency corridor (e.g. USDT) without a redeploy.
+
+PROPOSED IMPLEMENTATION
+-----------------------
+Add a set of authenticated admin routes to api/src/routes/currencies.ts:
+
+  POST   /api/admin/currencies
+    Body: { code, symbol, decimal_precision, name? }
+    Adds a new currency. Returns 409 if code already exists.
+    Writes through to the in-memory config AND persists to currencies.json
+    (or a database table if the service has migrated to DB-backed config).
+
+  PUT    /api/admin/currencies/:code
+    Body: partial CurrencyConfig (any subset of symbol/decimal_precision/name)
+    Updates an existing currency. Returns 404 if code not found.
+
+  DELETE /api/admin/currencies/:code
+    Removes a currency. Returns 404 if code not found.
+    Returns 409 if the currency is currently in use by an active corridor
+    (prevents removing USD while USD corridors are active).
+
+AUTHENTICATION
+--------------
+All /api/admin/* routes MUST be gated by an admin authentication middleware.
+The existing pattern in the backend service uses JWT with admin role claims:
+
+  router.use('/admin', requireAuth({ role: 'admin' }));
+
+The API service should adopt the same pattern. Admin tokens must:
+  - Be short-lived (≤ 1 hour expiry)
+  - Be issued only to service accounts with the 'currency:write' scope
+  - Not be stored in client-side storage (use httpOnly cookies or
+    server-side session if admin UI is browser-based)
+
+IDEMPOTENCY
+-----------
+POST /api/admin/currencies should accept an optional Idempotency-Key header
+so repeated calls (e.g. from a retry loop) do not create duplicate entries:
+
+  Idempotency-Key: create-currency-USDT-2026-09-28
+
+AUDIT LOG
+---------
+Every admin mutation should write to a structured audit log:
+  { timestamp, action: 'currency.created'|'currency.updated'|'currency.deleted',
+    actor: <admin_jwt_sub>, currency_code, before: {...}, after: {...} }
+
+VALIDATION
+----------
+Reuse the existing Joi schema from api/src/config.ts for POST/PUT request
+body validation. A 400 response is returned for any schema violation with
+the same error format as the existing endpoints:
+  { success: false, error: { message, code: 'VALIDATION_ERROR' }, timestamp }
+
+TESTS TO ADD
+------------
+  api/src/__tests__/admin-currencies.test.ts:
+    - POST creates a new currency and it appears in GET /api/currencies
+    - POST with duplicate code returns 409
+    - PUT updates an existing currency
+    - PUT on non-existent code returns 404
+    - DELETE removes a currency
+    - DELETE on in-use currency returns 409
+    - All routes return 401 without admin token
+    - All routes return 403 with non-admin token
+    - POST is idempotent with Idempotency-Key
+
+── ISSUE #1551: Webhook notifications on config changes ────────────────────
+
+PROBLEM
+-------
+When a currency is added, updated, or deleted (via the admin API from #1550,
+or via a manual config reload), any downstream service (mobile app, frontend,
+partner integrations) that has cached the currency list does not know it is
+stale. There is no push notification mechanism.
+
+PROPOSED IMPLEMENTATION
+-----------------------
+Add a webhook fan-out layer that fires on every successful currency mutation.
+This integrates with the existing webhook infrastructure in:
+  backend/src/webhook-service.ts  (delivery engine)
+  backend/src/webhooks/           (event types)
+  docs/WEBHOOKS.md                (conventions)
+
+Step 1 — Define event types in backend/src/webhooks/events.ts:
+
+  type CurrencyEvent =
+    | { type: 'currency.created'; data: CurrencyConfig; timestamp: string }
+    | { type: 'currency.updated'; data: { before: CurrencyConfig; after: CurrencyConfig }; timestamp: string }
+    | { type: 'currency.deleted'; data: { code: string }; timestamp: string }
+    | { type: 'currency.config_reloaded'; data: { count: number }; timestamp: string };
+
+Step 2 — Emit events from admin route handlers (api/src/routes/currencies.ts):
+
+  // After successful POST /api/admin/currencies:
+  await webhookService.emit('currency.created', { ...newCurrency });
+
+  // After successful PUT:
+  await webhookService.emit('currency.updated', { before: old, after: updated });
+
+  // After successful DELETE:
+  await webhookService.emit('currency.deleted', { code });
+
+Step 3 — Subscribe endpoint for consumers:
+  Consumers register via the existing webhook subscription API.
+  No new subscription mechanism needed — the existing
+  POST /api/webhooks/subscribe with event_type: 'currency.*' is sufficient.
+
+Step 4 — Retry and delivery guarantee:
+  Use the existing outbox pattern from backend/src/webhook-outbox.ts (if it
+  exists) or the webhook retry logic already in the delivery service.
+  At-least-once delivery is sufficient; consumers must be idempotent.
+
+PAYLOAD EXAMPLE
+---------------
+  {
+    "id": "wh_01J9KZXQ...",
+    "type": "currency.created",
+    "timestamp": "2026-09-28T10:00:00.000Z",
+    "data": {
+      "code": "USDT",
+      "symbol": "₮",
+      "decimal_precision": 6,
+      "name": "Tether USD"
+    }
+  }
+
+SECURITY
+--------
+Webhook payloads must be signed using the existing HMAC-SHA256 signature
+scheme documented in docs/WEBHOOKS.md. Consumers verify:
+  X-SwiftRemit-Signature: sha256=<hmac>
+
+No PII or admin credentials should appear in the event payload. Currency
+configs contain only public formatting data so this requirement is already met.
+
+TESTS TO ADD
+------------
+  api/src/__tests__/currency-webhooks.test.ts:
+    - Webhook fires after POST /api/admin/currencies
+    - Webhook fires after PUT /api/admin/currencies/:code
+    - Webhook fires after DELETE /api/admin/currencies/:code
+    - Webhook NOT fired if admin mutation returns an error
+    - Webhook payload matches CurrencyEvent schema
+    - Payload is signed with correct HMAC-SHA256 signature
+
+DEPENDENCY ON #1550
+-------------------
+Issue #1551 depends on #1550. The webhook events are only emitted from the
+admin mutation handlers, which do not exist until #1550 is implemented.
+#1550 should be completed and merged first.
+
+=============================================================================
+-->
+
 ## Overview
 
 This document describes the implementation of a RESTful API endpoint that exposes all supported currencies and their formatting rules for the SwiftRemit platform.

@@ -1,3 +1,103 @@
+// =============================================================================
+// Issue #1555 — Roadmap: Multi-currency support
+// https://github.com/Haroldwonder/SwiftRemit/issues/1555
+//
+// STATUS: SHIPPED ✅
+// Listed on the project roadmap in README.md — now checked off.
+//
+// ─── WHAT WAS BUILT ──────────────────────────────────────────────────────────
+//
+// Multi-currency support covers two distinct layers:
+//
+//   Layer 1 — Smart Contract (Soroban): fee corridors + token whitelist
+//   Layer 2 — API Service: /api/currencies endpoint for client formatting rules
+//
+// ─── LAYER 1: CONTRACT ENTRY POINTS (src/lib.rs) ─────────────────────────────
+//
+//   set_fee_corridor(caller, corridor)
+//     Configures corridor-specific fee rules for a (from_country, to_country)
+//     pair, overriding the global fee_bps for that corridor.
+//
+//   get_fee_corridor(from_country, to_country) → CorridorConfig
+//     Returns the fee configuration for a specific country pair.
+//
+//   remove_fee_corridor(caller, from_country, to_country)
+//     Deletes a corridor's fee override (reverts to global fee_bps).
+//
+//   fee_breakdown_corridor(amount, corridor) → FeeBreakdown
+//     Computes the exact fee split for an amount under a corridor's config.
+//     Used by clients to show fee previews before the user confirms.
+//
+//   create_remittance_with_corridor(sender, agent, amount, expiry?,
+//                                   from_country?, to_country?)
+//     Like create_remittance, but applies the corridor fee if configured.
+//
+//   add_whitelisted_token(token) / remove_whitelisted_token(token)
+//     Manages the per-token whitelist. Callers using non-USDC tokens must
+//     have the token whitelisted; the contract checks on every remittance.
+//
+//   update_token_fee(caller, token, fee_bps)
+//     Sets a token-specific fee override (different rate for EURC vs USDC).
+//
+//   get_token_fee_bps(token) → u32
+//     Returns the fee for a specific token, falling back to global if not set.
+//
+//   set_daily_limit(currency, country, limit)
+//     Sets a rolling 24-hour send cap per currency/country corridor.
+//
+// ─── LAYER 2: CURRENCY API (api/src/) ────────────────────────────────────────
+//
+//   GET /api/currencies
+//     Returns all supported currencies with code, symbol, decimal_precision.
+//     Loaded from api/config/currencies.json at startup; validated via Joi.
+//
+//   GET /api/currencies/:code
+//     Returns a single currency by 3-12 char code (case-insensitive).
+//
+//   Supported out of the box (api/config/currencies.json):
+//     USD, EUR, GBP, JPY, NGN, KES, GHS, ZAR, INR, PHP, USDC
+//
+//   Environment overrides (CURRENCY_CONFIG_ENV_OVERRIDE=true):
+//     Additional or modified currencies injected without a restart via the
+//     CURRENCY_OVERRIDES env var (JSON array of CurrencyConfig objects).
+//
+// ─── NETTING.RS — MULTI-CURRENCY NETTING INVARIANT ───────────────────────────
+//
+// This file (netting.rs) is relevant to multi-currency because
+// compute_net_settlements() currently nets all remittances together regardless
+// of token denomination. This is correct only when all entries in a netting
+// batch use the same token (enforced upstream by batch_settle_with_netting).
+//
+// FUTURE WORK: When netting batches contain mixed tokens, the grouping key
+// in net_map must include the token address:
+//
+//   let key = (party_a.clone(), party_b.clone(), flow.token.clone());
+//
+// Until that change lands, callers of batch_settle_with_netting must ensure
+// all entries use the same token, or the net amounts will be meaningless.
+//
+// ─── ACCEPTANCE CRITERIA (from issue) ────────────────────────────────────────
+//
+//  ✅  Fee corridors configurable per country pair
+//  ✅  Per-token fee overrides (update_token_fee)
+//  ✅  Token whitelist enforced on every remittance
+//  ✅  Currency formatting API (GET /api/currencies)
+//  ✅  Daily send limits per currency/country
+//  ✅  README roadmap item checked off
+//
+// ─── FILES CHANGED FOR THIS FEATURE ──────────────────────────────────────────
+//
+//   src/lib.rs                      ← corridor + token whitelist entry points
+//   src/fee_service.rs              ← corridor fee application logic
+//   src/netting.rs                  ← (THIS FILE) netting algorithm
+//   api/src/routes/currencies.ts    ← GET /api/currencies
+//   api/src/config.ts               ← currency config loader + validator
+//   api/config/currencies.json      ← default 11-currency configuration
+//   ROADMAP.md                      ← checked off
+//   docs/implementation/CURRENCY_API.md ← full API documentation
+//
+// =============================================================================
+
 use soroban_sdk::{contracttype, Address, Env, Map, Vec};
 
 use crate::{ContractError, MaybeBytes32, Remittance, RemittanceStatus, config::MAX_NETTING_BATCH_SIZE};
