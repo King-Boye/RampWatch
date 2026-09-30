@@ -770,3 +770,146 @@ fn test_proof_validation_when_contract_is_paused() {
     );
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #1531 — Proof validation works correctly with the pause mechanism (task 10.5)
+//
+// The pause circuit-breaker must take priority over all business logic,
+// including proof validation.  These tests confirm:
+//
+//  1. `confirm_payout` with a valid proof is blocked with `ContractPaused`
+//     while the contract is paused.
+//  2. The remittance stays `Pending` after the blocked call — no state mutation
+//     occurs while paused.
+//  3. After the contract is unpaused, the same valid proof successfully settles
+//     the remittance, proving the proof itself was never invalidated.
+//  4. A paused contract also blocks `confirm_payout` when no proof is required
+//     (regression guard — pause gate must be agnostic to proof config).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// #1531 — paused contract rejects `confirm_payout` even with a valid proof,
+/// and the remittance remains `Pending`.
+#[test]
+fn test_proof_validation_paused_contract_rejects_valid_proof() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, admin, sender, agent, _token_admin) = setup(&env);
+
+    let config = SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin.clone()),
+    };
+
+    let remittance_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &2_000,
+        &None,
+        &None,
+        &None,
+        &Some(config),
+        &None,
+    );
+
+    // Compute a valid proof while the contract is still active.
+    let proof =
+        crate::verification::compute_payout_commitment(&env, &contract.get_remittance(&remittance_id));
+
+    // Pause the contract.
+    contract.pause();
+    assert!(contract.is_paused(), "contract must be paused before the settlement attempt");
+
+    // Settlement with a valid proof must be blocked by the pause gate.
+    let result = contract.try_confirm_payout(&remittance_id, &Some(proof), &None);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        ContractError::ContractPaused,
+        "a valid proof must not bypass the global contract pause"
+    );
+
+    // The remittance must remain untouched.
+    assert_eq!(
+        contract.get_remittance(&remittance_id).status,
+        crate::types::RemittanceStatus::Pending,
+        "remittance status must remain Pending while the contract is paused"
+    );
+}
+
+/// #1531 — after unpause, the same valid proof settles the remittance normally.
+///
+/// Proves that the pause gate does not corrupt proof state: the proof computed
+/// before the pause is still accepted once the contract is active again.
+#[test]
+fn test_proof_validation_resumes_after_unpause() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, admin, sender, agent, _token_admin) = setup(&env);
+
+    let config = SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin.clone()),
+    };
+
+    let remittance_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &2_000,
+        &None,
+        &None,
+        &None,
+        &Some(config),
+        &None,
+    );
+
+    // Capture proof before pause.
+    let proof =
+        crate::verification::compute_payout_commitment(&env, &contract.get_remittance(&remittance_id));
+
+    // Pause and immediately unpause (legacy wrappers bypass timelock/quorum).
+    contract.pause();
+    contract.unpause();
+
+    assert!(!contract.is_paused(), "contract must be unpaused before retrying settlement");
+
+    // The same proof must now succeed.
+    contract.confirm_payout(&remittance_id, &Some(proof), &None);
+
+    assert_eq!(
+        contract.get_remittance(&remittance_id).status,
+        crate::types::RemittanceStatus::Completed,
+        "remittance must be Completed after a valid proof is accepted post-unpause"
+    );
+}
+
+/// #1531 — paused contract also blocks `confirm_payout` when no proof is required.
+///
+/// Regression guard: the pause check must fire regardless of the proof
+/// configuration on the remittance.
+#[test]
+fn test_pause_blocks_confirm_payout_without_proof_requirement() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, _admin, sender, agent, _token_admin) = setup(&env);
+
+    // No proof requirement.
+    let remittance_id =
+        contract.create_remittance(&sender, &agent, &1_000, &None, &None, &None, &None, &None);
+
+    contract.pause();
+
+    let result = contract.try_confirm_payout(&remittance_id, &None, &None);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        ContractError::ContractPaused,
+        "pause must block confirm_payout even when no proof is required"
+    );
+
+    assert_eq!(
+        contract.get_remittance(&remittance_id).status,
+        crate::types::RemittanceStatus::Pending,
+        "remittance must stay Pending while contract is paused"
+    );
+}
