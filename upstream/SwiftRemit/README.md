@@ -921,3 +921,6 @@ and genuinely pending work.
 
 <!-- handsoff-issue-1495 -->
 - #1495: Off-chain proof validation: Store `settlement_config` in the `Remittance` record when creating new settlements
+
+<!-- handsoff-issue-1498 -->
+- #1498: Off-chain proof validation: Add logic to check if `remittance.settlement_config.require_proof` is true
