@@ -1,101 +1,106 @@
-#![cfg(test)]
-
-use crate::{
-    types::ProofData,
-    verification::{compute_proof_signature, verify_proof},
+use crate::errors::ContractError;
+use crate::verification::{
+    require_valid_proof, validate_proof, verify_proof_commitment, Condition, Proof,
+    VerificationResult,
 };
-use soroban_sdk::{
-    testutils::Address as _,
-    Address, Bytes, BytesN, Env,
-};
+use soroban_sdk::{Bytes, BytesN, Env, String};
 
-/// #1504 — Off-chain proof validation: Write test test_verify_proof_valid_signature()
-/// Valid signature from correct signer should return Ok(true).
-#[test]
-fn test_verify_proof_valid_signature() {
-    let env = Env::default();
-    let signer = Address::generate(&env);
-    let payload = Bytes::from_slice(&env, b"settlement-data-12345");
-    let signature = compute_proof_signature(&env, &signer, &payload);
-
-    let proof = ProofData {
-        signature,
-        payload,
-        signer: signer.clone(),
-    };
-
-    let result = verify_proof(&env, &proof, &signer);
-    assert_eq!(result, Ok(true));
+fn condition(env: &Env) -> Condition {
+    Condition {
+        id: String::from_str(env, "payout-confirmed"),
+        authorized_signer: String::from_str(env, "trusted-oracle"),
+    }
 }
 
-/// #1505 — Off-chain proof validation: Write test test_verify_proof_invalid_signature()
-/// Invalid signature should return Ok(false).
-#[test]
-fn test_verify_proof_invalid_signature() {
-    let env = Env::default();
-    let signer = Address::generate(&env);
-    let payload = Bytes::from_slice(&env, b"settlement-data-12345");
-
-    // Case 1: All-zero signature
-    let invalid_signature = BytesN::from_array(&env, &[0u8; 64]);
-    let proof = ProofData {
-        signature: invalid_signature,
-        payload: payload.clone(),
-        signer: signer.clone(),
-    };
-    let result = verify_proof(&env, &proof, &signer);
-    assert_eq!(result, Ok(false));
-
-    // Case 2: Corrupted non-zero signature bytes
-    let mut bad_bytes = [0x55u8; 64];
-    bad_bytes[0] = 0xef;
-    bad_bytes[63] = 0xbe;
-    let corrupted_signature = BytesN::from_array(&env, &bad_bytes);
-    let proof_corrupted = ProofData {
-        signature: corrupted_signature,
-        payload,
-        signer: signer.clone(),
-    };
-    let result_corrupted = verify_proof(&env, &proof_corrupted, &signer);
-    assert_eq!(result_corrupted, Ok(false));
+fn valid_proof(env: &Env) -> Proof {
+    Proof {
+        condition_id: String::from_str(env, "payout-confirmed"),
+        signer: String::from_str(env, "trusted-oracle"),
+        payload: Bytes::from_slice(env, &[1, 2, 3, 4]),
+    }
 }
 
-/// #1506 — Off-chain proof validation: Write test test_verify_proof_wrong_signer()
-/// Valid signature from wrong signer should return Ok(false).
 #[test]
-fn test_verify_proof_wrong_signer() {
+fn verification_accepts_matching_commitment() {
     let env = Env::default();
-    let signer = Address::generate(&env);
-    let wrong_signer = Address::generate(&env);
-    let payload = Bytes::from_slice(&env, b"settlement-data-12345");
-    let signature = compute_proof_signature(&env, &signer, &payload);
+    let expected = BytesN::from_array(&env, &[42u8; 32]);
+    let submitted = BytesN::from_array(&env, &[42u8; 32]);
 
-    let proof = ProofData {
-        signature,
-        payload,
-        signer: signer.clone(),
-    };
-
-    // Passed with wrong_signer as expected_signer
-    let result = verify_proof(&env, &proof, &wrong_signer);
-    assert_eq!(result, Ok(false));
+    assert!(verify_proof_commitment(&submitted, &expected));
 }
 
-/// #1507 — Off-chain proof validation: Write test test_verify_proof_empty_payload()
-/// Edge case with empty payload should return Ok(false).
 #[test]
-fn test_verify_proof_empty_payload() {
+fn verification_rejects_mismatched_commitment() {
     let env = Env::default();
-    let signer = Address::generate(&env);
-    let empty_payload = Bytes::new(&env);
-    let signature = BytesN::from_array(&env, &[1u8; 64]);
+    let expected = BytesN::from_array(&env, &[42u8; 32]);
+    let submitted = BytesN::from_array(&env, &[24u8; 32]);
 
-    let proof = ProofData {
-        signature,
-        payload: empty_payload,
-        signer: signer.clone(),
-    };
+    assert!(!verify_proof_commitment(&submitted, &expected));
+}
 
-    let result = verify_proof(&env, &proof, &signer);
-    assert_eq!(result, Ok(false));
+#[test]
+fn verification_accepts_valid_structural_proof() {
+    let env = Env::default();
+    let proof = valid_proof(&env);
+    let condition = condition(&env);
+
+    assert_eq!(
+        validate_proof(&proof, &condition),
+        VerificationResult::Valid
+    );
+    assert_eq!(require_valid_proof(&proof, &condition), Ok(()));
+}
+
+#[test]
+fn verification_rejects_condition_mismatch() {
+    let env = Env::default();
+    let mut proof = valid_proof(&env);
+    let condition = condition(&env);
+
+    proof.condition_id = String::from_str(&env, "different-condition");
+
+    assert_eq!(
+        validate_proof(&proof, &condition),
+        VerificationResult::ConditionMismatch
+    );
+    assert_eq!(
+        require_valid_proof(&proof, &condition),
+        Err(ContractError::InvalidProof)
+    );
+}
+
+#[test]
+fn verification_rejects_unauthorized_signer() {
+    let env = Env::default();
+    let mut proof = valid_proof(&env);
+    let condition = condition(&env);
+
+    proof.signer = String::from_str(&env, "untrusted-oracle");
+
+    assert_eq!(
+        validate_proof(&proof, &condition),
+        VerificationResult::UnauthorizedSigner
+    );
+    assert_eq!(
+        require_valid_proof(&proof, &condition),
+        Err(ContractError::InvalidProof)
+    );
+}
+
+#[test]
+fn verification_rejects_empty_payload() {
+    let env = Env::default();
+    let mut proof = valid_proof(&env);
+    let condition = condition(&env);
+
+    proof.payload = Bytes::new(&env);
+
+    assert_eq!(
+        validate_proof(&proof, &condition),
+        VerificationResult::MalformedProof
+    );
+    assert_eq!(
+        require_valid_proof(&proof, &condition),
+        Err(ContractError::InvalidProof)
+    );
 }

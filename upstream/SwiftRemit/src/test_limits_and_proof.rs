@@ -571,7 +571,7 @@ fn test_no_proof_path_does_not_affect_rate_limit_count() {
 
 /// #1530 — duplicate settlement blocked even with a valid proof on second call.
 #[test]
-fn test_duplicate_settlement_blocked_with_valid_proof() {
+fn test_multiple_settlement_attempts_with_same_proof_are_rejected() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -581,6 +581,7 @@ fn test_duplicate_settlement_blocked_with_valid_proof() {
         require_proof: true,
         oracle_address: Some(admin.clone()),
     };
+
     let remittance_id = contract.create_remittance(
         &sender,
         &agent,
@@ -592,18 +593,24 @@ fn test_duplicate_settlement_blocked_with_valid_proof() {
         &None,
     );
 
-    // First settlement — should succeed.
     let proof =
         crate::verification::compute_payout_commitment(&env, &contract.get_remittance(&remittance_id));
+
+    // First settlement with the valid proof succeeds.
     contract.confirm_payout(&remittance_id, &Some(proof.clone()), &None);
 
-    // Second settlement with the same (valid) proof — must fail with DuplicateSettlement.
-    let result = contract.try_confirm_payout(&remittance_id, &Some(proof), &None);
-    assert_eq!(
-        result.unwrap_err().unwrap(),
-        ContractError::DuplicateSettlement,
-        "duplicate settlement must be blocked regardless of proof validity"
-    );
+    // Replaying the exact same proof any number of times must never execute
+    // another settlement.
+    for _ in 0..3 {
+        let result =
+            contract.try_confirm_payout(&remittance_id, &Some(proof.clone()), &None);
+
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            ContractError::DuplicateSettlement,
+            "reusing the same proof must not allow another settlement"
+        );
+    }
 }
 
 /// #1530 — duplicate settlement blocked even when a different proof is submitted.
