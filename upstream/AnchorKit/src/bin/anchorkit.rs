@@ -771,25 +771,49 @@ fn check_configs() -> bool {
         println!("✖ configs/ directory not found");
         return false;
     }
-    let count = std::fs::read_dir(configs)
-        .map(|rd| {
-            rd.filter_map(|e| e.ok())
-                .filter(|e| {
-                    matches!(
-                        e.path().extension().and_then(|s| s.to_str()),
-                        Some("json") | Some("toml")
-                    )
-                })
-                .count()
-        })
-        .unwrap_or(0);
-    if count > 0 {
-        println!("✔ Config files valid ({} found)", count);
-        true
-    } else {
-        println!("✖ No config files found in configs/");
-        false
+    let entries = match std::fs::read_dir(configs) {
+        Ok(entries) => entries,
+        Err(e) => {
+            println!("✖ Cannot read configs/ directory: {}", e);
+            return false;
+        }
+    };
+    let mut config_files = Vec::new();
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                println!("✖ Failed to read an entry in configs/: {}", e);
+                return false;
+            }
+        };
+        let path = entry.path();
+        if path.is_file()
+            && matches!(
+                path.extension().and_then(|s| s.to_str()),
+                Some("json") | Some("toml")
+            )
+        {
+            config_files.push(path);
+        }
     }
+    config_files.sort();
+    if config_files.is_empty() {
+        println!("✖ No config files found in configs/");
+        return false;
+    }
+
+    let count = config_files.len();
+    let mut all_valid = true;
+    for path in &config_files {
+        all_valid &= validate_file(path);
+    }
+    if all_valid {
+        println!("✔ Config files valid ({} found)", count);
+    } else {
+        println!("✖ Config validation failed ({} files checked)", count);
+    }
+    all_valid
 }
 
 fn check_network() -> bool {
