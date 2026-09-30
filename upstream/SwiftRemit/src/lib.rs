@@ -82,6 +82,8 @@ mod transitions;
 mod types;
 mod validation;
 mod verification;
+#[cfg(test)]
+mod verification_test;
 mod recipient_verification;
 mod oracle;
 #[cfg(all(test, feature = "legacy-tests"))]
