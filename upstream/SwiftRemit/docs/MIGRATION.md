@@ -294,3 +294,134 @@ stellar contract invoke --id <CONTRACT_ID> -- get_circuit_breaker_status
 
 The cooldown period can also be changed via governance proposal
 (`UpdateCooldownPeriod` action) without requiring a contract upgrade.
+
+---
+
+## Part 3 — Off-Chain Proof Validation (v0.1.0 → v0.2.0)
+
+### Background
+
+Contract version `0.2.0` introduces optional off-chain proof validation for
+`confirm_payout`.  When a remittance is created with
+`SettlementConfig { require_proof: true, oracle_address: Some(...) }`, the
+agent must supply a valid 32-byte proof at payout time or the call is rejected
+with `MissingProof` (52) / `InvalidProof` (51).
+
+This change is **fully backward-compatible** for existing deployments.
+
+---
+
+### Impact on Existing Remittances
+
+Remittances created on a `v0.1.0` contract (before proof validation was deployed)
+have **no stored commitment** (`payout_commitment` field is `None` in persistent
+storage).
+
+When `confirm_payout` is called on such a remittance:
+
+- If the remittance was created **without** a `SettlementConfig` (or with
+  `require_proof = false`), settlement proceeds as it always has — **no change**.
+- If the remittance was somehow created with `require_proof = true` on a
+  `v0.1.0` binary that did not yet enforce it, the commitment will be absent.
+  In this case, `v0.2.0` code skips the proof check (`stored commitment is None`
+  → backward-compat bypass) and settles normally.
+
+**In both cases existing remittances are unaffected.**  No data migration is
+required.
+
+---
+
+### Storage Changes
+
+| Key / Field | v0.1.0 | v0.2.0 | Notes |
+|---|---|---|---|
+| `Remittance.settlement_config` | absent | `Option<SettlementConfig>` | New optional field; absent in old records |
+| `PayoutCommitment(id)` | absent | `Option<BytesN<32>>` | Written at creation when `require_proof = true` |
+
+The `DataKey` variants for `PayoutCommitment` are new and do not collide with
+any existing keys.  Old records remain readable without modification.
+
+---
+
+### No `migrate()` Call Required
+
+Unlike the agent-key migration in Part 1, the proof-validation upgrade does not
+change existing `DataKey` discriminants or struct layouts.  **You do not need to
+call `migrate()` after upgrading to `v0.2.0`.**
+
+A `migrate()` call on `v0.2.0` is still safe (idempotent) if triggered
+accidentally.
+
+---
+
+### New Error Codes Introduced
+
+| Code | Name | When thrown |
+|------|------|-------------|
+| 51 | `InvalidProof` | Proof supplied but does not match the stored commitment |
+| 52 | `MissingProof` | `require_proof = true` but no proof was supplied |
+| 53 | `InvalidOracleAddress` | `require_proof = true` but `oracle_address` is absent or invalid |
+
+Off-chain consumers (indexers, backends, SDKs) should add handling for these
+three new error codes.
+
+---
+
+### Upgrade Steps for Existing Deployments
+
+1. **Build and optimize** the `v0.2.0` WASM:
+   ```bash
+   cargo build --target wasm32-unknown-unknown --release
+   stellar contract optimize --wasm target/wasm32-unknown-unknown/release/swiftremit.wasm
+   ```
+
+2. **Install** the new WASM and note the hash:
+   ```bash
+   stellar contract install \
+     --wasm target/wasm32-unknown-unknown/release/swiftremit.optimized.wasm \
+     --network mainnet
+   ```
+
+3. **Upgrade** the live contract:
+   ```bash
+   stellar contract invoke --id <CONTRACT_ID> --network mainnet \
+     -- upgrade --caller <ADMIN_ADDRESS> --new_wasm_hash <NEW_WASM_HASH>
+   ```
+
+4. **Verify** backward compatibility (see
+   [DEPLOYMENT_CHECKLIST.md §2b](../DEPLOYMENT_CHECKLIST.md)):
+   - Confirm a pre-existing remittance (without `require_proof`) still settles
+     without a proof argument.
+   - Create a new remittance with `require_proof = true` and confirm that the
+     proof gate is enforced.
+
+5. **Update off-chain services** to handle error codes 51–53 where they invoke
+   `confirm_payout`.
+
+---
+
+### Rollback
+
+If the upgrade must be rolled back, reinstall the `v0.1.0` WASM:
+
+```bash
+stellar contract invoke --id <CONTRACT_ID> --network mainnet \
+  -- upgrade --caller <ADMIN_ADDRESS> --new_wasm_hash <V0_1_0_WASM_HASH>
+```
+
+Any remittances created with `require_proof = true` on `v0.2.0` will be
+unmigrateable back to `v0.1.0` (the old binary does not know the `settlement_config`
+field).  Those remittances can still be cancelled by the sender to recover escrowed
+funds; they cannot be settled on the rolled-back binary.
+
+Keep the `v0.1.0` WASM hash on hand before upgrading so this step is possible
+without a recompile.
+
+---
+
+### References
+
+- Spec: `kiro/specs/off-chain-verification-proof-validation/`
+- Full design: [`docs/PROOF_VALIDATION.md`](PROOF_VALIDATION.md)
+- Deployment checklist: [`DEPLOYMENT_CHECKLIST.md`](../DEPLOYMENT_CHECKLIST.md)
+- Issues: #1495, #1498, #1499, #1500, #1527, #1528, #1531, #1532, #1533, #1534
