@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getCurrencyConfigLoader } from '../config';
+import { getConversionRateService } from '../services/conversionRates';
 import { CurrencyResponse, ErrorResponse } from '../types';
 
 const router = Router();
@@ -100,7 +101,11 @@ router.get('/', (req: Request, res: Response) => {
 
 /**
  * GET /api/currencies/:code
- * Returns a specific currency by code
+ * Returns a specific currency by code or alias (#1547).
+ *
+ * The `:code` segment is matched first against canonical codes (e.g. "USD"),
+ * then against any registered aliases (e.g. "DOLLAR", "dollars").  Both
+ * lookups are case-insensitive.
  */
 router.get('/:code', (req: Request, res: Response) => {
   try {
@@ -132,7 +137,8 @@ router.get('/:code', (req: Request, res: Response) => {
     }
 
     const configLoader = getCurrencyConfigLoader();
-    const currency = configLoader.getCurrencyByCode(code);
+    // #1547: resolve by canonical code first, then by alias
+    const currency = configLoader.getCurrencyByCodeOrAlias(code);
 
     if (!currency) {
       const errorResponse: ErrorResponse = {
@@ -160,6 +166,96 @@ router.get('/:code', (req: Request, res: Response) => {
       error: {
         message: error instanceof Error ? error.message : 'Failed to retrieve currency',
         code: 'CURRENCY_RETRIEVAL_ERROR',
+      },
+      timestamp: new Date().toISOString(),
+    };
+
+    res.status(500).json(errorResponse);
+  }
+});
+
+/**
+ * GET /api/currencies/:from/rates/:to
+ * Returns the current exchange rate from one currency to another (#1545).
+ *
+ * Both `:from` and `:to` support canonical codes and aliases (e.g. "DOLLAR").
+ * Rates are cached for 5 minutes.  The response includes a `fetched_at`
+ * timestamp so callers can detect how fresh the rate is.
+ *
+ * Example:
+ *   GET /api/currencies/USD/rates/EUR
+ *   GET /api/currencies/DOLLAR/rates/NGN
+ *
+ * Response:
+ *   {
+ *     "success": true,
+ *     "data": { "from": "USD", "to": "EUR", "rate": 0.92, "fetched_at": "..." },
+ *     "timestamp": "..."
+ *   }
+ */
+router.get('/:from/rates/:to', async (req: Request, res: Response) => {
+  try {
+    const { from: rawFrom, to: rawTo } = req.params as { from: string; to: string };
+
+    // Validate both codes/aliases — same format rule as the single-currency lookup
+    for (const [label, value] of [['from', rawFrom], ['to', rawTo]] as const) {
+      if (!value || !/^[A-Za-z0-9 _-]{1,50}$/.test(value)) {
+        const errorResponse: ErrorResponse = {
+          success: false,
+          error: {
+            message: `Invalid currency ${label} parameter: ${value}`,
+            code: 'INVALID_CURRENCY_CODE',
+          },
+          timestamp: new Date().toISOString(),
+        };
+        return res.status(400).json(errorResponse);
+      }
+    }
+
+    const configLoader = getCurrencyConfigLoader();
+
+    // Resolve aliases → canonical codes
+    const fromCurrency = configLoader.getCurrencyByCodeOrAlias(rawFrom);
+    const toCurrency   = configLoader.getCurrencyByCodeOrAlias(rawTo);
+
+    if (!fromCurrency) {
+      const errorResponse: ErrorResponse = {
+        success: false,
+        error: {
+          message: `Currency not found: ${rawFrom.toUpperCase()}`,
+          code: 'CURRENCY_NOT_FOUND',
+        },
+        timestamp: new Date().toISOString(),
+      };
+      return res.status(404).json(errorResponse);
+    }
+
+    if (!toCurrency) {
+      const errorResponse: ErrorResponse = {
+        success: false,
+        error: {
+          message: `Currency not found: ${rawTo.toUpperCase()}`,
+          code: 'CURRENCY_NOT_FOUND',
+        },
+        timestamp: new Date().toISOString(),
+      };
+      return res.status(404).json(errorResponse);
+    }
+
+    const rateService = getConversionRateService();
+    const conversionRate = await rateService.getRate(fromCurrency.code, toCurrency.code);
+
+    res.json({
+      success: true,
+      data: conversionRate,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    const errorResponse: ErrorResponse = {
+      success: false,
+      error: {
+        message: error instanceof Error ? error.message : 'Failed to retrieve conversion rate',
+        code: 'CONVERSION_RATE_ERROR',
       },
       timestamp: new Date().toISOString(),
     };

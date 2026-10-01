@@ -20,7 +20,14 @@ export interface AssetVerification {
 export interface VerificationSource {
   name: string;
   verified: boolean;
+  /** Raw score contributed by this source (0–100). */
   score: number;
+  /**
+   * Reliability weight for this source (0.0–1.0).
+   * Higher weight means this source has a larger influence on the final
+   * reputation score.  Defaults to 1.0 when not provided.
+   */
+  reliability_weight?: number;
   details?: any;
 }
 
@@ -28,7 +35,13 @@ export interface VerificationResult {
   asset_code: string;
   issuer: string;
   status: VerificationStatus;
+  /** Weighted reputation score (0–100). */
   reputation_score: number;
+  /**
+   * ISO-8601 timestamp of when this result was computed.
+   * Used by the decay logic to degrade the cached score over time.
+   */
+  verified_at: string;
   sources: VerificationSource[];
   trustline_count: number;
   has_toml: boolean;

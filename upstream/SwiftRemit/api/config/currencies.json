@@ -4,67 +4,78 @@
       "code": "USD",
       "symbol": "$",
       "decimal_precision": 2,
-      "name": "United States Dollar"
+      "name": "United States Dollar",
+      "aliases": ["DOLLAR", "DOLLARS", "US DOLLAR", "US DOLLARS"]
     },
     {
       "code": "EUR",
       "symbol": "€",
       "decimal_precision": 2,
-      "name": "Euro"
+      "name": "Euro",
+      "aliases": ["EURO", "EUROS"]
     },
     {
       "code": "GBP",
       "symbol": "£",
       "decimal_precision": 2,
-      "name": "British Pound Sterling"
+      "name": "British Pound Sterling",
+      "aliases": ["POUND", "POUNDS", "STERLING", "BRITISH POUND"]
     },
     {
       "code": "JPY",
       "symbol": "¥",
       "decimal_precision": 0,
-      "name": "Japanese Yen"
+      "name": "Japanese Yen",
+      "aliases": ["YEN", "JAPANESE YEN"]
     },
     {
       "code": "NGN",
       "symbol": "₦",
       "decimal_precision": 2,
-      "name": "Nigerian Naira"
+      "name": "Nigerian Naira",
+      "aliases": ["NAIRA"]
     },
     {
       "code": "KES",
       "symbol": "KSh",
       "decimal_precision": 2,
-      "name": "Kenyan Shilling"
+      "name": "Kenyan Shilling",
+      "aliases": ["SHILLING", "KENYAN SHILLING"]
     },
     {
       "code": "GHS",
       "symbol": "₵",
       "decimal_precision": 2,
-      "name": "Ghanaian Cedi"
+      "name": "Ghanaian Cedi",
+      "aliases": ["CEDI", "GHANAIAN CEDI"]
     },
     {
       "code": "ZAR",
       "symbol": "R",
       "decimal_precision": 2,
-      "name": "South African Rand"
+      "name": "South African Rand",
+      "aliases": ["RAND", "SOUTH AFRICAN RAND"]
     },
     {
       "code": "INR",
       "symbol": "₹",
       "decimal_precision": 2,
-      "name": "Indian Rupee"
+      "name": "Indian Rupee",
+      "aliases": ["RUPEE", "RUPEES", "INDIAN RUPEE"]
     },
     {
       "code": "PHP",
       "symbol": "₱",
       "decimal_precision": 2,
-      "name": "Philippine Peso"
+      "name": "Philippine Peso",
+      "aliases": ["PESO", "PHILIPPINE PESO"]
     },
     {
       "code": "USDC",
       "symbol": "USDC",
       "decimal_precision": 7,
-      "name": "USD Coin (Stellar)"
+      "name": "USD Coin (Stellar)",
+      "aliases": ["USD COIN", "USDCOIN"]
     }
   ]
 }
