@@ -1013,7 +1013,17 @@ impl SwiftRemitContract {
         // before any state mutation occurs.
         transaction_controller::TransactionController::pre_confirm_validation(&env, &remittance)?;
 
-        // Validate proof against settlement config if required
+        // #1501 / #1502: Validate proof against settlement config if required.
+        // Only remittances whose SettlementConfig has require_proof=true are
+        // gated here; all other remittances (MaybeSettlementConfig::None, or
+        // require_proof=false) pass through unchanged — preserving backward
+        // compatibility for settlements created before proof validation was
+        // introduced (#1502).
+        //
+        // When require_proof is true:
+        //   - Missing proof  → ContractError::MissingProof
+        //   - Invalid proof  → ContractError::InvalidProof  (#1501)
+        //   - No stored commitment (pre-validation remittance) → accepted (#1502)
         if let crate::MaybeSettlementConfig::Some(ref config) = remittance.settlement_config {
             if config.require_proof {
                 match proof {
@@ -1021,10 +1031,13 @@ impl SwiftRemitContract {
                     Some(ref submitted) => {
                         let expected = get_payout_commitment(&env, remittance_id);
                         if let Some(ref expected_hash) = expected {
+                            // #1501: verify_proof_commitment returns false → InvalidProof
                             if !verification::verify_proof_commitment(submitted, expected_hash) {
                                 return Err(ContractError::InvalidProof);
                             }
                         }
+                        // #1502: no commitment stored → pre-dates proof validation;
+                        // accept to maintain backward compatibility.
                     }
                 }
             }

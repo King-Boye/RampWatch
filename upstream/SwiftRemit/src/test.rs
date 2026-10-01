@@ -6796,3 +6796,78 @@ fn test_settlement_config_validation() {
     );
 }
 
+
+// ---------------------------------------------------------------------------
+// #1511: test_settlement_missing_required_proof
+// ---------------------------------------------------------------------------
+// Verifies that confirm_payout returns ContractError::MissingProof when
+// the remittance was created with require_proof=true but no proof is
+// supplied by the agent.
+#[test]
+fn test_settlement_missing_required_proof() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, admin, sender, agent, _token_admin) = setup(&env);
+
+    let config = crate::SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin.clone()),
+    };
+
+    let remittance_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &2_000,
+        &None,
+        &None,
+        &None,
+        &Some(config),
+        &None,
+    );
+
+    // No proof provided — must fail with MissingProof.
+    let result = contract.try_confirm_payout(&remittance_id, &None, &None);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        crate::errors::ContractError::MissingProof,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #1512: test_settlement_without_proof_requirement
+// ---------------------------------------------------------------------------
+// Verifies backward compatibility: a remittance created without any
+// SettlementConfig (no proof requirement) can be settled normally, i.e. the
+// existing confirm_payout flow is unaffected when proof validation is absent.
+#[test]
+fn test_settlement_without_proof_requirement() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, token, _admin, sender, agent, _token_admin) = setup(&env);
+
+    let remittance_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &2_000,
+        &None,
+        &None,
+        &None,
+        &None, // No SettlementConfig — proof validation is not required.
+        &None,
+    );
+
+    // Confirm payout without a proof — must succeed unchanged.
+    contract.confirm_payout(&remittance_id, &None, &None);
+
+    let remittance = contract.get_remittance(&remittance_id);
+    assert_eq!(
+        remittance.status,
+        crate::RemittanceStatus::Completed,
+    );
+
+    // Agent should have received funds (net of fees).
+    let agent_balance = soroban_sdk::token::Client::new(&env, &token.address).balance(&agent);
+    assert!(agent_balance > 0);
+}
