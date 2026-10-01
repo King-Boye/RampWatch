@@ -53,3 +53,12 @@ existing behavior.
   resolves and reports per network as described above.
 - Additional networks (e.g. local/dev) can be added by extending the network
   configuration and registry without changing the verification flow.
+- Advanced analytics dashboard — (#1541) implemented: verification metrics,
+  reputation score distributions, trustline counts, and verification status
+  breakdowns are exposed via the `/api/verification` endpoints and surfaced in
+  the Grafana monitoring dashboards under `monitoring/dashboards/`.
+- Automated dispute resolution — (#1542) implemented: the `resolve_dispute`
+  contract function handles dispute resolution with configurable outcomes
+  (in-favour-of-sender refunds escrow; in-favour-of-agent completes the
+  remittance). The dispute window is configurable via `set_dispute_window`.
+  See `src/lib.rs` for full contract details.

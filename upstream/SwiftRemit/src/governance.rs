@@ -179,6 +179,7 @@ pub fn do_vote(
     proposal_id: u64,
 ) -> Result<(), ContractError> {
     require_admin_role(env, voter)?;
+    require_not_paused(env)?;
 
     let mut proposal = get_proposal(env, proposal_id)?;
 
@@ -215,6 +216,7 @@ pub fn do_execute(
     proposal_id: u64,
 ) -> Result<(), ContractError> {
     require_admin_role(env, executor)?;
+    require_not_paused(env)?;
 
     let mut proposal = get_proposal(env, proposal_id)?;
 

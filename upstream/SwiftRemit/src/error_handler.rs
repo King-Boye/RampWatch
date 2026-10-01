@@ -142,7 +142,7 @@ impl ErrorHandler {
                 ErrorSeverity::Low,
             ),
 
-            // Settlement Errors (11-14)
+            // Settlement Errors (11-12)
             ContractError::SettlementExpired => (
                 11,
                 SorobanString::from_str(env, "Settlement window has expired"),
@@ -155,171 +155,225 @@ impl ErrorHandler {
                 ErrorCategory::State,
                 ErrorSeverity::Medium,
             ),
+
+            // Contract State & User Errors (13-25)
             ContractError::ContractPaused => (
                 13,
                 SorobanString::from_str(env, "Contract is paused"),
                 ErrorCategory::State,
                 ErrorSeverity::Low,
             ),
-            ContractError::RateLimitExceeded => (
+            ContractError::AssetNotFound => (
                 14,
+                SorobanString::from_str(env, "Asset verification record not found"),
+                ErrorCategory::Resource,
+                ErrorSeverity::Low,
+            ),
+            ContractError::UserBlacklisted => (
+                15,
+                SorobanString::from_str(env, "User is blacklisted"),
+                ErrorCategory::Authorization,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::InvalidReputationScore => (
+                16,
+                SorobanString::from_str(env, "Reputation score must be between 0 and 100"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Low,
+            ),
+            ContractError::KycNotApproved => (
+                17,
+                SorobanString::from_str(env, "User KYC is not approved"),
+                ErrorCategory::Authorization,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::SuspiciousAsset => (
+                18,
+                SorobanString::from_str(env, "Asset has been flagged as suspicious"),
+                ErrorCategory::State,
+                ErrorSeverity::High,
+            ),
+            ContractError::AnchorTransactionFailed => (
+                19,
+                SorobanString::from_str(env, "Anchor transaction failed"),
+                ErrorCategory::System,
+                ErrorSeverity::High,
+            ),
+            ContractError::Unauthorized => (
+                20,
+                SorobanString::from_str(env, "Unauthorized: admin access required"),
+                ErrorCategory::Authorization,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::DailySendLimitExceeded => (
+                21,
+                SorobanString::from_str(env, "Daily send limit exceeded"),
+                ErrorCategory::State,
+                ErrorSeverity::Low,
+            ),
+            ContractError::TokenAlreadyWhitelisted => (
+                22,
+                SorobanString::from_str(env, "Token is already whitelisted"),
+                ErrorCategory::Resource,
+                ErrorSeverity::Low,
+            ),
+            ContractError::KycExpired => (
+                23,
+                SorobanString::from_str(env, "User KYC has expired"),
+                ErrorCategory::Authorization,
+                ErrorSeverity::Medium,
+            ),
+            ContractError::TransactionNotFound => (
+                24,
+                SorobanString::from_str(env, "Transaction record not found"),
+                ErrorCategory::Resource,
+                ErrorSeverity::Low,
+            ),
+            ContractError::RateLimitExceeded => (
+                25,
                 SorobanString::from_str(env, "Rate limit exceeded, please wait"),
                 ErrorCategory::State,
                 ErrorSeverity::Low,
             ),
 
-            // Authorization Errors (15-18)
-            ContractError::Unauthorized => (
-                15,
-                SorobanString::from_str(env, "Unauthorized: admin access required"),
-                ErrorCategory::Authorization,
-                ErrorSeverity::Medium,
-            ),
+            // Authorization Errors (26-29)
             ContractError::AdminAlreadyExists => (
-                16,
+                26,
                 SorobanString::from_str(env, "Admin already exists"),
                 ErrorCategory::Resource,
                 ErrorSeverity::Low,
             ),
             ContractError::AdminNotFound => (
-                17,
+                27,
                 SorobanString::from_str(env, "Admin not found"),
                 ErrorCategory::Resource,
                 ErrorSeverity::Low,
             ),
             ContractError::CannotRemoveLastAdmin => (
-                18,
+                28,
                 SorobanString::from_str(env, "Cannot remove the last admin"),
                 ErrorCategory::State,
                 ErrorSeverity::Low,
             ),
-
-            // Token Whitelist Errors (19-20)
             ContractError::TokenNotWhitelisted => (
-                19,
+                29,
                 SorobanString::from_str(env, "Token is not whitelisted"),
                 ErrorCategory::Resource,
                 ErrorSeverity::Low,
             ),
-            ContractError::TokenAlreadyWhitelisted => (
-                20,
-                SorobanString::from_str(env, "Token is already whitelisted"),
-                ErrorCategory::Resource,
-                ErrorSeverity::Low,
-            ),
 
-            // Migration Errors (21-23)
+            // Migration Errors (30-32)
             ContractError::InvalidMigrationHash => (
-                21,
+                30,
                 SorobanString::from_str(env, "Migration hash verification failed"),
                 ErrorCategory::System,
                 ErrorSeverity::High,
             ),
             ContractError::MigrationInProgress => (
-                22,
+                31,
                 SorobanString::from_str(env, "Migration already in progress"),
                 ErrorCategory::State,
                 ErrorSeverity::Low,
             ),
             ContractError::InvalidMigrationBatch => (
-                23,
+                32,
                 SorobanString::from_str(env, "Migration batch is invalid"),
                 ErrorCategory::Validation,
                 ErrorSeverity::Low,
             ),
 
-            // Rate Limiting Errors (24)
-            ContractError::DailySendLimitExceeded => (
-                24,
-                SorobanString::from_str(env, "Daily send limit exceeded"),
+            // Rate Limiting / Abuse Errors (33-35)
+            ContractError::CooldownActive => (
+                33,
+                SorobanString::from_str(env, "Cooldown period is still active"),
                 ErrorCategory::State,
                 ErrorSeverity::Low,
             ),
+            ContractError::SuspiciousActivity => (
+                34,
+                SorobanString::from_str(env, "Suspicious activity detected"),
+                ErrorCategory::State,
+                ErrorSeverity::High,
+            ),
+            ContractError::ActionBlocked => (
+                35,
+                SorobanString::from_str(env, "Action temporarily blocked due to abuse protection"),
+                ErrorCategory::State,
+                ErrorSeverity::High,
+            ),
 
-            // Arithmetic Errors (25-26)
+            // Arithmetic / Data Errors (36-50)
             ContractError::Overflow => (
-                25,
+                36,
                 SorobanString::from_str(env, "Arithmetic overflow occurred"),
                 ErrorCategory::System,
                 ErrorSeverity::High,
             ),
-            ContractError::Underflow => (
-                26,
-                SorobanString::from_str(env, "Arithmetic underflow occurred"),
-                ErrorCategory::System,
-                ErrorSeverity::High,
-            ),
-
-            // Data Integrity Errors (27-30)
             ContractError::NetSettlementValidationFailed => (
-                27,
+                37,
                 SorobanString::from_str(env, "Net settlement validation failed"),
                 ErrorCategory::System,
                 ErrorSeverity::High,
             ),
+            ContractError::EscrowNotFound => (
+                38,
+                SorobanString::from_str(env, "Escrow not found"),
+                ErrorCategory::Resource,
+                ErrorSeverity::Low,
+            ),
+            ContractError::InvalidEscrowStatus => (
+                39,
+                SorobanString::from_str(env, "Invalid escrow status"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Low,
+            ),
             ContractError::SettlementCounterOverflow => (
-                28,
+                40,
                 SorobanString::from_str(env, "Settlement counter overflow"),
                 ErrorCategory::System,
                 ErrorSeverity::High,
             ),
             ContractError::InvalidBatchSize => (
-                29,
+                41,
                 SorobanString::from_str(env, "Invalid batch size"),
                 ErrorCategory::Validation,
                 ErrorSeverity::Low,
             ),
             ContractError::DataCorruption => (
-                30,
+                42,
                 SorobanString::from_str(env, "Data corruption detected"),
                 ErrorCategory::System,
                 ErrorSeverity::High,
             ),
-
-            // Collection Errors (31-33)
             ContractError::IndexOutOfBounds => (
-                31,
+                43,
                 SorobanString::from_str(env, "Index out of bounds"),
                 ErrorCategory::Validation,
                 ErrorSeverity::Low,
             ),
             ContractError::EmptyCollection => (
-                32,
+                44,
                 SorobanString::from_str(env, "Collection is empty"),
                 ErrorCategory::Validation,
                 ErrorSeverity::Low,
             ),
             ContractError::KeyNotFound => (
-                33,
+                45,
                 SorobanString::from_str(env, "Key not found in map"),
                 ErrorCategory::Resource,
                 ErrorSeverity::Low,
             ),
-
-            // String/Symbol Errors (34-35)
             ContractError::StringConversionFailed => (
-                34,
+                46,
                 SorobanString::from_str(env, "String conversion failed"),
                 ErrorCategory::Validation,
                 ErrorSeverity::Low,
             ),
             ContractError::InvalidSymbol => (
-                35,
+                47,
                 SorobanString::from_str(env, "Symbol is invalid or malformed"),
                 ErrorCategory::Validation,
                 ErrorSeverity::Low,
-            ),
-            ContractError::EscrowNotFound => (
-                36,
-                SorobanString::from_str(env, "Escrow not found"),
-                ErrorCategory::Resource,
-                ErrorSeverity::Medium,
-            ),
-            ContractError::InvalidEscrowStatus => (
-                37,
-                SorobanString::from_str(env, "Invalid escrow status"),
-                ErrorCategory::Validation,
-                ErrorSeverity::Medium,
             ),
 
             // ── Off-chain proof / oracle errors ──────────────────────────────
@@ -526,7 +580,7 @@ impl ErrorHandler {
                 ErrorSeverity::Medium,
             ),
 
-            // ── Arithmetic ────────────────────────────────────────────────────
+            // ── Arithmetic / extended ─────────────────────────────────────────
             ContractError::Underflow => (
                 48,
                 SorobanString::from_str(env, "Arithmetic underflow"),
@@ -544,18 +598,6 @@ impl ErrorHandler {
                 SorobanString::from_str(env, "Idempotency key conflict with different payload"),
                 ErrorCategory::Validation,
                 ErrorSeverity::Medium,
-            ),
-            ContractError::SettlementCounterOverflow => (
-                40,
-                SorobanString::from_str(env, "Settlement counter overflow"),
-                ErrorCategory::System,
-                ErrorSeverity::High,
-            ),
-            ContractError::InvalidBatchSize => (
-                41,
-                SorobanString::from_str(env, "Invalid batch size"),
-                ErrorCategory::Validation,
-                ErrorSeverity::Low,
             ),
 
             _ => (

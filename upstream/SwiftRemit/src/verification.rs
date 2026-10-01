@@ -494,6 +494,8 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
 
+        let contract_id = env.register_contract(None, crate::SwiftRemitContract);
+
         let sender = soroban_sdk::Address::generate(&env);
         let agent = soroban_sdk::Address::generate(&env);
         let token = soroban_sdk::Address::generate(&env);
@@ -515,15 +517,22 @@ mod tests {
         };
 
         let commitment = compute_payout_commitment(&env, &rem);
-        crate::storage::set_payout_commitment(&env, rem.id, &commitment);
+        env.as_contract(&contract_id, || {
+            crate::storage::set_payout_commitment(&env, rem.id, &commitment);
+        });
 
-        assert!(validate_payout_proof(&env, rem.id, &commitment).is_ok());
+        let result = env.as_contract(&contract_id, || {
+            validate_payout_proof(&env, rem.id, &commitment)
+        });
+        assert!(result.is_ok());
     }
 
     #[test]
     fn validate_payout_proof_rejects_wrong_proof() {
         let env = Env::default();
         env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, crate::SwiftRemitContract);
 
         let sender = soroban_sdk::Address::generate(&env);
         let agent = soroban_sdk::Address::generate(&env);
@@ -546,13 +555,15 @@ mod tests {
         };
 
         let commitment = compute_payout_commitment(&env, &rem);
-        crate::storage::set_payout_commitment(&env, rem.id, &commitment);
+        env.as_contract(&contract_id, || {
+            crate::storage::set_payout_commitment(&env, rem.id, &commitment);
+        });
 
         let wrong_proof = BytesN::from_array(&env, &[0u8; 32]);
-        assert_eq!(
-            validate_payout_proof(&env, rem.id, &wrong_proof),
-            Err(ContractError::InvalidProof)
-        );
+        let result = env.as_contract(&contract_id, || {
+            validate_payout_proof(&env, rem.id, &wrong_proof)
+        });
+        assert_eq!(result, Err(ContractError::InvalidProof));
     }
 
     #[test]
@@ -561,9 +572,13 @@ mod tests {
         // was introduced have no stored commitment.  Any submitted proof must
         // be accepted so that existing settlements are not broken.
         let env = Env::default();
+        let contract_id = env.register_contract(None, crate::SwiftRemitContract);
         let any_proof = BytesN::from_array(&env, &[99u8; 32]);
-        // No crate::storage::set_payout_commitment call here.
-        assert!(validate_payout_proof(&env, 999, &any_proof).is_ok());
+        // No set_payout_commitment call here.
+        let result = env.as_contract(&contract_id, || {
+            validate_payout_proof(&env, 999, &any_proof)
+        });
+        assert!(result.is_ok());
     }
 
     // ─── validate_proof / require_valid_proof (structural checks) ────────────
@@ -657,89 +672,6 @@ mod tests {
             validate_proof(&proof, &condition),
             VerificationResult::MalformedProof
         );
-    }
-
-    // ─── verify_proof tests ──────────────────────────────────────────────────
-
-    #[test]
-    fn test_verify_proof_valid_signature() {
-        let env = Env::default();
-        let signer = soroban_sdk::Address::generate(&env);
-        let payload = soroban_sdk::Bytes::from_slice(&env, b"settlement-data-12345");
-        let signature = compute_proof_signature(&env, &signer, &payload);
-
-        let proof = ProofData {
-            signature,
-            payload,
-            signer: signer.clone(),
-        };
-
-        let result = verify_proof(&env, &proof, &signer);
-        assert_eq!(result, Ok(true));
-    }
-
-    #[test]
-    fn test_verify_proof_invalid_signature() {
-        let env = Env::default();
-        let signer = soroban_sdk::Address::generate(&env);
-        let payload = soroban_sdk::Bytes::from_slice(&env, b"settlement-data-12345");
-
-        // Sub-case A: All-zero signature
-        let invalid_signature = BytesN::from_array(&env, &[0u8; 64]);
-        let proof = ProofData {
-            signature: invalid_signature,
-            payload: payload.clone(),
-            signer: signer.clone(),
-        };
-        let result = verify_proof(&env, &proof, &signer);
-        assert_eq!(result, Ok(false));
-
-        // Sub-case B: Corrupted non-zero signature bytes
-        let mut bad_bytes = [0x55u8; 64];
-        bad_bytes[0] = 0xef;
-        let corrupted_signature = BytesN::from_array(&env, &bad_bytes);
-        let proof_corrupted = ProofData {
-            signature: corrupted_signature,
-            payload,
-            signer: signer.clone(),
-        };
-        let result_corrupted = verify_proof(&env, &proof_corrupted, &signer);
-        assert_eq!(result_corrupted, Ok(false));
-    }
-
-    #[test]
-    fn test_verify_proof_wrong_signer() {
-        let env = Env::default();
-        let signer = soroban_sdk::Address::generate(&env);
-        let wrong_signer = soroban_sdk::Address::generate(&env);
-        let payload = soroban_sdk::Bytes::from_slice(&env, b"settlement-data-12345");
-        let signature = compute_proof_signature(&env, &signer, &payload);
-
-        let proof = ProofData {
-            signature,
-            payload,
-            signer: signer.clone(),
-        };
-
-        let result = verify_proof(&env, &proof, &wrong_signer);
-        assert_eq!(result, Ok(false));
-    }
-
-    #[test]
-    fn test_verify_proof_empty_payload() {
-        let env = Env::default();
-        let signer = soroban_sdk::Address::generate(&env);
-        let empty_payload = soroban_sdk::Bytes::new(&env);
-        let signature = BytesN::from_array(&env, &[1u8; 64]);
-
-        let proof = ProofData {
-            signature,
-            payload: empty_payload,
-            signer: signer.clone(),
-        };
-
-        let result = verify_proof(&env, &proof, &signer);
-        assert_eq!(result, Ok(false));
     }
 
     // ─── verify_proof unit tests (#1504, #1505, #1506, #1507) ────────────────
