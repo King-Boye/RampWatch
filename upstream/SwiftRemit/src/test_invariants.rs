@@ -426,10 +426,12 @@ proptest! {
         } else {
             fee_bps
         };
+        // The contract applies a MIN_FEE floor to avoid zero-fee transactions.
+        let expected_fee = ((r.amount * effective_bps as i128) / 10_000).max(crate::config::MIN_FEE);
         prop_assert_eq!(
-            (r.amount * effective_bps as i128) / 10_000,
+            expected_fee,
             r.fee,
-            "Fee must equal amount * effective_fee_bps / 10000"
+            "Fee must equal max(amount * effective_fee_bps / 10000, MIN_FEE)"
         );
     }
 }
@@ -653,6 +655,18 @@ proptest! {
                             }));
                             if result.is_ok() {
                                 rems[idx].disbursed += amount;
+                                // If the remittance is now fully disbursed (Completed on-chain),
+                                // close the model entry so the fee is not double-counted
+                                // (obligations already dropped to zero; accumulated_fees picked up the fee).
+                                let rem = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    contract.get_remittance(&id)
+                                }));
+                                if let Ok(r) = rem {
+                                    if r.status == crate::RemittanceStatus::Completed {
+                                        rems[idx].open = false;
+                                        rems[idx].disbursed = rems[idx].amount;
+                                    }
+                                }
                             }
                         }
                     }

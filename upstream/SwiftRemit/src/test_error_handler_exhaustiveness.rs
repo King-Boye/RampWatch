@@ -9,8 +9,11 @@
 #![cfg(test)]
 
 extern crate std;
+extern crate alloc;
 
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use alloc::vec;
+use alloc::vec::Vec;
+use soroban_sdk::{testutils::Address as _, Address, Env, String as SorobanString};
 
 use crate::{
     error_handler::{ErrorCategory, ErrorHandler, ErrorSeverity},
@@ -138,8 +141,8 @@ fn test_all_contract_errors_have_distinct_mappings() {
         let response = ErrorHandler::handle_error(&env, error);
 
         // Check for the default/wildcard mapping (999, "Unknown error")
-        if response.code == 999 && response.message.to_string() == "Unknown error" {
-            unmapped_errors.push(format!("{:?}", error));
+        if response.code == 999 && response.message == SorobanString::from_str(&env, "Unknown error") {
+            unmapped_errors.push(alloc::format!("{:?}", error));
         }
 
         // Track that each error maps to a distinct code
@@ -311,12 +314,11 @@ fn test_error_response_message_never_empty() {
 
     for error in errors_to_test {
         let response = ErrorHandler::handle_error(&env, error);
-        let msg = response.message.to_string();
+        let unknown_error_msg = SorobanString::from_str(&env, "Unknown error");
         assert!(
-            !msg.is_empty() && msg != "Unknown error",
-            "Error {:?} has empty or generic message: {}",
-            error,
-            msg
+            response.message.len() > 0 && response.message != unknown_error_msg,
+            "Error {:?} has empty or generic message",
+            error
         );
     }
 }

@@ -15,7 +15,7 @@ use soroban_sdk::{
 };
 
 use crate::{
-    ContractError, ProposalAction, SwiftRemitContract, SwiftRemitContractClient,
+    ContractError, PauseReason, ProposalAction, ProposalState, SwiftRemitContract, SwiftRemitContractClient,
 };
 
 fn setup_env() -> (Env, SwiftRemitContractClient<'static>) {
@@ -55,7 +55,7 @@ fn test_propose_blocked_while_paused() {
     client.migrate_to_governance(&admin, &1u32, &0u64, &604_800u64);
 
     // Pause the contract
-    client.emergency_pause(&admin);
+    client.emergency_pause(&admin, &PauseReason::MaintenanceWindow);
 
     // Attempt to propose while paused should fail
     let result = client.try_propose(&admin, &ProposalAction::UpdateFee(500u32));
@@ -78,7 +78,7 @@ fn test_vote_blocked_while_paused() {
     assert!(proposal_id > 0);
 
     // Now pause the contract
-    client.emergency_pause(&admin);
+    client.emergency_pause(&admin, &PauseReason::MaintenanceWindow);
 
     // Attempt to vote while paused should fail
     let result = client.try_vote(&admin, &proposal_id);
@@ -99,9 +99,9 @@ fn test_vote_succeeds_after_unpause() {
     // Create a proposal
     let proposal_id = client.propose(&admin, &ProposalAction::UpdateFee(500u32));
 
-    // Pause and then unpause the contract
-    client.emergency_pause(&admin);
-    client.emergency_unpause(&admin);
+    // Pause and then unpause via the legacy bypass (no timelock/quorum)
+    client.emergency_pause(&admin, &PauseReason::MaintenanceWindow);
+    client.unpause();
 
     // Vote should now succeed
     let result = client.try_vote(&admin, &proposal_id);
@@ -117,13 +117,21 @@ fn test_vote_blocked_prevents_proposal_approval_during_pause() {
     let admin1 = Address::generate(&env);
     let admin2 = Address::generate(&env);
     initialize(&env, &client, &admin1);
-    client.migrate_to_governance(&admin1, &2u32, &0u64, &604_800u64);
 
-    // Add second admin
+    // Start governance with quorum=1 so we can add admin2 first
+    client.migrate_to_governance(&admin1, &1u32, &0u64, &604_800u64);
+
+    // Add second admin via governance proposal
     let p1 = client.propose(&admin1, &ProposalAction::AddAdmin(admin2.clone()));
     client.vote(&admin1, &p1);
     advance_time(&env, 1);
     client.execute(&admin1, &p1);
+
+    // Now raise quorum to 2 (we now have 2 admins)
+    let p2 = client.propose(&admin1, &ProposalAction::UpdateQuorum(2u32));
+    client.vote(&admin1, &p2);
+    advance_time(&env, 1);
+    client.execute(&admin1, &p2);
 
     // Create a fee update proposal
     let fee_proposal = client.propose(&admin1, &ProposalAction::UpdateFee(1000u32));
@@ -132,7 +140,7 @@ fn test_vote_blocked_prevents_proposal_approval_during_pause() {
     client.vote(&admin1, &fee_proposal);
 
     // Pause before second admin can vote
-    client.emergency_pause(&admin1);
+    client.emergency_pause(&admin1, &PauseReason::MaintenanceWindow);
 
     // Second admin cannot vote while paused
     let vote_result = client.try_vote(&admin2, &fee_proposal);
@@ -164,13 +172,13 @@ fn test_execute_blocked_while_paused() {
     // Verify proposal is Approved
     let proposal = client.get_proposal(&proposal_id);
     assert_eq!(
-        proposal.state.0, // ProposalState::Approved
-        1,
+        proposal.state,
+        ProposalState::Approved,
         "Proposal should be in Approved state"
     );
 
     // Pause the contract
-    client.emergency_pause(&admin);
+    client.emergency_pause(&admin, &PauseReason::MaintenanceWindow);
 
     // Attempt to execute while paused should fail
     let result = client.try_execute(&admin, &proposal_id);
@@ -192,9 +200,9 @@ fn test_execute_succeeds_after_unpause() {
     let proposal_id = client.propose(&admin, &ProposalAction::UpdateFee(500u32));
     client.vote(&admin, &proposal_id);
 
-    // Pause and then unpause the contract
-    client.emergency_pause(&admin);
-    client.emergency_unpause(&admin);
+    // Pause and then unpause via the legacy bypass (no timelock/quorum)
+    client.emergency_pause(&admin, &PauseReason::MaintenanceWindow);
+    client.unpause();
 
     // Execute should now succeed (if timelock has passed)
     let result = client.try_execute(&admin, &proposal_id);
@@ -219,7 +227,7 @@ fn test_execute_blocked_prevents_fee_update_during_pause() {
     client.vote(&admin, &proposal_id);
 
     // Pause before execution
-    client.emergency_pause(&admin);
+    client.emergency_pause(&admin, &PauseReason::MaintenanceWindow);
 
     // Attempt to execute while paused should fail
     let result = client.try_execute(&admin, &proposal_id);
@@ -245,7 +253,7 @@ fn test_vote_and_execute_both_respect_pause() {
     let proposal_id = client.propose(&admin, &ProposalAction::UpdateFee(500u32));
 
     // Pause the contract
-    client.emergency_pause(&admin);
+    client.emergency_pause(&admin, &PauseReason::MaintenanceWindow);
 
     // Both vote() and execute() should be blocked
     let vote_result = client.try_vote(&admin, &proposal_id);
@@ -266,7 +274,7 @@ fn test_propose_vote_execute_workflow_blocked_during_pause() {
     let proposal_id = client.propose(&admin, &ProposalAction::UpdateFee(300u32));
 
     // Pause the contract
-    client.emergency_pause(&admin);
+    client.emergency_pause(&admin, &PauseReason::MaintenanceWindow);
 
     // All subsequent governance operations should fail
     let vote_result = client.try_vote(&admin, &proposal_id);
