@@ -486,3 +486,7 @@ For questions or issues:
 2. Review the API specification
 3. Examine the test cases in the dedicated test files — `src/lib.rs` only declares modules, the actual tests live in files such as `src/contract_tests.rs`, `src/session_tests.rs`, `src/anchor_info_discovery_tests.rs`, `src/anchor_health_score_tests.rs`, and other `src/*_tests.rs` files
 
+## Handsoff notes
+
+<!-- handsoff-issue-1235 -->
+- #1235: WEBHOOK_MIDDLEWARE.md's Features section (HMAC/Ed25519 signing, 8-type suspicious-activity logging, delivery tracking) describes functionality absent from the codebase
