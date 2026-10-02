@@ -2069,6 +2069,35 @@ fn fetch_audit_logs_by_session(session_id: u64, from: Option<u64>, to: Option<u6
     results
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audit_event_uses_real_onchain_log_id_not_pagination_offset() {
+        let event = serde_json::json!({
+            "value": {
+                "log_id": 42,
+                "session_id": 7,
+                "operation_index": 3,
+                "address": "GTEST",
+                "status": "success",
+                "result": "ok",
+                "operation_type": "attest"
+            },
+            "topic": "audit_log",
+            "ledgerClosedAt": "1710000000"
+        });
+
+        let entry = parse_audit_log_entry_from_event(&event, 999, 7);
+
+        assert_eq!(entry.log_id, 42);
+        assert_eq!(entry.session_id, 7);
+        assert_eq!(entry.operation_index, 3);
+        assert_eq!(entry.actor, "GTEST");
+    }
+}
+
 // ── Session data structures ──────────────────────────────────────────────────
 
 /// CLI representation of a session
