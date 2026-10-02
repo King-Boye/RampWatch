@@ -73,7 +73,7 @@ mod audit_log_offset_tests {
         let hash = compute_payload_hash(env, &subject, ts, &data);
         let hash_bytes: Bytes = hash.into();
         let sig = sign_payload(env, sk, &hash_bytes);
-        client.submit_attestation_with_session(&session_id, attestor, &subject, &ts, &hash_bytes, &sig, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
+        client.submit_attestation_with_session(&session_id, attestor, &subject, &ts, &hash_bytes, &sig);
     }
 
     // -----------------------------------------------------------------------

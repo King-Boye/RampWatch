@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useSep10Auth } from "../hooks/useSep10Auth";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { SkeletonLoader } from "./SkeletonLoader";
 
 import './themes.css';
@@ -169,16 +170,14 @@ function Connector({ done, color }: { done: boolean; color: string }) {
 }
 
 function TokenDisplay({ jwt }: { jwt: string }) {
-  const [copied, setCopied] = useState(false);
   const [revealed, setRevealed] = useState(false);
+  const { copy, isCopied } = useCopyToClipboard({ successDuration: 1600 });
   const parts = jwt.split(".");
   const colors = ["#ff7eb3", "#79d4fd", "#7effc7"];
   const SENSITIVE_FIELDS = ["sub", "iss", "jti"];
 
-  const copy = () => {
-    navigator.clipboard.writeText(jwt);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1600);
+  const handleCopy = () => {
+    copy(jwt);
   };
 
   const maskValue = (key: string, value: unknown): string => {
@@ -296,7 +295,7 @@ function TokenDisplay({ jwt }: { jwt: string }) {
       })()}
 
       <button
-        onClick={copy}
+        onClick={handleCopy}
         style={{
           alignSelf: "flex-end",
           padding: "6px 14px",
@@ -308,13 +307,13 @@ function TokenDisplay({ jwt }: { jwt: string }) {
           borderRadius: 5,
           cursor: "pointer",
           transition: "all 0.2s",
-          border: `1px solid ${copied ? "#00e5ff" : "var(--ak-border)"}`,
-          color: copied ? "#00e5ff" : "var(--ak-text-muted)",
-          background: copied ? "rgba(0,229,255,0.08)" : "transparent",
-          boxShadow: copied ? "0 0 12px rgba(0,229,255,0.2)" : "none",
+          border: `1px solid ${isCopied ? "#00e5ff" : "var(--ak-border)"}`,
+          color: isCopied ? "#00e5ff" : "var(--ak-text-muted)",
+          background: isCopied ? "rgba(0,229,255,0.08)" : "transparent",
+          boxShadow: isCopied ? "0 0 12px rgba(0,229,255,0.2)" : "none",
         }}
       >
-        {copied ? "✓ COPIED" : "COPY JWT"}
+        {isCopied ? "✓ COPIED" : "COPY JWT"}
       </button>
     </div>
   );
@@ -960,7 +959,6 @@ export default function SEP10AuthFlow() {
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
         @keyframes sep10-ping { 0%{transform:scale(1);opacity:0.7} 100%{transform:scale(1.9);opacity:0} }
         @keyframes sep10-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
         @keyframes sep10-spin { to{transform:rotate(360deg)} }

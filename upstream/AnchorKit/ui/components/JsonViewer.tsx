@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect, memo, CSSProperties } from "react";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -223,8 +223,9 @@ function highlight(
 function syntaxHighlightRaw(
   json: string,
   t: (typeof THEMES)[ViewerTheme],
+  search?: string,
 ): string {
-  return json
+  let result = json
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -239,6 +240,20 @@ function syntaxHighlightRaw(
       },
     )
     .replace(/([{}[\],])/g, `<span style="color:${t.punct}">$1</span>`);
+
+  // Apply search highlighting last, wrapping matched text
+  if (search) {
+    const searchRegex = new RegExp(
+      search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      "gi",
+    );
+    result = result.replace(
+      searchRegex,
+      `<mark style="background:${t.matchBg};color:${t.matchText};border-radius:2px;padding:0 1px">$&</mark>`,
+    );
+  }
+
+  return result;
 }
 
 // ─── Tree Node ────────────────────────────────────────────────────────────────
@@ -257,7 +272,7 @@ interface TreeNodeProps {
   lineRef: React.MutableRefObject<number>;
 }
 
-function TreeNode({
+const TreeNode = memo(function TreeNode({
   nodeKey,
   value,
   depth,
@@ -364,6 +379,9 @@ function TreeNode({
     <div>
       {/* Opening line */}
       <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
         style={{
           display: "flex",
           alignItems: "flex-start",
@@ -373,6 +391,12 @@ function TreeNode({
           borderLeft: "2px solid transparent",
         }}
         onClick={() => onToggle(path)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle(path);
+          }
+        }}
       >
         <div
           style={{
@@ -525,7 +549,12 @@ function TreeNode({
       )}
     </div>
   );
-}
+}, (prevProps, nextProps) => {
+  return prevProps.expandedPaths === nextProps.expandedPaths &&
+         prevProps.search === nextProps.search &&
+         prevProps.value === nextProps.value &&
+         prevProps.path === nextProps.path;
+});
 
 // ─── Path Collector ───────────────────────────────────────────────────────────
 
@@ -548,6 +577,12 @@ function collectPaths(
       collectPaths(v, `${path}.${k}`, depth + 1, maxDepth, acc),
     );
   }
+}
+
+function buildExpandedPaths(value: JsonValue, maxDepth: number): Set<string> {
+  const acc = new Set<string>();
+  collectPaths(value, "root", 0, maxDepth, acc);
+  return acc;
 }
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
@@ -601,11 +636,13 @@ export function JsonViewer({
   // Remove circular references before processing
   const safeData = useMemo(() => removeCircularReferences(data), [data]);
   
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
-    const acc = new Set<string>();
-    collectPaths(safeData, "root", 0, defaultExpandDepth, acc);
-    return acc;
-  });
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() =>
+    buildExpandedPaths(safeData, defaultExpandDepth),
+  );
+
+  useEffect(() => {
+    setExpandedPaths(buildExpandedPaths(safeData, defaultExpandDepth));
+  }, [safeData, defaultExpandDepth]);
 
   const json = useMemo(() => JSON.stringify(safeData, null, 2), [safeData]);
   const lineRef = useRef(0);
@@ -641,7 +678,7 @@ export function JsonViewer({
   // Reset line counter on each render
   lineRef.current = 0;
 
-  const rawHighlighted = useMemo(() => syntaxHighlightRaw(json, t), [json, t]);
+  const rawHighlighted = useMemo(() => syntaxHighlightRaw(json, t, search), [json, t, search]);
   const lineCount = json.split("\n").length;
 
   return (
@@ -656,10 +693,11 @@ export function JsonViewer({
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap');
         @keyframes jv-expand { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
         @keyframes jv-pulse  { 0%,100%{opacity:1} 50%{opacity:0.4} }
         .jv-node-row:hover { background: rgba(255,255,255,0.025) !important; }
+        .jv-search-input::placeholder { color: ${t.lineNum}; }
+        .jv-content { contain: layout style paint; }
       `}</style>
 
       {/* ── Titlebar ── */}
@@ -827,6 +865,7 @@ export function JsonViewer({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search keys & values…"
+              className="jv-search-input"
               style={{
                 flex: 1,
                 background: "transparent",
@@ -835,7 +874,6 @@ export function JsonViewer({
                 fontFamily: "monospace",
                 fontSize: 11,
                 color: t.text,
-                "::placeholder": { color: t.lineNum } as React.CSSProperties,
               }}
             />
             {search && (
@@ -884,6 +922,7 @@ export function JsonViewer({
 
       {/* ── Content ── */}
       <div
+        className="jv-content"
         style={{
           overflowX: "auto",
           maxHeight: 560,
@@ -909,7 +948,7 @@ export function JsonViewer({
           </div>
         ) : (
           <div style={{ display: "flex" }}>
-            {/* Line numbers */}
+            {/* Line numbers - virtualized */}
             <div
               style={{
                 background: t.gutter,
@@ -918,23 +957,26 @@ export function JsonViewer({
                 flexShrink: 0,
                 minWidth: 44,
                 textAlign: "right",
+                contain: "strict",
               }}
             >
-              {json.split("\n").map((_, i) => (
-                <div
-                  key={i}
-                  style={{
-                    fontFamily: "monospace",
-                    fontSize: 10,
-                    color: t.lineNum,
-                    lineHeight: "20px",
-                    paddingRight: 12,
-                    userSelect: "none",
-                  }}
-                >
-                  {i + 1}
-                </div>
-              ))}
+              <pre
+                style={{
+                  margin: 0,
+                  padding: "8px 0",
+                  fontFamily: "monospace",
+                  fontSize: 10,
+                  color: t.lineNum,
+                  lineHeight: "20px",
+                  whiteSpace: "pre",
+                  userSelect: "none",
+                }}
+              >
+                {json
+                  .split("\n")
+                  .map((_, i) => String(i + 1).padEnd(4))
+                  .join("\n")}
+              </pre>
             </div>
             {/* Code */}
             <pre
@@ -1233,7 +1275,6 @@ export default function JsonViewerDemo() {
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }

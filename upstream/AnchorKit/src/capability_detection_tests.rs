@@ -7,7 +7,7 @@ mod capability_detection_tests {
 
     use crate::contract::{
         AnchorKitContract, AnchorKitContractClient, ServiceType,
-        SERVICE_DEPOSITS, SERVICE_WITHDRAWALS, SERVICE_QUOTES, SERVICE_KYC,
+        SERVICE_DEPOSITS, SERVICE_WITHDRAWALS, SERVICE_QUOTES, SERVICE_KYC, SERVICE_EXCHANGE_QUOTES,
     };
     use crate::sep10_test_util::register_attestor_with_sep10;
 
@@ -42,10 +42,11 @@ mod capability_detection_tests {
 
     #[test]
     fn test_service_type_values() {
-        assert_eq!(ServiceType::Deposits.as_u32(), SERVICE_DEPOSITS);
-        assert_eq!(ServiceType::Withdrawals.as_u32(), SERVICE_WITHDRAWALS);
-        assert_eq!(ServiceType::Quotes.as_u32(), SERVICE_QUOTES);
-        assert_eq!(ServiceType::KYC.as_u32(), SERVICE_KYC);
+        assert_eq!(ServiceType::Deposits.as_u32(), 1u32);
+        assert_eq!(ServiceType::Withdrawals.as_u32(), 2u32);
+        assert_eq!(ServiceType::Quotes.as_u32(), 3u32);
+        assert_eq!(ServiceType::KYC.as_u32(), 4u32);
+        assert_eq!(ServiceType::ExchangeQuotes.as_u32(), 5u32);
     }
 
     #[test]

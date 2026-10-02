@@ -8,12 +8,12 @@ export interface AnchorHealthBadgeProps {
   className?: string;
 }
 
-type Tier = { label: string; color: string; bg: string; border: string };
+type Tier = { label: string; colorVar: string; bgVar: string; borderVar: string };
 
 function getTier(score: number): Tier {
-  if (score >= 80) return { label: 'Healthy', color: '#166534', bg: '#dcfce7', border: '#86efac' };
-  if (score >= 60) return { label: 'Fair',    color: '#92400e', bg: '#fef9c3', border: '#fde047' };
-  return               { label: 'Poor',     color: '#991b1b', bg: '#fee2e2', border: '#fca5a5' };
+  if (score >= 80) return { label: 'Healthy', colorVar: 'var(--ak-health-healthy-color)', bgVar: 'var(--ak-health-healthy-bg)', borderVar: 'var(--ak-health-healthy-border)' };
+  if (score >= 60) return { label: 'Fair',    colorVar: 'var(--ak-health-fair-color)', bgVar: 'var(--ak-health-fair-bg)', borderVar: 'var(--ak-health-fair-border)' };
+  return               { label: 'Poor',     colorVar: 'var(--ak-health-poor-color)', bgVar: 'var(--ak-health-poor-bg)', borderVar: 'var(--ak-health-poor-border)' };
 }
 
 export function AnchorHealthBadge({ score, showScore = true, className }: AnchorHealthBadgeProps) {
@@ -26,8 +26,11 @@ export function AnchorHealthBadge({ score, showScore = true, className }: Anchor
       role="status"
       aria-label={`Anchor health: ${tier.label} (${clamped}/100)`}
       className={className}
+      tabIndex={0}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onBlur={() => setHovered(false)}
       style={{
         position: 'relative',
         display: 'inline-flex',
@@ -35,15 +38,16 @@ export function AnchorHealthBadge({ score, showScore = true, className }: Anchor
         gap: '4px',
         padding: '2px 8px',
         borderRadius: '9999px',
-        border: `1px solid ${tier.border}`,
-        background: tier.bg,
-        color: tier.color,
+        border: `1px solid ${tier.borderVar}`,
+        background: tier.bgVar,
+        color: tier.colorVar,
         fontSize: '0.75rem',
         fontWeight: 600,
         lineHeight: '1.5',
         userSelect: 'none',
         cursor: 'default',
         whiteSpace: 'nowrap',
+        outline: 'none',
       }}
     >
       <span aria-hidden="true" style={{ fontSize: '0.6rem' }}>●</span>

@@ -1,38 +1,40 @@
 # git-cliff configuration for release notes generation
 # Uses Conventional Commits to categorize changes.
+# Reference: https://git-cliff.org/docs/configuration
 
 [changelog]
 header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}\
+### {{ group | upper_first }}
+{% for commit in commits %}\
+- {{ commit.message | upper_first }}
+{% endfor %}
+{% endfor %}\
+"""
 footer = ""
-
-# Keep output focused for GitHub Release body.
+trim = true
 
 [git]
-# Default commit message parser; git-cliff will detect Conventional Commits.
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+# Sort commits inside sections newest-first
+sort_commits = "newest"
+# Match both v1.2.3 and 1.2.3 version tags
+tag_pattern = "^(v)?\\d+\\.\\d+\\.\\d+$"
 
-[release]
-# Regex for version tags (both v1.2.3 and 1.2.3)
-tag_regex = "^(v)?\\d+\\.\\d+\\.\\d+$"
-
-[commit_types]
-# Conventional Commit types
-feat = { title = "Added" }
-fix = { title = "Fixed" }
-perf = { title = "Performance" }
-refactor = { title = "Changed" }
-change = { title = "Changed" }
-docs = { title = "Changed" }
-style = { title = "Changed" }
-test = { title = "Changed" }
-chore = { title = "Changed" }
-build = { title = "Changed" }
-ci = { title = "Changed" }
-
-[sort_commits]
-by = "committerdate"
-order = "desc"
-
-[template]
-# Release body template: show sections only if they have content.
-body = "{{#each releases}}## {{this.version}}\n\n{{#each this.sections}}### {{this.title}}\n{{#each this.commits}}- {{this.line}}\n{{/each}}\n{{/each}}\n{{/each}}"
-
+commit_parsers = [
+  { message = "^feat",     group = "Added" },
+  { message = "^fix",      group = "Fixed" },
+  { message = "^perf",     group = "Performance" },
+  { message = "^refactor", group = "Changed" },
+  { message = "^change",   group = "Changed" },
+  { message = "^docs?",    group = "Changed" },
+  { message = "^style",    group = "Changed" },
+  { message = "^test",     group = "Changed" },
+  { message = "^chore",    group = "Changed" },
+  { message = "^build",    group = "Changed" },
+  { message = "^ci",       group = "Changed" },
+  { message = "^revert",   skip = true },
+]

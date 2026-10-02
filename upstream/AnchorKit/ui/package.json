@@ -12,7 +12,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "lint": "eslint components/**/*.{ts,tsx}",
+    "lint": "eslint \"{components,hooks,src,.storybook}/**/*.{ts,tsx}\"",
     "type-check": "tsc --noEmit",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
@@ -26,6 +26,7 @@
     "ui"
   ],
   "dependencies": {
+    "tailwindcss": "^3.4.1",
     "zod": "^3.22.4"
   },
   "peerDependencies": {
@@ -33,6 +34,8 @@
     "react-dom": "^18.0.0"
   },
   "devDependencies": {
+    "autoprefixer": "^10.4.18",
+    "postcss": "^8.4.32",
     "@storybook/addon-essentials": "^8.0.0",
     "@storybook/addon-interactions": "^8.0.0",
     "@storybook/react": "^10.4.6",

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 export interface AnchorOption {
   id: string;
@@ -44,8 +44,7 @@ export function AnchorSelector({
   const [selected, setSelected] = useState<string | null>(
     selectedId ?? best?.id ?? null
   );
-  // Tracks whether `selected` reflects an explicit user pick (click/keyboard) rather
-  // than the component's own auto-selected "best" anchor.
+  const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const userPicked = useRef(selectedId !== undefined);
 
   // Re-derive the effective selection whenever the caller controls selectedId, or
@@ -81,7 +80,7 @@ export function AnchorSelector({
     return (
       <div
         role="status"
-        style={{ padding: "12px 16px", color: "#64748b", fontSize: 13 }}
+        style={{ padding: "12px 16px", color: "var(--ak-text-muted)", fontSize: 13 }}
         className={className}
       >
         No anchors available.
@@ -96,10 +95,55 @@ export function AnchorSelector({
       className={className}
       style={{ display: "flex", flexDirection: "column", gap: 8 }}
     >
-      {anchors.map((anchor) => {
+      {anchors.map((anchor, index) => {
         const isSelected = anchor.id === selected;
         const isDisabled = anchor.healthScore < minHealthScore;
+        const isFocused = index === focusedIndex;
         const color = scoreColor(anchor.healthScore);
+
+        const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            let nextIndex = index + 1;
+            while (nextIndex < anchors.length && anchors[nextIndex].healthScore < minHealthScore) {
+              nextIndex++;
+            }
+            if (nextIndex < anchors.length) {
+              setFocusedIndex(nextIndex);
+            }
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            let prevIndex = index - 1;
+            while (prevIndex >= 0 && anchors[prevIndex].healthScore < minHealthScore) {
+              prevIndex--;
+            }
+            if (prevIndex >= 0) {
+              setFocusedIndex(prevIndex);
+            }
+          } else if (e.key === "Home") {
+            e.preventDefault();
+            let firstIndex = 0;
+            while (firstIndex < anchors.length && anchors[firstIndex].healthScore < minHealthScore) {
+              firstIndex++;
+            }
+            if (firstIndex < anchors.length) {
+              setFocusedIndex(firstIndex);
+            }
+          } else if (e.key === "End") {
+            e.preventDefault();
+            let lastIndex = anchors.length - 1;
+            while (lastIndex >= 0 && anchors[lastIndex].healthScore < minHealthScore) {
+              lastIndex--;
+            }
+            if (lastIndex >= 0) {
+              setFocusedIndex(lastIndex);
+            }
+          } else if (!isDisabled && (e.key === "Enter" || e.key === " ")) {
+            e.preventDefault();
+            userPicked.current = true;
+            setSelected(anchor.id);
+          }
+        };
 
         return (
           <div
@@ -107,28 +151,23 @@ export function AnchorSelector({
             role="option"
             aria-selected={isSelected}
             aria-disabled={isDisabled}
-            tabIndex={isDisabled ? -1 : 0}
+            tabIndex={isFocused && !isDisabled ? 0 : -1}
             onClick={() => {
               if (!isDisabled) {
                 userPicked.current = true;
                 setSelected(anchor.id);
+                setFocusedIndex(index);
               }
             }}
-            onKeyDown={(e) => {
-              if (!isDisabled && (e.key === "Enter" || e.key === " ")) {
-                e.preventDefault();
-                userPicked.current = true;
-                setSelected(anchor.id);
-              }
-            }}
+            onKeyDown={handleKeyDown}
             style={{
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
               padding: "10px 14px",
               borderRadius: 10,
-              border: `2px solid ${isSelected ? color : "#e2e8f0"}`,
-              background: isSelected ? `${color}12` : "#fff",
+              border: `2px solid ${isSelected ? color : "var(--ak-border)"}`,
+              background: isSelected ? `${color}12` : "var(--ak-surface)",
               cursor: isDisabled ? "not-allowed" : "pointer",
               opacity: isDisabled ? 0.5 : 1,
               transition: "border-color 0.15s, background 0.15s",
@@ -137,7 +176,7 @@ export function AnchorSelector({
           >
             {/* Left: name + endpoint */}
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              <span style={{ fontWeight: 600, fontSize: 14, color: "#0f172a" }}>
+              <span style={{ fontWeight: 600, fontSize: 14, color: "var(--ak-text)" }}>
                 {anchor.name}
                 {anchor.id === best?.id && (
                   <span
@@ -149,8 +188,8 @@ export function AnchorSelector({
                       textTransform: "uppercase",
                       padding: "1px 6px",
                       borderRadius: 8,
-                      background: "#dcfce7",
-                      color: "#16a34a",
+                      background: "var(--ak-status-completed-bg)",
+                      color: "var(--ak-status-completed-color)",
                     }}
                   >
                     Best
@@ -158,7 +197,7 @@ export function AnchorSelector({
                 )}
               </span>
               {anchor.endpoint && (
-                <span style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace" }}>
+                <span style={{ fontSize: 11, color: "var(--ak-text-muted)", fontFamily: "monospace" }}>
                   {anchor.endpoint}
                 </span>
               )}

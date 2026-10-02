@@ -33,13 +33,13 @@ impl TransactionState {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn from_str(s: &str) -> Self {
         match s {
-            "pending" => Some(TransactionState::Pending),
-            "in_progress" => Some(TransactionState::InProgress),
-            "completed" => Some(TransactionState::Completed),
-            "failed" => Some(TransactionState::Failed),
-            _ => Some(TransactionState::Unknown),
+            "pending" => TransactionState::Pending,
+            "in_progress" => TransactionState::InProgress,
+            "completed" => TransactionState::Completed,
+            "failed" => TransactionState::Failed,
+            _ => TransactionState::Unknown,
         }
     }
 }
@@ -502,6 +502,23 @@ mod tests {
         });
     }
 
+    #[test]
+    fn test_clear_cache_allows_self_authorization_vulnerability() {
+        with_contract(|env| {
+            let mut tracker = TransactionStateTracker::new();
+            let initiator = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+            let unprivileged_user = <soroban_sdk::Address as soroban_sdk::testutils::Address>::generate(&env);
+
+            tracker.create_transaction(1, initiator.clone(), &env).ok();
+            assert_eq!(tracker.cache_size(), 1);
+
+            // Vulnerability: unprivileged user can clear cache by self-authorizing when mock_all_auths is enabled
+            let clear_result = tracker.clear_cache(&unprivileged_user, &env);
+            assert!(clear_result.is_ok());
+            assert_eq!(tracker.cache_size(), 0);
+        });
+    }
+
     // -----------------------------------------------------------------------
     // State-machine transition validation tests
     // -----------------------------------------------------------------------
@@ -651,5 +668,29 @@ mod tests {
         assert!(tracker.start_transaction(1, &env).is_err());
         assert!(tracker.fail_transaction(1, String::from_str(&env, "msg"), &env).is_err());
         assert!(tracker.complete_transaction(1, &env).is_err());
+    }
+
+    #[test]
+    fn test_from_str_parses_valid_states() {
+        assert_eq!(TransactionState::from_str("pending"), TransactionState::Pending);
+        assert_eq!(TransactionState::from_str("in_progress"), TransactionState::InProgress);
+        assert_eq!(TransactionState::from_str("completed"), TransactionState::Completed);
+        assert_eq!(TransactionState::from_str("failed"), TransactionState::Failed);
+    }
+
+    #[test]
+    fn test_from_str_unknown_state_fallback() {
+        assert_eq!(TransactionState::from_str("unknown"), TransactionState::Unknown);
+        assert_eq!(TransactionState::from_str("invalid"), TransactionState::Unknown);
+        assert_eq!(TransactionState::from_str(""), TransactionState::Unknown);
+    }
+
+    #[test]
+    fn test_from_str_returns_self_not_option() {
+        // Verify that from_str now returns Self directly, allowing direct use
+        let state = TransactionState::from_str("completed");
+        assert_eq!(state, TransactionState::Completed);
+        // This would not compile if from_str returned Option<Self>
+        let _: TransactionState = state;
     }
 }

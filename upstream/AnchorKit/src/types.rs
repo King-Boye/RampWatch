@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Bytes, String, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, String, Symbol, Vec};
 extern crate alloc;
 use alloc::string::String as AllocString;
 
@@ -535,4 +535,27 @@ pub struct HealthStatus {
     pub latency_ms: u64,
     pub failure_count: u32,
     pub availability_percent: u32,
+}
+
+// ---------------------------------------------------------------------------
+// Credential management types
+// ---------------------------------------------------------------------------
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CredentialPolicy {
+    pub attestor: Address,
+    pub rotation_interval_seconds: u64,
+    pub require_encryption: bool,
+    pub last_rotated: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StoredCredential {
+    pub attestor: Address,
+    pub credential_type: Symbol,
+    pub encrypted_value: String,
+    pub expires_at: u64,
+    pub updated_at: u64,
 }

@@ -162,6 +162,34 @@ describe('useAnchorCapabilities — caching', () => {
 
     await waitFor(() => expect(r2.current.capabilities).toEqual(BASE_CAPS));
   });
+
+  test('evicts stale entries after the cache TTL and revalidates', async () => {
+    jest.useFakeTimers();
+    const fetch = jest.fn()
+      .mockResolvedValueOnce(BASE_CAPS)
+      .mockResolvedValueOnce(FULL_CAPS);
+
+    const { result, unmount } = renderHook(() =>
+      useAnchorCapabilities(ATTESTOR, { fetchCapabilities: fetch })
+    );
+
+    await waitFor(() => expect(result.current.capabilities).toEqual(BASE_CAPS));
+    unmount();
+
+    act(() => {
+      jest.setSystemTime(new Date(Date.now() + 31 * 60 * 1000));
+    });
+
+    const { result: refreshed } = renderHook(() =>
+      useAnchorCapabilities(ATTESTOR, { fetchCapabilities: fetch })
+    );
+
+    expect(refreshed.current.capabilities).toEqual(BASE_CAPS);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(refreshed.current.capabilities).toEqual(FULL_CAPS));
+
+    jest.useRealTimers();
+  });
 });
 
 // ── SWR — stale-while-revalidate ──────────────────────────────────────────────
