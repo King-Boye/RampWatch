@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 
 import './themes.css';
 import './AnchorPlayground.responsive.css';
@@ -565,15 +565,8 @@ export default function AnchorPlayground() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [tab, setTab] = useState<"response" | "history">("response");
   const [copied, setCopied] = useState(false);
-  const [tick, setTick] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const responseRef = useRef<HTMLDivElement>(null);
-
-  // Pulsing scan line for dark mode
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => (t + 1) % 200), 40);
-    return () => clearInterval(id);
-  }, []);
 
   const neon = SEP_HEX[activeSEP.color].neon;
   const neonDim = SEP_HEX[activeSEP.color].dim;
@@ -763,14 +756,13 @@ export default function AnchorPlayground() {
             }}
           />
           <div
+            className="playground-scanline-sweep"
             style={{
               position: "absolute",
               left: 0,
               right: 0,
               height: 80,
-              top: `${(tick / 200) * 120 - 10}%`,
               background: `linear-gradient(transparent,${neon}06,transparent)`,
-              transition: "top 0.04s linear",
             }}
           />
         </div>
@@ -2475,6 +2467,14 @@ export default function AnchorPlayground() {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @keyframes playground-scanline-sweep {
+          from { top: -10%; }
+          to { top: 110%; }
+        }
+        .playground-scanline-sweep { animation: playground-scanline-sweep 8s linear infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .playground-scanline-sweep { animation: none; }
+        }
         @keyframes skeleton-shimmer {
           0% { background-position: 200% 0; }
           100% { background-position: -200% 0; }
