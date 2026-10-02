@@ -1,4 +1,4 @@
-.PHONY: build test lint fmt clean deploy-testnet help build-wasm storybook validate coverage bench test-proptest test-testnet-integration
+.PHONY: build test testnet-integration lint fmt clean deploy-testnet help build-wasm storybook validate coverage bench
 
 ## build: Build the contract in release mode
 build:
@@ -8,12 +8,8 @@ build:
 test:
 	cargo test
 
-## test-proptest: Run property-based replay window tests
-test-proptest:
-	cargo test --features proptest-tests
-
-## test-testnet-integration: Run SEP-6 testnet integration tests
-test-testnet-integration:
+## testnet-integration: Run SEP-6 testnet integration tests
+testnet-integration:
 	cargo test --features testnet-integration
 
 ## bench: Run criterion benchmarks for contract hot paths
