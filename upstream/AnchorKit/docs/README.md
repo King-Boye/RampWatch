@@ -30,7 +30,6 @@ Reference docs for each feature exposed by the contract and SDK.
 | [SDK_CONFIG.md](./features/SDK_CONFIG.md) | SDK configuration |
 | [STATUS_MONITOR.md](./features/STATUS_MONITOR.md) | Status monitoring |
 | [SKELETON_LOADERS.md](./features/SKELETON_LOADERS.md) | UI skeleton loaders |
-| [REQUEST_HISTORY_PANEL.md](./features/REQUEST_HISTORY_PANEL.md) | Request history panel |
 | [RATE_LIMIT_PLAN.md](./features/RATE_LIMIT_PLAN.md) | Rate limiting |
 | [INTERACTIVE_SUPPORT.md](./features/INTERACTIVE_SUPPORT.md) | Interactive support |
 
