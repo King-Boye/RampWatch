@@ -6,3 +6,76 @@ Cargo.lock
 ui/node_modules/
 AGENTS.md
 pr_description.md
+
+# Build artifacts
+**/target/
+*.wasm
+*.rlib
+*.rmeta
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Test / coverage output
+/coverage/
+**/coverage/
+*.lcov
+cobertura.xml
+**/test_snapshots/
+**/__snapshots__/
+**/*.snap
+/test-results/
+**/test-results/
+junit.xml
+**/junit.xml
+.playwright/
+**/playwright-report/
+blob-report/
+**/blob-report/
+.playwright-cache/
+**/.playwright-cache/
+
+# Caches
+**/.cache/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/.nyc_output/
+**/.turbo/
+**/.eslintcache
+**/.parcel-cache/
+**/.next/
+**/.vite/
+**/storybook-static/
+
+# Logs and temp files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store?
+Thumbs.db
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.json
+
+# Editor / OS
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.iml
