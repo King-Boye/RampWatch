@@ -640,7 +640,10 @@ impl AnchorKitContract {
             .get(&att_key)
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound));
 
-        env.storage().persistent().remove(&att_key);
+        // Soft-revoke: preserve the record for audit purposes (#868).
+        let revoked_key = StorageKey::AttestationRevoked(attestation_id);
+        env.storage().persistent().set(&revoked_key, &true);
+        env.storage().persistent().extend_ttl(&revoked_key, PERSISTENT_TTL, PERSISTENT_TTL);
         let timestamp = env.ledger().timestamp();
         env.events().publish(
             (symbol_short!("attest"), symbol_short!("revoked")),
@@ -859,6 +862,8 @@ impl AnchorKitContract {
                 panic_with_error!(&env, e);
             }
             Self::check_timestamp(&env, input.timestamp);
+            // Verify each item's signature, mirroring submit_attestation (#871).
+            Self::verify_attestation_signature(&env, &issuer, &input.payload_hash, &input.signature);
 
             let used_key = StorageKey::Used(input.payload_hash.clone());
             if env.storage().persistent().has(&used_key) {
