@@ -1,9 +1,9 @@
 /**
  * Agent registration and management endpoints (Issue #880, SR-158, SR-159).
  *
- * POST /api/agents                     - Register agent (admin approval)
+ * POST /api/agents                     - Register agent (admin approval; admin API key or admin JWT required)
  * GET  /api/agents/:id                 - Get agent profile (auth required; payout_address restricted to owner/admin)
- * PUT  /api/agents/:id/payout-address  - Update payout address (admin/agent-owner)
+ * PUT  /api/agents/:id/payout-address  - Update payout address (admin API key or admin JWT required)
  */
 
 import { Router, Request, Response } from 'express';
@@ -26,10 +26,10 @@ const STELLAR_ADDRESS_RE = /^G[A-Z2-7]{54}$/;
  * Elevated authorisation for agent registration and payout-address changes
  * (SR-048).
  *
- * Accepts either the pre-existing shared admin API key or a verified access
- * token carrying the `agent` or `admin` role. The API-key path is kept so
- * existing operational tooling keeps working; the token path is what lets an
- * individual agent act as themselves instead of sharing one secret.
+ * Accepts either the pre-existing shared admin API key (`x-api-key` header)
+ * or a verified access token carrying the `admin` role. Tokens carrying only
+ * the `agent` role are NOT accepted — agent self-service is not supported for
+ * these routes.
  */
 function isAdminAuthorized(req: Request): boolean {
   const adminKey = process.env.ADMIN_API_KEY;
@@ -228,7 +228,7 @@ export function createAgentsRouter(options: AgentsRouterOptions = {}): Router {
 
   /**
    * POST /api/agents
-   * Register a new agent. Requires admin API key or admin/agent JWT.
+   * Register a new agent. Requires admin API key or admin JWT.
    * Sets status to 'pending' until on-chain registration is confirmed.
    */
   router.post('/', async (req: Request, res: Response) => {
@@ -318,7 +318,7 @@ export function createAgentsRouter(options: AgentsRouterOptions = {}): Router {
 
   /**
    * PUT /api/agents/:id/payout-address
-   * Update the payout address for an agent. Requires admin API key or admin/agent JWT.
+   * Update the payout address for an agent. Requires admin API key or admin JWT.
    */
   router.put('/:id/payout-address', async (req: Request<{ id: string }>, res: Response) => {
     if (!isAdminAuthorized(req)) {
