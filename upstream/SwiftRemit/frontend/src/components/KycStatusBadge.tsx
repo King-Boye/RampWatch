@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import './KycStatusBadge.css';
+import { usePolling } from '../utils/usePolling';
 
 type KycStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 type KycLevel = 'basic' | 'intermediate' | 'advanced';
@@ -152,19 +153,20 @@ export const KycStatusBadge: React.FC<KycStatusBadgeProps> = ({
   }, [apiUrl, userId]);
 
   // Auto-poll while status is pending
-  useEffect(() => {
-    if (!status || TERMINAL_STATUSES.includes(status.overall_status) || pollingIntervalMs <= 0) return;
-
-    const id = setInterval(async () => {
+  usePolling(
+    async () => {
       setPolling(true);
-      await fetchKycStatus();
+      const ok = await fetchKycStatus();
       setPolling(false);
-    }, pollingIntervalMs);
+      return ok;
+    },
+    {
+      intervalMs: pollingIntervalMs,
+      enabled: !!status && !TERMINAL_STATUSES.includes(status.overall_status) && pollingIntervalMs > 0,
+    },
+  );
 
-    return () => clearInterval(id);
-  }, [status?.overall_status, pollingIntervalMs]);
-
-  const fetchKycStatus = async () => {
+  const fetchKycStatus = async (): Promise<boolean> => {
     try {
       setLoading(true);
       setError(null);
@@ -181,9 +183,11 @@ export const KycStatusBadge: React.FC<KycStatusBadgeProps> = ({
 
       const data = (await response.json()) as UserKycStatusResponse;
       setStatus(data);
+      return true;
     } catch (err) {
       console.error('KYC status fetch error', err);
       setError('Failed to load KYC status');
+      return false;
     } finally {
       setLoading(false);
     }

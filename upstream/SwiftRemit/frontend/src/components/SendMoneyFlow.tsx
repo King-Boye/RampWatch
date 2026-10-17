@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import type { DailyLimitStatus } from '../../../sdk/src/types.js';
 import { useIdempotency } from '../utils/useIdempotency';
 import { useTxPolling } from '../utils/useTxPolling';
+import { usePolling } from '../utils/usePolling';
 import type { PollResult } from '../utils/useTxPolling';
 
 type FlowStep = 1 | 2 | 3 | 4 | 5;
@@ -237,17 +238,18 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
     }
   }, [step]);
 
-  // Countdown timer for FX rate expiry on review step
-  useEffect(() => {
-    if ((step !== 4 && step !== 5) || fxFetchedAt === null) return;
-    const interval = setInterval(() => {
+  // Countdown timer for FX rate expiry on review step. Derived from
+  // Date.now(), so pausing while hidden is safe: it catches up on return.
+  usePolling(
+    () => {
+      if (fxFetchedAt === null) return;
       const elapsed = Date.now() - fxFetchedAt;
       const remaining = Math.max(0, Math.ceil((FX_TTL_MS - elapsed) / 1000));
       setFxSecondsLeft(remaining);
       if (remaining === 0) setFxExpired(true);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [step, fxFetchedAt]);
+    },
+    { intervalMs: 1000, enabled: (step === 4 || step === 5) && fxFetchedAt !== null, backoffFactor: 1 },
+  );
 
   const validateCurrentStep = (): string | null => {
     if (step === 1) {
