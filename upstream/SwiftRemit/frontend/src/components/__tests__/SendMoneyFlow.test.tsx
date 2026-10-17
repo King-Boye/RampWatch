@@ -24,6 +24,8 @@ vi.mock('react-i18next', () => ({
         'sendMoney.viewOnExpert': 'View on Stellar Expert',
         'sendMoney.errors.amountRequired': 'Amount is required',
         'sendMoney.errors.amountInvalid': 'Amount must be greater than zero',
+        'sendMoney.errors.amountFormat': 'Enter a plain number with up to 7 decimal places',
+        'sendMoney.errors.amountTooLarge': 'Amount is too large',
         'sendMoney.errors.assetRequired': 'Please select an asset',
         'sendMoney.errors.incomplete': 'Please fill in all required fields',
         'sendMoney.errors.rejected': 'Transaction rejected',
@@ -234,6 +236,22 @@ describe('SendMoneyFlow', () => {
       fireEvent.change(screen.getByLabelText(/amount/i), { target: { value: 'abc' } });
       fireEvent.click(screen.getByRole('button', { name: /continue/i }));
       expect(screen.getByText(/amount is required/i)).toBeInTheDocument();
+    });
+
+    // #1719: Number() accepted these; strict parsing must reject them.
+    it.each(['1e3', '1.12345678'])('rejects %j instead of coercing it', (value) => {
+      render(<SendMoneyFlow />);
+      fireEvent.change(screen.getByLabelText(/amount/i), { target: { value } });
+      fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+      expect(screen.getByText(/plain number with up to 7 decimal places/i)).toBeInTheDocument();
+      expect(screen.getByText(/step 1 of 5/i)).toBeInTheDocument();
+    });
+
+    it("rejects amounts beyond Stellar's int64 limit", () => {
+      render(<SendMoneyFlow />);
+      fireEvent.change(screen.getByLabelText(/amount/i), { target: { value: '922337203686' } });
+      fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+      expect(screen.getByText(/amount is too large/i)).toBeInTheDocument();
     });
 
     it('does not advance when amount is invalid', () => {

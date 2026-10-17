@@ -61,6 +61,8 @@
     "errors": {
       "amountRequired": "Le montant est requis.",
       "amountInvalid": "Le montant doit être supérieur à zéro.",
+      "amountFormat": "Saisissez un nombre simple avec jusqu'à 7 décimales (ex. 25.50).",
+      "amountTooLarge": "Le montant est trop élevé.",
       "assetRequired": "Veuillez sélectionner un actif.",
       "recipientInvalid": "Le destinataire doit être une clé publique Stellar valide.",
       "incomplete": "Les détails de la transaction sont incomplets.",

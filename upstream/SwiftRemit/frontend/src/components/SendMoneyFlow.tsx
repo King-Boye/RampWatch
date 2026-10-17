@@ -7,6 +7,7 @@ import type { DailyLimitStatus } from '../../../sdk/src/types.js';
 import { useIdempotency } from '../utils/useIdempotency';
 import { useTxPolling } from '../utils/useTxPolling';
 import type { PollResult } from '../utils/useTxPolling';
+import { parseAmount, stroopsToAmount } from '../utils/amount';
 
 type FlowStep = 1 | 2 | 3 | 4 | 5;
 
@@ -103,7 +104,9 @@ function resolveAsset(assetCode: string): StellarSdk.Asset {
 async function buildAndSubmitTransaction(
   payload: ConfirmPayload,
   senderPublicKey: string,
-  network: 'TESTNET' | 'PUBLIC'
+  network: 'TESTNET' | 'PUBLIC',
+  /** Exact decimal string derived from stroops; avoids "1e-7" from String(number). */
+  amountString: string = String(payload.amount)
 ): Promise<string> {
   const horizonUrl = HORIZON_URLS[network];
   const server = new StellarSdk.Horizon.Server(horizonUrl);
@@ -124,7 +127,7 @@ async function buildAndSubmitTransaction(
       StellarSdk.Operation.payment({
         destination: payload.recipient,
         asset,
-        amount: String(payload.amount),
+        amount: amountString,
       })
     )
     .setTimeout(30);
@@ -217,7 +220,10 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
     },
   });
 
-  const parsedAmount = useMemo(() => Number(amount), [amount]);
+  // Strict parse: plain decimal, max 7 places, converted to stroops via BigInt.
+  const amountResult = useMemo(() => parseAmount(amount), [amount]);
+  const canonicalAmount = amountResult.ok ? stroopsToAmount(amountResult.stroops) : '';
+  const parsedAmount = amountResult.ok ? Number(canonicalAmount) : NaN;
 
   // Fetch daily limit status when asset is selected
   useEffect(() => {
@@ -251,9 +257,17 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
 
   const validateCurrentStep = (): string | null => {
     if (step === 1) {
-      if (!amount) return t('sendMoney.errors.amountRequired');
-      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-        return t('sendMoney.errors.amountInvalid');
+      if (!amountResult.ok) {
+        switch (amountResult.error) {
+          case 'required':
+            return t('sendMoney.errors.amountRequired');
+          case 'format':
+            return t('sendMoney.errors.amountFormat');
+          case 'tooLarge':
+            return t('sendMoney.errors.amountTooLarge');
+          default:
+            return t('sendMoney.errors.amountInvalid');
+        }
       }
     }
 
@@ -287,7 +301,7 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
   };
 
   const confirmTransfer = async () => {
-    if (!amount || !asset || !recipient) {
+    if (!amountResult.ok || !asset || !recipient) {
       setError(t('sendMoney.errors.incomplete'));
       return;
     }
@@ -332,7 +346,7 @@ export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
         setIsComplete(true);
         clearKey(idempotencyKey);
       } else if (senderPublicKey) {
-        resolvedTxHash = await buildAndSubmitTransaction(payload, senderPublicKey, network);
+        resolvedTxHash = await buildAndSubmitTransaction(payload, senderPublicKey, network, canonicalAmount);
         setTxHash(resolvedTxHash);
         setIsComplete(true);
         clearKey(idempotencyKey);

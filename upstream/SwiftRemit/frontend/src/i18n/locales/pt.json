@@ -61,6 +61,8 @@
     "errors": {
       "amountRequired": "O valor é obrigatório.",
       "amountInvalid": "O valor deve ser maior que zero.",
+      "amountFormat": "Digite um número simples com até 7 casas decimais (ex.: 25.50).",
+      "amountTooLarge": "O valor é muito alto.",
       "assetRequired": "Por favor selecione um ativo.",
       "recipientInvalid": "O destinatário deve ser uma chave pública Stellar válida.",
       "incomplete": "Os detalhes da transação estão incompletos.",
