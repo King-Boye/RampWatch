@@ -11,6 +11,7 @@ import { Pool } from 'pg';
 import { ErrorResponse } from '../types';
 import { sanitizeInput } from '../utils/sanitize.js';
 import { extractBearerToken, verifyAccessToken, requireAuth, ensureOwnership } from '../middleware/auth.js';
+import { sendInternalError } from '../middleware/errorHandler.js';
 
 function timestamp(): string {
   return new Date().toISOString();
@@ -266,12 +267,7 @@ export function createAgentsRouter(options: AgentsRouterOptions = {}): Router {
       const created = await store.create(agent);
       return res.status(201).json({ success: true, data: created, timestamp: timestamp() });
     } catch (err) {
-      return sendError(
-        res,
-        500,
-        err instanceof Error ? err.message : 'Failed to register agent',
-        'STORE_ERROR',
-      );
+      return sendInternalError(res, err, 'Failed to register agent', 'STORE_ERROR');
     }
   });
 
@@ -307,12 +303,7 @@ export function createAgentsRouter(options: AgentsRouterOptions = {}): Router {
       const { payout_address: _stripped, ...publicFields } = agent;
       return res.json({ success: true, data: publicFields, timestamp: timestamp() });
     } catch (err) {
-      return sendError(
-        res,
-        500,
-        err instanceof Error ? err.message : 'Failed to retrieve agent',
-        'STORE_ERROR',
-      );
+      return sendInternalError(res, err, 'Failed to retrieve agent', 'STORE_ERROR');
     }
   });
 
@@ -347,12 +338,7 @@ export function createAgentsRouter(options: AgentsRouterOptions = {}): Router {
       }
       return res.json({ success: true, data: updated, timestamp: timestamp() });
     } catch (err) {
-      return sendError(
-        res,
-        500,
-        err instanceof Error ? err.message : 'Failed to update payout address',
-        'STORE_ERROR',
-      );
+      return sendInternalError(res, err, 'Failed to update payout address', 'STORE_ERROR');
     }
   });
 

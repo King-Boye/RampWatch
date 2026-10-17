@@ -18,6 +18,7 @@ import {
   buildCacheKey,
   CACHE_TTL_MS,
 } from '../middleware/analyticsGuard';
+import { sendInternalError } from '../middleware/errorHandler';
 
 export interface CorridorStat {
   source_currency: string;
@@ -186,9 +187,7 @@ export function createAnalyticsRouter(pool: Pool, adminApiKey?: string): Router 
 
       return res.json(response);
     } catch (err) {
-      // eslint-disable-next-line no-console
-      void err;
-      return sendError(res, 500, 'Failed to fetch corridor analytics', 'ANALYTICS_ERROR');
+      return sendInternalError(res, err, 'ANALYTICS_ERROR', 'Failed to fetch corridor analytics');
     }
   });
 
@@ -283,9 +282,7 @@ export function createAnalyticsRouter(pool: Pool, adminApiKey?: string): Router 
 
       return res.json(response);
     } catch (err) {
-      // eslint-disable-next-line no-console
-      void err;
-      return sendError(res, 500, 'Failed to fetch time-series data', 'TIMESERIES_ERROR');
+      return sendInternalError(res, err, 'TIMESERIES_ERROR', 'Failed to fetch time-series data');
     }
   });
 

@@ -6,6 +6,7 @@ import { AdminConfirmationService, HighRiskOperation } from '../admin-confirmati
 import axios from 'axios';
 import { createRateLimitMiddleware } from '../middleware/rateLimitHeaders';
 import { requireAdmin } from '../middleware/auth.js';
+import { sendInternalError } from '../middleware/errorHandler';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -766,9 +767,8 @@ export function createAdminRouter(sharedPool: Pool | null = null): Router {
           timestamp: timestamp(),
         });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Confirmation verification failed';
         await auditSimulateUpgrade({$$$}, pool);
-        return sendError(res, 401, msg, 'CONFIRMATION_VERIFICATION_FAILED');
+        return sendInternalError(res, err, 'CONFIRMATION_VERIFICATION_FAILED');
       }
     },
   );
@@ -798,7 +798,7 @@ export function createAdminRouter(sharedPool: Pool | null = null): Router {
       );
       return res.status(201).json({ success: true, data: action, timestamp: timestamp() });
     } catch (err) {
-      return sendError(res, 500, err instanceof Error ? err.message : 'Failed to initiate action', 'INITIATE_FAILED');
+      return sendInternalError(res, err, 'INITIATE_FAILED');
     }
   });
 
@@ -816,7 +816,7 @@ export function createAdminRouter(sharedPool: Pool | null = null): Router {
       const actions = await svc.listPending();
       return res.json({ success: true, data: actions, timestamp: timestamp() });
     } catch (err) {
-      return sendError(res, 500, err instanceof Error ? err.message : 'Failed to list actions', 'LIST_FAILED');
+      return sendInternalError(res, err, 'LIST_FAILED');
     }
   });
 
@@ -834,12 +834,18 @@ export function createAdminRouter(sharedPool: Pool | null = null): Router {
       const action = await svc.confirm(req.params.id, req.auth!.userId);
       return res.json({ success: true, data: action, timestamp: timestamp() });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Confirmation failed';
+      const msg = err instanceof Error ? err.message : '';
       const isNotFound = msg.includes('not found');
       const isExpired = msg.includes('expired');
       const isSelf = msg.includes('cannot confirm');
-      const status = isNotFound ? 404 : isExpired || isSelf ? 409 : 500;
-      return sendError(res, status, msg, 'CONFIRM_FAILED');
+
+      if (isNotFound) {
+        return sendError(res, 404, 'Confirmation action not found', 'CONFIRM_FAILED');
+      }
+      if (isExpired || isSelf) {
+        return sendError(res, 409, 'Confirmation action cannot be confirmed', 'CONFIRM_FAILED');
+      }
+      return sendInternalError(res, err, 'CONFIRM_FAILED');
     }
   });
 
@@ -930,12 +936,7 @@ export function createAdminRouter(sharedPool: Pool | null = null): Router {
         timestamp: timestamp(),
       });
     } catch (error) {
-      return sendError(
-        res,
-        500,
-        error instanceof Error ? error.message : 'Failed to retrieve anchor health',
-        'ANCHOR_HEALTH_ERROR',
-      );
+      return sendInternalError(res, error, 'ANCHOR_HEALTH_ERROR');
     }
   });
 
@@ -980,7 +981,7 @@ export function createAdminRouter(sharedPool: Pool | null = null): Router {
 
       return res.json({ success: true, data: entries, timestamp: timestamp() });
     } catch (err) {
-      return sendError(res, 500, err instanceof Error ? err.message : 'Failed to list dead letters', 'DLQ_LIST_FAILED');
+      return sendInternalError(res, err, 'DLQ_LIST_FAILED');
     }
   });
 
@@ -1079,7 +1080,7 @@ export function createAdminRouter(sharedPool: Pool | null = null): Router {
         return sendError(res, 500, `Replay failed: ${errorMsg}`, 'DLQ_REPLAY_FAILED');
       }
     } catch (err) {
-      return sendError(res, 500, err instanceof Error ? err.message : 'Failed to replay dead letter', 'DLQ_REPLAY_ERROR');
+      return sendInternalError(res, err, 'DLQ_REPLAY_ERROR');
     }
   });
 
@@ -1305,12 +1306,7 @@ export function createAdminRouter(sharedPool: Pool | null = null): Router {
         timestamp: timestamp(),
       });
     } catch (err) {
-      return sendError(
-        res,
-        500,
-        err instanceof Error ? err.message : 'Bulk replay encountered an unexpected error',
-        'DLQ_BULK_REPLAY_ERROR'
-      );
+      return sendInternalError(res, err, 'DLQ_BULK_REPLAY_ERROR');
     }
   });
 
