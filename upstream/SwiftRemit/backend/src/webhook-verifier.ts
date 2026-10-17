@@ -13,6 +13,7 @@ export class WebhookVerifier {
   /** Secondary sanity-check window (10 minutes) to account for clock skew. */
   private readonly timestampWindow: number = 10 * 60 * 1000;
   private readonly processedNonces: Set<string>;
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(replayWindowSeconds: number = 300) {
     this.replayWindow = replayWindowSeconds * 1000;
@@ -98,8 +99,20 @@ export class WebhookVerifier {
    * Cleanup old nonces periodically
    */
   private cleanupOldNonces(): void {
-    setInterval(() => {
+    this.cleanupInterval = setInterval(() => {
       this.processedNonces.clear();
     }, this.replayWindow);
+    // Do not let the cleanup timer keep the Node process alive.
+    this.cleanupInterval.unref();
+  }
+
+  /**
+   * Stop the periodic nonce cleanup timer. Safe to call multiple times.
+   */
+  dispose(): void {
+    if (this.cleanupInterval !== null) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
   }
 }
