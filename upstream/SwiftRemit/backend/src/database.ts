@@ -168,12 +168,14 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_ce_remittance_id ON contract_events(remittance_id);
       CREATE INDEX IF NOT EXISTS idx_ce_timestamp     ON contract_events(timestamp);
 
-      -- Idempotency store for incoming webhook nonces
+      -- Idempotency store for incoming webhook nonces.
+      -- Canonical abstraction lives in webhooks/nonce-store.ts (PostgresNonceStore);
+      -- this table is the durable, cross-replica backing store for issue #1703.
       CREATE TABLE IF NOT EXISTS webhook_processed_nonces (
-        nonce       VARCHAR(255) NOT NULL,
-        anchor_id   VARCHAR(255) NOT NULL,
-        processed_at TIMESTAMP   NOT NULL DEFAULT NOW(),
-        expires_at  TIMESTAMP    NOT NULL,
+        nonce       TEXT        NOT NULL,
+        anchor_id   TEXT        NOT NULL,
+        expires_at  TIMESTAMPTZ NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY (nonce, anchor_id)
       );
 
@@ -987,6 +989,11 @@ export async function saveContractEvent(event: ContractEvent): Promise<void> {
 }
 
 // ── Webhook Idempotency ──────────────────────────────────────────────────────
+//
+// The canonical nonce-store abstraction is `webhooks/nonce-store.ts`
+// (PostgresNonceStore / InMemoryNonceStore). The helpers below are the durable
+// Postgres backing used by PostgresNonceStore so nonces are shared across
+// replicas and survive restarts (issue #1703).
 
 /**
  * Attempts to record a nonce as processed. Returns true if the nonce is new

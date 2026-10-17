@@ -8,16 +8,36 @@ export interface WebhookPayload {
   [key: string]: any;
 }
 
+/**
+ * Shared nonce store used for replay protection.
+ *
+ * Implementations must atomically consume a nonce (e.g. Redis `SET NX` with a
+ * TTL, or a Postgres unique insert) so that replay protection works across
+ * multiple replicas and survives process restarts.
+ */
+export interface NonceStore {
+  /**
+   * Atomically record `nonce` for `ttlSeconds`.
+   * @returns `true` if the nonce was newly recorded, `false` if it was already seen.
+   */
+  consume(nonce: string, ttlSeconds: number): Promise<boolean>;
+}
+
+/**
+ * Verifies webhook signatures, timestamps and replay protection.
+ *
+ * Replay protection is delegated to a shared {@link NonceStore} so that nonces
+ * are enforced across replicas and survive restarts (see issue #1703).
+ */
 export class WebhookVerifier {
   private readonly replayWindow: number;
   /** Secondary sanity-check window (10 minutes) to account for clock skew. */
   private readonly timestampWindow: number = 10 * 60 * 1000;
-  private readonly processedNonces: Set<string>;
+  private readonly nonceStore: NonceStore;
 
-  constructor(replayWindowSeconds: number = 300) {
+  constructor(nonceStore: NonceStore, replayWindowSeconds: number = 300) {
     this.replayWindow = replayWindowSeconds * 1000;
-    this.processedNonces = new Set();
-    this.cleanupOldNonces();
+    this.nonceStore = nonceStore;
   }
 
   /**
@@ -83,23 +103,13 @@ export class WebhookVerifier {
   }
 
   /**
-   * Check and record nonce to prevent replay attacks
+   * Check and record nonce to prevent replay attacks.
+   *
+   * Delegates to the shared nonce store, which atomically consumes the nonce
+   * with a TTL derived from the replay window.
    */
-  validateNonce(nonce: string): boolean {
-    if (this.processedNonces.has(nonce)) {
-      return false;
-    }
-    
-    this.processedNonces.add(nonce);
-    return true;
-  }
-
-  /**
-   * Cleanup old nonces periodically
-   */
-  private cleanupOldNonces(): void {
-    setInterval(() => {
-      this.processedNonces.clear();
-    }, this.replayWindow);
+  async validateNonce(nonce: string): Promise<boolean> {
+    const ttlSeconds = Math.max(1, Math.ceil(this.replayWindow / 1000));
+    return this.nonceStore.consume(nonce, ttlSeconds);
   }
 }
