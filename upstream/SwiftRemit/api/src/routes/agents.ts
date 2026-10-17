@@ -11,6 +11,7 @@ import { Pool } from 'pg';
 import { ErrorResponse } from '../types';
 import { sanitizeInput } from '../utils/sanitize.js';
 import { extractBearerToken, verifyAccessToken, requireAuth, ensureOwnership } from '../middleware/auth.js';
+import { logger } from '../utils/logger.js';
 
 function timestamp(): string {
   return new Date().toISOString();
@@ -21,6 +22,93 @@ function sendError(res: Response, status: number, message: string, code: string)
 }
 
 const STELLAR_ADDRESS_RE = /^G[A-Z2-7]{54}$/;
+
+/** IBAN: 2-letter country code, 2 check digits, 11-30 alphanumeric BBAN. */
+const IBAN_RE = /^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/;
+/** Domestic bank account number: 6-34 digits, optionally separated by spaces or dashes. */
+const BANK_ACCOUNT_RE = /^[0-9][0-9 -]{5,33}[0-9]$/;
+
+/**
+ * Payout rails an agent can settle through.  The rail determines which
+ * format the `payout_address` must satisfy.
+ */
+export type PayoutRail = 'stellar' | 'bank';
+
+/**
+ * Validate a payout address against the given rail.
+ *
+ * - `stellar`: must be a Stellar public key (`G...`, 56 chars, base32).
+ * - `bank`: must be a valid IBAN or a domestic bank account number.
+ *
+ * Returns `null` when valid, otherwise a human-readable reason.
+ */
+export function validatePayoutAddress(rail: PayoutRail, value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return 'payout_address is required';
+
+  if (rail === 'stellar') {
+    return STELLAR_ADDRESS_RE.test(trimmed)
+      ? null
+      : 'payout_address must be a valid Stellar public key (G..., 56 characters)';
+  }
+
+  if (rail === 'bank') {
+    const normalized = trimmed.replace(/[\s-]/g, '').toUpperCase();
+    if (IBAN_RE.test(normalized) || BANK_ACCOUNT_RE.test(trimmed)) return null;
+    return 'payout_address must be a valid IBAN or bank account number';
+  }
+
+  return 'Unsupported payout rail';
+}
+
+/** Resolve the payout rail for an agent, defaulting to Stellar. */
+function resolvePayoutRail(agent: Agent): PayoutRail {
+  const rail = (agent as Agent & { payout_rail?: string }).payout_rail;
+  return rail === 'bank' ? 'bank' : 'stellar';
+}
+
+/** Identify the actor performing a payout-address change, for the audit log. */
+function resolveActor(req: Request): string {
+  const token = extractBearerToken(req);
+  if (token) {
+    const result = verifyAccessToken(token);
+    if (result.ok) return result.auth.userId;
+  }
+  if (process.env.ADMIN_API_KEY && req.headers['x-api-key'] === process.env.ADMIN_API_KEY) {
+    return 'admin-api-key';
+  }
+  return 'unknown';
+}
+
+/** A single payout-address change record. */
+export interface PayoutAddressAuditEntry {
+  actor: string;
+  agentId: string;
+  oldPayoutAddress: string;
+  newPayoutAddress: string;
+  timestamp: string;
+}
+
+/** Sink for payout-address audit entries. */
+export interface PayoutAddressAuditLogger {
+  record(entry: PayoutAddressAuditEntry): Promise<void> | void;
+}
+
+/**
+ * Default audit logger.  Emits a structured log line so the change is
+ * recorded even when no persistent audit store is injected.
+ */
+export const defaultPayoutAddressAuditLogger: PayoutAddressAuditLogger = {
+  record(entry: PayoutAddressAuditEntry): void {
+    logger.info('agent.payout_address.updated', {
+      actor: entry.actor,
+      agentId: entry.agentId,
+      oldPayoutAddress: entry.oldPayoutAddress,
+      newPayoutAddress: entry.newPayoutAddress,
+      timestamp: entry.timestamp,
+    });
+  },
+};
 
 /**
  * Elevated authorisation for agent registration and payout-address changes
@@ -205,6 +293,11 @@ export interface AgentsRouterOptions {
    *   without options).
    */
   store?: AgentStore;
+  /**
+   * Audit sink for payout-address changes.  Defaults to the structured
+   * logger; production can inject a persistent `AdminAuditLogService`.
+   */
+  auditLogger?: PayoutAddressAuditLogger;
 }
 
 // ── Singleton default store (tests that import `agentStore` directly) ─────────
@@ -224,6 +317,8 @@ export const agentStore: InMemoryAgentStore = new InMemoryAgentStore();
 
 export function createAgentsRouter(options: AgentsRouterOptions = {}): Router {
   const store: AgentStore = options.store ?? agentStore;
+  const auditLogger: PayoutAddressAuditLogger =
+    options.auditLogger ?? defaultPayoutAddressAuditLogger;
   const router = Router();
 
   /**
@@ -336,15 +431,38 @@ export function createAgentsRouter(options: AgentsRouterOptions = {}): Router {
         return sendError(res, 400, 'payout_address is required', 'MISSING_FIELD');
       }
 
+      // Validate the new address against the agent's payout rail so a typo or
+      // malicious change cannot silently redirect settlements.
+      const rail = resolvePayoutRail(agent);
+      const validationError = validatePayoutAddress(rail, payout_address);
+      if (validationError) {
+        return sendError(res, 400, validationError, 'INVALID_PAYOUT_ADDRESS');
+      }
+
       const now = timestamp();
-      const updated = await store.updatePayoutAddress(
-        agent.id,
-        sanitizeInput(payout_address.trim()),
-        now,
-      );
+      const newPayoutAddress = sanitizeInput(payout_address.trim());
+      const updated = await store.updatePayoutAddress(agent.id, newPayoutAddress, now);
       if (!updated) {
         return sendError(res, 404, 'Agent not found', 'AGENT_NOT_FOUND');
       }
+
+      // Record the change for auditability.  A failure to write the audit
+      // entry must not silently swallow the update, so log it loudly.
+      try {
+        await auditLogger.record({
+          actor: resolveActor(req),
+          agentId: agent.id,
+          oldPayoutAddress: agent.payout_address,
+          newPayoutAddress,
+          timestamp: now,
+        });
+      } catch (auditErr) {
+        logger.error('agent.payout_address.audit_failed', {
+          agentId: agent.id,
+          error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+        });
+      }
+
       return res.json({ success: true, data: updated, timestamp: timestamp() });
     } catch (err) {
       return sendError(
