@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { isConnected, getPublicKey, requestAccess } from '@stellar/freighter-api'
+import { clearRecipients } from '../utils/recipientStorage'
 
 const ERROR_TYPES = {
   NOT_INSTALLED: 'notInstalled',
@@ -51,6 +52,8 @@ export default function WalletConnect({ walletAddress, setWalletAddress }) {
   }
 
   const disconnectWallet = () => {
+    // Don't leave recipient PII behind on shared devices.
+    clearRecipients(walletAddress)
     setWalletAddress(null)
   }
 

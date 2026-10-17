@@ -1,34 +1,31 @@
 import { useState, useEffect } from 'react'
 import './AddressBook.css'
+import { loadRecipients as readRecipients, saveRecipients as writeRecipients } from '../utils/recipientStorage'
 
-export default function AddressBook({ onSelectRecipient }) {
+/**
+ * Saved recipients, scoped to the connected wallet. Without a wallet nothing
+ * is persisted. All storage access goes through utils/recipientStorage,
+ * which guards against storage exceptions (e.g. private mode).
+ */
+export default function AddressBook({ onSelectRecipient, walletAddress }) {
   const [recipients, setRecipients] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [formData, setFormData] = useState({ name: '', address: '', country: '', memo: '' })
   const [error, setError] = useState(null)
 
+  // Reload whenever the wallet changes so one wallet never sees another's contacts.
   useEffect(() => {
-    loadRecipients()
-  }, [])
-
-  const loadRecipients = () => {
-    try {
-      const saved = localStorage.getItem('swiftremit_recipients')
-      if (saved) {
-        setRecipients(JSON.parse(saved))
-      }
-    } catch (err) {
-      setError('Failed to load recipients')
-    }
-  }
+    const { recipients: saved, ok } = readRecipients(walletAddress)
+    setRecipients(saved)
+    setError(ok ? null : 'Saved recipients are unavailable (browser storage is blocked).')
+  }, [walletAddress])
 
   const saveRecipients = (newRecipients) => {
-    try {
-      localStorage.setItem('swiftremit_recipients', JSON.stringify(newRecipients))
-      setRecipients(newRecipients)
-    } catch (err) {
-      setError('Failed to save recipients')
+    // Keep the UI usable even if persisting fails.
+    setRecipients(newRecipients)
+    if (walletAddress && !writeRecipients(walletAddress, newRecipients)) {
+      setError('Failed to save recipients. Changes will be lost when you leave this page.')
     }
   }
 
@@ -121,6 +118,12 @@ export default function AddressBook({ onSelectRecipient }) {
       </div>
 
       {error && <div className="error-message">{error}</div>}
+
+      {!walletAddress && (
+        <p className="empty-state" data-testid="address-book-no-wallet">
+          Connect your wallet to save recipients on this device.
+        </p>
+      )}
 
       {showForm && (
         <form className="address-book-form" onSubmit={handleAddRecipient}>
