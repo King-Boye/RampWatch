@@ -1,5 +1,8 @@
 import crypto from 'crypto';
 import { Keypair } from '@stellar/stellar-sdk';
+import { createLogger } from '../../shared/src/logger';
+
+const logger = createLogger('WebhookVerifier');
 
 export interface WebhookPayload {
   transaction_id: string;
@@ -55,7 +58,7 @@ export class WebhookVerifier {
       
       return keypair.verify(payloadBuffer, signatureBuffer);
     } catch (error) {
-      console.error('Signature verification failed:', error);
+      logger.error('Signature verification failed', error, { anchorPublicKey });
       return false;
     }
   }
@@ -84,7 +87,7 @@ export class WebhookVerifier {
         Buffer.from(expectedSignature)
       );
     } catch (error) {
-      console.error('HMAC verification failed:', error);
+      logger.error('HMAC verification failed', error);
       return false;
     }
   }
