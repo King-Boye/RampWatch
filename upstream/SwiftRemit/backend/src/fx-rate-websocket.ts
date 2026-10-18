@@ -2,6 +2,7 @@ import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer, Socket, Namespace } from 'socket.io';
 import { FxRateCache, FxRateResponse, getFxRateCache, setFxRateEventBus } from './fx-rate-cache';
 import { EventEmitter } from 'events';
+import { corsOptionsFromEnv } from '../../shared/src/cors-options';
 
 export const fxRateEvents = new EventEmitter();
 fxRateEvents.setMaxListeners(50);
@@ -36,8 +37,10 @@ export class FxRateWebSocketServer {
     this.cache = getFxRateCache();
     setFxRateEventBus(fxRateEvents);
 
+    const { origin } = corsOptionsFromEnv();
+
     this.io = new SocketIOServer(httpServer, {
-      cors: { origin: '*', methods: ['GET', 'POST'] },
+      cors: { origin, methods: ['GET', 'POST'] },
       path: '/ws',
     });
 
