@@ -61,6 +61,8 @@
     "errors": {
       "amountRequired": "Amount is required.",
       "amountInvalid": "Amount must be greater than zero.",
+      "amountFormat": "Enter a plain number with up to 7 decimal places (e.g. 25.50).",
+      "amountTooLarge": "Amount is too large.",
       "assetRequired": "Please select an asset.",
       "recipientInvalid": "Recipient must be a valid Stellar public key.",
       "incomplete": "Transaction details are incomplete.",
