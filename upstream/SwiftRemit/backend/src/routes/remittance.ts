@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { getFxRateCache } from '../fx-rate-cache';
 import { simulateSettlement } from '../stellar';
@@ -182,17 +183,30 @@ export function createRemittanceRouter(pool: Pool): Router {
         }
       }
 
-      const remittanceId = `rem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const remittanceId = `rem-${randomUUID()}`;
       await pool.query(
         `INSERT INTO transactions (transaction_id, anchor_id, kind, status, amount_in, memo, created_at, updated_at)
          VALUES ($1, $2, 'withdrawal', 'pending_user_transfer_start', $3, $4, NOW(), NOW())`,
         [remittanceId, agent, amount, sanitizedMemo ?? null],
       );
 
-      try {
-        const { autoFlagIfAboveThreshold } = await import('./compliance');
-        await autoFlagIfAboveThreshold(pool, remittanceId, parseFloat(amount), 'USD');
-      } catch { /* compliance tables may not exist in all environments */ }
+      // AML auto-flagging fails closed: if the compliance check cannot run we
+      // must not let a potentially large transfer through unflagged. The only
+      // way to skip it is an explicit operator opt-out via config.
+      const amlAutoFlagDisabled = process.env.AML_AUTOFLAG_DISABLED === 'true';
+      if (!amlAutoFlagDisabled) {
+        try {
+          const { autoFlagIfAboveThreshold } = await import('./compliance');
+          await autoFlagIfAboveThreshold(pool, remittanceId, parseFloat(amount), 'USD');
+        } catch (error) {
+          logger.error(
+            'AML auto-flag check failed; failing closed',
+            error instanceof Error ? error : new Error(String(error)),
+            { remittanceId },
+          );
+          return res.status(503).json({ error: 'Compliance check unavailable' });
+        }
+      }
 
       // SR-112: run structuring/velocity/corridor monitoring and travel-rule
       // assessment synchronously so every remittance created through this
