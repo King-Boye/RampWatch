@@ -10,6 +10,7 @@ import {
 import { encodeCursor, decodeCursor } from '../services/cursor-pagination';
 import { sanitizeObject } from '../utils/sanitize.js';
 import { fetchAnchorToml } from '../utils/anchor-toml-validator.js';
+import { sendInternalError } from '../utils/errorHandler.js';
 
 type RouterOptions = {
   store?: AnchorStore;
@@ -238,12 +239,7 @@ router.post('/admin', adminAuth, async (req: Request, res: Response) => {
       timestamp: timestamp(),
     } satisfies AnchorDetailResponse);
   } catch (error) {
-    return sendError(
-      res,
-      500,
-      error instanceof Error ? error.message : 'Failed to create anchor',
-      'ANCHOR_CREATE_ERROR',
-    );
+    return sendInternalError(res, error, 'ANCHOR_CREATE_ERROR', 'Failed to create anchor');
   }
 });
 
@@ -272,12 +268,7 @@ router.put('/admin/:id', adminAuth, async (req: Request<{ id: string }>, res: Re
 
     res.json(response);
   } catch (error) {
-    return sendError(
-      res,
-      500,
-      error instanceof Error ? error.message : 'Failed to update anchor',
-      'ANCHOR_UPDATE_ERROR',
-    );
+    return sendInternalError(res, error, 'ANCHOR_UPDATE_ERROR', 'Failed to update anchor');
   }
 });
 
@@ -301,12 +292,7 @@ router.post('/admin/:id/deactivate', adminAuth, async (req: Request<{ id: string
 
     res.json(response);
   } catch (error) {
-    return sendError(
-      res,
-      500,
-      error instanceof Error ? error.message : 'Failed to deactivate anchor',
-      'ANCHOR_DEACTIVATE_ERROR',
-    );
+    return sendInternalError(res, error, 'ANCHOR_DEACTIVATE_ERROR', 'Failed to deactivate anchor');
   }
 });
 
@@ -328,12 +314,7 @@ router.delete('/admin/:id', adminAuth, async (req: Request<{ id: string }>, res:
       timestamp: timestamp(),
     });
   } catch (error) {
-    return sendError(
-      res,
-      500,
-      error instanceof Error ? error.message : 'Failed to delete anchor',
-      'ANCHOR_DELETE_ERROR',
-    );
+    return sendInternalError(res, error, 'ANCHOR_DELETE_ERROR', 'Failed to delete anchor');
   }
 });
 

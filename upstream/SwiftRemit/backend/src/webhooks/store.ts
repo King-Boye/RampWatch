@@ -57,7 +57,7 @@ export class InMemoryWebhookStore implements IWebhookStore {
       throw new Error(`Webhook URL already registered: ${url}`);
     }
 
-    const webhookId = `webhook_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const webhookId = `webhook_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     
     const webhook: WebhookSubscriber = {
       id: webhookId,
@@ -92,7 +92,7 @@ export class InMemoryWebhookStore implements IWebhookStore {
   }
 
   async recordDelivery(delivery: WebhookDeliveryRecord): Promise<string> {
-    const deliveryId = `delivery_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const deliveryId = `delivery_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     this.deliveries.set(deliveryId, {
       ...delivery,
       id: deliveryId,
@@ -123,7 +123,7 @@ export class InMemoryWebhookStore implements IWebhookStore {
   }
 
   async sendToDeadLetter(delivery: WebhookDeliveryRecord): Promise<void> {
-    const id = `dl_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const id = `dl_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     this.deadLetters.set(id, {
       id,
       deliveryId: delivery.id!,

@@ -425,11 +425,14 @@ paths:
         - Agents
       summary: Register a new agent (Issue #880)
       description: >
-        Creates an agent profile with status 'pending'. Requires admin API key.
-        The on-chain register_agent call should be triggered separately.
+        Creates an agent profile with status 'pending'. Requires admin authentication:
+        either an admin API key (x-api-key header) or an admin-role JWT. Agent-role
+        JWTs are not accepted. The on-chain register_agent call should be triggered
+        separately.
       operationId: registerAgent
       security:
         - ApiKeyAuth: []
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -450,7 +453,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
-          description: Unauthorized
+          description: Admin authentication required (admin API key or admin-role JWT)
           content:
             application/json:
               schema:
@@ -502,9 +505,14 @@ paths:
       tags:
         - Agents
       summary: Update agent payout address (Issue #880)
+      description: >
+        Updates the off-chain payout address for an agent. Requires admin
+        authentication: either an admin API key (x-api-key header) or an
+        admin-role JWT. Agent-role JWTs are not accepted.
       operationId: updateAgentPayoutAddress
       security:
         - ApiKeyAuth: []
+        - BearerAuth: []
       parameters:
         - name: id
           in: path
@@ -537,7 +545,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
-          description: Unauthorized
+          description: Admin authentication required (admin API key or admin-role JWT)
           content:
             application/json:
               schema:
@@ -768,6 +776,13 @@ components:
       in: header
       name: x-api-key
       description: Admin API key for protected endpoints
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        JWT access token. For admin-only endpoints the token must carry the
+        admin role; agent-role tokens are rejected.
 
   schemas:
     HealthResponse:

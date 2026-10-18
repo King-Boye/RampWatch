@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { Pool } from 'pg';
+import Decimal from 'decimal.js';
 import { getFxRateCache } from '../fx-rate-cache';
 import { simulateSettlement } from '../stellar';
 import { saveContractEvent, queryContractEvents } from '../database';
@@ -55,6 +56,7 @@ async function runAmlChecks(
     remittanceId: string;
     sender: string;
     amount: number;
+    amountUsd: number;
     currency: string;
     corridor: string | null;
     jurisdiction?: string;
@@ -86,7 +88,7 @@ async function runAmlChecks(
       jurisdiction: params.jurisdiction ?? 'DEFAULT',
       amount: params.amount,
       currency: params.currency,
-      amountUsd: params.amount,
+      amountUsd: params.amountUsd,
       originator: toOriginatorData(params.originator),
       beneficiary: toBeneficiaryData(params.beneficiary),
       counterpartyVasp: params.counterpartyVasp,
@@ -189,10 +191,37 @@ export function createRemittanceRouter(pool: Pool): Router {
         [remittanceId, agent, amount, sanitizedMemo ?? null],
       );
 
+      // Resolve the remittance currency and convert to USD with decimal
+      // arithmetic so thresholds are currency-aware and precision-safe.
+      const remittanceCurrency = (toCurrency || fromCurrency || 'USD').toUpperCase();
+      let amountUsd: Decimal | null = null;
       try {
-        const { autoFlagIfAboveThreshold } = await import('./compliance');
-        await autoFlagIfAboveThreshold(pool, remittanceId, parseFloat(amount), 'USD');
-      } catch { /* compliance tables may not exist in all environments */ }
+        const amountDecimal = new Decimal(amount);
+        if (remittanceCurrency === 'USD') {
+          amountUsd = amountDecimal;
+        } else {
+          const fxRate = await fxRateCache.getCurrentRate(remittanceCurrency, 'USD');
+          const rate = new Decimal(fxRate.rate);
+          if (!rate.isFinite() || rate.lte(0)) {
+            throw new Error(`Invalid FX rate ${String(fxRate.rate)} for ${remittanceCurrency}/USD`);
+          }
+          amountUsd = amountDecimal.times(rate);
+        }
+      } catch (error) {
+        logger.error(
+          'Failed to convert remittance amount to USD for threshold check',
+          error instanceof Error ? error : new Error(String(error)),
+          { remittanceId, currency: remittanceCurrency },
+        );
+        amountUsd = null;
+      }
+
+      if (amountUsd !== null) {
+        try {
+          const { autoFlagIfAboveThreshold } = await import('./compliance');
+          await autoFlagIfAboveThreshold(pool, remittanceId, amountUsd.toNumber(), 'USD');
+        } catch { /* compliance tables may not exist in all environments */ }
+      }
 
       // SR-112: run structuring/velocity/corridor monitoring and travel-rule
       // assessment synchronously so every remittance created through this
@@ -201,8 +230,9 @@ export function createRemittanceRouter(pool: Pool): Router {
       await runAmlChecks(pool, monitoring, travelRule, {
         remittanceId,
         sender,
-        amount: parseFloat(amount),
-        currency: (toCurrency || fromCurrency || 'USD').toUpperCase(),
+        amount: new Decimal(amount).toNumber(),
+        amountUsd: (amountUsd ?? new Decimal(amount)).toNumber(),
+        currency: remittanceCurrency,
         corridor: fromCurrency && toCurrency ? `${fromCurrency.toUpperCase()}-${toCurrency.toUpperCase()}` : null,
         jurisdiction: typeof req.body.jurisdiction === 'string' ? req.body.jurisdiction : undefined,
         originator: req.body.originator,
