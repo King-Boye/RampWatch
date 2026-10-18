@@ -247,7 +247,8 @@ describe('TransactionStatusTracker', () => {
       expect(onRefresh).toHaveBeenCalledTimes(1);
     });
 
-    it('polls at the specified interval', () => {
+    it('polls at the specified interval', async () => {
+      // usePolling awaits each refresh before scheduling the next, so flush promises too.
       const onRefresh = vi.fn().mockResolvedValue(undefined);
 
       render(
@@ -259,13 +260,13 @@ describe('TransactionStatusTracker', () => {
         />
       );
 
-      vi.advanceTimersByTime(3000);
+      await vi.advanceTimersByTimeAsync(3000);
       expect(onRefresh).toHaveBeenCalledTimes(1);
 
-      vi.advanceTimersByTime(3000);
+      await vi.advanceTimersByTimeAsync(3000);
       expect(onRefresh).toHaveBeenCalledTimes(2);
 
-      vi.advanceTimersByTime(3000);
+      await vi.advanceTimersByTimeAsync(3000);
       expect(onRefresh).toHaveBeenCalledTimes(3);
     });
 
@@ -572,7 +573,8 @@ describe('TransactionStatusTracker', () => {
       expect(onRefresh).toHaveBeenCalledTimes(1);
     });
 
-    it('respects custom polling interval', () => {
+    it('respects custom polling interval', async () => {
+      // usePolling awaits each refresh before scheduling the next, so flush promises too.
       const onRefresh = vi.fn().mockResolvedValue(undefined);
 
       render(
@@ -584,14 +586,15 @@ describe('TransactionStatusTracker', () => {
         />
       );
 
-      vi.advanceTimersByTime(2000);
+      await vi.advanceTimersByTimeAsync(2000);
       expect(onRefresh).toHaveBeenCalledTimes(1);
 
-      vi.advanceTimersByTime(2000);
+      await vi.advanceTimersByTimeAsync(2000);
       expect(onRefresh).toHaveBeenCalledTimes(2);
     });
 
-    it('updates polling interval when prop changes', () => {
+    it('updates polling interval when prop changes', async () => {
+      // usePolling awaits each refresh before scheduling the next, so flush promises too.
       const onRefresh = vi.fn().mockResolvedValue(undefined);
 
       const { unmount } = render(
@@ -603,10 +606,10 @@ describe('TransactionStatusTracker', () => {
         />
       );
 
-      vi.advanceTimersByTime(2000);
+      await vi.advanceTimersByTimeAsync(2000);
       expect(onRefresh).toHaveBeenCalledTimes(1);
 
-      vi.advanceTimersByTime(2000);
+      await vi.advanceTimersByTimeAsync(2000);
       expect(onRefresh).toHaveBeenCalledTimes(2);
 
       unmount();

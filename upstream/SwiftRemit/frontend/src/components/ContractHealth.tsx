@@ -1,5 +1,6 @@
 import { FC, useState, useEffect, useCallback } from 'react'
 import { ConfirmDialog } from './ConfirmDialog'
+import { usePolling } from '../utils/usePolling'
 
 const AUTO_REFRESH_MS = 60_000
 
@@ -35,8 +36,8 @@ const ContractHealth: FC<ContractHealthProps> = ({ walletAddress, contractId, on
   const [bannerDismissed, setBannerDismissed] = useState(false)
   const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false)
 
-  const fetchHealth = useCallback(async (): Promise<void> => {
-    if (!contractId) return
+  const fetchHealth = useCallback(async (): Promise<boolean> => {
+    if (!contractId) return false
     setLoading(true)
     setError(null)
     try {
@@ -48,8 +49,10 @@ const ContractHealth: FC<ContractHealthProps> = ({ walletAddress, contractId, on
       setLastChecked(new Date())
       if (data.paused) setBannerDismissed(false)
       onPausedChange?.(data.paused)
+      return true
     } catch (err) {
       setError((err instanceof Error ? err.message : String(err)) || 'Failed to fetch contract health')
+      return false
     } finally {
       setLoading(false)
     }
@@ -57,9 +60,10 @@ const ContractHealth: FC<ContractHealthProps> = ({ walletAddress, contractId, on
 
   useEffect(() => {
     fetchHealth()
-    const interval = setInterval(fetchHealth, AUTO_REFRESH_MS)
-    return () => clearInterval(interval)
   }, [fetchHealth])
+
+  // Refresh in the background; pauses while the tab is hidden and backs off on errors.
+  usePolling(fetchHealth, { intervalMs: AUTO_REFRESH_MS, enabled: !!contractId })
 
   const handleWithdraw = async (): Promise<void> => {
     setWithdrawing(true)

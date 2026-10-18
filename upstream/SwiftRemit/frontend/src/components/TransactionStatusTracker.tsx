@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import './TransactionStatusTracker.css';
+import { usePolling } from '../utils/usePolling';
 
 export type TransactionProgressStatus =
   | 'initiated'
@@ -67,7 +68,6 @@ export const TransactionStatusTracker: React.FC<TransactionStatusTrackerProps> =
   const [localStatus, setLocalStatus] = useState<TransactionProgressStatus>(currentStatus);
   const [statusAnnouncement, setStatusAnnouncement] = useState<string>('');
   const [, setPreviousStatus] = useState<TransactionProgressStatus | null>(null);
-  const pollingTimerRef = useRef<number | null>(null);
   const webSocketRef = useRef<WebSocket | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -218,25 +218,6 @@ export const TransactionStatusTracker: React.FC<TransactionStatusTrackerProps> =
     }
   };
 
-  const stopPolling = () => {
-    if (pollingTimerRef.current !== null) {
-      window.clearInterval(pollingTimerRef.current);
-      pollingTimerRef.current = null;
-    }
-  };
-
-  const startPolling = () => {
-    stopPolling();
-
-    if (!enablePolling || isTerminalState(localStatus)) {
-      return;
-    }
-
-    pollingTimerRef.current = window.setInterval(() => {
-      refresh();
-    }, pollingInterval);
-  };
-
   // Update local status when prop changes
   useEffect(() => {
     setLocalStatus(currentStatus);
@@ -269,25 +250,11 @@ export const TransactionStatusTracker: React.FC<TransactionStatusTrackerProps> =
     setPreviousStatus(localStatus);
   }, [localStatus]);
 
-  // Start/stop polling based on status and configuration
-  useEffect(() => {
-    if (enablePolling && !isTerminalState(localStatus)) {
-      startPolling();
-    } else {
-      stopPolling();
-    }
-
-    return () => {
-      stopPolling();
-    };
-  }, [enablePolling, localStatus, pollingInterval, transactionId]);
-
-  // Stop polling when terminal state is reached
-  useEffect(() => {
-    if (isTerminalState(localStatus)) {
-      stopPolling();
-    }
-  }, [localStatus]);
+  // Poll while non-terminal; pauses when the tab is hidden and backs off on errors.
+  usePolling(refresh, {
+    intervalMs: pollingInterval,
+    enabled: enablePolling && !isTerminalState(localStatus),
+  });
 
   const isPollingActive = enablePolling && !isTerminalState(localStatus);
 
