@@ -15,7 +15,7 @@ const NETWORK_PASSPHRASE = import.meta.env.VITE_NETWORK === 'mainnet'
   ? Networks.PUBLIC
   : Networks.TESTNET
 
-const STROOPS_PER_USDC = 10_000_000
+import { formatAmount } from '../utils/formatAmount'
 
 /** Number of remittance IDs to load per page (Load More press). */
 const PAGE_SIZE = 20
@@ -38,8 +38,10 @@ interface Remittance {
   id: number
   sender: string
   agent: string
-  amount: number
-  fee: number
+  /** Raw stroop amount, kept as BigInt to avoid precision loss. */
+  amount: bigint
+  /** Raw stroop fee, kept as BigInt to avoid precision loss. */
+  fee: bigint
   status: RemittanceStatus
   memo: string | null
 }
@@ -111,8 +113,8 @@ function remittanceFromScVal(val: unknown): Remittance {
     id: Number(native['id'] as number),
     sender: (native['sender'] as { toString(): string }).toString(),
     agent: (native['agent'] as { toString(): string }).toString(),
-    amount: Number(BigInt(native['amount'] as number)) / STROOPS_PER_USDC,
-    fee: Number(BigInt(native['fee'] as number)) / STROOPS_PER_USDC,
+    amount: BigInt(native['amount'] as number),
+    fee: BigInt(native['fee'] as number),
     status: statusKey,
     memo,
   }
@@ -257,7 +259,7 @@ const RemittanceList: FC<RemittanceListProps> = ({ walletAddress, contractId }) 
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
-  const [confirmDialog, setConfirmDialog] = useState<{ id: number; amount: number } | null>(null)
+  const [confirmDialog, setConfirmDialog] = useState<{ id: number; amount: bigint } | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [cancelResults, setCancelResults] = useState<Record<number, string>>({})
   const [cancelErrors, setCancelErrors] = useState<Record<number, string>>({})
@@ -454,8 +456,8 @@ const RemittanceList: FC<RemittanceListProps> = ({ walletAddress, contractId }) 
                 <tr key={r.id}>
                   <td>{r.id}</td>
                   <td>{r.agent.slice(0, 8)}...{r.agent.slice(-8)}</td>
-                  <td>${r.amount.toFixed(2)}</td>
-                  <td>${r.fee.toFixed(2)}</td>
+                  <td>${formatAmount(r.amount)}</td>
+                  <td>${formatAmount(r.fee)}</td>
                   <td>
                     <span
                       className="status-badge"
@@ -544,7 +546,7 @@ const RemittanceList: FC<RemittanceListProps> = ({ walletAddress, contractId }) 
             <h3 style={{ marginTop: 0 }}>Cancel Remittance #{confirmDialog.id}?</h3>
             <p>
               You will receive a full refund of{' '}
-              <strong>${confirmDialog.amount.toFixed(2)} USDC</strong>.
+              <strong>${formatAmount(confirmDialog.amount)} USDC</strong>.
             </p>
             <p style={{ color: '#ffa500', fontSize: 13 }}>
               ⚠ This action is irreversible. The remittance will be cancelled and funds returned to your wallet.

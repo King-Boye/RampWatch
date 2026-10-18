@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import { Pool } from 'pg';
+import { randomUUID } from 'node:crypto';
 import {
   getAnchorKycConfigs,
   saveSep24Transaction,
@@ -261,8 +262,8 @@ export class Sep24Service {
       console.warn(`Anchor ${anchor_id} has no home_domain/signing_key; skipping TOML validation`);
     }
 
-    // Generate transaction ID
-    const transactionId = `${anchor_id}-${direction}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // Generate transaction ID using a CSPRNG (crypto.randomUUID)
+    const transactionId = `${anchor_id}-${direction}-${randomUUID()}`;
 
     try {
       // Call anchor's SEP-24 deposit or withdraw endpoint
@@ -673,7 +674,8 @@ export class Sep24Service {
        )`
     );
 
-    const reviewId = `MR-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    // Use a CSPRNG-based review ID (crypto.randomUUID) instead of Date.now()+Math.random()
+    const reviewId = `MR-${randomUUID().toUpperCase()}`;
 
     await this.pool.query(
       `INSERT INTO sep24_manual_reviews

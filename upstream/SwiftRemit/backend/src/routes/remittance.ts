@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import Decimal from 'decimal.js';
 import { getFxRateCache } from '../fx-rate-cache';
@@ -184,43 +185,29 @@ export function createRemittanceRouter(pool: Pool): Router {
         }
       }
 
-      const remittanceId = `rem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const remittanceId = `rem-${randomUUID()}`;
       await pool.query(
         `INSERT INTO transactions (transaction_id, anchor_id, kind, status, amount_in, memo, created_at, updated_at)
          VALUES ($1, $2, 'withdrawal', 'pending_user_transfer_start', $3, $4, NOW(), NOW())`,
         [remittanceId, agent, amount, sanitizedMemo ?? null],
       );
 
-      // Resolve the remittance currency and convert to USD with decimal
-      // arithmetic so thresholds are currency-aware and precision-safe.
-      const remittanceCurrency = (toCurrency || fromCurrency || 'USD').toUpperCase();
-      let amountUsd: Decimal | null = null;
-      try {
-        const amountDecimal = new Decimal(amount);
-        if (remittanceCurrency === 'USD') {
-          amountUsd = amountDecimal;
-        } else {
-          const fxRate = await fxRateCache.getCurrentRate(remittanceCurrency, 'USD');
-          const rate = new Decimal(fxRate.rate);
-          if (!rate.isFinite() || rate.lte(0)) {
-            throw new Error(`Invalid FX rate ${String(fxRate.rate)} for ${remittanceCurrency}/USD`);
-          }
-          amountUsd = amountDecimal.times(rate);
-        }
-      } catch (error) {
-        logger.error(
-          'Failed to convert remittance amount to USD for threshold check',
-          error instanceof Error ? error : new Error(String(error)),
-          { remittanceId, currency: remittanceCurrency },
-        );
-        amountUsd = null;
-      }
-
-      if (amountUsd !== null) {
+      // AML auto-flagging fails closed: if the compliance check cannot run we
+      // must not let a potentially large transfer through unflagged. The only
+      // way to skip it is an explicit operator opt-out via config.
+      const amlAutoFlagDisabled = process.env.AML_AUTOFLAG_DISABLED === 'true';
+      if (!amlAutoFlagDisabled) {
         try {
           const { autoFlagIfAboveThreshold } = await import('./compliance');
-          await autoFlagIfAboveThreshold(pool, remittanceId, amountUsd.toNumber(), 'USD');
-        } catch { /* compliance tables may not exist in all environments */ }
+          await autoFlagIfAboveThreshold(pool, remittanceId, parseFloat(amount), 'USD');
+        } catch (error) {
+          logger.error(
+            'AML auto-flag check failed; failing closed',
+            error instanceof Error ? error : new Error(String(error)),
+            { remittanceId },
+          );
+          return res.status(503).json({ error: 'Compliance check unavailable' });
+        }
       }
 
       // SR-112: run structuring/velocity/corridor monitoring and travel-rule

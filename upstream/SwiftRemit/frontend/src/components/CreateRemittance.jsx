@@ -2,6 +2,37 @@ import { useState } from 'react'
 import { signTransaction } from '@stellar/freighter-api'
 import * as StellarSdk from '@stellar/stellar-sdk'
 
+const STROOPS_PER_UNIT = 10_000_000n
+const DECIMALS = 7
+
+/**
+ * Convert a decimal amount string to stroops (BigInt) exactly, without
+ * floating point rounding errors.
+ *
+ * Accepts a non-negative decimal string with at most 7 fractional digits.
+ * Throws on invalid input.
+ */
+export function amountToStroops(amount) {
+  if (typeof amount !== 'string') {
+    throw new Error('Amount must be a string')
+  }
+
+  const trimmed = amount.trim()
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+    throw new Error('Amount must be a non-negative decimal number')
+  }
+
+  const [intPart, fracPart = ''] = trimmed.split('.')
+
+  if (fracPart.length > DECIMALS) {
+    throw new Error(`Amount cannot have more than ${DECIMALS} decimal places`)
+  }
+
+  const paddedFrac = fracPart.padEnd(DECIMALS, '0')
+
+  return BigInt(intPart) * STROOPS_PER_UNIT + BigInt(paddedFrac || '0')
+}
+
 export default function CreateRemittance({ walletAddress, contractId, whitelistedTokens = [] }) {
   const [agentAddress, setAgentAddress] = useState('')
   const [amount, setAmount] = useState('')
@@ -26,8 +57,8 @@ export default function CreateRemittance({ walletAddress, contractId, whiteliste
         throw new Error('Please select a token')
       }
 
-      // Convert amount to stroops (7 decimals for USDC)
-      const amountInStroops = Math.floor(parseFloat(amount) * 10000000)
+      // Convert amount to stroops (7 decimals for USDC) exactly
+      const amountInStroops = amountToStroops(amount)
 
       // This is a placeholder - you'll need to implement actual contract interaction
       // using Stellar SDK and the contract's WASM interface
@@ -36,6 +67,7 @@ export default function CreateRemittance({ walletAddress, contractId, whiteliste
         message: 'Remittance created successfully!',
         id: Math.floor(Math.random() * 1000), // Mock ID
         amount: amount,
+        amountInStroops: amountInStroops.toString(),
         agent: agentAddress,
         token: selectedToken,
         memo: memo || null,
