@@ -11,6 +11,7 @@
 import { Router, Request, Response } from 'express';
 import { ErrorResponse } from '../types';
 import { requireAuth } from '../middleware/auth.js';
+import { sendInternalError } from '../middleware/errorHandler.js';
 
 const STELLAR_ADDRESS_RE = /^G[A-Z2-7]{54}$/;
 const XLM_STROOPS_PER_XLM = 10_000_000;
@@ -91,10 +92,16 @@ export function createAccountsRouter(): Router {
     const horizonUrl = getHorizonUrl();
 
     // Fetch fee stats and account in parallel
-    const [feeStatsRes, accountRes] = await Promise.allSettled([
-      fetch(`${horizonUrl}/fee_stats`),
-      fetch(`${horizonUrl}/accounts/${address}`),
-    ]);
+    let feeStatsRes: PromiseSettledResult<globalThis.Response>;
+    let accountRes: PromiseSettledResult<globalThis.Response>;
+    try {
+      [feeStatsRes, accountRes] = await Promise.allSettled([
+        fetch(`${horizonUrl}/fee_stats`),
+        fetch(`${horizonUrl}/accounts/${address}`),
+      ]);
+    } catch (err) {
+      return sendInternalError(res, err, 'Failed to fetch Stellar network data');
+    }
 
     // Parse base fee
     let baseFeeStroops = DEFAULT_BASE_FEE_STROOPS;

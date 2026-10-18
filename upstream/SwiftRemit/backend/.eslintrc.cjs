@@ -11,8 +11,23 @@ module.exports = {
   },
   plugins: ['@typescript-eslint'],
   ignorePatterns: ['dist/', 'node_modules/'],
-  rules: {},
+  rules: {
+    // #1709: use the structured logger instead of console.* in non-test code.
+    'no-console': 'error',
+  },
   overrides: [
+    {
+      // #1709: tests and scripts may still use console.* directly.
+      files: [
+        'src/__tests__/**',
+        '**/*.test.ts',
+        '**/*.spec.ts',
+        'generate-openapi.js',
+      ],
+      rules: {
+        'no-console': 'off',
+      },
+    },
     {
       // SR-032: raw SQL must live behind a repository (backend/src/repositories/).
       // Legacy call sites below still query the pool directly and are grandfathered

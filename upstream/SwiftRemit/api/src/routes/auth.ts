@@ -43,6 +43,7 @@ import {
   rotateRefreshToken,
 } from '../services/tokenStore.js';
 import { getUserRole, verifyUserCredentials } from '../db/userStore.js';
+import { sendInternalError } from '../middleware/errorHandler.js';
 
 function timestamp(): string {
   return new Date().toISOString();

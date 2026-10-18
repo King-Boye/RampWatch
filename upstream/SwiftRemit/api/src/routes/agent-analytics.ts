@@ -14,6 +14,7 @@ import { Router, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { ErrorResponse } from '../types';
 import { extractBearerToken, verifyAccessToken } from '../middleware/auth.js';
+import { sendInternalError } from '../middleware/errorHandler.js';
 
 const VALID_INTERVALS = ['day', 'week', 'month'] as const;
 type Interval = (typeof VALID_INTERVALS)[number];
@@ -220,8 +221,7 @@ export function createAgentAnalyticsRouter(pool: Pool): Router {
 
       return res.json(response);
     } catch (err) {
-      void err;
-      return sendError(res, 500, 'Failed to fetch agent analytics', 'ANALYTICS_ERROR');
+      return sendInternalError(res, err, 'Failed to fetch agent analytics', 'ANALYTICS_ERROR');
     }
   });
 

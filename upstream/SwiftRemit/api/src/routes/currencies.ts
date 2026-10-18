@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getCurrencyConfigLoader } from '../config';
 import { getConversionRateService } from '../services/conversionRates';
 import { CurrencyResponse, ErrorResponse } from '../types';
+import { sendInternalError } from '../middleware/errorHandler';
 
 const router = Router();
 
@@ -86,16 +87,7 @@ router.get('/', (req: Request, res: Response) => {
 
     res.json(response);
   } catch (error) {
-    const errorResponse: ErrorResponse = {
-      success: false,
-      error: {
-        message: error instanceof Error ? error.message : 'Failed to retrieve currencies',
-        code: 'CURRENCY_RETRIEVAL_ERROR',
-      },
-      timestamp: new Date().toISOString(),
-    };
-
-    res.status(500).json(errorResponse);
+    return sendInternalError(req, res, error, 'CURRENCY_RETRIEVAL_ERROR');
   }
 });
 
@@ -161,16 +153,7 @@ router.get('/:code', (req: Request, res: Response) => {
 
     res.json(response);
   } catch (error) {
-    const errorResponse: ErrorResponse = {
-      success: false,
-      error: {
-        message: error instanceof Error ? error.message : 'Failed to retrieve currency',
-        code: 'CURRENCY_RETRIEVAL_ERROR',
-      },
-      timestamp: new Date().toISOString(),
-    };
-
-    res.status(500).json(errorResponse);
+    return sendInternalError(req, res, error, 'CURRENCY_RETRIEVAL_ERROR');
   }
 });
 
@@ -251,16 +234,7 @@ router.get('/:from/rates/:to', async (req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    const errorResponse: ErrorResponse = {
-      success: false,
-      error: {
-        message: error instanceof Error ? error.message : 'Failed to retrieve conversion rate',
-        code: 'CONVERSION_RATE_ERROR',
-      },
-      timestamp: new Date().toISOString(),
-    };
-
-    res.status(500).json(errorResponse);
+    return sendInternalError(req, res, error, 'CONVERSION_RATE_ERROR');
   }
 });
 

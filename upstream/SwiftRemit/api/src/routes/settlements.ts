@@ -40,6 +40,7 @@
 import { Router, Request, Response } from 'express';
 import { ErrorResponse } from '../types';
 import { requireAuth } from '../middleware/auth';
+import { sendInternalError } from '../middleware/errorHandler';
 
 /** Maximum number of remittances accepted in a single simulate request (SR-166). */
 const MAX_SIMULATE_ITEMS = 500;
@@ -213,28 +214,33 @@ router.post('/simulate', requireAuth, (req: Request, res: Response) => {
     }
   }
 
-  const inputs = remittances as SimulateRemittanceInput[];
-  const netTransfers = computeNetSettlements(inputs);
+  try {
+    const inputs = remittances as SimulateRemittanceInput[];
+    const netTransfers = computeNetSettlements(inputs);
 
-  const pending = inputs.filter((r) => r.status === 'Pending');
-  const totalGross = pending.reduce((sum, r) => sum + r.amount, 0);
-  const totalFees = netTransfers.reduce((sum, t) => sum + t.total_fees, 0);
+    const pending = inputs.filter((r) => r.status === 'Pending');
+    const totalGross = pending.reduce((sum, r) => sum + r.amount, 0);
+    const totalFees = netTransfers.reduce((sum, t) => sum + t.total_fees, 0);
 
-  const response: SimulateSettlementResponse = {
-    success: true,
-    data: {
-      net_transfers: netTransfers,
-      summary: {
-        input_count: inputs.length,
-        net_transfer_count: netTransfers.length,
-        total_gross_amount: totalGross,
-        total_fees: totalFees,
+    const response: SimulateSettlementResponse = {
+      success: true,
+      data: {
+        net_transfers: netTransfers,
+        summary: {
+          input_count: inputs.length,
+          net_transfer_count: netTransfers.length,
+          total_gross_amount: totalGross,
+          total_fees: totalFees,
+        },
       },
-    },
-    timestamp: new Date().toISOString(),
-  };
+      timestamp: new Date().toISOString(),
+    };
 
-  return res.status(200).json(response);
+    return res.status(200).json(response);
+  } catch (error) {
+    // Log the full error server-side; never leak internals to the client.
+    return sendInternalError(res, error, 'settlements.simulate');
+  }
 });
 
 export default router;

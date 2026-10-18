@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
+import Decimal from 'decimal.js';
 import { getFxRateCache } from '../fx-rate-cache';
 import { simulateSettlement } from '../stellar';
 import { saveContractEvent, queryContractEvents } from '../database';
@@ -56,6 +57,7 @@ async function runAmlChecks(
     remittanceId: string;
     sender: string;
     amount: number;
+    amountUsd: number;
     currency: string;
     corridor: string | null;
     jurisdiction?: string;
@@ -87,7 +89,7 @@ async function runAmlChecks(
       jurisdiction: params.jurisdiction ?? 'DEFAULT',
       amount: params.amount,
       currency: params.currency,
-      amountUsd: params.amount,
+      amountUsd: params.amountUsd,
       originator: toOriginatorData(params.originator),
       beneficiary: toBeneficiaryData(params.beneficiary),
       counterpartyVasp: params.counterpartyVasp,
@@ -215,8 +217,9 @@ export function createRemittanceRouter(pool: Pool): Router {
       await runAmlChecks(pool, monitoring, travelRule, {
         remittanceId,
         sender,
-        amount: parseFloat(amount),
-        currency: (toCurrency || fromCurrency || 'USD').toUpperCase(),
+        amount: new Decimal(amount).toNumber(),
+        amountUsd: (amountUsd ?? new Decimal(amount)).toNumber(),
+        currency: remittanceCurrency,
         corridor: fromCurrency && toCurrency ? `${fromCurrency.toUpperCase()}-${toCurrency.toUpperCase()}` : null,
         jurisdiction: typeof req.body.jurisdiction === 'string' ? req.body.jurisdiction : undefined,
         originator: req.body.originator,

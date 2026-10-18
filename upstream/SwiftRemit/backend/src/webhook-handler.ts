@@ -9,7 +9,8 @@ import { WebhookDispatcher } from './webhooks/dispatcher';
 import { PostgresWebhookStore } from './webhooks/store';
 import type { RemittanceCreatedWebhookPayload } from './types';
 import { validateAnchorToml } from './anchor-toml-validator';
-import { recordWebhookNonce } from './database';
+import { createNonceStore } from './nonce-store';
+import { config } from './config';
 
 class WebhookAuthError extends Error {
   constructor(message: string) { super(message); this.name = 'WebhookAuthError'; }
@@ -29,7 +30,8 @@ export class WebhookHandler {
   private dispatcher: WebhookDispatcher;
 
   constructor(private pool: Pool) {
-    this.verifier = new WebhookVerifier(300); // 5 minute replay window
+    const nonceStore = createNonceStore(config, pool);
+    this.verifier = new WebhookVerifier(nonceStore, 300); // 5 minute replay window
     this.logger = new WebhookLogger(pool);
     this.stateManager = new TransactionStateManager(pool);
     this.kycUpsertService = new KycUpsertService(pool);
@@ -96,15 +98,9 @@ export class WebhookHandler {
         return;
       }
 
-      // Idempotency check — return 200 immediately for already-processed nonces
-      const isNewNonce = await recordWebhookNonce(nonce, anchorId);
+      // Shared nonce guard (replay attack protection across replicas)
+      const isNewNonce = await this.verifier.validateNonce(nonce);
       if (!isNewNonce) {
-        res.status(200).json({ success: true, duplicate: true });
-        return;
-      }
-
-      // In-memory nonce guard (replay attack within the current process window)
-      if (!this.verifier.validateNonce(nonce)) {
         await this.logSuspicious(anchorId, 'Duplicate nonce (replay attack)', req.body);
         res.status(401).json({ error: 'Invalid nonce' });
         return;

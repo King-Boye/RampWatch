@@ -1,5 +1,11 @@
 import { FC, useState, useEffect, FormEvent } from 'react'
 import { ConfirmDialog } from './ConfirmDialog'
+import {
+  validateAnchorNumbers,
+  parseList,
+  type AnchorFieldErrors,
+  type AnchorNumericField,
+} from '../utils/anchorValidation'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
@@ -21,6 +27,50 @@ interface Anchor extends AnchorForm {
   id: string
 }
 
+/** Shape returned by the API (nested fees/limits/kyc). */
+interface ApiAnchor {
+  id: string
+  name?: string
+  domain?: string
+  description?: string
+  fees?: { deposit_fee_percent?: number; withdrawal_fee_percent?: number }
+  limits?: { min_amount?: number; max_amount?: number }
+  kyc?: { required?: boolean; level?: AnchorForm['kyc_level'] }
+  supported_countries?: string[]
+  supported_currencies?: string[]
+}
+
+const str = (n: number | undefined): string => (n === undefined || n === null ? '' : String(n))
+
+/** Maps an API anchor (nested or already flat) into editable form strings. */
+function toForm(anchor: Anchor | ApiAnchor): AnchorForm {
+  if ('deposit_fee_percent' in anchor) {
+    const { id: _id, ...flat } = anchor as Anchor
+    return { ...EMPTY_FORM, ...flat }
+  }
+  const a = anchor as ApiAnchor
+  return {
+    name: a.name ?? '',
+    domain: a.domain ?? '',
+    description: a.description ?? '',
+    deposit_fee_percent: str(a.fees?.deposit_fee_percent),
+    withdrawal_fee_percent: str(a.fees?.withdrawal_fee_percent),
+    min_amount: str(a.limits?.min_amount),
+    max_amount: str(a.limits?.max_amount),
+    kyc_required: a.kyc?.required ?? false,
+    kyc_level: a.kyc?.level ?? 'basic',
+    supported_countries: (a.supported_countries ?? []).join(', '),
+    supported_currencies: (a.supported_currencies ?? []).join(', '),
+  }
+}
+
+const NUMERIC_FIELDS: { field: AnchorNumericField; label: string; placeholder: string }[] = [
+  { field: 'deposit_fee_percent', label: 'Deposit fee (%)', placeholder: '1.5' },
+  { field: 'withdrawal_fee_percent', label: 'Withdrawal fee (%)', placeholder: '1.5' },
+  { field: 'min_amount', label: 'Minimum amount', placeholder: '10' },
+  { field: 'max_amount', label: 'Maximum amount', placeholder: '10000' },
+]
+
 const EMPTY_FORM: AnchorForm = {
   name: '', domain: '', description: '',
   deposit_fee_percent: '', withdrawal_fee_percent: '',
@@ -37,6 +87,7 @@ const AnchorManagement: FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Anchor | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<AnchorFieldErrors>({})
 
   useEffect(() => { fetchAnchors() }, [])
 
@@ -57,27 +108,38 @@ const AnchorManagement: FC = () => {
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault()
-    setSaving(true)
     setError(null)
+
+    // Validate instead of coercing bad input to 0.
+    const { valid, errors, values } = validateAnchorNumbers(form)
+    const currencies = parseList(form.supported_currencies)
+    if (currencies.length === 0) errors.supported_currencies = 'At least one supported currency is required.'
+    setFieldErrors(errors)
+    if (!valid || !values || errors.supported_currencies) {
+      setError('Please fix the highlighted fields.')
+      return
+    }
+
+    setSaving(true)
     try {
       const payload = {
         name: form.name,
         domain: form.domain,
         description: form.description,
         fees: {
-          deposit_fee_percent: parseFloat(form.deposit_fee_percent) || 0,
-          withdrawal_fee_percent: parseFloat(form.withdrawal_fee_percent) || 0,
+          deposit_fee_percent: values.deposit_fee_percent,
+          withdrawal_fee_percent: values.withdrawal_fee_percent,
         },
         limits: {
-          min_amount: parseFloat(form.min_amount) || 0,
-          max_amount: parseFloat(form.max_amount) || 0,
+          min_amount: values.min_amount,
+          max_amount: values.max_amount,
         },
         kyc: {
           required: form.kyc_required,
           level: form.kyc_level,
         },
-        supported_countries: form.supported_countries.split(',').map((c: string) => c.trim()),
-        supported_currencies: form.supported_currencies.split(',').map((c: string) => c.trim()),
+        supported_countries: parseList(form.supported_countries),
+        supported_currencies: currencies,
       }
       const method = editingId ? 'PUT' : 'POST'
       const url = editingId ? `${API_URL}/api/anchors/${editingId}` : `${API_URL}/api/anchors`
@@ -88,6 +150,7 @@ const AnchorManagement: FC = () => {
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setForm(EMPTY_FORM)
+      setFieldErrors({})
       setEditingId(null)
       await fetchAnchors()
     } catch (e) {
@@ -97,8 +160,9 @@ const AnchorManagement: FC = () => {
     }
   }
 
-  const handleEdit = (anchor: Anchor): void => {
-    setForm(anchor)
+  const handleEdit = (anchor: Anchor | ApiAnchor): void => {
+    setForm(toForm(anchor))
+    setFieldErrors({})
     setEditingId(anchor.id)
   }
 
@@ -159,6 +223,77 @@ const AnchorManagement: FC = () => {
             value={form.description}
             onChange={e => setForm({ ...form, description: e.target.value })}
           />
+        </div>
+        {NUMERIC_FIELDS.map(({ field, label, placeholder }) => (
+          <div className="form-group" key={field}>
+            <label htmlFor={`anchor-${field}`}>{label}</label>
+            <input
+              id={`anchor-${field}`}
+              type="text"
+              inputMode="decimal"
+              value={form[field]}
+              placeholder={placeholder}
+              onChange={e => {
+                setForm({ ...form, [field]: e.target.value })
+                if (fieldErrors[field]) setFieldErrors({ ...fieldErrors, [field]: undefined })
+              }}
+              aria-invalid={!!fieldErrors[field]}
+              aria-describedby={fieldErrors[field] ? `anchor-${field}-error` : undefined}
+            />
+            {fieldErrors[field] && (
+              <span id={`anchor-${field}-error`} className="field-error" role="alert">
+                {fieldErrors[field]}
+              </span>
+            )}
+          </div>
+        ))}
+        <div className="form-group">
+          <label htmlFor="anchor-currencies">Supported currencies (comma-separated)</label>
+          <input
+            id="anchor-currencies"
+            type="text"
+            value={form.supported_currencies}
+            placeholder="USDC, NGN"
+            onChange={e => setForm({ ...form, supported_currencies: e.target.value })}
+            aria-invalid={!!fieldErrors.supported_currencies}
+            aria-describedby={fieldErrors.supported_currencies ? 'anchor-currencies-error' : undefined}
+          />
+          {fieldErrors.supported_currencies && (
+            <span id="anchor-currencies-error" className="field-error" role="alert">
+              {fieldErrors.supported_currencies}
+            </span>
+          )}
+        </div>
+        <div className="form-group">
+          <label htmlFor="anchor-countries">Supported countries (comma-separated)</label>
+          <input
+            id="anchor-countries"
+            type="text"
+            value={form.supported_countries}
+            placeholder="NG, KE"
+            onChange={e => setForm({ ...form, supported_countries: e.target.value })}
+          />
+        </div>
+        <div className="form-group">
+          <label htmlFor="anchor-kyc-required">
+            <input
+              id="anchor-kyc-required"
+              type="checkbox"
+              checked={form.kyc_required}
+              onChange={e => setForm({ ...form, kyc_required: e.target.checked })}
+            />
+            KYC required
+          </label>
+          <label htmlFor="anchor-kyc-level">KYC level</label>
+          <select
+            id="anchor-kyc-level"
+            value={form.kyc_level}
+            onChange={e => setForm({ ...form, kyc_level: e.target.value as AnchorForm['kyc_level'] })}
+          >
+            <option value="basic">Basic</option>
+            <option value="standard">Standard</option>
+            <option value="full">Full</option>
+          </select>
         </div>
         <button type="submit" className="btn-primary" disabled={saving}>
           {saving ? 'Saving…' : editingId ? 'Update Anchor' : 'Add Anchor'}
