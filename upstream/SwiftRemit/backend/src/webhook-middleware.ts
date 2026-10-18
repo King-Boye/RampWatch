@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { WebhookVerifier } from './webhook-verifier';
+import { WebhookVerifier, NonceStore } from './webhook-verifier';
+import { createNonceStore } from './nonce-store';
 import { getSecretsManager } from './secrets-manager';
 import { createLogger } from './correlation-id';
 
@@ -31,6 +32,11 @@ export interface WebhookVerificationOptions {
    * Custom function to get anchor secret/public key
    */
   getAnchorSecret?: (anchorId: string) => Promise<string | null>;
+
+  /**
+   * Shared nonce store used for replay protection (default: created from config)
+   */
+  nonceStore?: NonceStore;
 }
 
 /**
@@ -49,9 +55,13 @@ export function createWebhookVerificationMiddleware(
     timestampWindowSeconds = 300,
     requireSignature = true,
     getAnchorSecret,
+    nonceStore,
   } = options;
 
-  const verifier = new WebhookVerifier(timestampWindowSeconds);
+  const verifier = new WebhookVerifier(
+    nonceStore ?? createNonceStore(),
+    timestampWindowSeconds
+  );
 
   /**
    * Express middleware for webhook signature verification
@@ -128,7 +138,7 @@ export function createWebhookVerificationMiddleware(
 
       // Validate nonce if provided
       if (nonce) {
-        if (!verifier.validateNonce(nonce)) {
+        if (!(await verifier.validateNonce(nonce))) {
           res.status(401).json({
             error: 'Duplicate nonce detected (replay attack)',
             code: 'INVALID_NONCE',
