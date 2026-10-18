@@ -96,11 +96,45 @@ export function generateCorrelationId(): string {
 }
 
 /**
+ * Read the correlation ID attached to a request, or generate a new one.
+ */
+export function getCorrelationId(req: Request): string {
+  return (req as any).correlationId || generateCorrelationId();
+}
+
+/**
+ * Send a sanitized 5xx response. Logs the full error (message + stack)
+ * server-side with the correlation ID and never leaks internal details.
+ */
+export function sendInternalError(
+  res: Response,
+  err: unknown,
+  code: string = 'INTERNAL_ERROR',
+  req?: Request,
+): string {
+  const correlationId = req ? getCorrelationId(req) : generateCorrelationId();
+
+  const message = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? err.stack : undefined;
+  console.error(`[${correlationId}]`, message, stack);
+
+  res.status(500).json({
+    error: {
+      code,
+      message: 'An internal error occurred',
+      correlation_id: correlationId,
+    },
+  });
+
+  return correlationId;
+}
+
+/**
  * Central Express error handler. Must be registered last.
  * Never leaks stack traces or SQL errors to clients.
  */
 export function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction): void {
-  const correlationId = (req as any).correlationId || generateCorrelationId();
+  const correlationId = getCorrelationId(req);
 
   // Log full error internally with correlation ID
   console.error(`[${correlationId}]`, err.message, err.stack);
@@ -131,13 +165,7 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
   }
 
   // Default: internal error — never leak details
-  res.status(500).json({
-    error: {
-      code: 'INTERNAL_ERROR',
-      message: 'An internal error occurred',
-      correlation_id: correlationId,
-    },
-  });
+  sendInternalError(res, err, 'INTERNAL_ERROR', req);
 }
 
 /**
@@ -146,4 +174,53 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
 export function correlationMiddleware(req: Request, _res: Response, next: NextFunction): void {
   (req as any).correlationId = req.headers['x-correlation-id'] || generateCorrelationId();
   next();
+}
+
+if (process.env.NODE_ENV === 'test') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { describe, it } = require('node:test');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const assert = require('node:assert');
+
+  describe('sendInternalError', () => {
+    function mockRes() {
+      const captured: { status?: number; body?: any } = {};
+      const res: any = {
+        status(code: number) {
+          captured.status = code;
+          return res;
+        },
+        json(body: any) {
+          captured.body = body;
+          return res;
+        },
+      };
+      return { res, captured };
+    }
+
+    it('returns a generic 500 body without internal error text', () => {
+      const { res, captured } = mockRes();
+      const err = new Error('connection refused: postgres://user:pass@db:5432');
+      sendInternalError(res, err);
+      assert.strictEqual(captured.status, 500);
+      assert.strictEqual(captured.body.error.code, 'INTERNAL_ERROR');
+      assert.strictEqual(captured.body.error.message, 'An internal error occurred');
+      assert.ok(!JSON.stringify(captured.body).includes('postgres://'));
+      assert.ok(!JSON.stringify(captured.body).includes('connection refused'));
+    });
+
+    it('includes a correlation_id', () => {
+      const { res, captured } = mockRes();
+      sendInternalError(res, new Error('boom'));
+      assert.strictEqual(typeof captured.body.error.correlation_id, 'string');
+      assert.ok(captured.body.error.correlation_id.length > 0);
+    });
+
+    it('reuses the request correlation id when provided', () => {
+      const { res, captured } = mockRes();
+      const req: any = { correlationId: 'corr-123' };
+      sendInternalError(res, new Error('boom'), 'INTERNAL_ERROR', req);
+      assert.strictEqual(captured.body.error.correlation_id, 'corr-123');
+    });
+  });
 }

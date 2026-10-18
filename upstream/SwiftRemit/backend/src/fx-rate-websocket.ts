@@ -24,9 +24,51 @@ export interface UnsubscribeMessage {
   pairs: string[];
 }
 
+export const MAX_PAIRS_PER_MESSAGE = 50;
+export const MAX_SUBSCRIPTIONS_PER_SOCKET = 100;
+
+const ISO_4217_CODES = new Set<string>([
+  'AED', 'AFN', 'ALL', 'AMD', 'ANG', 'AOA', 'ARS', 'AUD', 'AWG', 'AZN',
+  'BAM', 'BBD', 'BDT', 'BGN', 'BHD', 'BIF', 'BMD', 'BND', 'BOB', 'BRL',
+  'BSD', 'BTN', 'BWP', 'BYN', 'BZD', 'CAD', 'CDF', 'CHF', 'CLP', 'CNY',
+  'COP', 'CRC', 'CUP', 'CVE', 'CZK', 'DJF', 'DKK', 'DOP', 'DZD', 'EGP',
+  'ERN', 'ETB', 'EUR', 'FJD', 'FKP', 'GBP', 'GEL', 'GHS', 'GIP', 'GMD',
+  'GNF', 'GTQ', 'GYD', 'HKD', 'HNL', 'HTG', 'HUF', 'IDR', 'ILS', 'INR',
+  'IQD', 'IRR', 'ISK', 'JMD', 'JOD', 'JPY', 'KES', 'KGS', 'KHR', 'KMF',
+  'KPW', 'KRW', 'KWD', 'KYD', 'KZT', 'LAK', 'LBP', 'LKR', 'LRD', 'LSL',
+  'LYD', 'MAD', 'MDL', 'MGA', 'MKD', 'MMK', 'MNT', 'MOP', 'MRU', 'MUR',
+  'MVR', 'MWK', 'MXN', 'MYR', 'MZN', 'NAD', 'NGN', 'NIO', 'NOK', 'NPR',
+  'NZD', 'OMR', 'PAB', 'PEN', 'PGK', 'PHP', 'PKR', 'PLN', 'PYG', 'QAR',
+  'RON', 'RSD', 'RUB', 'RWF', 'SAR', 'SBD', 'SCR', 'SDG', 'SEK', 'SGD',
+  'SHP', 'SLE', 'SOS', 'SRD', 'SSP', 'STN', 'SVC', 'SYP', 'SZL', 'THB',
+  'TJS', 'TMT', 'TND', 'TOP', 'TRY', 'TTD', 'TWD', 'TZS', 'UAH', 'UGX',
+  'USD', 'UYU', 'UZS', 'VES', 'VND', 'VUV', 'WST', 'XAF', 'XCD', 'XOF',
+  'XPF', 'YER', 'ZAR', 'ZMW', 'ZWL',
+]);
+
+export function isValidCurrencyCode(code: unknown): code is string {
+  return typeof code === 'string' && /^[A-Z]{3}$/.test(code) && ISO_4217_CODES.has(code);
+}
+
 function pairKey(from: string, to: string): string {
   return `${from.toUpperCase()}/${to.toUpperCase()}`;
 }
+
+interface ParsedPair {
+  from: string;
+  to: string;
+  key: string;
+}
+
+function parsePair(raw: unknown): ParsedPair | null {
+  if (typeof raw !== 'string') return null;
+  const parts = raw.toUpperCase().split('/');
+  if (parts.length !== 2) return null;
+  const [from, to] = parts;
+  if (!isValidCurrencyCode(from) || !isValidCurrencyCode(to)) return null;
+  return { from, to, key: pairKey(from, to) };
+}
+=======
 
 export class FxRateWebSocketServer {
   private io: SocketIOServer;
@@ -54,13 +96,37 @@ export class FxRateWebSocketServer {
       const subscribedPairs = new Set<string>();
 
       socket.on('subscribe', async (msg: SubscribeMessage) => {
-        const pairs: string[] = Array.isArray(msg?.pairs) ? msg.pairs : [];
+        if (!Array.isArray(msg?.pairs)) {
+          socket.emit('subscribe_error', {
+            code: 'INVALID_PAYLOAD',
+            message: 'pairs must be an array',
+          });
+          return;
+        }
+        if (msg.pairs.length > MAX_PAIRS_PER_MESSAGE) {
+          socket.emit('subscribe_error', {
+            code: 'TOO_MANY_PAIRS',
+            message: `at most ${MAX_PAIRS_PER_MESSAGE} pairs per message`,
+          });
+          return;
+        }
 
-        for (const raw of pairs) {
-          const [from, to] = raw.toUpperCase().split('/');
-          if (!from || !to) continue;
-          const key = pairKey(from, to);
+        const invalid: string[] = [];
+        for (const raw of msg.pairs) {
+          const parsed = parsePair(raw);
+          if (!parsed) {
+            invalid.push(String(raw));
+            continue;
+          }
+          const { from, to, key } = parsed;
           if (subscribedPairs.has(key)) continue;
+          if (subscribedPairs.size >= MAX_SUBSCRIPTIONS_PER_SOCKET) {
+            socket.emit('subscribe_error', {
+              code: 'SUBSCRIPTION_LIMIT',
+              message: `at most ${MAX_SUBSCRIPTIONS_PER_SOCKET} subscriptions per socket`,
+            });
+            break;
+          }
           subscribedPairs.add(key);
           socket.join(`pair:${key}`);
 
@@ -73,16 +139,49 @@ export class FxRateWebSocketServer {
             // silently skip if rate unavailable
           }
         }
+
+        if (invalid.length > 0) {
+          socket.emit('subscribe_error', {
+            code: 'INVALID_PAIR',
+            message: 'invalid currency pair(s)',
+            pairs: invalid,
+          });
+        }
       });
 
       socket.on('unsubscribe', (msg: UnsubscribeMessage) => {
-        const pairs: string[] = Array.isArray(msg?.pairs) ? msg.pairs : [];
-        for (const raw of pairs) {
-          const [from, to] = raw.toUpperCase().split('/');
-          if (!from || !to) continue;
-          const key = pairKey(from, to);
-          subscribedPairs.delete(key);
-          socket.leave(`pair:${key}`);
+        if (!Array.isArray(msg?.pairs)) {
+          socket.emit('subscribe_error', {
+            code: 'INVALID_PAYLOAD',
+            message: 'pairs must be an array',
+          });
+          return;
+        }
+        if (msg.pairs.length > MAX_PAIRS_PER_MESSAGE) {
+          socket.emit('subscribe_error', {
+            code: 'TOO_MANY_PAIRS',
+            message: `at most ${MAX_PAIRS_PER_MESSAGE} pairs per message`,
+          });
+          return;
+        }
+
+        const invalid: string[] = [];
+        for (const raw of msg.pairs) {
+          const parsed = parsePair(raw);
+          if (!parsed) {
+            invalid.push(String(raw));
+            continue;
+          }
+          subscribedPairs.delete(parsed.key);
+          socket.leave(`pair:${parsed.key}`);
+        }
+
+        if (invalid.length > 0) {
+          socket.emit('subscribe_error', {
+            code: 'INVALID_PAIR',
+            message: 'invalid currency pair(s)',
+            pairs: invalid,
+          });
         }
       });
 

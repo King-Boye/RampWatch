@@ -23,6 +23,7 @@ import { generateReceiptPdf } from '../services/receiptGenerator';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { deliverWebhook, WebhookPayload } from '../services/webhook';
 import { InvalidTransitionError, RemittanceNotFoundError, RemittanceService } from '../services/remittanceService';
+import { sendInternalError } from '../middleware/errorHandler';
 
 export type RemittanceStatus = 'Pending' | 'Processing' | 'Completed' | 'Cancelled' | 'Failed' | 'Disputed';
 
@@ -290,7 +291,7 @@ export function createRemittancesRouter(options: RemittancesRouterOptions = {}):
       if (error instanceof Error && error.message.includes('Invalid cursor')) {
         return sendError(res, 400, error.message, 'INVALID_CURSOR');
       }
-      throw error;
+      return sendInternalError(res, error, 'Failed to query remittances');
     }
   });
 
@@ -399,7 +400,7 @@ export function createRemittancesRouter(options: RemittancesRouterOptions = {}):
       if (error instanceof InvalidTransitionError) {
         return sendError(res, 409, error.message, 'INVALID_TRANSITION');
       }
-      throw error;
+      return sendInternalError(res, error, 'Failed to update remittance status');
     }
 
     // Map store Remittance to route Remittance shape for the webhook payload
@@ -425,7 +426,7 @@ export function createRemittancesRouter(options: RemittancesRouterOptions = {}):
       console.error('[webhook] Unexpected error during delivery:', webhookErr);
       webhookResult = {
         delivered: false,
-        error: webhookErr instanceof Error ? webhookErr.message : String(webhookErr),
+        error: 'Webhook delivery failed',
       };
     }
 
