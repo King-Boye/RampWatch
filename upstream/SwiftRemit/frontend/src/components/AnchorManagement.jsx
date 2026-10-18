@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { validateAnchorNumbers, parseList } from '../utils/anchorValidation';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -18,6 +19,12 @@ export default function AnchorManagement() {
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [healthStatus, setHealthStatus] = useState({});
+  const [fieldErrors, setFieldErrors] = useState({});
+
+  const updateNumber = (key, value) => {
+    setForm(f => ({ ...f, [key]: value }));
+    setFieldErrors(errs => (errs[key] ? { ...errs, [key]: undefined } : errs));
+  };
 
   useEffect(() => { fetchAnchors(); }, []);
 
@@ -38,27 +45,38 @@ export default function AnchorManagement() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setSaving(true);
     setError(null);
+
+    // Validate instead of coercing bad input to 0 (#1720).
+    const { valid, errors, values } = validateAnchorNumbers(form);
+    const currencies = parseList(form.supported_currencies);
+    if (currencies.length === 0) errors.supported_currencies = 'At least one supported currency is required.';
+    setFieldErrors(errors);
+    if (!valid || !values || errors.supported_currencies) {
+      setError('Please fix the highlighted fields.');
+      return;
+    }
+
+    setSaving(true);
     try {
       const payload = {
         name: form.name,
         domain: form.domain,
         description: form.description,
         fees: {
-          deposit_fee_percent: parseFloat(form.deposit_fee_percent) || 0,
-          withdrawal_fee_percent: parseFloat(form.withdrawal_fee_percent) || 0,
+          deposit_fee_percent: values.deposit_fee_percent,
+          withdrawal_fee_percent: values.withdrawal_fee_percent,
         },
         limits: {
-          min_amount: parseFloat(form.min_amount) || 0,
-          max_amount: parseFloat(form.max_amount) || 0,
+          min_amount: values.min_amount,
+          max_amount: values.max_amount,
         },
         compliance: {
           kyc_required: form.kyc_required,
           kyc_level: form.kyc_level,
-          supported_countries: form.supported_countries.split(',').map(s => s.trim()).filter(Boolean),
+          supported_countries: parseList(form.supported_countries),
         },
-        supported_currencies: form.supported_currencies.split(',').map(s => s.trim()).filter(Boolean),
+        supported_currencies: currencies,
       };
       const method = editingId ? 'PUT' : 'POST';
       const url = editingId ? `${API_URL}/api/anchors/${editingId}` : `${API_URL}/api/anchors`;
@@ -69,6 +87,7 @@ export default function AnchorManagement() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setForm(EMPTY_FORM);
+      setFieldErrors({});
       setEditingId(null);
       await fetchAnchors();
     } catch (e) {
@@ -117,6 +136,7 @@ export default function AnchorManagement() {
 
   function startEdit(anchor) {
     setEditingId(anchor.id);
+    setFieldErrors({});
     setForm({
       name: anchor.name,
       domain: anchor.domain,
@@ -153,24 +173,29 @@ export default function AnchorManagement() {
             <input id="anc-desc" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
           </div>
           <div className="form-group">
-            <label htmlFor="anc-dep-fee">Deposit Fee %</label>
-            <input id="anc-dep-fee" type="number" min="0" step="0.01" value={form.deposit_fee_percent} onChange={e => setForm(f => ({ ...f, deposit_fee_percent: e.target.value }))} />
+            <label htmlFor="anc-dep-fee">Deposit Fee % *</label>
+            <input id="anc-dep-fee" type="text" inputMode="decimal" value={form.deposit_fee_percent} onChange={e => updateNumber('deposit_fee_percent', e.target.value)} aria-invalid={!!fieldErrors.deposit_fee_percent} aria-describedby={fieldErrors.deposit_fee_percent ? 'anc-dep-fee-error' : undefined} />
+            {fieldErrors.deposit_fee_percent && <span id="anc-dep-fee-error" className="field-error" role="alert">{fieldErrors.deposit_fee_percent}</span>}
           </div>
           <div className="form-group">
-            <label htmlFor="anc-wit-fee">Withdrawal Fee %</label>
-            <input id="anc-wit-fee" type="number" min="0" step="0.01" value={form.withdrawal_fee_percent} onChange={e => setForm(f => ({ ...f, withdrawal_fee_percent: e.target.value }))} />
+            <label htmlFor="anc-wit-fee">Withdrawal Fee % *</label>
+            <input id="anc-wit-fee" type="text" inputMode="decimal" value={form.withdrawal_fee_percent} onChange={e => updateNumber('withdrawal_fee_percent', e.target.value)} aria-invalid={!!fieldErrors.withdrawal_fee_percent} aria-describedby={fieldErrors.withdrawal_fee_percent ? 'anc-wit-fee-error' : undefined} />
+            {fieldErrors.withdrawal_fee_percent && <span id="anc-wit-fee-error" className="field-error" role="alert">{fieldErrors.withdrawal_fee_percent}</span>}
           </div>
           <div className="form-group">
-            <label htmlFor="anc-min">Min Amount</label>
-            <input id="anc-min" type="number" min="0" value={form.min_amount} onChange={e => setForm(f => ({ ...f, min_amount: e.target.value }))} />
+            <label htmlFor="anc-min">Min Amount *</label>
+            <input id="anc-min" type="text" inputMode="decimal" value={form.min_amount} onChange={e => updateNumber('min_amount', e.target.value)} aria-invalid={!!fieldErrors.min_amount} aria-describedby={fieldErrors.min_amount ? 'anc-min-error' : undefined} />
+            {fieldErrors.min_amount && <span id="anc-min-error" className="field-error" role="alert">{fieldErrors.min_amount}</span>}
           </div>
           <div className="form-group">
-            <label htmlFor="anc-max">Max Amount</label>
-            <input id="anc-max" type="number" min="0" value={form.max_amount} onChange={e => setForm(f => ({ ...f, max_amount: e.target.value }))} />
+            <label htmlFor="anc-max">Max Amount *</label>
+            <input id="anc-max" type="text" inputMode="decimal" value={form.max_amount} onChange={e => updateNumber('max_amount', e.target.value)} aria-invalid={!!fieldErrors.max_amount} aria-describedby={fieldErrors.max_amount ? 'anc-max-error' : undefined} />
+            {fieldErrors.max_amount && <span id="anc-max-error" className="field-error" role="alert">{fieldErrors.max_amount}</span>}
           </div>
           <div className="form-group">
-            <label htmlFor="anc-currencies">Currencies (comma-separated)</label>
-            <input id="anc-currencies" value={form.supported_currencies} onChange={e => setForm(f => ({ ...f, supported_currencies: e.target.value }))} placeholder="USD, EUR, NGN" />
+            <label htmlFor="anc-currencies">Currencies (comma-separated) *</label>
+            <input id="anc-currencies" value={form.supported_currencies} onChange={e => setForm(f => ({ ...f, supported_currencies: e.target.value }))} placeholder="USD, EUR, NGN" aria-invalid={!!fieldErrors.supported_currencies} aria-describedby={fieldErrors.supported_currencies ? 'anc-currencies-error' : undefined} />
+            {fieldErrors.supported_currencies && <span id="anc-currencies-error" className="field-error" role="alert">{fieldErrors.supported_currencies}</span>}
           </div>
           <div className="form-group">
             <label htmlFor="anc-countries">Countries (comma-separated)</label>
@@ -194,7 +219,7 @@ export default function AnchorManagement() {
             {saving ? 'Saving…' : editingId ? 'Update Anchor' : 'Add Anchor'}
           </button>
           {editingId && (
-            <button type="button" onClick={() => { setEditingId(null); setForm(EMPTY_FORM); }}>Cancel</button>
+            <button type="button" onClick={() => { setEditingId(null); setForm(EMPTY_FORM); setFieldErrors({}); }}>Cancel</button>
           )}
         </div>
       </form>
