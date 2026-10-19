@@ -69,6 +69,8 @@ pub enum StorageKey {
     PerAttestorCount(Address),
     /// Revocation marker for an individual attestation (persistent).
     AttestationRevoked(u64),
+    /// Marker that `QuoteExpiredEvent` was already emitted for an anchor's quote (persistent).
+    ExpiredNotified(Address, u64),
     /// Contract pause state (instance storage).
     IsPaused,
     // --- Instance-storage counters (stored as Vec<Symbol> keys) ---

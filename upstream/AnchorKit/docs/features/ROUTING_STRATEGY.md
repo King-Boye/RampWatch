@@ -46,7 +46,7 @@ dominates the score.
 ## Default Strategy
 
 `strategy` is **required**. Passing an empty vec causes the call to panic with
-`NoQuotesAvailable`.
+`InvalidStrategy` (checked before any anchor storage is read).
 
 An unrecognised symbol string causes the call to panic with `InvalidStrategy`.
 Always use one of the documented symbols above.
@@ -61,7 +61,22 @@ Before strategy selection, anchors are excluded if any of the following apply:
 - Latest quote has expired (`valid_until <= now`)
 - `request.amount` is outside the quote's `[minimum_amount, maximum_amount]` range
 
-If no candidates remain after filtering, the call panics with `NoQuotesAvailable`.
+Every eligible anchor is considered, regardless of registration order.
+`max_anchors` therefore does not select "the first N anchors"; it only narrows
+the randomised `Weighted` pool to the N healthiest anchors (`0` = no limit).
+
+If no candidates remain after filtering and `fallback_chain` is non-empty, its
+anchors are tried in order with `min_reputation` relaxed (ignored). All other
+filters (active, jurisdiction, KYC, unexpired quote, amount range) still apply
+and the first qualifying fallback anchor is used.
+
+If there are still no candidates, the call panics with `NoQuotesAvailable`.
+
+## Expired Quote Events
+
+Each expired quote emits one `QuoteExpiredEvent` with topic `(quote, expired)`.
+An `ExpiredNotified(anchor, quote_id)` marker prevents repeat events on later
+routing calls.
 
 ## Usage Example
 
@@ -78,7 +93,7 @@ let options = RoutingOptions {
     },
     strategy,
     min_reputation: 80,
-    max_anchors: 0,   // reserved, not yet enforced
+    max_anchors: 0,   // 0 = no limit
     require_kyc: false, // reserved, not yet enforced
 };
 
@@ -87,7 +102,5 @@ let best_quote = contract.route_transaction(&options);
 
 ## Notes
 
-- `max_anchors` and `require_kyc` fields are reserved for future use and are
-  not enforced by the current implementation.
 - Reputation scores are set via `register_routing_anchor` /
   `update_routing_anchor_meta` and reflect operator-assigned trust levels.
