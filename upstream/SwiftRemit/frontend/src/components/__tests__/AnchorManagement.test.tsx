@@ -1,7 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentType } from 'react';
-import AnchorManagementJsx from '../AnchorManagement.jsx';
 import AnchorManagementTsx from '../AnchorManagement.tsx';
 
 function fill(values: Record<string, string>): void {
@@ -17,11 +16,6 @@ interface Variant {
 }
 
 const VARIANTS: Variant[] = [
-  {
-    name: 'AnchorManagement.jsx',
-    Component: AnchorManagementJsx as ComponentType,
-    labels: { name: 'Name *', domain: 'Domain *', dep: 'Deposit Fee % *', wit: 'Withdrawal Fee % *', min: 'Min Amount *', max: 'Max Amount *', currencies: 'Currencies (comma-separated) *' },
-  },
   {
     name: 'AnchorManagement.tsx',
     Component: AnchorManagementTsx,
