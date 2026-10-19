@@ -30,6 +30,9 @@ jobs:
   benchmark:
     name: Run Benchmarks
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
 
@@ -50,6 +53,7 @@ jobs:
       # Run all bench targets (including core_flow) with the benchmarks feature.
       - name: Run benchmarks
         run: |
+          set -o pipefail
           cargo bench --features benchmarks -- --output-format bencher 2>&1 | tee bench_output.txt
 
       - name: Save criterion JSON results
@@ -65,6 +69,12 @@ jobs:
           echo "Saved $(ls bench-results/ | wc -l) benchmark result(s):"
           ls -la bench-results/
 
+      - name: Fail if no benchmark results were produced
+        run: |
+          if [ -z "$(find bench-results -name '*.json' -print -quit)" ]; then
+            echo "::error::No Criterion benchmark estimates were produced"
+            exit 1
+          fi
       # SR-023: Verify core_flow baselines are present in the results.
       - name: Verify core_flow baselines exist
         run: |
@@ -109,17 +119,24 @@ jobs:
           retention-days: 30
 
       # ── Regression comparison (PR only) ─────────────────────────────────────
-      - name: Download baseline benchmark from main
+      - name: Download latest successful benchmark baseline from main
         if: github.event_name == 'pull_request'
-        id: download-baseline
-        uses: actions/download-artifact@v4
-        with:
-          name: benchmark-results-${{ github.event.pull_request.base.sha }}
-          path: bench-baseline/
-        continue-on-error: true
-
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          baseline=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow benchmark-ci.yml --branch main --status success --limit 1 --json databaseId,headSha --jq '.[0] | "\(.databaseId) \(.headSha)"')
+          if [ -z "$baseline" ]; then
+            echo "::error::No successful main-branch benchmark workflow run found to use as a baseline"
+            exit 1
+          fi
+          read -r run_id head_sha <<< "$baseline"
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name "benchmark-results-$head_sha" --dir bench-baseline
+          if [ -z "$(find bench-baseline -name '*.json' -print -quit)" ]; then
+            echo "::error::Downloaded baseline contains no Criterion benchmark estimates"
+            exit 1
+          fi
       - name: Compare benchmarks and detect regressions
-        if: github.event_name == 'pull_request' && steps.download-baseline.outcome == 'success'
+        if: github.event_name == 'pull_request'
         id: compare
         run: |
           python3 << 'EOF'
@@ -137,11 +154,15 @@ jobs:
           new_benchmarks = []
 
           if not os.path.isdir(baseline_dir):
-              print("No baseline found, skipping comparison.")
-              sys.exit(0)
+              print("ERROR: benchmark baseline missing")
+              sys.exit(1)
 
           current_files  = {f for f in os.listdir(current_dir)  if f.endswith(".json")}
           baseline_files = {f for f in os.listdir(baseline_dir) if f.endswith(".json")}
+          missing_benchmarks = baseline_files - current_files
+          if missing_benchmarks:
+              print(f"ERROR: baseline benchmarks missing from current run: {sorted(missing_benchmarks)}")
+              sys.exit(1)
 
           for fname in sorted(current_files):
               bench_name = fname.replace(".json", "").replace("__", "/")
@@ -267,16 +288,6 @@ jobs:
               sys.exit(1)
           EOF
 
-      - name: Post baseline notice (no baseline available)
-        if: github.event_name == 'pull_request' && steps.download-baseline.outcome != 'success'
-        run: |
-          echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "No baseline found for \`${{ github.event.pull_request.base.sha }}\`." >> $GITHUB_STEP_SUMMARY
-          echo "Results saved; future PRs targeting this base will compare against it." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          cat bench_output.txt >> $GITHUB_STEP_SUMMARY || true
-
   # ── Cost table update (release only) ────────────────────────────────────────
   # SR-023: On each release tag, update benches/README.md with the latest cost table.
   update-cost-table:
@@ -295,7 +306,6 @@ jobs:
         with:
           name: benchmark-results-${{ github.sha }}
           path: bench-results/
-        continue-on-error: true
 
       - name: Update benches/README.md cost table
         run: |

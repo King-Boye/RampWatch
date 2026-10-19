@@ -32,7 +32,7 @@ jobs:
       - name: Read pinned toolchain version
         id: toolchain
         run: |
-          # rust-toolchain.toml uses 'channel = "stable"' by default
+          # Use the exact toolchain version in rust-toolchain.toml
           CHANNEL=$(grep '^channel' rust-toolchain.toml | sed 's/.*= *"//' | tr -d '"' || echo "stable")
           echo "rust_version=$CHANNEL" >> "$GITHUB_OUTPUT"
           echo "Rust channel: $CHANNEL"
