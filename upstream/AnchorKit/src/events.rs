@@ -128,3 +128,21 @@ pub struct ContractUnpaused {
     pub admin: Address,
     pub timestamp: u64,
 }
+
+#[contracttype]
+#[derive(Clone)]
+pub struct ReplayWindowUpdated {
+    pub admin: Address,
+    pub old_seconds: u64,
+    pub new_seconds: u64,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct ClockSkewUpdated {
+    pub admin: Address,
+    pub old_seconds: u64,
+    pub new_seconds: u64,
+    pub timestamp: u64,
+}
