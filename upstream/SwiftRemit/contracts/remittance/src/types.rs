@@ -14,6 +14,10 @@ pub enum RemittanceStatus {
 /// A remittance transfer between a sender and a recipient.
 ///
 /// # Proof validation
+
+/// A remittance transfer between a sender and a recipient.
+///
+/// # Proof validation
 ///
 /// `proof` carries the off-chain verification proof that must be validated
 /// before a payout can be confirmed. It is the cryptographic evidence that the
