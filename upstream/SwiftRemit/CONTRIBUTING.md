@@ -663,3 +663,84 @@ By contributing to SwiftRemit, you agree that your contributions will be license
 ---
 
 Thank you for contributing to SwiftRemit! 🚀
+
+## GitHub Actions Workflow Map (issue #1737)
+
+This inventory is generated from `.github/workflows/` and groups each workflow
+by purpose. It identifies overlapping CI responsibility without deleting jobs
+that may be referenced by branch-protection rules.
+
+| Workflow | Trigger(s) | Responsibility |
+| --- | --- | --- |
+| [`api-coverage.yml`](.github/workflows/api-coverage.yml) | push: | Backend/API CI |
+| [`audit-freeze.yml`](.github/workflows/audit-freeze.yml) | push: | Security/audit |
+| [`backend-ci-consolidated.yml`](.github/workflows/backend-ci-consolidated.yml) | pull_request: | Consolidated CI |
+| [`benchmark-ci.yml`](.github/workflows/benchmark-ci.yml) | push: | Performance CI |
+| [`build-artifact-check.yml`](.github/workflows/build-artifact-check.yml) | pull_request: | Specialized/other |
+| [`chaos-ci.yml`](.github/workflows/chaos-ci.yml) | schedule: | Specialized/other |
+| [`ci-consolidated.yml`](.github/workflows/ci-consolidated.yml) | pull_request: | Consolidated CI |
+| [`container-security.yml`](.github/workflows/container-security.yml) | push: | Security/audit |
+| [`contract-ci-consolidated.yml`](.github/workflows/contract-ci-consolidated.yml) | push: | Consolidated CI |
+| [`currency-api-ci.yml`](.github/workflows/currency-api-ci.yml) | push: | Backend/API CI |
+| [`dependabot-auto-merge.yml`](.github/workflows/dependabot-auto-merge.yml) | pull_request_target: | Specialized/other |
+| [`dependency-drift.yml`](.github/workflows/dependency-drift.yml) | pull_request: | Specialized/other |
+| [`dependency-security.yml`](.github/workflows/dependency-security.yml) | push: | Security/audit |
+| [`deploy-mainnet.yml`](.github/workflows/deploy-mainnet.yml) | workflow_dispatch: | Deployment |
+| [`deploy-staging.yml`](.github/workflows/deploy-staging.yml) | push: | Deployment |
+| [`docs-accuracy.yml`](.github/workflows/docs-accuracy.yml) | pull_request: | Specialized/other |
+| [`docs-structure.yml`](.github/workflows/docs-structure.yml) | push: | Specialized/other |
+| [`env-example-validation.yml`](.github/workflows/env-example-validation.yml) | push: | Specialized/other |
+| [`frontend-snapshot-tests.yml`](.github/workflows/frontend-snapshot-tests.yml) | push: | Frontend/mobile CI |
+| [`fuzz-ci.yml`](.github/workflows/fuzz-ci.yml) | pull_request: | Property/fuzz testing |
+| [`ghcr-cleanup.yml`](.github/workflows/ghcr-cleanup.yml) | schedule: | Specialized/other |
+| [`helm-ci.yml`](.github/workflows/helm-ci.yml) | push: | Specialized/other |
+| [`key-rotation-check.yml`](.github/workflows/key-rotation-check.yml) | schedule: | Specialized/other |
+| [`load-test.yml`](.github/workflows/load-test.yml) | workflow_dispatch: | Specialized/other |
+| [`mainnet-checklist.yml`](.github/workflows/mainnet-checklist.yml) | pull_request: | Specialized/other |
+| [`migration-tests.yml`](.github/workflows/migration-tests.yml) | push: | Specialized/other |
+| [`mobile-ci.yml`](.github/workflows/mobile-ci.yml) | pull_request: | Frontend/mobile CI |
+| [`monitoring-ci.yml`](.github/workflows/monitoring-ci.yml) | push: | Specialized/other |
+| [`openapi-validation.yml`](.github/workflows/openapi-validation.yml) | push: | Backend/API CI |
+| [`pact-contract-tests.yml`](.github/workflows/pact-contract-tests.yml) | push: | Rust/contract CI |
+| [`property-tests.yml`](.github/workflows/property-tests.yml) | push: | Property/fuzz testing |
+| [`publish-abi.yml`](.github/workflows/publish-abi.yml) | push: | Specialized/other |
+| [`release-sbom.yml`](.github/workflows/release-sbom.yml) | release: | Release/reproducibility |
+| [`release.yml`](.github/workflows/release.yml) | push: | Release/reproducibility |
+| [`reproducible-build.yml`](.github/workflows/reproducible-build.yml) | push: | Release/reproducibility |
+| [`sdk-ci.yml`](.github/workflows/sdk-ci.yml) | push: | Specialized/other |
+| [`sdk-docs.yml`](.github/workflows/sdk-docs.yml) | push: | Specialized/other |
+| [`sep24-integration-tests.yml`](.github/workflows/sep24-integration-tests.yml) | schedule: | Specialized/other |
+| [`storybook-ci.yml`](.github/workflows/storybook-ci.yml) | push: | Specialized/other |
+| [`testnet-integration.yml`](.github/workflows/testnet-integration.yml) | schedule: | Specialized/other |
+| [`webhook-chaos-tests.yml`](.github/workflows/webhook-chaos-tests.yml) | schedule: | Specialized/other |
+| [`webhook-ci.yml`](.github/workflows/webhook-ci.yml) | push: | Specialized/other |
+
+### Overlaps and preferred ownership
+
+- **General CI:** `ci-consolidated.yml` already checks Rust, backend, API, frontend,
+  and SDK changes. Compare it with `contract-ci-consolidated.yml`,
+  `backend-ci-consolidated.yml`, and any older area-specific CI workflows before
+  removing duplicate jobs. Consolidated workflows should own common checks;
+  specialized workflows should retain checks not covered by the main workflow.
+- **Rust contract:** both the consolidated and contract-specific workflows run
+  Rust formatting, linting, and tests. A future consolidation should reuse one
+  job implementation instead of deleting a separately required status abruptly.
+- **Advanced checks:** `property-tests.yml`, `fuzz-ci.yml`,
+  `benchmark-ci.yml`, and `reproducible-build.yml` provide different forms
+  of validation and should not be assumed interchangeable with unit tests.
+- **Reusable workflow migration:** move common setup/test logic behind
+  `workflow_call` only after comparing each workflow's event triggers, secrets,
+  permissions, artifact needs, and branch protection references.
+
+### Required checks
+
+The intended checks are the consolidated Rust, backend, API, frontend and SDK
+jobs for affected code, the contract WASM build when Rust changes, and the
+benchmark regression check for benchmark-relevant pull requests. **Actual required
+check names must be verified in GitHub Settings → Rules / Branch protection:**
+they cannot be inferred reliably from the repository files. In particular,
+do not mark path-filtered workflows as universally required without a stable
+always-running gate, or documentation-only PRs can remain pending.
+
+Inventory: **42 workflow files**. This is a workflow map and
+duplication audit, not a claim that every workflow has been merged.

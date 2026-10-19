@@ -46,3 +46,10 @@ updates:
     labels:
       - dependencies
       - ci
+
+  - package-ecosystem: rust-toolchain
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
