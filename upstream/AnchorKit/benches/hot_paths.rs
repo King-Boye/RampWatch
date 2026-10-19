@@ -83,6 +83,7 @@ fn register_attestor(
 ) {
     let pk = Bytes::from_slice(env, signing_key.verifying_key().as_bytes());
     client.set_sep10_jwt_verifying_key(attestor, &pk);
+    client.add_attestation_key(attestor, &pk);
 
     let sub = attestor.to_string();
     let mut buf = [0u8; 128];

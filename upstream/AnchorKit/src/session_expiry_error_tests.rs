@@ -46,6 +46,7 @@ mod session_expiry_error_tests {
         let attestor = Address::generate(env);
         let pk = Bytes::from_slice(env, sk.verifying_key().as_bytes());
         client.set_sep10_jwt_verifying_key(&attestor, &pk);
+        client.add_attestation_key(&attestor, &pk);
         let sub = attestor.to_string();
         let mut buf = [0u8; 128];
         let len = sub.len() as usize;

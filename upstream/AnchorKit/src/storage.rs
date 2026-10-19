@@ -13,6 +13,9 @@ use soroban_sdk::{contracttype, Address, Bytes};
 pub enum StorageKey {
     /// SEP-10 JWT verifying key for an attestor (persistent).
     Sep10Key(Address),
+    /// Ed25519 attestation-signing keys for an issuer (persistent). Kept separate
+    /// from `Sep10Key` so web-auth key rotation never affects attestation signing.
+    AttestationKey(Address),
     /// Whether an address is a registered attestor (persistent).
     Attestor(Address),
     /// Revocation marker for an attestor — present when the attestor has been

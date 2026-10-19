@@ -124,6 +124,7 @@ fn test_submit_attestation_valid_signature() {
     // Setup keys
     let pk_bytes = Bytes::from_slice(&env, &public_key);
     client.set_sep10_jwt_verifying_key(&issuer, &pk_bytes);
+    client.add_attestation_key(&issuer, &pk_bytes);
 
     let mut hash_data = [0u8; 32];
     hash_data[0] = 42;
@@ -177,6 +178,7 @@ fn test_submit_attestation_tampered_signature() {
 
     let pk_bytes = Bytes::from_slice(&env, &public_key);
     client.set_sep10_jwt_verifying_key(&issuer, &pk_bytes);
+    client.add_attestation_key(&issuer, &pk_bytes);
 
     let mut hash_data = [0u8; 32];
     hash_data[0] = 42;

@@ -412,6 +412,110 @@ impl AnchorKitContract {
             .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
     }
 
+    // -----------------------------------------------------------------------
+    // Attestation signing keys (#1378)
+    //
+    // Attestation signatures are verified against `StorageKey::AttestationKey`,
+    // a key set that is independent of the SEP-10 JWT verifying keys. Rotating or
+    // revoking a SEP-10 web-auth key therefore never affects attestation signing,
+    // and a leaked JWT signing key cannot forge attestations.
+    //
+    // Migration: contracts that previously relied on the shared `Sep10Key` list
+    // must call `migrate_sep10_keys_to_attestation_keys(issuer)` once per issuer
+    // (admin-only). It copies the issuer's current SEP-10 keys into the attestation
+    // key set; afterwards the two sets are managed independently with
+    // `add_attestation_key` / `remove_attestation_key` and
+    // `add_sep10_verifying_key` / `remove_sep10_verifying_key`. Until an issuer is
+    // migrated (or given a key via `add_attestation_key`), its attestation
+    // submissions are rejected with `UnauthorizedAttestor`.
+    // -----------------------------------------------------------------------
+
+    /// Register an attestation-signing public key for `issuer` (admin-only).
+    /// Adding a key that is already registered is a no-op.
+    pub fn add_attestation_key(env: Env, issuer: Address, public_key: Bytes) {
+        Self::require_admin(&env);
+        if public_key.len() != 32 {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        let storage_key = StorageKey::AttestationKey(issuer);
+        let mut keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&storage_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        if keys.contains(&public_key) {
+            return;
+        }
+        if keys.len() >= sep10_jwt::MAX_VERIFYING_KEYS {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        keys.push_back(public_key);
+        env.storage().persistent().set(&storage_key, &keys);
+        env.storage()
+            .persistent()
+            .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
+    }
+
+    /// Remove an attestation-signing public key for `issuer` (admin-only).
+    pub fn remove_attestation_key(env: Env, issuer: Address, public_key: Bytes) {
+        Self::require_admin(&env);
+        let storage_key = StorageKey::AttestationKey(issuer);
+        let keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&storage_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let mut new_keys: Vec<Bytes> = Vec::new(&env);
+        for k in keys.iter() {
+            if k != public_key {
+                new_keys.push_back(k);
+            }
+        }
+        env.storage().persistent().set(&storage_key, &new_keys);
+        env.storage()
+            .persistent()
+            .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
+    }
+
+    /// Return the attestation-signing public keys registered for `issuer`.
+    pub fn get_attestation_keys(env: Env, issuer: Address) -> Vec<Bytes> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AttestationKey(issuer))
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// One-time migration helper (admin-only): copy the issuer's existing SEP-10
+    /// verifying keys into its attestation key set. Keys already present are skipped.
+    /// The SEP-10 keys are left in place.
+    pub fn migrate_sep10_keys_to_attestation_keys(env: Env, issuer: Address) {
+        Self::require_admin(&env);
+        let sep10_keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::Sep10Key(issuer.clone()))
+            .unwrap_or_else(|| Vec::new(&env));
+        let storage_key = StorageKey::AttestationKey(issuer);
+        let mut keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&storage_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        for k in sep10_keys.iter() {
+            if keys.contains(&k) {
+                continue;
+            }
+            if keys.len() >= sep10_jwt::MAX_VERIFYING_KEYS {
+                panic_with_error!(&env, ErrorCode::ValidationError);
+            }
+            keys.push_back(k);
+        }
+        env.storage().persistent().set(&storage_key, &keys);
+        env.storage()
+            .persistent()
+            .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
+    }
+
     pub fn verify_sep10_token(env: Env, token: String, issuer: Address) {
         let keys: Vec<Bytes> = env
             .storage()
@@ -2884,68 +2988,96 @@ impl AnchorKitContract {
     }
 
     /// Verifies that the attestation signature is valid for the given payload hash
-    /// using any of the public keys registered for the issuer.
+    /// using any of the attestation keys registered for the issuer via
+    /// `add_attestation_key`. SEP-10 JWT verifying keys are never consulted (#1378).
+    ///
+    /// Two submission formats are accepted:
+    ///
+    /// * 64 bytes: a bare ed25519 signature. Every registered key is tried in turn
+    ///   (supporting key rotation) using `ed25519-dalek`, which returns a `Result`
+    ///   instead of trapping, so a failure on one key does not abort the loop.
+    /// * 96 bytes: the 64-byte signature followed by the 32-byte public key that
+    ///   produced it (a key hint). The hint must be one of the registered keys; the
+    ///   signature is then checked once with the host function
+    ///   `env.crypto().ed25519_verify`, which is much cheaper than in-WASM curve
+    ///   arithmetic (#1377). The host function traps on a bad signature, which is
+    ///   why it is only used when the signer names the key up front.
+    ///
+    /// `ed25519-dalek` is kept for the bare 64-byte format (and for `sep10_jwt`)
+    /// because the host function cannot be used to probe several rotated keys.
     ///
     /// # Panics
     ///
-    /// Panics with `ErrorCode::UnauthorizedAttestor` if no valid signature is found.
-    /// Verifies that the attestation signature is valid for the given payload hash
-    /// using any of the public keys registered for the issuer.
-    /// Supports key rotation by trying all registered keys until one verifies.
-    ///
-    /// # Panics
-    ///
-    /// Panics with `ErrorCode::UnauthorizedAttestor` if no valid signature is found
-    /// or if the signature format is invalid.
-fn verify_attestation_signature(
-    env: &Env,
-    issuer: &Address,
-    payload_hash: &Bytes,
-    signature: &Bytes,
-) {
-    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    /// Panics with `ErrorCode::UnauthorizedAttestor` if no valid signature is found,
+    /// if the signature format is invalid, or if a key hint is not registered.
+    fn verify_attestation_signature(
+        env: &Env,
+        issuer: &Address,
+        payload_hash: &Bytes,
+        signature: &Bytes,
+    ) {
+        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
-    // Retrieve the list of registered public keys for the issuer.
-    let keys: Vec<Bytes> = env
-        .storage()
-        .persistent()
-        .get(&StorageKey::Sep10Key(issuer.clone()))
-        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::UnauthorizedAttestor));
+        // Retrieve the list of registered attestation keys for the issuer.
+        let keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::AttestationKey(issuer.clone()))
+            .unwrap_or_else(|| panic_with_error!(env, ErrorCode::UnauthorizedAttestor));
 
-    if signature.len() != 64 {
+        if signature.len() == 96 {
+            let mut raw = [0u8; 96];
+            signature.copy_into_slice(&mut raw);
+            let hint = Bytes::from_slice(env, &raw[64..]);
+            if !keys.contains(&hint) {
+                panic_with_error!(env, ErrorCode::UnauthorizedAttestor);
+            }
+            let mut sig_bytes = [0u8; 64];
+            sig_bytes.copy_from_slice(&raw[..64]);
+            let mut key_bytes = [0u8; 32];
+            key_bytes.copy_from_slice(&raw[64..]);
+            env.crypto().ed25519_verify(
+                &BytesN::from_array(env, &key_bytes),
+                payload_hash,
+                &BytesN::from_array(env, &sig_bytes),
+            );
+            return;
+        }
+
+        if signature.len() != 64 {
+            panic_with_error!(env, ErrorCode::UnauthorizedAttestor);
+        }
+        let mut sig_arr = [0u8; 64];
+        signature.copy_into_slice(&mut sig_arr);
+        let dalek_sig = Signature::from_bytes(&sig_arr);
+
+        let mut msg = alloc::vec::Vec::with_capacity(payload_hash.len() as usize);
+        msg.resize(payload_hash.len() as usize, 0u8);
+        payload_hash.copy_into_slice(&mut msg);
+
+        // Try each registered key until one successfully verifies the signature.
+        // This allows key rotation: an issuer can have up to MAX_VERIFYING_KEYS active keys,
+        // and any one of them can be used to sign attestations.
+        for key in keys.iter() {
+            if key.len() != 32 {
+                continue;
+            }
+            // Use non-trapping verification: convert to VerifyingKey and call verify(),
+            // which returns a Result instead of trapping. This allows the loop to try
+            // the next key on failure.
+            if let Ok(verifying_key) = VerifyingKey::from_bytes(&key.clone().try_into().unwrap()) {
+                if verifying_key.verify(&msg, &dalek_sig).is_ok() {
+                    // Signature verified with this key
+                    return;
+                }
+                // Signature did not verify with this key; try the next one
+            }
+            // Key format invalid; try the next one
+        }
+
+        // If we reach this point, no key verified the signature.
         panic_with_error!(env, ErrorCode::UnauthorizedAttestor);
     }
-    let mut sig_arr = [0u8; 64];
-    signature.copy_into_slice(&mut sig_arr);
-    let dalek_sig = Signature::from_bytes(&sig_arr);
-
-    let mut msg = alloc::vec::Vec::with_capacity(payload_hash.len() as usize);
-    msg.resize(payload_hash.len() as usize, 0u8);
-    payload_hash.copy_into_slice(&mut msg);
-
-    // Try each registered key until one successfully verifies the signature.
-    // This allows key rotation: an issuer can have up to MAX_VERIFYING_KEYS active keys,
-    // and any one of them can be used to sign attestations.
-    for key in keys.iter() {
-        if key.len() != 32 {
-            continue;
-        }
-        // Use non-trapping verification: convert to VerifyingKey and call verify(),
-        // which returns a Result instead of trapping. This allows the loop to try
-        // the next key on failure.
-        if let Ok(verifying_key) = VerifyingKey::from_bytes(&key.clone().try_into().unwrap()) {
-            if verifying_key.verify(&msg, &dalek_sig).is_ok() {
-                // Signature verified with this key
-                return;
-            }
-            // Signature did not verify with this key; try the next one
-        }
-        // Key format invalid; try the next one
-    }
-
-    // If we reach this point, no key verified the signature.
-    panic_with_error!(env, ErrorCode::UnauthorizedAttestor);
-}
 
     pub fn get_rate_limit_rejections(env: Env, attestor: Address) -> u64 {
         crate::rate_limiter::RateLimiter::get_rate_limit_rejections(env, attestor)
@@ -2955,15 +3087,11 @@ fn verify_attestation_signature(
     /// Admin-only. Rejects invalid configurations (window_length=0 or max_submissions=0).
     pub fn update_rate_limit_config(
         env: Env,
-        admin: Address,
         config: crate::rate_limiter::RateLimitConfig,
     ) -> Result<(), ErrorCode> {
         Self::require_not_paused(&env);
-        admin.require_auth();
-        let contract_admin = Self::get_admin(env.clone());
-        if admin != contract_admin {
-            return Err(ErrorCode::UnauthorizedAttestor);
-        }
+        Self::require_admin(&env);
+        let admin = Self::get_admin(env.clone());
         crate::rate_limiter::RateLimiter::update_config(&env, &admin, config, None)
     }
 
@@ -2971,16 +3099,12 @@ fn verify_attestation_signature(
     /// Admin-only. Rejects invalid configurations (window_length=0 or max_submissions=0).
     pub fn set_attestor_rate_limit(
         env: Env,
-        admin: Address,
         attestor: Address,
         config: crate::rate_limiter::RateLimitConfig,
     ) -> Result<(), ErrorCode> {
         Self::require_not_paused(&env);
-        admin.require_auth();
-        let contract_admin = Self::get_admin(env.clone());
-        if admin != contract_admin {
-            return Err(ErrorCode::UnauthorizedAttestor);
-        }
+        Self::require_admin(&env);
+        let admin = Self::get_admin(env.clone());
         crate::rate_limiter::RateLimiter::update_config(&env, &admin, config, Some(&attestor))
     }
 
@@ -2988,15 +3112,11 @@ fn verify_attestation_signature(
     /// Admin-only. Clears submission_count and window_start_ledger; preserves total_requests.
     pub fn reset_attestor_rate_limit(
         env: Env,
-        admin: Address,
         attestor: Address,
     ) -> Result<(), ErrorCode> {
         Self::require_not_paused(&env);
-        admin.require_auth();
-        let contract_admin = Self::get_admin(env.clone());
-        if admin != contract_admin {
-            return Err(ErrorCode::UnauthorizedAttestor);
-        }
+        Self::require_admin(&env);
+        let admin = Self::get_admin(env.clone());
         crate::rate_limiter::RateLimiter::reset_rate_limit(&env, &admin, &attestor)
     }
 
