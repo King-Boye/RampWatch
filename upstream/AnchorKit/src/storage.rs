@@ -19,6 +19,9 @@ pub enum StorageKey {
     /// revoked. Used by `get_attestation` to populate `issuer_revoked` without
     /// rewriting every stored attestation (persistent).
     AttestorRevoked(Address),
+    /// First attestation ID not covered by the attestor's latest revocation.
+    /// Attestations with a lower ID remain revoked after re-registration.
+    AttestorRevokedBefore(Address),
     /// HTTPS endpoint URL for an attestor (persistent).
     Endpoint(Address),
     /// Supported services record for an anchor (persistent).

@@ -533,9 +533,7 @@ impl AnchorKitContract {
         if env.storage().persistent().has(&key) {
             panic_with_error!(&env, ErrorCode::AttestorAlreadyRegistered);
         }
-        // Clear any prior revocation marker so re-registered attestors are not
-        // permanently flagged as revoked on new attestations.
-        env.storage().persistent().remove(&StorageKey::AttestorRevoked(attestor.clone()));
+        Self::clear_attestor_revocation(&env, &attestor);
         let inst = env.storage().instance();
         let cnt_key = key_attestor_count(&env);
         let count: u64 = inst.get(&cnt_key).unwrap_or(0u64);
@@ -593,6 +591,10 @@ impl AnchorKitContract {
         let revoked_key = StorageKey::AttestorRevoked(attestor.clone());
         env.storage().persistent().set(&revoked_key, &true);
         env.storage().persistent().extend_ttl(&revoked_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        let revoked_before_key = StorageKey::AttestorRevokedBefore(attestor.clone());
+        let next_attestation_id: u64 = env.storage().instance().get(&key_counter(&env)).unwrap_or(0);
+        env.storage().persistent().set(&revoked_before_key, &next_attestation_id);
+        env.storage().persistent().extend_ttl(&revoked_before_key, PERSISTENT_TTL, PERSISTENT_TTL);
         env.events().publish(
             (symbol_short!("attestor"), symbol_short!("revoked")),
             AttestorRevoked(attestor),
@@ -1018,7 +1020,7 @@ impl AnchorKitContract {
         // Bump TTL on read so actively-queried attestations don't expire (#630).
         env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
         // Reflect current revocation status without rewriting every stored attestation.
-        if env.storage().persistent().has(&StorageKey::AttestorRevoked(attestation.issuer.clone())) {
+        if Self::is_attestation_issuer_revoked(&env, &attestation) {
             attestation.issuer_revoked = true;
         }
         if env.storage().persistent().has(&StorageKey::AttestationRevoked(id)) {
@@ -1042,7 +1044,7 @@ impl AnchorKitContract {
             .get::<_, Attestation>(&key)
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound));
         env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
-        if env.storage().persistent().has(&StorageKey::AttestorRevoked(attestation.issuer.clone())) {
+        if Self::is_attestation_issuer_revoked(&env, &attestation) {
             attestation.issuer_revoked = true;
         }
         if env.storage().persistent().has(&StorageKey::AttestationRevoked(id)) {
@@ -1095,7 +1097,7 @@ impl AnchorKitContract {
             if let Some(attestation_id) = env.storage().persistent().get::<_, u64>(&index_key) {
                 let main_key = StorageKey::Attest(attestation_id);
                 if let Some(mut attestation) = env.storage().persistent().get::<_, Attestation>(&main_key) {
-                    if env.storage().persistent().has(&StorageKey::AttestorRevoked(attestation.issuer.clone())) {
+                    if Self::is_attestation_issuer_revoked(&env, &attestation) {
                         attestation.issuer_revoked = true;
                     }
                     if env.storage().persistent().has(&StorageKey::AttestationRevoked(attestation_id)) {
@@ -1197,6 +1199,15 @@ impl AnchorKitContract {
         Self::require_not_paused(&env);
         anchor.require_auth();
         Self::check_attestor(&env, &anchor);
+
+        let services_record = env
+            .storage()
+            .persistent()
+            .get::<_, AnchorServices>(&StorageKey::Services(anchor.clone()))
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::ServicesNotConfigured));
+        if !services_record.services.contains(SERVICE_QUOTES) {
+            panic_with_error!(&env, ErrorCode::ServicesNotConfigured);
+        }
 
         // Validate quote parameters
         Self::validate_quote_params(&env, rate, minimum_amount, maximum_amount, valid_until);
@@ -1386,9 +1397,7 @@ impl AnchorKitContract {
         if env.storage().persistent().has(&key) {
             panic_with_error!(&env, ErrorCode::AttestorAlreadyRegistered);
         }
-        // Clear any prior revocation marker so re-registered attestors are not
-        // permanently flagged as revoked on new attestations.
-        env.storage().persistent().remove(&StorageKey::AttestorRevoked(attestor.clone()));
+        Self::clear_attestor_revocation(&env, &attestor);
         let inst = env.storage().instance();
         let cnt_key = key_attestor_count(&env);
         let count: u64 = inst.get(&cnt_key).unwrap_or(0u64);
@@ -2764,6 +2773,33 @@ impl AnchorKitContract {
         {
             panic_with_error!(env, ErrorCode::AttestorNotRegistered);
         }
+    }
+
+    fn clear_attestor_revocation(env: &Env, attestor: &Address) {
+        let revoked_key = StorageKey::AttestorRevoked(attestor.clone());
+        if env.storage().persistent().has(&revoked_key) {
+            let revoked_before_key = StorageKey::AttestorRevokedBefore(attestor.clone());
+            if !env.storage().persistent().has(&revoked_before_key) {
+                let next_attestation_id: u64 = env.storage().instance().get(&key_counter(env)).unwrap_or(0);
+                env.storage().persistent().set(&revoked_before_key, &next_attestation_id);
+                env.storage().persistent().extend_ttl(&revoked_before_key, PERSISTENT_TTL, PERSISTENT_TTL);
+            }
+            env.storage().persistent().remove(&revoked_key);
+        }
+    }
+
+    fn is_attestation_issuer_revoked(env: &Env, attestation: &Attestation) -> bool {
+        let revoked_before_key = StorageKey::AttestorRevokedBefore(attestation.issuer.clone());
+        let revoked_before = env.storage()
+            .persistent()
+            .get::<_, u64>(&revoked_before_key);
+        if revoked_before.is_some() {
+            env.storage().persistent().extend_ttl(&revoked_before_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        }
+        env.storage().persistent().has(&StorageKey::AttestorRevoked(attestation.issuer.clone()))
+            || revoked_before
+                .map(|revoked_before| attestation.id < revoked_before)
+                .unwrap_or(false)
     }
 
     fn check_timestamp(env: &Env, timestamp: u64) {
