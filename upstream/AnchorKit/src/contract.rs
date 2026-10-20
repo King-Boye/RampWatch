@@ -657,17 +657,19 @@ impl AnchorKitContract {
 
     /// Retrieve all registered attestors with pagination support.
     pub fn get_all_attestors(env: Env, offset: u64, limit: u32) -> Vec<Address> {
+        let max_page_size = Self::get_max_page_size(env.clone());
+        let actual_limit = core::cmp::min(limit, max_page_size);
+
         let list_key = key_attestor_list(&env);
         let attestors: Vec<Address> = env.storage().persistent()
             .get::<_, Vec<Address>>(&list_key)
             .unwrap_or_else(|| Vec::new(&env));
 
         let start = usize::try_from(offset).unwrap_or(usize::MAX);
-        let limit = limit as usize;
         let mut result = Vec::new(&env);
 
         if start < attestors.len() as usize {
-            let end = core::cmp::min(start + limit, attestors.len() as usize);
+            let end = core::cmp::min(start.saturating_add(actual_limit as usize), attestors.len() as usize);
             for i in start..end {
                 result.push_back(attestors.get(i as u32).unwrap());
             }
