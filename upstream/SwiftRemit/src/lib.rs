@@ -499,26 +499,57 @@ impl SwiftRemitContract {
         }
     }
 
-    /// Creates a new remittance transaction.
+    /// Creates a new remittance transaction, supporting optional off-chain proof validation.
     ///
     /// Transfers the specified amount from the sender to the contract, calculates
-    /// the platform fee, and creates a pending remittance record. The agent can later
+    /// platform and corridor fees, and creates a pending remittance record. The agent can later
     /// confirm the payout to receive the amount minus fees.
+    ///
+    /// # Proof Validation Configuration
+    ///
+    /// When `settlement_config` is provided:
+    /// * `settlement_config.require_proof` - When `true`, enforces that [`Self::confirm_payout`]
+    ///   cannot release funds without cryptographic verification of off-chain or oracle conditions.
+    /// * `settlement_config.oracle_address` - The designated oracle/signer address authorized
+    ///   to attest to off-chain completion. If `require_proof` is `true`, `oracle_address` must
+    ///   be `Some(Address)`, otherwise fails with [`ContractError::InvalidOracleAddress`].
+    ///
+    /// When proof validation is required:
+    /// 1. The configuration is stored in the [`Remittance`] record.
+    /// 2. A deterministic payout commitment is computed from canonical remittance fields and stored on-chain.
+    /// 3. Payout confirmation via [`Self::confirm_payout`] requires proof matching this commitment.
+    ///
+    /// For backward compatibility, when `settlement_config` is `None` or `require_proof` is `false`,
+    /// proof validation is not enforced, and standard agent authorization is used.
     ///
     /// # Arguments
     ///
     /// * `env` - The contract execution environment
     /// * `sender` - Address initiating the remittance
     /// * `agent` - Address of the registered agent who will receive the payout
-    /// * `amount` - Amount to remit in USDC (must be positive)
+    /// * `amount` - Amount to remit (must be positive)
     /// * `expiry` - Optional expiry timestamp (seconds since epoch) after which settlement fails
+    /// * `token` - Optional asset token address (defaults to USDC if `None`)
+    /// * `idempotency_key` - Optional idempotency key preventing duplicate remittance creation
+    /// * `settlement_config` - Optional [`SettlementConfig`] for off-chain proof validation
+    /// * `recipient_hash` - Optional SHA-256 hash of recipient details
+    /// * `integrator` - Optional partner/integrator address for fee accrual
     ///
     /// # Returns
     ///
     /// * `Ok(remittance_id)` - Unique ID of the created remittance
+    /// * `Err(ContractError::InvalidOracleAddress)` - `require_proof` is `true` but `oracle_address` is `None`
     /// * `Err(ContractError::InvalidAmount)` - Amount is zero or negative
     /// * `Err(ContractError::AgentNotRegistered)` - Specified agent is not registered
-    /// * `Err(ContractError::Overflow)` - Arithmetic overflow in fee calculation
+    /// * `Err(ContractError::BelowMinReputation)` - Agent reputation is below the minimum threshold
+    /// * `Err(ContractError::TokenNotWhitelisted)` - Specified token is not whitelisted
+    /// * `Err(ContractError::SuspiciousAsset)` - Specified token is flagged as suspicious
+    /// * `Err(ContractError::IdempotencyConflict)` - Idempotency key reused with mismatched payload
+    /// * `Err(ContractError::MigrationInProgress)` - Contract migration is active
+    /// * `Err(ContractError::ContractPaused)` - Contract circuit breaker is active
+    /// * `Err(ContractError::RateLimitExceeded)` - Sender exceeded rate limits
+    /// * `Err(ContractError::DailyLimitExceeded)` - Daily sending limit exceeded
+    /// * `Err(ContractError::Overflow)` - Arithmetic overflow in fee or counter calculation
     /// * `Err(ContractError::NotInitialized)` - Contract not initialized
     ///
     /// # Authorization
@@ -702,7 +733,68 @@ impl SwiftRemitContract {
         Ok(remittance_id)
     }
 
-    /// Alias for create_remittance to satisfy legacy/external interfaces
+    /// Creates a new settlement transaction, supporting off-chain verification proof configuration.
+    ///
+    /// This function acts as the settlement creation entrypoint (and external/legacy alias
+    /// for [`Self::create_remittance`]). It escrows the settlement `amount` from the `sender`,
+    /// assesses platform and corridor fees, records a pending settlement, and configures optional
+    /// off-chain cryptographic proof requirements before payout confirmation.
+    ///
+    /// # Proof Validation Configuration
+    ///
+    /// When `settlement_config` is provided:
+    /// * `settlement_config.require_proof` - When `true`, enforces that [`Self::confirm_payout`]
+    ///   cannot release funds without cryptographic verification of off-chain or oracle conditions.
+    /// * `settlement_config.oracle_address` - The designated oracle/signer address authorized
+    ///   to attest to off-chain completion. If `require_proof` is `true`, `oracle_address` must
+    ///   be `Some(Address)`. Providing `require_proof = true` with `oracle_address = None`
+    ///   fails immediately with [`ContractError::InvalidOracleAddress`].
+    ///
+    /// When proof validation is required:
+    /// 1. The settlement configuration is persisted in the [`Remittance`] record.
+    /// 2. A deterministic payout commitment hash is derived from the canonical settlement fields
+    ///    (`id`, `sender`, `agent`, `amount`, `fee`, `expiry`) and stored on-chain.
+    /// 3. Payout confirmation via [`Self::confirm_payout`] will strictly require a valid proof
+    ///    matching this commitment and signed by the configured `oracle_address`.
+    ///
+    /// For backward compatibility, when `settlement_config` is `None` or `require_proof` is `false`,
+    /// proof validation is not enforced, and payout confirmation proceeds under standard agent
+    /// authorization.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment.
+    /// * `sender` - Address initiating the settlement and funding the escrow.
+    /// * `agent` - Address of the registered payout agent.
+    /// * `amount` - Amount to settle (must be positive).
+    /// * `expiry` - Optional expiry timestamp (seconds since Unix epoch) after which settlement fails.
+    /// * `token` - Optional asset token address (defaults to USDC when `None`).
+    /// * `idempotency_key` - Optional idempotency key preventing duplicate settlement creation.
+    /// * `settlement_config` - Optional [`SettlementConfig`] defining proof validation requirements
+    ///   and authorized oracle address.
+    /// * `recipient_hash` - Optional SHA-256 hash of recipient details for privacy-preserving routing.
+    /// * `integrator` - Optional partner/integrator address for fee-sharing accrual.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(u64)` - Unique ID of the created settlement.
+    /// * `Err(ContractError::InvalidOracleAddress)` - `require_proof` is `true` but `oracle_address` is `None`.
+    /// * `Err(ContractError::InvalidAmount)` - Amount is non-positive or exceeds maximum allowable transfer.
+    /// * `Err(ContractError::AgentNotRegistered)` - Designated agent is not registered.
+    /// * `Err(ContractError::BelowMinReputation)` - Agent reputation is below the minimum threshold.
+    /// * `Err(ContractError::TokenNotWhitelisted)` - Specified token is not whitelisted.
+    /// * `Err(ContractError::SuspiciousAsset)` - Specified token is flagged as suspicious by asset verification.
+    /// * `Err(ContractError::IdempotencyConflict)` - Idempotency key reused with mismatched request parameters.
+    /// * `Err(ContractError::MigrationInProgress)` - Contract migration is currently in progress.
+    /// * `Err(ContractError::ContractPaused)` - Contract circuit breaker is currently active.
+    /// * `Err(ContractError::RateLimitExceeded)` - Sender exceeded rate limits.
+    /// * `Err(ContractError::DailyLimitExceeded)` - Sender daily volume limit exceeded.
+    /// * `Err(ContractError::Overflow)` - Arithmetic overflow during fee or counter calculations.
+    /// * `Err(ContractError::NotInitialized)` - Contract is not initialized.
+    ///
+    /// # Authorization
+    ///
+    /// Requires authentication from the `sender` address (`sender.require_auth()`).
     pub fn create_settlement(
         env: Env,
         sender: Address,

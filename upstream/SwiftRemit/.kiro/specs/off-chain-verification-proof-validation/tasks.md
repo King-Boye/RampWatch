@@ -25,10 +25,10 @@ This document breaks down the implementation of cryptographic proof validation f
 - [ ] 3.5 Add `mod verification;` declaration to `src/lib.rs`
 
 ### 4. Settlement Creation Updates
-- [ ] 4.1 Add `settlement_config: Option<SettlementConfig>` parameter to `create_settlement()` function in `src/lib.rs`
-- [ ] 4.2 Validate that if `settlement_config.require_proof` is true, then `oracle_address` must be `Some(Address)`
-- [ ] 4.3 Store `settlement_config` in the `Remittance` record when creating new settlements
-- [ ] 4.4 Update `create_settlement()` documentation to describe the new proof validation configuration
+- [x] 4.1 Add `settlement_config: Option<SettlementConfig>` parameter to `create_settlement()` function in `src/lib.rs`
+- [x] 4.2 Validate that if `settlement_config.require_proof` is true, then `oracle_address` must be `Some(Address)`
+- [x] 4.3 Store `settlement_config` in the `Remittance` record when creating new settlements
+- [x] 4.4 Update `create_settlement()` documentation to describe the new proof validation configuration
 
 ### 5. Payout Confirmation Updates
 - [ ] 5.1 Add `proof: Option<ProofData>` parameter to `confirm_payout()` function in `src/lib.rs`
