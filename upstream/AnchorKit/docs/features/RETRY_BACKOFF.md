@@ -277,18 +277,13 @@ let result = retry_with_backoff(
 
 ## Backoff Timing
 
-The delay between retries follows an exponential pattern:
+The delay between retries uses **full jitter**: a uniformly random value between 0 and the exponential backoff cap. This spreads retries evenly across the retry window, preventing thundering-herd problems when many clients retry simultaneously.
 
 ```
-Attempt 0: base_delay_ms * multiplier^0 + jitter
-Attempt 1: base_delay_ms * multiplier^1 + jitter
-Attempt 2: base_delay_ms * multiplier^2 + jitter
-Attempt 3: base_delay_ms * multiplier^3 + jitter
-...
-(capped at max_delay_ms)
+delay = uniform_random(0, min(base_delay_ms * multiplier^attempt, max_delay_ms))
 ```
 
-The jitter is derived deterministically from the attempt number and adds randomness up to `base_delay_ms / 2` to help desynchronize retry storms across clients.
+Rather than a small perturbation around a deterministic value, each retry picks a fresh random value in the entire allowed range.
 
 ### Example with Default Config
 
@@ -296,11 +291,14 @@ The jitter is derived deterministically from the attempt number and adds randomn
 max_attempts: 3
 base_delay_ms: 100
 backoff_multiplier: 2
+max_delay_ms: 5000
 
-Attempt 0: ~100ms (100 * 2^0 + jitter)
-Attempt 1: ~200ms (100 * 2^1 + jitter)
-Attempt 2: ~400ms (100 * 2^2 + jitter)
+Attempt 0: 0–100ms
+Attempt 1: 0–200ms
+Attempt 2: 0–400ms
 ```
+
+All delays are uniformly random within their range — not centered around the exponential value.
 
 ### Example with Aggressive Config
 
@@ -308,12 +306,13 @@ Attempt 2: ~400ms (100 * 2^2 + jitter)
 max_attempts: 5
 base_delay_ms: 50
 backoff_multiplier: 3
+max_delay_ms: 5000
 
-Attempt 0: ~50ms (50 * 3^0 + jitter)
-Attempt 1: ~150ms (50 * 3^1 + jitter)
-Attempt 2: ~450ms (50 * 3^2 + jitter)
-Attempt 3: ~1350ms (50 * 3^3 + jitter)
-Attempt 4: ~4050ms (50 * 3^4 + jitter)
+Attempt 0: 0–50ms
+Attempt 1: 0–150ms
+Attempt 2: 0–450ms
+Attempt 3: 0–1350ms
+Attempt 4: 0–4050ms
 ```
 
 ### Example with Rate Limit Config
@@ -324,12 +323,14 @@ base_delay_ms: 500
 backoff_multiplier: 3
 max_delay_ms: 30000
 
-Attempt 0: ~500ms (500 * 3^0 + jitter)
-Attempt 1: ~1500ms (500 * 3^1 + jitter)
-Attempt 2: ~4500ms (500 * 3^2 + jitter)
-Attempt 3: ~13500ms (500 * 3^3 + jitter)
-Attempt 4: ~30000ms (capped at max_delay_ms)
+Attempt 0: 0–500ms
+Attempt 1: 0–1500ms
+Attempt 2: 0–4500ms
+Attempt 3: 0–13500ms
+Attempt 4: 0–30000ms (capped at max_delay_ms)
 ```
+
+**Why full jitter:** Full jitter provides better load distribution than additive jitter when many clients retry on the same schedule. See [AWS Exponential Backoff And Jitter](https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/).
 
 ## Best Practices
 

@@ -9,10 +9,13 @@ mod events;
 mod rate_limiter;
 mod response_validator;
 mod retry;
-mod sep10_jwt;
+pub mod sep10_jwt;
+pub mod sdk_config;
 mod storage;
 mod transaction_state_tracker;
+pub mod transport;
 mod types;
+pub mod sep6;
 
 pub use errors::{AnchorKitError, ErrorCode};
 
@@ -22,12 +25,10 @@ pub use response_validator::{
     validate_anchor_info_response, validate_deposit_response, validate_quote_response,
     validate_withdraw_response, AnchorInfoResponse, QuoteResponse,
 };
-pub use retry::{retry_with_backoff, is_retryable, RetryConfig};
+pub use retry::{retry_with_backoff, is_retryable, RetryConfig, RetryErrorCode};
 pub use deterministic_hash::{compute_payload_hash, verify_payload_hash};
 pub use domain_validator::validate_anchor_domain;
 
-#[cfg(test)]
-mod transaction_state_tracker_tests;
 pub use sep6::{
     fetch_transaction_status, initiate_deposit, initiate_withdrawal, withdraw_exchange,
     deposit_exchange, validate_amount, get_fee_estimate, get_transactions,
@@ -36,8 +37,17 @@ pub use sep6::{
     AssetLimits, AnchorFeeData, FeeEstimate, FeeOperation, TransactionFilters,
 };
 pub use types::{DepositResponse, WithdrawalResponse, TransactionStatus};
+pub use types::{AnchorMetadata, RoutingOptions, RoutingRequest};
 pub use contract::{AnchorKitContract, get_admin, get_endpoint, set_endpoint, get_attestation_count};
 pub use events::EndpointUpdated;
+
+// Generated contract client, re-exported for the criterion benchmark suite
+// (`benches/`, issue #738) which drives the contract through the Soroban test
+// harness as an external consumer of this crate.
+pub use contract::AnchorKitContractClient;
+
+#[cfg(test)]
+mod transaction_state_tracker_tests;
 
 #[cfg(test)]
 mod request_id_tests;
@@ -119,3 +129,18 @@ mod payload_hash_vectors_tests;
 
 #[cfg(test)]
 mod session_expiry_error_tests;
+
+#[cfg(test)]
+mod pause_tests;
+
+#[cfg(test)]
+mod attestation_validation_tests;
+
+#[cfg(test)]
+mod attestor_event_tests;
+
+#[cfg(test)]
+mod sdk_config_tests;
+
+#[cfg(test)]
+mod streaming_flow_tests;

@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Bytes, String, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, String, Symbol, Vec};
 extern crate alloc;
 use alloc::string::String as AllocString;
 
@@ -54,6 +54,20 @@ impl TransactionStatus {
             Self::Error => "error",
             Self::Unknown(s) => s.as_str(),
         }
+    }
+
+    /// Returns `true` if this status represents a terminal (non-retryable) state.
+    ///
+    /// Terminal statuses are those where no further state transitions are expected:
+    /// - `Completed` — transaction settled successfully
+    /// - `Refunded`  — funds returned to sender
+    /// - `Expired`   — transaction window closed
+    /// - `Error`     — unrecoverable anchor-side failure
+    ///
+    /// All pending and incomplete variants return `false` since they may still
+    /// progress to a final state.
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Completed | Self::Refunded | Self::Expired | Self::Error)
     }
 }
 
@@ -154,13 +168,18 @@ pub struct Session {
     pub session_id: u64,
     pub initiator: Address,
     pub created_at: u64,
-    pub nonce: u64,
+    // NOTE: No per-session nonce field. Replay protection for attestations is
+    // provided by the payload-hash Used marker in the attestation flow, which
+    // is entirely independent of sessions. Adding a nonce here without a
+    // corresponding "echo-back and increment" check on every session-scoped
+    // call would be decorative and misleading, so the field is intentionally
+    // absent.
     pub operation_count: u64,
     pub expires_at: u64,
 }
 
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Quote {
     pub quote_id: u64,
     pub anchor: Address,
@@ -320,6 +339,85 @@ pub fn anchor_matches_jurisdiction(
 }
 
 #[cfg(test)]
+mod transaction_status_tests {
+    use super::*;
+
+    #[test]
+    fn terminal_statuses_are_detected() {
+        assert!(TransactionStatus::Completed.is_terminal());
+        assert!(TransactionStatus::Refunded.is_terminal());
+        assert!(TransactionStatus::Expired.is_terminal());
+        assert!(TransactionStatus::Error.is_terminal());
+    }
+
+    #[test]
+    fn non_terminal_statuses_are_not_terminal() {
+        assert!(!TransactionStatus::Pending.is_terminal());
+        assert!(!TransactionStatus::Incomplete.is_terminal());
+        assert!(!TransactionStatus::PendingExternal.is_terminal());
+        assert!(!TransactionStatus::PendingAnchor.is_terminal());
+        assert!(!TransactionStatus::PendingTrust.is_terminal());
+        assert!(!TransactionStatus::PendingUser.is_terminal());
+        assert!(!TransactionStatus::Unknown(alloc::string::String::from("custom")).is_terminal());
+    }
+
+    #[test]
+    fn roundtrip_from_str_as_str() {
+        let cases = [
+            "pending", "incomplete", "pending_external", "pending_anchor",
+            "pending_trust", "pending_user", "completed", "refunded", "expired", "error",
+        ];
+        for s in cases {
+            assert_eq!(TransactionStatus::from_str(s).as_str(), s);
+        }
+    }
+}
+
+#[cfg(test)]
+mod merged_response_type_tests {
+    use super::*;
+
+    #[test]
+    fn canonical_response_types_include_merged_fields() {
+        let deposit = DepositResponse {
+            transaction_id: alloc::string::String::from("txn-123"),
+            how: Some(alloc::string::String::from("bank_transfer")),
+            extra_info: Some(alloc::string::String::from("follow instructions")),
+            deposit_address: Some(alloc::string::String::from("GDEPOSIT...")),
+            min_amount: Some(10),
+            max_amount: Some(1000),
+            fee_fixed: Some(2),
+            fee_percent: Some(150),
+            expires_at: Some(42),
+            status: TransactionStatus::Pending,
+            claimable_balance_supported: true,
+        };
+
+        assert_eq!(deposit.how, Some(alloc::string::String::from("bank_transfer")));
+        assert_eq!(deposit.deposit_address, Some(alloc::string::String::from("GDEPOSIT...")));
+        assert_eq!(deposit.expires_at, Some(42));
+        assert!(deposit.claimable_balance_supported);
+
+        let withdrawal = WithdrawalResponse {
+            transaction_id: alloc::string::String::from("txn-456"),
+            account_id: Some(alloc::string::String::from("GDEST...")),
+            dest_account_id: Some(alloc::string::String::from("bank-account-99")),
+            memo: Some(alloc::string::String::from("memo-1")),
+            memo_type: Some(alloc::string::String::from("id")),
+            min_amount: Some(5),
+            max_amount: Some(500),
+            fee_fixed: Some(1),
+            fee_percent: Some(50),
+            estimated_completion: Some(99),
+            status: TransactionStatus::Completed,
+        };
+
+        assert_eq!(withdrawal.account_id, Some(alloc::string::String::from("GDEST...")));
+        assert_eq!(withdrawal.estimated_completion, Some(99));
+    }
+}
+
+#[cfg(test)]
 mod jurisdiction_filter_tests {
     use super::*;
     use soroban_sdk::String;
@@ -384,6 +482,8 @@ pub struct AnchorMetadata {
     pub total_volume: u64,
     pub average_settlement_time: u64,
     pub is_active: bool,
+    /// Optional public homepage URL for the anchor (e.g. "https://anchor.example.com").
+    pub homepage_url: Option<String>,
 }
 
 #[contracttype]
@@ -459,6 +559,9 @@ pub struct StellarToml {
     pub transfer_server_sep0024: String,
     pub kyc_server: String,
     pub web_auth_endpoint: String,
+    /// Whether the anchor supports claimable balances as a deposit destination.
+    /// Sourced from the `CLAIMABLE_BALANCE_SUPPORTED` flag in stellar.toml.
+    pub claimable_balance_supported: bool,
 }
 
 #[contracttype]
@@ -474,10 +577,33 @@ pub struct CachedToml {
 // ---------------------------------------------------------------------------
 
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HealthStatus {
     pub anchor: Address,
     pub latency_ms: u64,
     pub failure_count: u32,
     pub availability_percent: u32,
+}
+
+// ---------------------------------------------------------------------------
+// Credential management types
+// ---------------------------------------------------------------------------
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CredentialPolicy {
+    pub attestor: Address,
+    pub rotation_interval_seconds: u64,
+    pub require_encryption: bool,
+    pub last_rotated: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StoredCredential {
+    pub attestor: Address,
+    pub credential_type: Symbol,
+    pub encrypted_value: String,
+    pub expires_at: u64,
+    pub updated_at: u64,
 }

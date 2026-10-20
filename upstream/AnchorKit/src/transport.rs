@@ -1,7 +1,7 @@
 extern crate alloc;
 
 use crate::errors::Error;
-use crate::types::{HealthStatus, QuoteData};
+use crate::types::{HealthStatus, Quote};
 use soroban_sdk::{Bytes, Env, String};
 
 /// Transport request types
@@ -29,7 +29,7 @@ pub enum TransportRequest {
 /// Transport response types
 #[derive(Clone, Debug, PartialEq)]
 pub enum TransportResponse {
-    Quote(QuoteData),
+    Quote(Quote),
     AttestationConfirmed { transaction_id: String },
     Health(HealthStatus),
     KYCVerified { status: String, level: String },
@@ -178,12 +178,12 @@ impl AnchorTransport for MockTransport {
         self.call_count += 1;
 
         if self.should_fail {
-            return Err(Error::EndpointNotFound);
+            return Err(Error::endpoint_not_found());
         }
 
         match self.find_response(&request) {
             Some(response) => Ok(response),
-            None => Err(Error::EndpointNotFound),
+            None => Err(Error::endpoint_not_found()),
         }
     }
 
@@ -196,7 +196,7 @@ impl AnchorTransport for MockTransport {
         // Check if simulated delay exceeds timeout
         if self.simulate_timeout && self.simulated_delay_seconds > timeout_seconds {
             self.call_count += 1;
-            return Err(Error::TransportTimeout);
+            return Err(Error::transport_timeout());
         }
 
         // Otherwise proceed with normal request
@@ -248,7 +248,7 @@ mod tests {
         };
 
         let anchor = Address::generate(&env);
-        let quote = QuoteData {
+        let quote = Quote {
             anchor: anchor.clone(),
             base_asset: base_asset.clone(),
             quote_asset: quote_asset.clone(),
@@ -292,7 +292,7 @@ mod tests {
         };
 
         let result = transport.send_request(&env, request);
-        assert_eq!(result, Err(Error::EndpointNotFound));
+        assert_eq!(result, Err(Error::endpoint_not_found()));
         assert_eq!(transport.get_call_count(), 1);
     }
 
@@ -308,7 +308,7 @@ mod tests {
         let request = TransportRequest::CheckHealth { endpoint };
 
         let result = transport.send_request(&env, request);
-        assert_eq!(result, Err(Error::EndpointNotFound));
+        assert_eq!(result, Err(Error::endpoint_not_found()));
     }
 
     #[test]
@@ -327,7 +327,6 @@ mod tests {
             latency_ms: 50,
             failure_count: 0,
             availability_percent: 9999,
-            last_check: 1000,
         };
 
         transport.add_response(request.clone(), TransportResponse::Health(health));
@@ -339,7 +338,7 @@ mod tests {
         assert_eq!(transport.get_call_count(), 0);
 
         let result = transport.send_request(&env, request);
-        assert_eq!(result, Err(Error::EndpointNotFound));
+        assert_eq!(result, Err(Error::endpoint_not_found()));
     }
 
     #[test]
@@ -359,7 +358,6 @@ mod tests {
             latency_ms: 50,
             failure_count: 0,
             availability_percent: 9999,
-            last_check: 1000,
         };
         transport.add_response(health_request.clone(), TransportResponse::Health(health));
 
@@ -399,7 +397,7 @@ mod tests {
 
         // Request with 10 second timeout should fail
         let result = transport.send_request_with_timeout(&env, request, 10);
-        assert_eq!(result, Err(Error::TransportTimeout));
+        assert_eq!(result, Err(Error::transport_timeout()));
         assert_eq!(transport.get_call_count(), 1);
     }
 
@@ -418,7 +416,6 @@ mod tests {
             latency_ms: 50,
             failure_count: 0,
             availability_percent: 9999,
-            last_check: 1000,
         };
 
         let request = TransportRequest::CheckHealth {
@@ -446,7 +443,7 @@ mod tests {
         // Use default timeout of 10 seconds (from SdkConfig default)
         let default_timeout = 10u32;
         let result = transport.send_request_with_timeout(&env, request, default_timeout);
-        assert_eq!(result, Err(Error::TransportTimeout));
+        assert_eq!(result, Err(Error::transport_timeout()));
     }
 
     #[test]
@@ -466,7 +463,7 @@ mod tests {
             amount: 1000,
         };
         let result = transport.send_request_with_timeout(&env, quote_request, 10);
-        assert_eq!(result, Err(Error::TransportTimeout));
+        assert_eq!(result, Err(Error::transport_timeout()));
 
         // Test SubmitAttestation timeout
         let attest_request = TransportRequest::SubmitAttestation {
@@ -474,7 +471,7 @@ mod tests {
             payload: Bytes::new(&env),
         };
         let result = transport.send_request_with_timeout(&env, attest_request, 10);
-        assert_eq!(result, Err(Error::TransportTimeout));
+        assert_eq!(result, Err(Error::transport_timeout()));
 
         // Test VerifyKYC timeout
         let kyc_request = TransportRequest::VerifyKYC {
@@ -482,6 +479,6 @@ mod tests {
             subject_id: SorobanString::from_str(&env, "user123"),
         };
         let result = transport.send_request_with_timeout(&env, kyc_request, 10);
-        assert_eq!(result, Err(Error::TransportTimeout));
+        assert_eq!(result, Err(Error::transport_timeout()));
     }
 }

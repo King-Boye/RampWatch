@@ -28,7 +28,7 @@ Every public method on the `AnchorKitContract` Soroban contract. Methods are gro
 ### `initialize`
 
 ```rust
-fn initialize(env: Env, admin: Address, max_audit_log_size: u64, replay_window_seconds: Option<u64>)
+fn initialize(env: Env, admin: Address, max_audit_log_size: u64, replay_window_seconds: Option<u64>, clock_skew_seconds: Option<u64>)
 ```
 
 Initialises the contract. Must be called once before any other method.
@@ -38,12 +38,13 @@ Initialises the contract. Must be called once before any other method.
 | `admin` | `Address` | Initial admin address |
 | `max_audit_log_size` | `u64` | Maximum number of audit log entries to retain |
 | `replay_window_seconds` | `Option<u64>` | Replay-attack window in seconds; `None` defaults to 300 |
+| `clock_skew_seconds` | `Option<u64>` | SEP-10 clock-skew tolerance in seconds; `None` defaults to 60 |
 
 **Errors:** `AlreadyInitialized (1)`
 
 **Example**
 ```rust
-client.initialize(&admin, &1000u64, &None);
+client.initialize(&admin, &1000u64, &None, &None);
 ```
 
 ---
@@ -345,7 +346,17 @@ Submits an attestation and records a `TracingSpan` keyed by `request_id`.
 fn get_attestation(env: Env, id: u64) -> Option<Attestation>
 ```
 
-Returns the `Attestation` for the given ID, or `None` if not found.
+Returns the `Attestation` for the given ID, or `None` if not found, has been revoked, or has expired.
+
+---
+
+### `get_attestation_or_panic`
+
+```rust
+fn get_attestation_or_panic(env: Env, id: u64) -> Attestation
+```
+
+Returns the `Attestation` for the given ID, panicking if it does not exist, has been revoked, or has expired.
 
 ---
 
@@ -457,6 +468,17 @@ fn get_session_operation_count(env: Env, session_id: u64) -> Option<u64>
 
 Returns the number of operations logged in the session, or `None` if the session does not exist.
 
+### Session CLI commands
+
+The `anchorkit session create`, `get`, and `list` commands use Soroban RPC. Set
+`SOROBAN_CONTRACT_ID` (or `ANCHORKIT_CONTRACT_ID`) to the deployed contract ID.
+`SOROBAN_RPC_URL` (or `ANCHORKIT_RPC_URL`) selects the RPC endpoint and defaults
+to Stellar testnet. Creating a session also requires a signing secret in
+`STELLAR_SECRET_KEY`, `SOROBAN_SECRET_KEY`, or `ANCHORKIT_SECRET_KEY`; the
+initiator must be the account derived from that key. `get` and `list` read
+contract storage and do not require a signing key. `list` returns active
+sessions, newest first, and accepts limits up to 1,000.
+
 ---
 
 ## Quotes & Routing
@@ -537,7 +559,7 @@ Selects the best anchor according to the routing strategy in `options` and retur
 | Field in `RoutingOptions` | Description |
 |--------------------------|-------------|
 | `request` | `RoutingRequest` with base/quote assets, amount, operation type |
-| `strategy` | `BestRate`, `LowestFee`, `HighestReputation`, `FastestSettlement`, or `BestOverall` |
+| `strategy` | `LowestFee`, `FastestSettlement`, `HighestReputation`, `Balanced`, or `Weighted` |
 | `filters` | Optional min-reputation, max-fee, required services |
 
 **Errors:** `NoQuotesAvailable (13)`, `ServicesNotConfigured (14)`

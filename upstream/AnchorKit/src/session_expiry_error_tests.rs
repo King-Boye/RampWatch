@@ -37,7 +37,7 @@ mod session_expiry_error_tests {
         let contract_id = env.register_contract(None, AnchorKitContract);
         let client = AnchorKitContractClient::new(env, &contract_id);
         let admin = Address::generate(env);
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
         client
     }
 
@@ -79,14 +79,7 @@ mod session_expiry_error_tests {
         let hash_bytes: Bytes = hash.into();
         let sig = sign_payload(&env, &sk, &hash_bytes);
 
-        let result = client.try_submit_attestation_with_session(
-            &nonexistent_session_id,
-            &attestor,
-            &subject,
-            &ts,
-            &hash_bytes,
-            &sig,
-        );
+        let result = client.try_submit_attestation_with_session(&nonexistent_session_id, &attestor, &subject, &ts, &hash_bytes, &sig);
         assert!(result.is_err());
         let err = result.unwrap_err().unwrap();
         assert_eq!(err, soroban_sdk::Error::from_contract_error(ErrorCode::SessionNotFound as u32));
@@ -116,14 +109,7 @@ mod session_expiry_error_tests {
         let hash_bytes: Bytes = hash.into();
         let sig = sign_payload(&env, &sk, &hash_bytes);
 
-        let result = client.try_submit_attestation_with_session(
-            &session_id,
-            &attestor,
-            &subject,
-            &ts,
-            &hash_bytes,
-            &sig,
-        );
+        let result = client.try_submit_attestation_with_session(&session_id, &attestor, &subject, &ts, &hash_bytes, &sig);
         assert!(result.is_err());
         let err = result.unwrap_err().unwrap();
         assert_eq!(err, soroban_sdk::Error::from_contract_error(ErrorCode::SessionExpired as u32));
@@ -150,14 +136,7 @@ mod session_expiry_error_tests {
         let sig = sign_payload(&env, &sk, &hash_bytes);
 
         // Should succeed without panic
-        let result = client.try_submit_attestation_with_session(
-            &session_id,
-            &attestor,
-            &subject,
-            &ts,
-            &hash_bytes,
-            &sig,
-        );
+        let result = client.try_submit_attestation_with_session(&session_id, &attestor, &subject, &ts, &hash_bytes, &sig);
         assert!(result.is_ok());
     }
 }

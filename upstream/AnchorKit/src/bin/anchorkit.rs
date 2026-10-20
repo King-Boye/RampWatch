@@ -11,6 +11,20 @@ use soroban_rpc::*;
 const MIN_RUST_MAJOR: u32 = 1;
 const MIN_RUST_MINOR: u32 = 74;
 
+const VALID_NETWORKS: &[&str] = &["testnet", "mainnet", "futurenet"];
+
+fn validate_network_arg(s: &str) -> Result<String, String> {
+    if VALID_NETWORKS.contains(&s) {
+        Ok(s.to_string())
+    } else {
+        Err(format!(
+            "invalid network '{}'; expected one of: {}",
+            s,
+            VALID_NETWORKS.join(", ")
+        ))
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "anchorkit", about = "AnchorKit CLI for Soroban anchor management")]
 struct Cli {
@@ -29,7 +43,7 @@ enum Commands {
     /// Deploy to Stellar network
     Deploy {
         /// Target network (testnet, mainnet)
-        #[arg(long, default_value = "testnet")]
+        #[arg(long, default_value = "testnet", value_parser = validate_network_arg)]
         network: String,
     },
     /// Initialize contract with admin
@@ -309,9 +323,9 @@ fn run_deploy(network: &str) {
 fn run_init(admin: &str) {
     println!("🔧 Initializing contract with admin: {}", admin);
     
-    // Validate admin address format
-    if !admin.starts_with('G') || admin.len() != 56 {
-        eprintln!("❌ Invalid admin address format. Expected Stellar public key starting with 'G'");
+    // Validate admin address format (prefix, length, and base32 strkey charset)
+    if !is_valid_g_address(admin) {
+        eprintln!("❌ Invalid admin address format. Expected Stellar public key starting with 'G' followed by 55 base32 characters (A-Z2-7)");
         std::process::exit(1);
     }
     
@@ -339,8 +353,8 @@ fn run_attest(subject: &str, payload_hash: &str, session: Option<&str>) {
     }
     
     // Validate inputs
-    if !subject.starts_with('G') || subject.len() != 56 {
-        eprintln!("❌ Invalid subject address format");
+    if !is_valid_g_address(subject) {
+        eprintln!("❌ Invalid subject address format. Expected Stellar public key starting with 'G' followed by 55 base32 characters (A-Z2-7)");
         std::process::exit(1);
     }
     
@@ -490,6 +504,22 @@ fn run_query(transaction_id: &str, output: &str) {
 fn run_health(attestor: Option<&str>, watch: bool, interval: u64, output: &str) {
     validate_output_format(output);
 
+    if watch {
+        if interval == 0 {
+            eprintln!("❌ Invalid interval '0'. --interval must be greater than 0 seconds");
+            std::process::exit(1);
+        }
+        eprintln!("👀 Watch mode enabled (interval: {}s) — press Ctrl+C to stop", interval);
+        loop {
+            render_health(attestor, output);
+            std::thread::sleep(std::time::Duration::from_secs(interval));
+        }
+    }
+
+    render_health(attestor, output);
+}
+
+fn render_health(attestor: Option<&str>, output: &str) {
     // Simulated health records.  In a real implementation these come from
     // on-chain queries; the shape maps 1-to-1 with HealthStatus in types.rs.
     let records: Vec<[&str; 4]> = if let Some(addr) = attestor {
@@ -501,10 +531,6 @@ fn run_health(attestor: Option<&str>, watch: bool, interval: u64, output: &str) 
             ["G…attestor-3", "120", "3", "92"],
         ]
     };
-
-    if watch {
-        eprintln!("👀 Watch mode enabled (interval: {}s) — press Ctrl+C to stop", interval);
-    }
 
     match output {
         "json" => {
@@ -705,12 +731,37 @@ fn check_wallet() -> bool {
 
 fn check_rpc() -> bool {
     let vars = ["ANCHORKIT_RPC_URL", "SOROBAN_RPC_URL", "STELLAR_RPC_URL"];
-    if vars.iter().any(|v| std::env::var(v).is_ok()) {
-        println!("✔ RPC endpoint reachable");
-        true
-    } else {
-        println!("✖ RPC endpoint not configured → set ANCHORKIT_RPC_URL, SOROBAN_RPC_URL, or STELLAR_RPC_URL");
-        false
+    let url = vars.iter().find_map(|v| std::env::var(v).ok());
+
+    let url = match url {
+        Some(u) => u,
+        None => {
+            println!("✖ RPC endpoint not configured → set ANCHORKIT_RPC_URL, SOROBAN_RPC_URL, or STELLAR_RPC_URL");
+            return false;
+        }
+    };
+
+    let result = Command::new("curl")
+        .args(["-s", "--max-time", "5", "-o", "/dev/null", "-w", "%{http_code}", &url])
+        .output();
+
+    match result {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            println!("✖ curl not found → install curl to verify RPC reachability");
+            false
+        }
+        Err(e) => {
+            println!("✖ RPC probe failed: {}", e);
+            false
+        }
+        Ok(o) if String::from_utf8_lossy(&o.stdout).trim() == "000" => {
+            println!("✖ RPC endpoint unreachable → check that {} is accessible", url);
+            false
+        }
+        Ok(_) => {
+            println!("✔ RPC endpoint reachable ({})", url);
+            true
+        }
     }
 }
 
@@ -720,40 +771,77 @@ fn check_configs() -> bool {
         println!("✖ configs/ directory not found");
         return false;
     }
-    let count = std::fs::read_dir(configs)
-        .map(|rd| {
-            rd.filter_map(|e| e.ok())
-                .filter(|e| {
-                    matches!(
-                        e.path().extension().and_then(|s| s.to_str()),
-                        Some("json") | Some("toml")
-                    )
-                })
-                .count()
-        })
-        .unwrap_or(0);
-    if count > 0 {
-        println!("✔ Config files valid ({} found)", count);
-        true
-    } else {
-        println!("✖ No config files found in configs/");
-        false
+    let entries = match std::fs::read_dir(configs) {
+        Ok(entries) => entries,
+        Err(e) => {
+            println!("✖ Cannot read configs/ directory: {}", e);
+            return false;
+        }
+    };
+    let mut config_files = Vec::new();
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                println!("✖ Failed to read an entry in configs/: {}", e);
+                return false;
+            }
+        };
+        let path = entry.path();
+        if path.is_file()
+            && matches!(
+                path.extension().and_then(|s| s.to_str()),
+                Some("json") | Some("toml")
+            )
+        {
+            config_files.push(path);
+        }
     }
+    config_files.sort();
+    if config_files.is_empty() {
+        println!("✖ No config files found in configs/");
+        return false;
+    }
+
+    let count = config_files.len();
+    let mut all_valid = true;
+    for path in &config_files {
+        all_valid &= validate_file(path);
+    }
+    if all_valid {
+        println!("✔ Config files valid ({} found)", count);
+    } else {
+        println!("✖ Config validation failed ({} files checked)", count);
+    }
+    all_valid
 }
 
 fn check_network() -> bool {
-    let ok = Command::new("curl")
-        .args(["-s", "--max-time", "3", "-o", "/dev/null", "-w", "%{http_code}",
-               "https://horizon-testnet.stellar.org"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim() != "000")
-        .unwrap_or(false);
-    if ok {
-        println!("✔ Network responding");
-    } else {
-        println!("✖ Network unreachable → check internet connection");
+    let url = std::env::var("ANCHORKIT_HEALTH_URL")
+        .unwrap_or_else(|_| "https://horizon-testnet.stellar.org".to_string());
+
+    let result = Command::new("curl")
+        .args(["-s", "--max-time", "3", "-o", "/dev/null", "-w", "%{http_code}", &url])
+        .output();
+
+    match result {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            println!("✖ curl not found → install curl to enable network checks");
+            false
+        }
+        Err(e) => {
+            println!("✖ failed to run curl: {}", e);
+            false
+        }
+        Ok(o) if String::from_utf8_lossy(&o.stdout).trim() == "000" => {
+            println!("✖ Network unreachable → check internet connection (probe: {})", url);
+            false
+        }
+        Ok(_) => {
+            println!("✔ Network responding (probe: {})", url);
+            true
+        }
     }
-    ok
 }
 
 // ── validate ─────────────────────────────────────────────────────────────────
@@ -761,8 +849,14 @@ fn check_network() -> bool {
 fn run_validate(path: &str) {
     let p = std::path::Path::new(path);
     if p.is_dir() {
-        let mut entries: Vec<_> = std::fs::read_dir(p)
-            .expect("cannot read directory")
+        let read_dir = match std::fs::read_dir(p) {
+            Ok(rd) => rd,
+            Err(e) => {
+                eprintln!("error: cannot read directory '{}': {}", path, e);
+                std::process::exit(1);
+            }
+        };
+        let mut entries: Vec<_> = read_dir
             .filter_map(|e| e.ok())
             .filter(|e| {
                 matches!(
@@ -870,10 +964,8 @@ fn validate_config_schema(path: &std::path::Path, config: &serde_json::Value) ->
         validate_sessions_section(sessions, &mut errors, &mut warnings);
     }
 
-    // Validate deployment section (required as of config init v2)
-    if !obj.contains_key("deployment") {
-        errors.push("field 'deployment' is missing — run `anchorkit config init` to generate a valid config".to_string());
-    } else if let Some(deployment) = obj.get("deployment") {
+    // Validate deployment section when present (optional — added after `anchorkit config init`)
+    if let Some(deployment) = obj.get("deployment") {
         validate_deployment_section(deployment, &mut errors, &mut warnings);
     }
 
@@ -1030,7 +1122,7 @@ fn validate_attestors_section(attestors: &serde_json::Value, errors: &mut Vec<St
         
         // Validate address
         if let Some(address) = attestor_obj.get("address").and_then(|v| v.as_str()) {
-            let addr_regex = Regex::new(r"^G[A-Z0-9]{55}$").unwrap();
+            let addr_regex = Regex::new(r"^G[A-Z2-7]{55}$").unwrap();
             if !addr_regex.is_match(address) {
                 errors.push(format!("field 'attestors.registry[{}].address' has invalid Stellar address format (must start with 'G' and be 56 characters)", idx));
             }
@@ -1432,9 +1524,9 @@ fn run_register(address: &str, services: Option<&str>, endpoint: Option<&str>, o
         }
     }
 
-    // Validate address format
-    if !address.starts_with('G') || address.len() != 56 {
-        eprintln!("error: invalid attestor address format. Expected Stellar public key starting with 'G'");
+    // Validate address format (prefix, length, and base32 strkey charset)
+    if !is_valid_g_address(address) {
+        eprintln!("error: invalid attestor address format. Expected Stellar public key starting with 'G' followed by 55 base32 characters (A-Z2-7)");
         std::process::exit(1);
     }
 
@@ -1561,6 +1653,12 @@ fn run_export_audit(format: &str, output: &str) {
     println!("Fetching audit log entries...");
     let entries = fetch_audit_entries();
     let total = entries.len();
+
+    if total == 0 {
+        eprintln!("error: no audit log entries found — verify ANCHORKIT_CONTRACT_ID and ANCHORKIT_RPC_URL are set correctly");
+        std::process::exit(1);
+    }
+
     let content = match format {
         "csv" => {
             let mut out = String::from("id,operation,actor,timestamp,result\n");
@@ -1604,8 +1702,66 @@ fn fetch_audit_entries() -> Vec<AuditEntry> {
 }
 
 fn fetch_page(page: u64, page_size: u64) -> Vec<AuditEntry> {
-    let _ = (page, page_size);
-    vec![]
+    let rpc_url = std::env::var("ANCHORKIT_RPC_URL")
+        .or_else(|_| std::env::var("SOROBAN_RPC_URL"))
+        .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string());
+    let contract_id = std::env::var("ANCHORKIT_CONTRACT_ID").unwrap_or_default();
+
+    if contract_id.is_empty() {
+        eprintln!("warning: ANCHORKIT_CONTRACT_ID not set; cannot fetch audit entries from chain");
+        return vec![];
+    }
+
+    let offset = page * page_size;
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getEvents",
+        "params": {
+            "startLedger": 0,
+            "filters": [{"type": "contract", "contractIds": [contract_id], "topics": [["audit_log"]]}],
+            "pagination": {"limit": page_size, "offset": offset}
+        }
+    });
+
+    let client = reqwest::blocking::Client::new();
+    let resp = match client.post(&rpc_url).json(&body).send() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("warning: RPC request failed: {e}");
+            return vec![];
+        }
+    };
+
+    let json: serde_json::Value = match resp.json() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("warning: failed to parse RPC response: {e}");
+            return vec![];
+        }
+    };
+
+    let events = match json["result"]["events"].as_array() {
+        Some(arr) => arr.clone(),
+        None => return vec![],
+    };
+
+    events
+        .iter()
+        .enumerate()
+        .filter_map(|(i, ev)| {
+            Some(AuditEntry {
+                id: offset + i as u64,
+                operation: ev["topic"].as_str().unwrap_or("unknown").to_string(),
+                actor: ev["value"]["address"].as_str().unwrap_or("unknown").to_string(),
+                timestamp: ev["ledgerClosedAt"]
+                    .as_str()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0),
+                result: ev["value"]["result"].as_str().unwrap_or("ok").to_string(),
+            })
+        })
+        .collect()
 }
 
 // ── audit get ───────────────────────────────────────────────────────────────
@@ -1721,18 +1877,20 @@ fn print_audit_entry(entry: &AuditLogEntry) {
 }
 
 fn print_audit_entry_compact(entry: &AuditLogEntry) {
+    let actor_truncated: String = entry.actor.chars().take(24).collect();
+    let result_truncated: String = entry.result.chars().take(50).collect();
     println!("  │ Log ID:     {} │ Op: {} │ Status: {}", 
              entry.log_id,
              entry.operation_type,
              entry.status);
     println!("  │ Session:    {} │ Actor: {}", 
              entry.session_id,
-             &entry.actor[..entry.actor.len().min(24)]);
+             actor_truncated);
     println!("  │ Timestamp:  {} (op_index: {})", 
              format_timestamp(entry.timestamp),
              entry.operation_index);
     println!("  │ Result:     {}", 
-             &entry.result[..entry.result.len().min(50)]);
+             result_truncated);
 }
 
 fn format_timestamp(ts: u64) -> String {
@@ -1779,9 +1937,58 @@ fn fetch_audit_log_entry(log_id: u64) -> Option<AuditLogEntry> {
     // 5. Parse result and extract AuditLog structure
     // 6. Map to AuditLogEntry with actor address and operation context
     
-    let _ = log_id;
-    // Placeholder: return None (no entries fetched)
-    None
+    let rpc_url = std::env::var("ANCHORKIT_RPC_URL")
+        .or_else(|_| std::env::var("SOROBAN_RPC_URL"))
+        .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string());
+    let contract_id = std::env::var("ANCHORKIT_CONTRACT_ID").unwrap_or_default();
+
+    if contract_id.is_empty() {
+        eprintln!("warning: ANCHORKIT_CONTRACT_ID not set; cannot fetch audit entry from chain");
+        return None;
+    }
+
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getEvents",
+        "params": {
+            "startLedger": 0,
+            "filters": [{"type": "contract", "contractIds": [contract_id], "topics": [["audit_log"]]}],
+            "pagination": {"limit": 1, "offset": log_id}
+        }
+    });
+
+    let client = reqwest::blocking::Client::new();
+    let resp = match client.post(&rpc_url).json(&body).send() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("warning: RPC request failed: {e}");
+            return None;
+        }
+    };
+
+    let json: serde_json::Value = match resp.json() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("warning: failed to parse RPC response: {e}");
+            return None;
+        }
+    };
+
+    let ev = json["result"]["events"].as_array()?.first()?.clone();
+    Some(AuditLogEntry {
+        log_id,
+        operation_type: ev["topic"].as_str().unwrap_or("unknown").to_string(),
+        operation_index: ev["value"]["operation_index"].as_u64().unwrap_or(0),
+        actor: ev["value"]["address"].as_str().unwrap_or("unknown").to_string(),
+        timestamp: ev["ledgerClosedAt"]
+            .as_str()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0),
+        status: ev["value"]["status"].as_str().unwrap_or("ok").to_string(),
+        result: ev["value"]["result"].as_str().unwrap_or("ok").to_string(),
+        session_id: ev["value"]["session_id"].as_u64().unwrap_or(0),
+    })
 }
 
 /// Fetch audit logs filtered by session ID.
@@ -1802,9 +2009,115 @@ fn fetch_audit_logs_by_session(session_id: u64, from: Option<u64>, to: Option<u6
     // 5. Accumulate until complete or limit reached
     // 6. Map AuditLog results to AuditLogEntry with formatted timestamps
     
-    let _ = (session_id, from, to);
-    // Placeholder: return empty vec (no entries fetched)
-    vec![]
+    let rpc_url = std::env::var("ANCHORKIT_RPC_URL")
+        .or_else(|_| std::env::var("SOROBAN_RPC_URL"))
+        .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string());
+    let contract_id = std::env::var("ANCHORKIT_CONTRACT_ID").unwrap_or_default();
+
+    if contract_id.is_empty() {
+        eprintln!("warning: ANCHORKIT_CONTRACT_ID not set; cannot fetch session audit logs from chain");
+        return vec![];
+    }
+
+    let batch_size = 100u64;
+    let range_start = from.unwrap_or(0);
+    let range_end = to.unwrap_or(u64::MAX);
+    let mut results = Vec::new();
+    let mut offset = range_start;
+    let client = reqwest::blocking::Client::new();
+
+    loop {
+        let limit = batch_size.min(range_end.saturating_sub(offset) + 1);
+        if limit == 0 { break; }
+
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getEvents",
+            "params": {
+                "startLedger": 0,
+                "filters": [{"type": "contract", "contractIds": [contract_id], "topics": [["audit_log"]]}],
+                "pagination": {"limit": limit, "offset": offset}
+            }
+        });
+
+        let resp = match client.post(&rpc_url).json(&body).send() {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("warning: RPC request failed: {e}");
+                break;
+            }
+        };
+
+        let json: serde_json::Value = match resp.json() {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("warning: failed to parse RPC response: {e}");
+                break;
+            }
+        };
+
+        let events = match json["result"]["events"].as_array() {
+            Some(arr) => arr.clone(),
+            None => break,
+        };
+
+        let count = events.len() as u64;
+        for (i, ev) in events.iter().enumerate() {
+            let entry_session = ev["value"]["session_id"].as_u64().unwrap_or(u64::MAX);
+            if entry_session != session_id {
+                continue;
+            }
+            results.push(AuditLogEntry {
+                log_id: offset + i as u64,
+                operation_type: ev["topic"].as_str().unwrap_or("unknown").to_string(),
+                operation_index: ev["value"]["operation_index"].as_u64().unwrap_or(0),
+                actor: ev["value"]["address"].as_str().unwrap_or("unknown").to_string(),
+                timestamp: ev["ledgerClosedAt"]
+                    .as_str()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(0),
+                status: ev["value"]["status"].as_str().unwrap_or("ok").to_string(),
+                result: ev["value"]["result"].as_str().unwrap_or("ok").to_string(),
+                session_id,
+            });
+        }
+
+        if count < limit { break; }
+        offset += count;
+        if offset > range_end { break; }
+    }
+
+    results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audit_event_uses_real_onchain_log_id_not_pagination_offset() {
+        let event = serde_json::json!({
+            "value": {
+                "log_id": 42,
+                "session_id": 7,
+                "operation_index": 3,
+                "address": "GTEST",
+                "status": "success",
+                "result": "ok",
+                "operation_type": "attest"
+            },
+            "topic": "audit_log",
+            "ledgerClosedAt": "1710000000"
+        });
+
+        let entry = parse_audit_log_entry_from_event(&event, 999, 7);
+
+        assert_eq!(entry.log_id, 42);
+        assert_eq!(entry.session_id, 7);
+        assert_eq!(entry.operation_index, 3);
+        assert_eq!(entry.actor, "GTEST");
+    }
 }
 
 // ── Session data structures ──────────────────────────────────────────────────
@@ -1815,7 +2128,6 @@ struct SessionRecord {
     session_id: u64,
     initiator: String,
     created_at: u64,
-    nonce: u64,
     operation_count: u64,
     expires_at: u64,
 }
@@ -1856,13 +2168,17 @@ fn run_session_get(session_id: u64) {
     println!();
 
     match fetch_session_from_chain(session_id) {
-        Some(session) => {
+        Ok(Some(session)) => {
             print_session(&session);
             println!();
             println!("✔ Session retrieved successfully");
         }
-        None => {
+        Ok(None) => {
             eprintln!("✖ Session {} not found", session_id);
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("✖ Failed to fetch session {}: {}", session_id, e);
             std::process::exit(1);
         }
     }
@@ -1878,7 +2194,13 @@ fn run_session_list(format: &str, pretty: bool, limit: Option<u64>) {
         std::process::exit(1);
     }
 
-    let sessions = fetch_sessions_from_chain(limit);
+    let sessions = match fetch_sessions_from_chain(limit) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("✖ Failed to fetch sessions: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     if sessions.is_empty() {
         println!("\n✗ No sessions found");
@@ -1937,7 +2259,6 @@ fn print_session(session: &SessionRecord) {
     println!("  Created At:       {} ({})", 
              session.created_at, 
              format_timestamp(session.created_at));
-    println!("  Nonce:            {}", session.nonce);
     println!("  Operation Count:  {}", session.operation_count);
     println!("  Expires At:       {} ({})", 
              session.expires_at,
@@ -1958,34 +2279,34 @@ fn create_session_on_chain(initiator: Option<String>) -> Result<u64, String> {
     create_session_rpc(initiator)
 }
 
-fn fetch_session_from_chain(session_id: u64) -> Option<SessionRecord> {
+fn fetch_session_from_chain(session_id: u64) -> Result<Option<SessionRecord>, String> {
     match get_session_rpc(session_id) {
-        Ok(session_data) => Some(SessionRecord {
+        Ok(session_data) => Ok(Some(SessionRecord {
             session_id: session_data.session_id,
             initiator: session_data.initiator,
             created_at: session_data.created_at,
-            nonce: session_data.nonce,
             operation_count: session_data.operation_count,
             expires_at: session_data.expires_at,
-        }),
-        Err(_) => None,
+        })),
+        // #914: surface the descriptive RPC error instead of silently returning None
+        Err(e) => Err(e),
     }
 }
 
-fn fetch_sessions_from_chain(limit: u64) -> Vec<SessionRecord> {
+fn fetch_sessions_from_chain(limit: u64) -> Result<Vec<SessionRecord>, String> {
     match list_sessions_rpc(limit) {
-        Ok(sessions) => sessions
+        Ok(sessions) => Ok(sessions
             .into_iter()
             .map(|s| SessionRecord {
                 session_id: s.session_id,
                 initiator: s.initiator,
                 created_at: s.created_at,
-                nonce: s.nonce,
                 operation_count: s.operation_count,
                 expires_at: s.expires_at,
             })
-            .collect(),
-        Err(_) => vec![],
+            .collect()),
+        // #914: surface the descriptive RPC error instead of silently returning vec![]
+        Err(e) => Err(e),
     }
 }
 
@@ -2025,16 +2346,25 @@ where
     }
 }
 
+/// Returns `true` if `addr` is a syntactically valid Stellar public key:
+/// prefix 'G', exactly 56 characters, remaining 55 chars from the RFC4648
+/// base32 strkey alphabet (A-Z, 2-7).  Digits 0, 1, 8, 9 and any lowercase
+/// letter are not part of that alphabet and will cause this to return `false`.
+fn is_valid_g_address(addr: &str) -> bool {
+    addr.starts_with('G')
+        && addr.len() == 56
+        && addr[1..].chars().all(|c| matches!(c, 'A'..='Z' | '2'..='7'))
+}
+
 /// Validate a Stellar public key (admin / contract-id format).
 fn validate_stellar_address(s: &str) -> Result<String, String> {
-    // Match the same regex used by validate_attestors_section so a key
-    // that passes here will also pass config validation.
-    let re = Regex::new(r"^G[A-Z0-9]{55}$").unwrap();
+    // Stellar public keys are RFC4648 base32 strkeys: prefix 'G' + 55 chars from A-Z2-7
+    let re = Regex::new(r"^G[A-Z2-7]{55}$").unwrap();
     if re.is_match(s) {
         Ok(s.to_string())
     } else {
         Err(format!(
-            "Invalid Stellar public key — must start with 'G' followed by 55 uppercase alphanumeric characters (56 chars total), got '{}'",
+            "Invalid Stellar public key — must start with 'G' followed by 55 base32 characters (A-Z, 2-7) (56 chars total), got '{}'",
             s
         ))
     }
@@ -2127,11 +2457,16 @@ fn run_config_init() {
     // ── 4. RPC endpoint ────────────────────────────────────────────────────
     let default_rpc = match network.as_str() {
         "stellar-testnet" => "https://soroban-testnet.stellar.org",
-        "stellar-mainnet" => "https://mainnet.sorobanrpc.com",
+        "stellar-mainnet" => "https://horizon.stellar.org/rpc",
         _ => "https://rpc-futurenet.stellar.org",
     };
     println!();
     println!("  Default RPC for {}: {}", network, default_rpc);
+    if network == "stellar-mainnet" {
+        println!("  ⚠  Note: This is a third-party RPC endpoint, not operated by the Stellar Development Foundation.");
+        println!("     It will receive your mainnet traffic including session and attestation data.");
+        println!("     Consider using your own RPC node or an SDF-operated endpoint for production use.");
+    }
     let rpc_endpoint: String = prompt_until_valid(
         &format!("RPC endpoint URL [{}]: ", default_rpc),
         |s| {

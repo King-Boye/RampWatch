@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useSep10Auth } from "../hooks/useSep10Auth";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import { SkeletonLoader } from "./SkeletonLoader";
 
 import './themes.css';
 
@@ -67,10 +69,12 @@ function GlowRing({
   active,
   done,
   color,
+  stepId,
 }: {
   active: boolean;
   done: boolean;
   color: string;
+  stepId: string;
 }) {
   return (
     <div style={{ position: "relative", width: 48, height: 48, flexShrink: 0 }}>
@@ -130,7 +134,7 @@ function GlowRing({
               filter: active ? `drop-shadow(0 0 6px ${color})` : "none",
             }}
           >
-            {STEPS.find((s) => s.id === (active ? "active" : ""))?.icon ?? "○"}
+            {STEPS.find((s) => s.id === stepId)?.icon ?? "○"}
           </span>
         )}
       </div>
@@ -166,16 +170,14 @@ function Connector({ done, color }: { done: boolean; color: string }) {
 }
 
 function TokenDisplay({ jwt }: { jwt: string }) {
-  const [copied, setCopied] = useState(false);
   const [revealed, setRevealed] = useState(false);
+  const { copy, isCopied } = useCopyToClipboard({ successDuration: 1600 });
   const parts = jwt.split(".");
   const colors = ["#ff7eb3", "#79d4fd", "#7effc7"];
   const SENSITIVE_FIELDS = ["sub", "iss", "jti"];
 
-  const copy = () => {
-    navigator.clipboard.writeText(jwt);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1600);
+  const handleCopy = () => {
+    copy(jwt);
   };
 
   const maskValue = (key: string, value: unknown): string => {
@@ -293,7 +295,7 @@ function TokenDisplay({ jwt }: { jwt: string }) {
       })()}
 
       <button
-        onClick={copy}
+        onClick={handleCopy}
         style={{
           alignSelf: "flex-end",
           padding: "6px 14px",
@@ -305,67 +307,72 @@ function TokenDisplay({ jwt }: { jwt: string }) {
           borderRadius: 5,
           cursor: "pointer",
           transition: "all 0.2s",
-          border: `1px solid ${copied ? "#00e5ff" : "var(--ak-border)"}`,
-          color: copied ? "#00e5ff" : "var(--ak-text-muted)",
-          background: copied ? "rgba(0,229,255,0.08)" : "transparent",
-          boxShadow: copied ? "0 0 12px rgba(0,229,255,0.2)" : "none",
+          border: `1px solid ${isCopied ? "#00e5ff" : "var(--ak-border)"}`,
+          color: isCopied ? "#00e5ff" : "var(--ak-text-muted)",
+          background: isCopied ? "rgba(0,229,255,0.08)" : "transparent",
+          boxShadow: isCopied ? "0 0 12px rgba(0,229,255,0.2)" : "none",
         }}
       >
-        {copied ? "✓ COPIED" : "COPY JWT"}
+        {isCopied ? "✓ COPIED" : "COPY JWT"}
       </button>
     </div>
   );
 }
 
-function AuthStatusBadge({ wallet, jwt }: { wallet: WalletInfo; jwt: string }) {
-  const [age, setAge] = useState(0);
-  const [isExpired, setIsExpired] = useState(false);
+// Exported so the expiry/validity logic can be tested directly; rendering the
+// full SEP10AuthFlow flow to reach it would require stubbing the SEP-10 server.
+export function AuthStatusBadge({ wallet, jwt }: { wallet: WalletInfo; jwt: string }) {
+  // One clock drives the whole badge. Previously `age` and `isExpired` were
+  // separate state updated by two overlapping intervals.
+  const [now, setNow] = useState(() => Date.now());
 
-  const expiryTime = useMemo(() => {
+  // Derive the validity window from the token's own claims rather than assuming
+  // a fixed lifetime. `exp` gives the expiry; `iat`, when present and sane, gives
+  // the total lifetime that the percentage is measured against. A token whose
+  // lifetime is not 24h previously produced a nonsensical age and bar because
+  // the age was derived as `expiry - 24h`.
+  const { expiryTime, lifetimeSecs } = useMemo(() => {
+    const unknown = { expiryTime: null, lifetimeSecs: null };
     try {
       const parts = jwt.split(".");
-      if (parts.length !== 3) return null;
+      if (parts.length !== 3) return unknown;
       const payload = JSON.parse(atob(parts[1]));
-      return payload.exp ? payload.exp * 1000 : null;
+      if (typeof payload.exp !== "number") return unknown;
+      const expiry = payload.exp * 1000;
+      const issued = typeof payload.iat === "number" ? payload.iat * 1000 : null;
+      // Only trust `iat` when it is a real claim strictly before `exp`,
+      // otherwise the lifetime would be zero or negative.
+      const lifetime =
+        issued !== null && issued > 0 && issued < expiry
+          ? Math.round((expiry - issued) / 1000)
+          : null;
+      return { expiryTime: expiry, lifetimeSecs: lifetime };
     } catch {
-      return null;
+      return unknown;
     }
   }, [jwt]);
 
+  // A single 1s timer replaces the previous pair of overlapping intervals
+  // (30s + 1s) that both recomputed the same values, and drops the `isExpired`
+  // dependency that previously tore down and rebuilt both timers every time
+  // expiry state changed.
   useEffect(() => {
-    const checkExpiry = () => {
-      if (!expiryTime) return;
-      const now = Date.now();
-      const expired = now >= expiryTime;
-      setIsExpired(expired);
-      if (!expired) {
-        setAge(Math.floor((now - (expiryTime - 86400000)) / 1000));
-      }
-    };
+    if (expiryTime === null) return;
+    setNow(Date.now());
+    const intervalId = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(intervalId);
+  }, [expiryTime]);
 
-    checkExpiry();
-
-    const intervalId = setInterval(checkExpiry, 30000);
-
-    const ageIntervalId = setInterval(() => {
-      if (!isExpired && expiryTime) {
-        const now = Date.now();
-        if (now >= expiryTime) {
-          setIsExpired(true);
-        } else {
-          setAge(Math.floor((now - (expiryTime - 86400000)) / 1000));
-        }
-      }
-    }, 1000);
-
-    return () => {
-      clearInterval(intervalId);
-      clearInterval(ageIntervalId);
-    };
-  }, [expiryTime, isExpired]);
-
-  const expiresIn = isExpired ? 0 : Math.max(0, 86400 - age);
-  const pct = Math.max(0, (expiresIn / 86400) * 100);
+  const isExpired = expiryTime !== null && now >= expiryTime;
+  // Remaining validity straight from the expiry claim: no assumed lifetime.
+  const expiresIn =
+    expiryTime === null ? 0 : isExpired ? 0 : Math.floor((expiryTime - now) / 1000);
+  // With no usable `iat` there is no honest percentage to display.
+  const pct =
+    lifetimeSecs && lifetimeSecs > 0
+      ? Math.max(0, Math.min(100, (expiresIn / lifetimeSecs) * 100))
+      : 0;
+  const pctLabel = lifetimeSecs && lifetimeSecs > 0 ? `${pct.toFixed(1)}%` : "—";
 
   const statusColor = isExpired ? "#ff3670" : expiresIn < 3600 ? "#ff8c00" : "#00ff9d";
   const statusBg = isExpired ? "rgba(255,54,112,0.06)" : expiresIn < 3600 ? "rgba(255,140,0,0.06)" : "rgba(0,255,157,0.06)";
@@ -447,7 +454,7 @@ function AuthStatusBadge({ wallet, jwt }: { wallet: WalletInfo; jwt: string }) {
           }}
         >
           <span>TOKEN VALIDITY</span>
-          <span>{pct.toFixed(1)}%</span>
+          <span>{pctLabel}</span>
         </div>
         <div
           style={{
@@ -815,13 +822,20 @@ export default function SEP10AuthFlow() {
             The anchor generates a unique challenge transaction. This XDR must
             be signed by your wallet to prove key ownership.
           </p>
-          <button
-            onClick={fetchChallenge}
-            disabled={loading || !wallet}
-            style={btnStyle(NEON, loading || !wallet)}
-          >
-            {loading ? <Spinner /> : <>{fetchIcon} Fetch Challenge</>}
-          </button>
+          {loading ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <SkeletonLoader variant="text" width="70%" height={10} dark />
+              <SkeletonLoader variant="rect" width="100%" height={56} dark />
+            </div>
+          ) : (
+            <button
+              onClick={fetchChallenge}
+              disabled={loading || !wallet}
+              style={btnStyle(NEON, loading || !wallet)}
+            >
+              <>{fetchIcon} Fetch Challenge</>
+            </button>
+          )}
         </div>
       ),
     },
@@ -950,7 +964,6 @@ export default function SEP10AuthFlow() {
       }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
         @keyframes sep10-ping { 0%{transform:scale(1);opacity:0.7} 100%{transform:scale(1.9);opacity:0} }
         @keyframes sep10-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
         @keyframes sep10-spin { to{transform:rotate(360deg)} }
@@ -1174,7 +1187,7 @@ export default function SEP10AuthFlow() {
                     flexShrink: 0,
                   }}
                 >
-                  <GlowRing active={isActive} done={isDone} color={stepColor} />
+                  <GlowRing active={isActive} done={isDone} color={stepColor} stepId={s.id} />
                   <div style={{ display: i < 3 ? "none" : undefined }}>
                     {/* hide labels for middle steps on small screens */}
                   </div>

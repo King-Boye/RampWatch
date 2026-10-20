@@ -45,7 +45,7 @@ mod tracing_span_tests {
         let admin = Address::generate(&env);
         let attestor = Address::generate(&env);
 
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
         let req_id = client.generate_request_id();
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
@@ -74,7 +74,7 @@ mod tracing_span_tests {
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
@@ -114,20 +114,13 @@ mod tracing_span_tests {
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         let req_id = client.generate_request_id();
         let p = payload(&env, 0x01);
-        client.submit_with_request_id(
-            &req_id,
-            &attestor,
-            &subject,
-            &1000u64,
-            &p,
-            &sign_payload(&env, &sk, &p),
-        );
+        client.submit_with_request_id(&req_id, &attestor, &subject, &1000u64, &p, &sign_payload(&env, &sk, &p));
 
         let span = client.get_tracing_span(&req_id.id).unwrap();
         assert_eq!(span.operation, String::from_str(&env, "submit_attestation"));
@@ -157,7 +150,7 @@ mod tracing_span_tests {
         let attestor = Address::generate(&env);
         let subject = Address::generate(&env);
 
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
         let sk = SigningKey::generate(&mut OsRng);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
