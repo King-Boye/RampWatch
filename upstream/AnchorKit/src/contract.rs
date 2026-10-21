@@ -434,11 +434,16 @@ impl AnchorKitContract {
     /// Each entry in `tokens` is a JWS compact JWT sharing the same header.payload but
     /// signed by a different key. At least `threshold` distinct stored verifying keys
     /// must produce a valid signature (#891).
+    ///
+    /// Optional `expected_sub` and `service` mirror the single-signature path so
+    /// M-of-N tokens can enforce subject and service scope (#1391).
     pub fn verify_sep10_token_multisig(
         env: Env,
         tokens: Vec<String>,
         issuer: Address,
         threshold: u32,
+        expected_sub: Option<String>,
+        service: Option<u32>,
     ) {
         let keys: Vec<Bytes> = env
             .storage()
@@ -458,8 +463,9 @@ impl AnchorKitContract {
             &tokens,
             &keys,
             threshold,
-            None,
+            expected_sub.as_ref(),
             clock_skew,
+            service,
         )
         .is_err()
         {
