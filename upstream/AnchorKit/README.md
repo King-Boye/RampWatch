@@ -493,3 +493,6 @@ For questions or issues:
 
 <!-- handsoff-issue-1383 -->
 - #1383: Rate-limit config and override entries expire after hours because their TTL is set to window_length ledgers
+
+<!-- handsoff-issue-1384 -->
+- #1384: total_rejections is never persisted because the rejection write is rolled back when the caller panics
