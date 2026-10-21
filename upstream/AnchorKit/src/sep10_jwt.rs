@@ -58,6 +58,9 @@ pub fn base64url_decode(input: &[u8]) -> Result<Vec<u8>, ()> {
             out.push(((buffer >> bits) & 0xFF) as u8);
         }
     }
+    if buffer & ((1u32 << bits) - 1) != 0 {
+        return Err(());
+    }
     Ok(out)
 }
 
@@ -607,6 +610,8 @@ mod tests {
 
         // Invalid character should still error
         assert!(base64url_decode(b"SGVs!G8").is_err());
+        assert_eq!(base64url_decode(b"AA").unwrap(), [0]);
+        assert!(base64url_decode(b"AB").is_err());
     }
 
     #[test]
@@ -658,6 +663,30 @@ mod tests {
         keys.push_back(pk);
         assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub), 0, None).is_ok());
         assert!(verify_sep10_jwt(&env, &token, &keys, None, 0, None).is_ok());
+    }
+
+    #[test]
+    fn verify_rejects_noncanonical_signature_encoding() {
+        let env = Env::default();
+        ledger(&env, 1_000);
+        let signing_key = SigningKey::generate(&mut OsRng);
+        let pk = Bytes::from_slice(&env, signing_key.verifying_key().as_bytes());
+
+        let attestor = Address::generate(&env);
+        let sub = attestor.to_string();
+        let sub_str: std::string::String = sub.to_string();
+        let mut jwt = build_jwt(&signing_key, sub_str.as_str(), 2_000);
+        let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let last = *jwt.as_bytes().last().unwrap();
+        let index = alphabet.iter().position(|&ch| ch == last).unwrap();
+        assert_eq!(index % 16, 0);
+        jwt.pop();
+        jwt.push(alphabet[index + 1] as char);
+        let token = String::from_str(&env, jwt.as_str());
+
+        let mut keys = soroban_sdk::Vec::new(&env);
+        keys.push_back(pk);
+        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub), 0, None).is_err());
     }
 
     #[test]
