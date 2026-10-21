@@ -214,7 +214,7 @@ mod request_id_tests {
             &String::from_str(&env, "USD"),
             &String::from_str(&env, "USDC"),
             &10000u64,
-            &100u32,
+            &10_000u32,
             &100u64,
             &10000u64,
             &4600u64,
@@ -223,5 +223,18 @@ mod request_id_tests {
         let span = client.get_tracing_span(&req_id.id).unwrap();
         assert_eq!(span.operation, String::from_str(&env, "submit_quote"));
         assert_eq!(span.status, String::from_str(&env, "success"));
+
+        let over_limit_req_id = client.generate_request_id();
+        assert!(client.try_quote_with_request_id(
+            &over_limit_req_id,
+            &anchor,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64,
+            &10_001u32,
+            &100u64,
+            &10000u64,
+            &4600u64,
+        ).is_err());
     }
 }

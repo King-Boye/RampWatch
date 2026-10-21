@@ -965,7 +965,7 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::ServicesNotConfigured);
         }
 
-        Self::validate_quote_params(&env, amount, min_amount, max_amount, expires_at);
+        Self::validate_quote_params(&env, amount, fee_bps, min_amount, max_amount, expires_at);
 
         let inst = env.storage().instance();
         let qcnt_key = key_quote_counter(&env);
@@ -1199,7 +1199,7 @@ impl AnchorKitContract {
         Self::check_attestor(&env, &anchor);
 
         // Validate quote parameters
-        Self::validate_quote_params(&env, rate, minimum_amount, maximum_amount, valid_until);
+        Self::validate_quote_params(&env, rate, fee_percentage, minimum_amount, maximum_amount, valid_until);
 
         let inst = env.storage().instance();
         let qcnt_key = key_quote_counter(&env);
@@ -2741,10 +2741,21 @@ impl AnchorKitContract {
     ///
     /// Panics with [`ErrorCode::InvalidQuote`] if:
     /// - `rate` is zero
+    /// - `fee_percentage` exceeds 10,000 basis points (100%)
     /// - `minimum_amount` exceeds `maximum_amount`
     /// - `valid_until` is not strictly in the future
-    fn validate_quote_params(env: &Env, rate: u64, minimum_amount: u64, maximum_amount: u64, valid_until: u64) {
+    fn validate_quote_params(
+        env: &Env,
+        rate: u64,
+        fee_percentage: u32,
+        minimum_amount: u64,
+        maximum_amount: u64,
+        valid_until: u64,
+    ) {
         if rate == 0 {
+            panic_with_error!(env, ErrorCode::InvalidQuote);
+        }
+        if fee_percentage > 10_000 {
             panic_with_error!(env, ErrorCode::InvalidQuote);
         }
         if minimum_amount > maximum_amount {
