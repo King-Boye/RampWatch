@@ -171,7 +171,7 @@ mod session_tests {
         let attestor = Address::generate(&env);
         client.initialize(&admin, &100_u64, &None, &None);
 
-        let session_id = client.create_session(&user);
+        let session_id = client.create_session(&admin);
         let sk = SigningKey::generate(&mut OsRng);
         register_with_session(&env, &client, session_id, &attestor, &sk);
 
@@ -256,7 +256,7 @@ mod session_tests {
         let attestor = Address::generate(&env);
         client.initialize(&admin, &100_u64, &None, &None);
 
-        let session_id = client.create_session(&user);
+        let session_id = client.create_session(&admin);
         let sk = SigningKey::generate(&mut OsRng);
         register_with_session(&env, &client, session_id, &attestor, &sk);
 
@@ -275,7 +275,7 @@ mod session_tests {
         let attestor = Address::generate(&env);
         client.initialize(&admin, &100_u64, &None, &None);
 
-        let session_id = client.create_session(&user);
+        let session_id = client.create_session(&admin);
         let sk = SigningKey::generate(&mut OsRng);
         register_with_session(&env, &client, session_id, &attestor, &sk);
 
@@ -306,7 +306,7 @@ mod session_tests {
         let attestor = Address::generate(&env);
         client.initialize(&admin, &100_u64, &None, &None);
 
-        let session_id = client.create_session(&user);
+        let session_id = client.create_session(&admin);
         let sk = SigningKey::generate(&mut OsRng);
         register_with_session(&env, &client, session_id, &attestor, &sk);
         client.revoke_attestor_with_session(&session_id, &attestor);
@@ -326,7 +326,7 @@ mod session_tests {
         let attestor = Address::generate(&env);
         client.initialize(&admin, &100_u64, &None, &None);
 
-        let session_id = client.create_session(&user);
+        let session_id = client.create_session(&admin);
         let sk = SigningKey::generate(&mut OsRng);
         register_with_session(&env, &client, session_id, &attestor, &sk);
         client.revoke_attestor_with_session(&session_id, &attestor);
@@ -360,9 +360,10 @@ mod session_tests {
         client.initialize(&admin, &100_u64, &None, &None);
 
         let session_id = client.create_session(&attestor);
-        // Set Sep10 key so signature verification works, then register via session (writes audit log)
+        let admin_session_id = client.create_session(&admin);
+        // Set Sep10 key so signature verification works, then register via the admin session.
         let sk = SigningKey::generate(&mut OsRng);
-        register_with_session(&env, &client, session_id, &attestor, &sk);
+        register_with_session(&env, &client, admin_session_id, &attestor, &sk);
         let p = payload(&env, 0x01);
         client.submit_attestation_with_session(
             &session_id,
@@ -404,6 +405,8 @@ mod session_tests {
         let initiator_b = Address::generate(&env);
         let session_a = client.create_session(&initiator_a);
         let session_b = client.create_session(&initiator_b);
+        let admin_session_a = client.create_session(&admin);
+        let admin_session_b = client.create_session(&admin);
 
         // For attestations: use one subject and two distinct attestations.
         let subject = Address::generate(&env);
@@ -411,12 +414,12 @@ mod session_tests {
         // Session A attestor
         let attestor_a = Address::generate(&env);
         let sk_a = SigningKey::generate(&mut OsRng);
-        register_with_session(&env, &client, session_a, &attestor_a, &sk_a);
+        register_with_session(&env, &client, admin_session_a, &attestor_a, &sk_a);
 
         // Interleave: Session B attestor
         let attestor_b = Address::generate(&env);
         let sk_b = SigningKey::generate(&mut OsRng);
-        register_with_session(&env, &client, session_b, &attestor_b, &sk_b);
+        register_with_session(&env, &client, admin_session_b, &attestor_b, &sk_b);
 
         // Interleave further: submit attestation in session A
         let p_a = payload(&env, 0x11);
@@ -497,9 +500,10 @@ mod session_tests {
         let session_id = client.create_session(&attestor);
         assert_eq!(session_id, 0);
 
-        // Step 2: set Sep10 key, then register via session (writes audit log_id=0 "register")
+        let admin_session_id = client.create_session(&admin);
+        // Step 2: set Sep10 key, then register via the admin session.
         let sk = SigningKey::generate(&mut OsRng);
-        register_with_session(&env, &client, session_id, &attestor, &sk);
+        register_with_session(&env, &client, admin_session_id, &attestor, &sk);
         assert!(client.is_attestor(&attestor));
 
         // Step 3: two attestations
@@ -524,8 +528,9 @@ mod session_tests {
         assert_eq!(id0, 0);
         assert_eq!(id1, 1);
 
-        // Step 4: verify operation count = 3 (register + 2 attests)
-        assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 3);
+        // Step 4: the admin session records registration; the attestor session records attestations.
+        assert_eq!(client.get_session_operation_count(&admin_session_id).unwrap(), 1);
+        assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 2);
 
         // Step 5: verify audit logs
         let log0 = client.get_audit_log(&0u64);
@@ -579,10 +584,11 @@ mod session_tests {
 
         // Write log_id=0 via register_attestor_with_session
         let session_id = client.create_session(&attestor);
-        register_with_session(&env, &client, session_id, &attestor, &signing_key);
+        let admin_session_id = client.create_session(&admin);
+        register_with_session(&env, &client, admin_session_id, &attestor, &signing_key);
 
         // Write log_id=1 via register_attestor_with_session for attestor2
-        register_with_session(&env, &client, session_id, &attestor2, &sk2);
+        register_with_session(&env, &client, admin_session_id, &attestor2, &sk2);
 
         // log_id=0 still accessible (live=[0,1], count=2 == max_size, no prune yet).
         let log0 = client.get_audit_log(&0u64);
@@ -624,8 +630,9 @@ mod session_tests {
 
         // Write log_id=0 and log_id=1 via register_attestor_with_session
         let session_id = client.create_session(&attestor);
-        register_with_session(&env, &client, session_id, &attestor, &signing_key);
-        register_with_session(&env, &client, session_id, &attestor2, &sk2);
+        let admin_session_id = client.create_session(&admin);
+        register_with_session(&env, &client, admin_session_id, &attestor, &signing_key);
+        register_with_session(&env, &client, admin_session_id, &attestor2, &sk2);
 
         // Write log_id=2 → prunes log_id=0.
         let ph = payload(&env, 0xCD);

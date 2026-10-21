@@ -108,9 +108,9 @@ const INSTANCE_TTL: u32 = 518_400;
 const SESSION_TTL: u64 = 86_400;
 /// Session storage TTL in ledgers (~24 hours at 5s/ledger).
 const SESSION_LEDGER_TTL: u32 = 17_280;
-/// Maximum caller-supplied TTL for cached TOML entries (~136 years). Caps
-/// ttl_override in fetch_anchor_info so that cached_at + ttl_seconds never
-/// overflows u64 in the expiry arithmetic inside get_anchor_toml.
+/// Maximum caller-supplied TTL for cached entries (~136 years). Prevents u64
+/// TTL values from truncating during storage TTL conversion and, together with
+/// saturating expiry arithmetic, keeps all cache getters safe at the boundary.
 const MAX_TTL_SECONDS: u64 = u32::MAX as u64;
 
 /// Maximum number of attestors that can be registered simultaneously.
@@ -1380,6 +1380,7 @@ impl AnchorKitContract {
             panic_with_error!(&env, e);
         }
         Self::require_admin(&env);
+        Self::require_admin_session(&env, session_id);
         Self::verify_sep10_token_matches_attestor(&env, &sep10_token, &sep10_issuer, &attestor);
         Self::validate_stellar_address(&env, &attestor);
         let key = StorageKey::Attestor(attestor.clone());
@@ -1462,6 +1463,7 @@ impl AnchorKitContract {
             panic_with_error!(&env, e);
         }
         Self::require_admin(&env);
+        Self::require_admin_session(&env, session_id);
         let key = StorageKey::Attestor(attestor.clone());
         if !env.storage().persistent().has(&key) {
             panic_with_error!(&env, ErrorCode::AttestorNotRegistered);
@@ -1620,6 +1622,9 @@ impl AnchorKitContract {
 
     pub fn cache_metadata(env: Env, anchor: Address, metadata: AnchorMetadata, ttl_seconds: u64) {
         Self::require_admin(&env);
+        if ttl_seconds > MAX_TTL_SECONDS {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
         // Issue #259: skip write if metadata is unchanged.
         // ttl_seconds=0 entries live in persistent storage (never network-evicted);
         // all other entries live in temporary storage.
@@ -1651,7 +1656,7 @@ impl AnchorKitContract {
             env.storage().persistent().set(&key, &entry);
             env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
         } else {
-            let ledger_ttl = if ttl_seconds as u32 > MIN_TEMP_TTL { ttl_seconds as u32 } else { MIN_TEMP_TTL };
+            let ledger_ttl = if ttl_seconds > MIN_TEMP_TTL as u64 { ttl_seconds as u32 } else { MIN_TEMP_TTL };
             env.storage().temporary().set(&key, &entry);
             env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
         }
@@ -1667,7 +1672,7 @@ impl AnchorKitContract {
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::CacheNotFound));
         let now = env.ledger().timestamp();
         // ttl_seconds = 0 means "never expire at app level" — skip the expiry check
-        if entry.ttl_seconds != 0 && entry.cached_at + entry.ttl_seconds <= now {
+        if entry.ttl_seconds != 0 && entry.cached_at.saturating_add(entry.ttl_seconds) <= now {
             panic_with_error!(&env, ErrorCode::CacheExpired);
         }
         entry.metadata
@@ -1842,6 +1847,9 @@ impl AnchorKitContract {
 
     pub fn cache_capabilities(env: Env, anchor: Address, toml_url: String, capabilities: Vec<u32>, ttl_seconds: u64) {
         Self::require_admin(&env);
+        if ttl_seconds > MAX_TTL_SECONDS {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
 
         // Issue #280: Validate toml_url before caching
         let len = toml_url.len() as usize;
@@ -1858,7 +1866,7 @@ impl AnchorKitContract {
         let now = env.ledger().timestamp();
         let entry = CapabilitiesCache { toml_url, capabilities, cached_at: now, ttl_seconds };
         let key = StorageKey::CapabilitiesCache(anchor.clone());
-        let ledger_ttl = if ttl_seconds as u32 > MIN_TEMP_TTL { ttl_seconds as u32 } else { MIN_TEMP_TTL };
+        let ledger_ttl = if ttl_seconds > MIN_TEMP_TTL as u64 { ttl_seconds as u32 } else { MIN_TEMP_TTL };
         env.storage().temporary().set(&key, &entry);
         env.storage().temporary().extend_ttl(&key, ledger_ttl, ledger_ttl);
 
@@ -1871,7 +1879,7 @@ impl AnchorKitContract {
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::CacheNotFound));
         let now = env.ledger().timestamp();
         // ttl_seconds = 0 means "never expire" — skip the expiry check to prevent refresh loops
-        if entry.ttl_seconds != 0 && entry.cached_at + entry.ttl_seconds <= now {
+        if entry.ttl_seconds != 0 && entry.cached_at.saturating_add(entry.ttl_seconds) <= now {
             panic_with_error!(&env, ErrorCode::CacheExpired);
         }
         entry
@@ -2015,6 +2023,9 @@ impl AnchorKitContract {
         availability_percent: u32,
     ) {
         Self::require_admin(&env);
+        if availability_percent > 100 {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
         let status = HealthStatus {
             anchor: anchor.clone(),
             latency_ms,
@@ -2082,6 +2093,9 @@ impl AnchorKitContract {
         homepage_url: Option<String>,
     ) {
         Self::require_admin(&env);
+        if reputation_score > 10000 || uptime_percentage > 10000 {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
         let meta_key = StorageKey::AnchorMeta(anchor.clone());
         
         // Preserve existing is_active state: only set to true if no prior record exists.
@@ -2724,6 +2738,13 @@ impl AnchorKitContract {
             .get::<_, Address>(&key_admin(env))
             .unwrap_or_else(|| panic_with_error!(env, ErrorCode::NotInitialized));
         admin.require_auth();
+    }
+    fn require_admin_session(env: &Env, session_id: u64) {
+        let session = Self::get_session(env.clone(), session_id);
+        let admin = Self::get_admin(env.clone());
+        if session.initiator != admin {
+            panic_with_error!(env, ErrorCode::UnauthorizedSession);
+        }
     }
 
     fn require_not_paused(env: &Env) {
