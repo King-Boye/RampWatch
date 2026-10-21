@@ -74,8 +74,70 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|w| w == needle)
 }
 
-/// Parse `"exp": <digits>` (first occurrence).
+/// Count how many times `key` (e.g. `b"\"exp\":"`) appears as a top-level JSON key,
+/// i.e. outside of any string value. String interiors (including escaped characters)
+/// are skipped so a subject like `{"sub":"has \"exp\":42 inside"}` does not trigger.
+///
+/// We only need to handle flat (non-nested-object) payloads here; SEP-10 JWT claims
+/// are always top-level.  Nesting depth > 0 is skipped entirely.
+fn count_top_level_key(json: &[u8], key: &[u8]) -> usize {
+    let mut count = 0usize;
+    let mut i = 0usize;
+    let mut depth: i32 = 0; // object nesting — we only match at depth == 1
+    let mut in_string = false;
+
+    while i < json.len() {
+        let b = json[i];
+        if in_string {
+            if b == b'\\' {
+                // skip the escaped character — can never start a key
+                i += 2;
+                continue;
+            }
+            if b == b'"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        // Not in a string
+        match b {
+            b'{' => { depth += 1; i += 1; }
+            b'}' => { depth -= 1; i += 1; }
+            b'"' => {
+                // Check for key match at top-level object (depth == 1) only.
+                if depth == 1 && i + key.len() <= json.len() && &json[i..i + key.len()] == key {
+                    count += 1;
+                    i += key.len();
+                    continue;
+                }
+                // Otherwise enter the string to skip its contents.
+                in_string = true;
+                i += 1;
+            }
+            _ => { i += 1; }
+        }
+    }
+    count
+}
+
+/// Return `Err(())` if `key` appears more than once as a top-level JSON key.
+///
+/// Duplicate keys for security-sensitive claims (`exp`, `sub`, `scp`, `alg`) are
+/// rejected outright because different JSON parsers disagree on which value wins
+/// (first vs last), creating a parser-differential auth-bypass vector.
+#[inline]
+fn reject_duplicate_top_level_key(json: &[u8], key: &[u8]) -> Result<(), ()> {
+    if count_top_level_key(json, key) > 1 {
+        Err(())
+    } else {
+        Ok(())
+    }
+}
+
+/// Parse `"exp": <digits>` (unique top-level occurrence).
 fn parse_json_exp(payload: &[u8]) -> Result<u64, ()> {
+    reject_duplicate_top_level_key(payload, b"\"exp\":")?;
     let key = b"\"exp\":";
     let pos = find_bytes(payload, key).ok_or(())?;
     let mut i = pos + key.len();
@@ -101,8 +163,10 @@ fn parse_json_exp(payload: &[u8]) -> Result<u64, ()> {
     Ok(n)
 }
 
-/// Parse first `"sub":"..."` string value, handling `\"` escape sequences.
+/// Parse `"sub":"..."` string value, handling `\"` escape sequences.
+/// Rejects payloads that contain duplicate `sub` keys.
 fn parse_json_sub(env: &Env, payload: &[u8]) -> Result<String, ()> {
+    reject_duplicate_top_level_key(payload, b"\"sub\":")?;
     let key = b"\"sub\":";
     let pos = find_bytes(payload, key).ok_or(())?;
     let mut i = pos + key.len();
@@ -132,8 +196,10 @@ fn parse_json_sub(env: &Env, payload: &[u8]) -> Result<String, ()> {
     Err(())
 }
 
-/// Parse first `"scp":"..."` string value from the JWT payload.
+/// Parse `"scp":"..."` string value from the JWT payload.
+/// Rejects payloads that contain duplicate `scp` keys.
 fn parse_json_scp(payload: &[u8]) -> Result<Vec<u8>, ()> {
+    reject_duplicate_top_level_key(payload, b"\"scp\":")?;
     let key = b"\"scp\":";
     let pos = find_bytes(payload, key).ok_or(())?;
     let mut i = pos + key.len();
@@ -161,8 +227,10 @@ fn parse_json_scp(payload: &[u8]) -> Result<Vec<u8>, ()> {
     Err(())
 }
 
-/// Parse first `"alg":"..."` string value from the JWT header.
+/// Parse `"alg":"..."` string value from the JWT header.
+/// Rejects headers that contain duplicate `alg` keys.
 fn parse_json_alg(header: &[u8]) -> Result<Vec<u8>, ()> {
+    reject_duplicate_top_level_key(header, b"\"alg\":")?;
     let key = b"\"alg\":";
     let pos = find_bytes(header, key).ok_or(())?;
     let mut i = pos + key.len();
