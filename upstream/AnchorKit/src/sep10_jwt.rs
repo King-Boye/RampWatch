@@ -65,81 +65,62 @@ fn contains_subslice(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|w| w == needle)
 }
 
-fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+/// Find `needle` as a top-level JSON object key marker (e.g. `"exp":`).
+///
+/// #893: A naive byte search matches nested objects too — e.g. `{"jti":{"exp":1},"exp":9}`
+/// would return the nested `exp`. Track brace depth and skip string contents so only
+/// depth-1 (top-level object) keys are accepted.
+fn find_top_level_key(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
     }
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
-}
-
-/// Count how many times `key` (e.g. `b"\"exp\":"`) appears as a top-level JSON key,
-/// i.e. outside of any string value. String interiors (including escaped characters)
-/// are skipped so a subject like `{"sub":"has \"exp\":42 inside"}` does not trigger.
-///
-/// We only need to handle flat (non-nested-object) payloads here; SEP-10 JWT claims
-/// are always top-level.  Nesting depth > 0 is skipped entirely.
-fn count_top_level_key(json: &[u8], key: &[u8]) -> usize {
-    let mut count = 0usize;
-    let mut i = 0usize;
-    let mut depth: i32 = 0; // object nesting — we only match at depth == 1
+    let mut depth: i32 = 0;
     let mut in_string = false;
-
-    while i < json.len() {
-        let b = json[i];
+    let mut escape = false;
+    let mut i = 0usize;
+    while i < haystack.len() {
+        let b = haystack[i];
         if in_string {
-            if b == b'\\' {
-                // skip the escaped character — can never start a key
-                i += 2;
-                continue;
-            }
-            if b == b'"' {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
                 in_string = false;
             }
             i += 1;
             continue;
         }
-        // Not in a string
         match b {
-            b'{' => { depth += 1; i += 1; }
-            b'}' => { depth -= 1; i += 1; }
             b'"' => {
-                // Check for key match at top-level object (depth == 1) only.
-                if depth == 1 && i + key.len() <= json.len() && &json[i..i + key.len()] == key {
-                    count += 1;
-                    i += key.len();
-                    continue;
+                // Candidate start of a key (or a string value). Only accept at depth 1.
+                if depth == 1
+                    && i + needle.len() <= haystack.len()
+                    && &haystack[i..i + needle.len()] == needle
+                {
+                    return Some(i);
                 }
-                // Otherwise enter the string to skip its contents.
                 in_string = true;
-                i += 1;
             }
-            _ => { i += 1; }
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth < 0 {
+                    return None;
+                }
+            }
+            _ => {}
         }
+        i += 1;
     }
-    count
+    None
 }
 
-/// Return `Err(())` if `key` appears more than once as a top-level JSON key.
-///
-/// Duplicate keys for security-sensitive claims (`exp`, `sub`, `scp`, `alg`) are
-/// rejected outright because different JSON parsers disagree on which value wins
-/// (first vs last), creating a parser-differential auth-bypass vector.
-#[inline]
-fn reject_duplicate_top_level_key(json: &[u8], key: &[u8]) -> Result<(), ()> {
-    if count_top_level_key(json, key) > 1 {
-        Err(())
-    } else {
-        Ok(())
-    }
-}
-
-/// Parse `"exp": <digits>` (unique top-level occurrence).
+/// Parse top-level `"exp": <digits>`.
 fn parse_json_exp(payload: &[u8]) -> Result<u64, ()> {
     reject_duplicate_top_level_key(payload, b"\"exp\":")?;
     let key = b"\"exp\":";
-    let pos = find_bytes(payload, key).ok_or(())?;
+    let pos = find_top_level_key(payload, key).ok_or(())?;
     let mut i = pos + key.len();
     while i < payload.len() && payload[i].is_ascii_whitespace() {
         i += 1;
@@ -163,12 +144,11 @@ fn parse_json_exp(payload: &[u8]) -> Result<u64, ()> {
     Ok(n)
 }
 
-/// Parse `"sub":"..."` string value, handling `\"` escape sequences.
-/// Rejects payloads that contain duplicate `sub` keys.
+/// Parse top-level `"sub":"..."` string value, handling `\"` escape sequences.
 fn parse_json_sub(env: &Env, payload: &[u8]) -> Result<String, ()> {
     reject_duplicate_top_level_key(payload, b"\"sub\":")?;
     let key = b"\"sub\":";
-    let pos = find_bytes(payload, key).ok_or(())?;
+    let pos = find_top_level_key(payload, key).ok_or(())?;
     let mut i = pos + key.len();
     while i < payload.len() && payload[i].is_ascii_whitespace() {
         i += 1;
@@ -196,12 +176,11 @@ fn parse_json_sub(env: &Env, payload: &[u8]) -> Result<String, ()> {
     Err(())
 }
 
-/// Parse `"scp":"..."` string value from the JWT payload.
-/// Rejects payloads that contain duplicate `scp` keys.
+/// Parse top-level `"scp":"..."` string value from the JWT payload.
 fn parse_json_scp(payload: &[u8]) -> Result<Vec<u8>, ()> {
     reject_duplicate_top_level_key(payload, b"\"scp\":")?;
     let key = b"\"scp\":";
-    let pos = find_bytes(payload, key).ok_or(())?;
+    let pos = find_top_level_key(payload, key).ok_or(())?;
     let mut i = pos + key.len();
     while i < payload.len() && payload[i].is_ascii_whitespace() {
         i += 1;
@@ -227,12 +206,11 @@ fn parse_json_scp(payload: &[u8]) -> Result<Vec<u8>, ()> {
     Err(())
 }
 
-/// Parse `"alg":"..."` string value from the JWT header.
-/// Rejects headers that contain duplicate `alg` keys.
+/// Parse top-level `"alg":"..."` string value from the JWT header.
 fn parse_json_alg(header: &[u8]) -> Result<Vec<u8>, ()> {
     reject_duplicate_top_level_key(header, b"\"alg\":")?;
     let key = b"\"alg\":";
-    let pos = find_bytes(header, key).ok_or(())?;
+    let pos = find_top_level_key(header, key).ok_or(())?;
     let mut i = pos + key.len();
     while i < header.len() && header[i].is_ascii_whitespace() {
         i += 1;
@@ -265,17 +243,55 @@ pub fn service_scope_name(service_code: u32) -> Option<&'static [u8]> {
         2 => Some(b"withdrawal"),
         3 => Some(b"quote"),
         4 => Some(b"kyc"),
+        5 => Some(b"exchange_quotes"),
         _ => None,
     }
 }
 
-/// Check that a JWT's `scp` claim contains the scope for `service_code`.
+/// Check that a decoded JWT payload's `scp` claim contains the scope for `service_code`.
 ///
 /// The `scp` value is treated as a space-separated list of scope tokens.
 /// Returns `Err(())` if the claim is absent, the service code is unknown, or the scope is missing.
-pub fn check_token_scope(_env: &Env, token: &String, service_code: u32) -> Result<(), ()> {
+///
+/// # Preconditions
+/// Callers must only invoke this on a payload that has already passed signature and
+/// expiry verification (see [`verify_sep10_jwt`]). Prefer passing `required_scope` to
+/// [`verify_sep10_jwt`] so the checks cannot be ordered incorrectly (#892).
+fn check_payload_scope(payload: &[u8], service_code: u32) -> Result<(), ()> {
     let scope_name = service_scope_name(service_code).ok_or(())?;
+    let scp = parse_json_scp(payload)?;
 
+    // Walk the space-separated token list
+    let mut start = 0usize;
+    loop {
+        while start < scp.len() && scp[start] == b' ' {
+            start += 1;
+        }
+        if start >= scp.len() {
+            break;
+        }
+        let end = scp[start..]
+            .iter()
+            .position(|&b| b == b' ')
+            .map(|p| start + p)
+            .unwrap_or(scp.len());
+        if &scp[start..end] == scope_name {
+            return Ok(());
+        }
+        start = end;
+    }
+    Err(())
+}
+
+/// Check that a JWT's `scp` claim contains the scope for `service_code`.
+///
+/// # Preconditions
+/// **This function does not verify the JWT signature or expiry.** It only
+/// base64url-decodes the payload and searches for `scp`. It must only be called
+/// after [`verify_sep10_jwt`] has succeeded on the same token, or — preferably —
+/// use [`verify_sep10_jwt`] with `required_scope: Some(service_code)` instead (#892).
+#[doc(alias = "check_token_scope_unverified")]
+pub fn check_token_scope(_env: &Env, token: &String, service_code: u32) -> Result<(), ()> {
     let n = token.len();
     if n == 0 || n > MAX_JWT_LEN {
         return Err(());
@@ -302,34 +318,16 @@ pub fn check_token_scope(_env: &Env, token: &String, service_code: u32) -> Resul
 
     let payload_b64 = &buf[dots[0] + 1..dots[1]];
     let payload_dec = base64url_decode(payload_b64).map_err(|_| ())?;
-    let scp = parse_json_scp(&payload_dec)?;
-
-    // Walk the space-separated token list
-    let mut start = 0usize;
-    loop {
-        while start < scp.len() && scp[start] == b' ' {
-            start += 1;
-        }
-        if start >= scp.len() {
-            break;
-        }
-        let end = scp[start..]
-            .iter()
-            .position(|&b| b == b' ')
-            .map(|p| start + p)
-            .unwrap_or(scp.len());
-        if &scp[start..end] == scope_name {
-            return Ok(());
-        }
-        start = end;
-    }
-    Err(())
+    check_payload_scope(&payload_dec, service_code)
 }
 
-/// Verify a SEP-10-style JWT: JWS compact, EdDSA signature, `exp`, and optional `sub` match.
+/// Verify a SEP-10-style JWT: JWS compact, EdDSA signature, `exp`, optional `sub` match,
+/// and optional required `scp` scope (#892).
 ///
 /// When `expected_sub` is [`None`], the token must still contain a parseable `sub` claim, but it
 /// is not compared to a caller-supplied address (see contract `verify_sep10_token`).
+/// When `required_scope` is [`Some`], the payload's `scp` claim must include that service's
+/// scope name (see [`service_scope_name`]).
 /// Maximum number of verifying keys stored per issuer (supports key rotation).
 pub const MAX_VERIFYING_KEYS: u32 = 3;
 
@@ -339,6 +337,7 @@ pub fn verify_sep10_jwt(
     keys: &soroban_sdk::Vec<Bytes>,
     expected_sub: Option<&String>,
     clock_skew_seconds: u64,
+    required_scope: Option<u32>,
 ) -> Result<(), ()> {
     if keys.is_empty() {
         return Err(());
@@ -425,7 +424,139 @@ pub fn verify_sep10_jwt(
         }
     }
 
+    if let Some(service_code) = required_scope {
+        check_payload_scope(&payload_dec, service_code)?;
+    }
+
     Ok(())
+}
+
+/// Verify a SEP-10 JWT signed by multiple signers (M-of-N multi-signature).
+///
+/// `signatures` contains one JWS compact token per signer — each signs the same
+/// header.payload with their own key. All tokens must have the same header+payload;
+/// at least `threshold` of the provided `keys` must produce a valid signature.
+///
+/// # Preconditions
+/// `keys.len()` must be ≤ [`MAX_VERIFYING_KEYS`]. Larger key sets are rejected so the
+/// distinct-signer bookkeeping cannot silently overflow (#891).
+///
+/// Returns `Ok(())` if the signature threshold is met and the payload is valid
+/// (non-expired, correct `sub` if supplied). Returns `Err(())` otherwise.
+pub fn verify_sep10_jwt_multisig(
+    env: &Env,
+    tokens: &soroban_sdk::Vec<soroban_sdk::String>,
+    keys: &soroban_sdk::Vec<Bytes>,
+    threshold: u32,
+    expected_sub: Option<&soroban_sdk::String>,
+    clock_skew_seconds: u64,
+) -> Result<(), ()> {
+    // #891: enforce the same key-set bound used by on-chain storage so used-key
+    // tracking cannot silently skip indices.
+    if keys.len() > MAX_VERIFYING_KEYS {
+        return Err(());
+    }
+    if threshold == 0 || threshold > keys.len() {
+        return Err(());
+    }
+    if tokens.len() < threshold {
+        return Err(());
+    }
+
+    // Extract the canonical signing input (header.payload) from the first token.
+    // All tokens must share the same header.payload.
+    let first = tokens.get(0).ok_or(())?;
+    let first_n = first.len() as usize;
+    if first_n == 0 || first_n > MAX_JWT_LEN as usize {
+        return Err(());
+    }
+    let mut first_buf = [0u8; MAX_JWT_LEN as usize];
+    first.copy_into_slice(&mut first_buf[..first_n]);
+
+    // Find the two dots in the first token.
+    let mut dots: [usize; 2] = [0; 2];
+    let mut dot_count = 0usize;
+    for (i, &byte) in first_buf[..first_n].iter().enumerate() {
+        if byte == b'.' {
+            if dot_count < 2 { dots[dot_count] = i; dot_count += 1; } else { return Err(()); }
+        }
+    }
+    if dot_count != 2 { return Err(()); }
+    let d0 = dots[0];
+    let d1 = dots[1];
+    if d0 == 0 || d1 <= d0 + 1 || d1 + 1 >= first_n { return Err(()); }
+
+    // Validate alg and payload (exp, sub) using the first token's payload.
+    let header_b64 = &first_buf[..d0];
+    let payload_b64 = &first_buf[d0 + 1..d1];
+    let header_dec = base64url_decode(header_b64).map_err(|_| ())?;
+    let alg = parse_json_alg(&header_dec)?;
+    if alg != b"EdDSA" { return Err(()); }
+    let payload_dec = base64url_decode(payload_b64).map_err(|_| ())?;
+    let exp = parse_json_exp(&payload_dec)?;
+    let now = env.ledger().timestamp();
+    if exp.saturating_add(clock_skew_seconds) <= now { return Err(()); }
+    let sub = parse_json_sub(env, &payload_dec)?;
+    if let Some(expected) = expected_sub {
+        if sub != *expected { return Err(()); }
+    }
+
+    // Count how many distinct keys produce a valid signature across all tokens.
+    let signing_input = &first_buf[..d1]; // header.payload
+    let mut valid_sig_count: u32 = 0;
+    let mut used_key_indices: [bool; MAX_VERIFYING_KEYS as usize] =
+        [false; MAX_VERIFYING_KEYS as usize];
+
+    for t_idx in 0..tokens.len() {
+        let token = tokens.get(t_idx).ok_or(())?;
+        let tn = token.len() as usize;
+        if tn == 0 || tn > MAX_JWT_LEN as usize { continue; }
+        let mut tbuf = [0u8; MAX_JWT_LEN as usize];
+        token.copy_into_slice(&mut tbuf[..tn]);
+
+        // Extract signature from this token.
+        let mut tdots: [usize; 2] = [0; 2];
+        let mut tdc = 0usize;
+        for (i, &byte) in tbuf[..tn].iter().enumerate() {
+            if byte == b'.' {
+                if tdc < 2 { tdots[tdc] = i; tdc += 1; } else { break; }
+            }
+        }
+        if tdc != 2 { continue; }
+        let td1 = tdots[1];
+        if td1 + 1 >= tn { continue; }
+
+        // Ensure this token's signing input matches the canonical one.
+        if &tbuf[..td1] != signing_input { continue; }
+
+        let sig_b64 = &tbuf[td1 + 1..tn];
+        let sig_dec = match base64url_decode(sig_b64) { Ok(s) => s, Err(_) => continue };
+        if sig_dec.len() != 64 { continue; }
+        let sig_arr: [u8; 64] = match sig_dec.as_slice().try_into() { Ok(a) => a, Err(_) => continue };
+        let dalek_sig = Signature::from_bytes(&sig_arr);
+
+        for k_idx in 0..keys.len() {
+            let k_idx_usize = k_idx as usize;
+            if used_key_indices[k_idx_usize] { continue; }
+            let key = keys.get(k_idx).unwrap();
+            if key.len() != 32 { continue; }
+            let mut pk_arr = [0u8; 32];
+            key.copy_into_slice(&mut pk_arr);
+            if let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) {
+                if vk.verify(signing_input, &dalek_sig).is_ok() {
+                    used_key_indices[k_idx_usize] = true;
+                    valid_sig_count += 1;
+                    break;
+                }
+            }
+        }
+
+        if valid_sig_count >= threshold {
+            return Ok(());
+        }
+    }
+
+    if valid_sig_count >= threshold { Ok(()) } else { Err(()) }
 }
 
 #[cfg(test)]
@@ -501,6 +632,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_json_claims_ignore_nested_keys() {
+        // #893: nested objects that reuse claim names must not shadow top-level values.
+        let env = Env::default();
+        let payload = br#"{"jti":{"exp":1,"sub":"nested","scp":"kyc"},"sub":"GABC","exp":9999999999,"scp":"deposit"}"#;
+        assert_eq!(parse_json_exp(payload).unwrap(), 9_999_999_999);
+        let sub = parse_json_sub(&env, payload).unwrap();
+        assert_eq!(sub, String::from_str(&env, "GABC"));
+        assert_eq!(parse_json_scp(payload).unwrap(), b"deposit");
+
+        // Nested-only key with no top-level counterpart must fail (not pick nested).
+        assert!(parse_json_exp(br#"{"jti":{"exp":1},"sub":"GABC"}"#).is_err());
+    }
+
+    #[test]
     fn verify_accepts_valid_token() {
         let env = Env::default();
         ledger(&env, 1_000);
@@ -515,8 +660,8 @@ mod tests {
 
         let mut keys = soroban_sdk::Vec::new(&env);
         keys.push_back(pk);
-        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub), 0).is_ok());
-        assert!(verify_sep10_jwt(&env, &token, &keys, None, 0).is_ok());
+        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub), 0, None).is_ok());
+        assert!(verify_sep10_jwt(&env, &token, &keys, None, 0, None).is_ok());
     }
 
     #[test]
@@ -534,7 +679,7 @@ mod tests {
 
         let mut keys = soroban_sdk::Vec::new(&env);
         keys.push_back(pk);
-        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub), 0).is_err());
+        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub), 0, None).is_err());
     }
 
     #[test]
@@ -558,7 +703,7 @@ mod tests {
 
         let mut keys = soroban_sdk::Vec::new(&env);
         keys.push_back(pk);
-        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub), 0).is_err());
+        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub), 0, None).is_err());
 
         // Malformed payloads should also return Err, not panic
         let malformed_cases: &[&[u8]] = &[
@@ -647,6 +792,13 @@ mod tests {
         assert!(check_token_scope(&env, &token, 2).is_ok()); // withdrawal
         assert!(check_token_scope(&env, &token, 3).is_err()); // quote — not in scp
         assert!(check_token_scope(&env, &token, 4).is_err()); // kyc — not in scp
+
+        // #892: preferred path — scope checked only after signature/expiry via required_scope
+        let pk = Bytes::from_slice(&env, signing_key.verifying_key().as_bytes());
+        let mut keys = soroban_sdk::Vec::new(&env);
+        keys.push_back(pk);
+        assert!(verify_sep10_jwt(&env, &token, &keys, None, 0, Some(1)).is_ok());
+        assert!(verify_sep10_jwt(&env, &token, &keys, None, 0, Some(3)).is_err());
     }
 
     #[test]
@@ -680,11 +832,11 @@ mod tests {
         let token = String::from_str(&env, jwt.as_str());
 
         // Without skew: rejected.
-        assert!(verify_sep10_jwt(&env, &token, &keys, None, 0).is_err());
+        assert!(verify_sep10_jwt(&env, &token, &keys, None, 0, None).is_err());
         // With 60 s skew: accepted (exp + 60 = 1_060 > 1_030).
-        assert!(verify_sep10_jwt(&env, &token, &keys, None, 60).is_ok());
+        assert!(verify_sep10_jwt(&env, &token, &keys, None, 60, None).is_ok());
         // With skew exactly equal to lag (30 s): exp + 30 = 1_030, not strictly greater — rejected.
-        assert!(verify_sep10_jwt(&env, &token, &keys, None, 30).is_err());
+        assert!(verify_sep10_jwt(&env, &token, &keys, None, 30, None).is_err());
     }
 
     #[test]
@@ -703,16 +855,62 @@ mod tests {
         // EdDSA token is accepted
         let jwt = build_jwt(&signing_key, sub_str.as_str(), 2_000);
         let token = String::from_str(&env, jwt.as_str());
-        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub), 0).is_ok());
+        assert!(verify_sep10_jwt(&env, &token, &keys, Some(&sub), 0, None).is_ok());
 
         // HS256 token is rejected
         let jwt_hs256 = build_jwt_with_custom_alg(&signing_key, sub_str.as_str(), 2_000, "HS256");
         let token_hs256 = String::from_str(&env, jwt_hs256.as_str());
-        assert!(verify_sep10_jwt(&env, &token_hs256, &keys, Some(&sub), 0).is_err());
+        assert!(verify_sep10_jwt(&env, &token_hs256, &keys, Some(&sub), 0, None).is_err());
 
         // Token with no alg field is rejected
         let jwt_no_alg = build_jwt_without_alg(&signing_key, sub_str.as_str(), 2_000);
         let token_no_alg = String::from_str(&env, jwt_no_alg.as_str());
-        assert!(verify_sep10_jwt(&env, &token_no_alg, &keys, Some(&sub), 0).is_err());
+        assert!(verify_sep10_jwt(&env, &token_no_alg, &keys, Some(&sub), 0, None).is_err());
+    }
+
+    #[test]
+    fn multisig_rejects_oversized_key_set() {
+        // #891: keys beyond MAX_VERIFYING_KEYS must fail closed, not silently
+        // skip distinct-signer bookkeeping.
+        let env = Env::default();
+        ledger(&env, 1_000);
+        let sk = SigningKey::generate(&mut OsRng);
+        let jwt = build_jwt(&sk, "any", 2_000);
+        let token = String::from_str(&env, jwt.as_str());
+
+        let mut keys = soroban_sdk::Vec::new(&env);
+        for _ in 0..(MAX_VERIFYING_KEYS + 1) {
+            let extra = SigningKey::generate(&mut OsRng);
+            keys.push_back(Bytes::from_slice(&env, extra.verifying_key().as_bytes()));
+        }
+        let mut tokens = soroban_sdk::Vec::new(&env);
+        tokens.push_back(token);
+        assert!(verify_sep10_jwt_multisig(&env, &tokens, &keys, 1, None, 0).is_err());
+    }
+
+    #[test]
+    fn multisig_accepts_2_of_2_distinct_signers() {
+        let env = Env::default();
+        ledger(&env, 1_000);
+        let sk1 = SigningKey::generate(&mut OsRng);
+        let sk2 = SigningKey::generate(&mut OsRng);
+        let sub = "GA_TEST_SUB";
+        let jwt1 = build_jwt(&sk1, sub, 2_000);
+        // Second token must share the same header.payload; re-sign the same signing input.
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        let parts: std::vec::Vec<&str> = jwt1.split('.').collect();
+        let signing_input = format!("{}.{}", parts[0], parts[1]);
+        let sig2 = sk2.sign(signing_input.as_bytes());
+        let jwt2 = format!("{}.{}", signing_input, URL_SAFE_NO_PAD.encode(sig2.to_bytes()));
+
+        let mut keys = soroban_sdk::Vec::new(&env);
+        keys.push_back(Bytes::from_slice(&env, sk1.verifying_key().as_bytes()));
+        keys.push_back(Bytes::from_slice(&env, sk2.verifying_key().as_bytes()));
+        let mut tokens = soroban_sdk::Vec::new(&env);
+        tokens.push_back(String::from_str(&env, jwt1.as_str()));
+        tokens.push_back(String::from_str(&env, jwt2.as_str()));
+
+        assert!(verify_sep10_jwt_multisig(&env, &tokens, &keys, 2, None, 0).is_ok());
+        assert!(verify_sep10_jwt_multisig(&env, &tokens, &keys, 2, None, 0).is_ok());
     }
 }

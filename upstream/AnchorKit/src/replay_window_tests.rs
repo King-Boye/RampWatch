@@ -54,20 +54,14 @@ mod replay_window_tests {
         let (client, admin, attestor, sk) = setup(&env);
 
         // Initialize with no custom window → defaults to 300 s
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // timestamp = now - 299 s → inside window
         let ts: u64 = 1_000_000 - 299;
         let hash = dummy_hash(&env, 1);
         let sig = sign_payload(&env, &sk, &hash);
-        let id = client.submit_attestation(
-            &attestor,
-            &Address::generate(&env),
-            &ts,
-            &hash,
-            &sig,
-        );
+        let id = client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
         assert_eq!(id, 0);
     }
 
@@ -78,20 +72,14 @@ mod replay_window_tests {
         set_ts(&env, 1_000_000);
         let (client, admin, attestor, sk) = setup(&env);
 
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // timestamp = now - 301 s → outside default 300 s window
         let ts: u64 = 1_000_000 - 301;
         let hash = dummy_hash(&env, 2);
         let sig = sign_payload(&env, &sk, &hash);
-        client.submit_attestation(
-            &attestor,
-            &Address::generate(&env),
-            &ts,
-            &hash,
-            &sig,
-        );
+        client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
     }
 
     // -----------------------------------------------------------------------
@@ -105,20 +93,14 @@ mod replay_window_tests {
         let (client, admin, attestor, sk) = setup(&env);
 
         // Custom window: 3600 s (1 hour)
-        client.initialize(&admin, &100_u64, &Some(3600u64));
+        client.initialize(&admin, &100_u64, &Some(3600u64), &None);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // timestamp = now - 3599 s → inside custom window
         let ts: u64 = 1_000_000 - 3599;
         let hash = dummy_hash(&env, 3);
         let sig = sign_payload(&env, &sk, &hash);
-        let id = client.submit_attestation(
-            &attestor,
-            &Address::generate(&env),
-            &ts,
-            &hash,
-            &sig,
-        );
+        let id = client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
         assert_eq!(id, 0);
     }
 
@@ -130,20 +112,14 @@ mod replay_window_tests {
         let (client, admin, attestor, sk) = setup(&env);
 
         // Custom window: 60 s
-        client.initialize(&admin, &100_u64, &Some(60u64));
+        client.initialize(&admin, &100_u64, &Some(60u64), &None);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // timestamp = now - 61 s → outside 60 s window
         let ts: u64 = 1_000_000 - 61;
         let hash = dummy_hash(&env, 4);
         let sig = sign_payload(&env, &sk, &hash);
-        client.submit_attestation(
-            &attestor,
-            &Address::generate(&env),
-            &ts,
-            &hash,
-            &sig,
-        );
+        client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
     }
 
     // -----------------------------------------------------------------------
@@ -157,20 +133,14 @@ mod replay_window_tests {
         set_ts(&env, 1_000_000);
         let (client, admin, attestor, sk) = setup(&env);
 
-        client.initialize(&admin, &100_u64, &None);
+        client.initialize(&admin, &100_u64, &None, &None);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         // timestamp = now + 1 s → future, must be rejected even though it's within the old symmetric window
         let ts: u64 = 1_000_000 + 1;
         let hash = dummy_hash(&env, 6);
         let sig = sign_payload(&env, &sk, &hash);
-        client.submit_attestation(
-            &attestor,
-            &Address::generate(&env),
-            &ts,
-            &hash,
-            &sig,
-        );
+        client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
     }
 
     #[test]
@@ -180,19 +150,13 @@ mod replay_window_tests {
         let (client, admin, attestor, sk) = setup(&env);
 
         // Window = 0 → only exact ledger timestamp is valid
-        client.initialize(&admin, &100_u64, &Some(0u64));
+        client.initialize(&admin, &100_u64, &Some(0u64), &None);
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &sk);
 
         let ts: u64 = 1_000_000; // exact match
         let hash = dummy_hash(&env, 5);
         let sig = sign_payload(&env, &sk, &hash);
-        let id = client.submit_attestation(
-            &attestor,
-            &Address::generate(&env),
-            &ts,
-            &hash,
-            &sig,
-        );
+        let id = client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
         assert_eq!(id, 0);
     }
 }

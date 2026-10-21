@@ -4,7 +4,7 @@ import './themes.css';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type TxStatus = "initiated" | "pending" | "processing" | "completed" | "failed";
+export type TxStatus = "initiated" | "awaiting_user" | "pending" | "processing" | "completed" | "failed" | "refunded";
 export type TxType   = "deposit" | "withdrawal";
 
 export interface TxEvent {
@@ -14,6 +14,8 @@ export interface TxEvent {
   timestamp?: string;         // ISO string or readable label
   txHash?: string;            // on-chain hash, shown on completed
   detail?: string;            // any extra note
+  rawApiResponse?: unknown;   // raw anchor API response, shown in expanded view
+  errorMessage?: string;      // error detail for this step, shown in expanded view
 }
 
 export interface TransactionTimelineProps {
@@ -31,28 +33,33 @@ export interface TransactionTimelineProps {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STATUS_ORDER: TxStatus[] = ["initiated", "pending", "processing", "completed"];
+const STATUS_ORDER: TxStatus[] = ["initiated", "awaiting_user", "pending", "processing", "completed"];
 
 const STATUS_META: Record<TxStatus, { label: string; color: string; bg: string; border: string; icon: string }> = {
-  initiated:  { label: "Initiated",  color: "var(--ak-status-initiated-color)",  bg: "var(--ak-status-initiated-bg)",  border: "var(--ak-status-initiated-border)",  icon: "◎"  },
-  pending:    { label: "Pending",    color: "var(--ak-status-pending-color)",    bg: "var(--ak-status-pending-bg)",    border: "var(--ak-status-pending-border)",    icon: "◌"  },
-  processing: { label: "Processing", color: "var(--ak-status-processing-color)", bg: "var(--ak-status-processing-bg)", border: "var(--ak-status-processing-border)", icon: "◈"  },
-  completed:  { label: "Completed",  color: "var(--ak-status-completed-color)",  bg: "var(--ak-status-completed-bg)",  border: "var(--ak-status-completed-border)",  icon: "✓"  },
-  failed:     { label: "Failed",     color: "var(--ak-status-failed-color)",     bg: "var(--ak-status-failed-bg)",     border: "var(--ak-status-failed-border)",     icon: "✕"  },
+  initiated:     { label: "Initiated",      color: "var(--ak-status-initiated-color)",  bg: "var(--ak-status-initiated-bg)",  border: "var(--ak-status-initiated-border)",  icon: "◎"  },
+  awaiting_user: { label: "Action Required", color: "var(--ak-status-awaiting-user-color)",  bg: "var(--ak-status-awaiting-user-bg)",  border: "var(--ak-status-awaiting-user-border)",  icon: "⚠"  },
+  pending:       { label: "Pending",         color: "var(--ak-status-pending-color)",    bg: "var(--ak-status-pending-bg)",    border: "var(--ak-status-pending-border)",    icon: "◌"  },
+  processing:    { label: "Processing",      color: "var(--ak-status-processing-color)", bg: "var(--ak-status-processing-bg)", border: "var(--ak-status-processing-border)", icon: "◈"  },
+  completed:     { label: "Completed",       color: "var(--ak-status-completed-color)",  bg: "var(--ak-status-completed-bg)",  border: "var(--ak-status-completed-border)",  icon: "✓"  },
+  failed:        { label: "Failed",          color: "var(--ak-status-failed-color)",     bg: "var(--ak-status-failed-bg)",     border: "var(--ak-status-failed-border)",     icon: "✕"  },
+  refunded:      { label: "Refunded",        color: "var(--ak-status-refunded-color)",       bg: "var(--ak-status-refunded-bg)",       border: "var(--ak-status-refunded-border)",       icon: "↩"  },
 };
 
 const DEFAULT_DESCRIPTIONS: Record<TxStatus, Record<TxType, string>> = {
-  initiated:  { deposit: "Deposit request received by anchor.",        withdrawal: "Withdrawal request received by anchor."        },
-  pending:    { deposit: "Awaiting your funds on the external rail.",  withdrawal: "Awaiting Stellar transaction confirmation."    },
-  processing: { deposit: "Funds received — minting assets on-chain.", withdrawal: "Processing payment to your bank account."     },
-  completed:  { deposit: "Assets delivered to your Stellar account.", withdrawal: "Funds sent to your destination account."      },
-  failed:     { deposit: "Deposit could not be completed.",           withdrawal: "Withdrawal could not be completed."           },
+  initiated:     { deposit: "Deposit request received by anchor.",                withdrawal: "Withdrawal request received by anchor."               },
+  awaiting_user: { deposit: "Please initiate your transfer to the anchor.",       withdrawal: "Your confirmation is required to continue."           },
+  pending:       { deposit: "Awaiting your funds on the external rail.",          withdrawal: "Awaiting Stellar transaction confirmation."           },
+  processing:    { deposit: "Funds received — minting assets on-chain.",          withdrawal: "Processing payment to your bank account."            },
+  completed:     { deposit: "Assets delivered to your Stellar account.",          withdrawal: "Funds sent to your destination account."             },
+  failed:        { deposit: "Deposit could not be completed.",                    withdrawal: "Withdrawal could not be completed."                  },
+  refunded:      { deposit: "Deposit could not be processed — funds refunded.",   withdrawal: "Withdrawal reversed — funds returned to your wallet." },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isFailed(status: TxStatus): boolean { return status === "failed"; }
 function isCompleted(status: TxStatus): boolean { return status === "completed"; }
+function isRefunded(status: TxStatus): boolean { return status === "refunded"; }
 function getOrderIndex(s: TxStatus): number { return STATUS_ORDER.indexOf(s); }
 
 function truncateHash(h: string): string {
@@ -171,9 +178,15 @@ export function TransactionTimeline({
 }: TransactionTimelineProps) {
   const failed = isFailed(currentStatus);
   const completed = isCompleted(currentStatus);
+  const refunded = isRefunded(currentStatus);
   const currentIndex = getOrderIndex(currentStatus);
 
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [expandedStep, setExpandedStep] = useState<TxStatus | null>(null);
+
+  const toggleStep = (status: TxStatus) => {
+    setExpandedStep(prev => (prev === status ? null : status));
+  };
 
   useEffect(() => {
     if (!estimatedCompletionAt || completed || failed) {
@@ -265,7 +278,7 @@ export function TransactionTimeline({
             width: 8, height: 8, borderRadius: "50%",
             background: statusMeta.color,
             boxShadow: `0 0 0 2px ${statusMeta.bg}`,
-            animation: (!failed && !completed) ? "txs-ping-slow 2.5s ease-in-out infinite" : "none",
+            animation: (!failed && !completed && !refunded) ? "txs-ping-slow 2.5s ease-in-out infinite" : "none",
             flexShrink: 0,
           }} />
           <span style={{ ...mono, fontSize: 11, fontWeight: 600, color: statusMeta.color, letterSpacing: "0.1em", textTransform: "uppercase" }}>
@@ -321,30 +334,55 @@ export function TransactionTimeline({
 
                 {/* Content */}
                 <div style={{ flex: 1, paddingTop: 8, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <span style={{
-                      ...sans, fontSize: 13, fontWeight: 600,
-                      color: step.isDone || step.isActive ? "var(--ak-text)" : "var(--ak-text-subtle)",
-                      transition: "color 0.4s",
-                    }}>
-                      {step.event?.label ?? step.m.label}
-                    </span>
-                    {step.isDone && !step.isActive && (
+                  <div
+                    onClick={() => setExpandedStep(expandedStep === step.status ? null : step.status)}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                       <span style={{
-                        ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em",
-                        padding: "2px 7px", borderRadius: 10,
-                        background: step.m.bg, color: step.m.color,
-                        border: `1px solid ${step.m.border}`,
-                      }}>DONE</span>
-                    )}
-                    {step.isActive && (
-                      <span style={{
-                        ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em",
-                        padding: "2px 7px", borderRadius: 10,
-                        background: step.m.bg, color: step.m.color,
-                        border: `1px solid ${step.m.border}`,
-                        animation: "txs-fade-in-out 1.8s ease-in-out infinite",
-                      }}>LIVE</span>
+                        ...sans, fontSize: 13, fontWeight: 600,
+                        color: step.isDone || step.isActive ? "var(--ak-text)" : "var(--ak-text-subtle)",
+                        transition: "color 0.4s",
+                      }}>
+                        {step.event?.label ?? step.m.label}
+                      </span>
+                      {step.isDone && !step.isActive && (
+                        <span style={{
+                          ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em",
+                          padding: "2px 7px", borderRadius: 10,
+                          background: step.m.bg, color: step.m.color,
+                          border: `1px solid ${step.m.border}`,
+                        }}>DONE</span>
+                      )}
+                      {step.isActive && (
+                        <span style={{
+                          ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em",
+                          padding: "2px 7px", borderRadius: 10,
+                          background: step.m.bg, color: step.m.color,
+                          border: `1px solid ${step.m.border}`,
+                          animation: "txs-fade-in-out 1.8s ease-in-out infinite",
+                        }}>LIVE</span>
+                      )}
+                    {/* Expand toggle — only when step has event data */}
+                    {step.event && (
+                      <button
+                        aria-expanded={expandedStep === step.status}
+                        aria-controls={`step-details-${step.status}`}
+                        onClick={() => toggleStep(step.status)}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleStep(step.status); } }}
+                        style={{
+                          ...mono, marginLeft: "auto", fontSize: 10, fontWeight: 600,
+                          padding: "2px 8px", borderRadius: 8,
+                          border: `1px solid var(--ak-border)`,
+                          background: "var(--ak-surface-2)",
+                          color: "var(--ak-text-muted)",
+                          cursor: "pointer",
+                          transition: "all 0.15s",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {expandedStep === step.status ? "▲ Less" : "▼ More"}
+                      </button>
                     )}
                   </div>
 
@@ -374,6 +412,61 @@ export function TransactionTimeline({
                       <span style={{ ...mono, fontSize: 10, color: "var(--ak-text-muted)" }}>{step.event.detail}</span>
                     )}
                   </div>
+
+                  {/* Expanded details panel */}
+                  {expandedStep === step.status && (
+                    <div
+                      id={`step-details-${step.status}`}
+                      role="region"
+                      aria-label={`${step.event?.label ?? step.m.label} details`}
+                      style={{
+                        marginTop: 10,
+                        padding: "10px 12px",
+                        borderRadius: 10,
+                        border: "1px solid var(--ak-border)",
+                        background: "var(--ak-surface-2)",
+                        display: "flex", flexDirection: "column", gap: 8,
+                      }}
+                    >
+                      {/* Timestamp */}
+                      <div>
+                        <span style={{ ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ak-text-muted)" }}>Timestamp</span>
+                        <p style={{ ...mono, fontSize: 11, color: "var(--ak-text)", margin: "3px 0 0" }}>
+                          {step.event?.timestamp ? formatTs(step.event.timestamp) : "—"}
+                        </p>
+                      </div>
+
+                      {/* Error message */}
+                      {(step.event?.errorMessage != null) && (
+                        <div>
+                          <span style={{ ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ak-status-failed-color)" }}>Error</span>
+                          <p style={{ ...mono, fontSize: 11, color: "var(--ak-status-failed-color)", margin: "3px 0 0", wordBreak: "break-word" }}>
+                            {step.event.errorMessage || "No error message provided."}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Raw API response */}
+                      <div>
+                        <span style={{ ...mono, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ak-text-muted)" }}>Raw API Response</span>
+                        {step.event?.rawApiResponse != null ? (
+                          <pre style={{
+                            ...mono, fontSize: 10, color: "var(--ak-text)", margin: "3px 0 0",
+                            background: "var(--ak-surface-3)", padding: "8px 10px", borderRadius: 7,
+                            border: "1px solid var(--ak-border)",
+                            overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word",
+                            maxHeight: 200,
+                          }}>
+                            {typeof step.event.rawApiResponse === "string"
+                              ? step.event.rawApiResponse
+                              : JSON.stringify(step.event.rawApiResponse, null, 2)}
+                          </pre>
+                        ) : (
+                          <p style={{ ...mono, fontSize: 11, color: "var(--ak-text-subtle)", margin: "3px 0 0" }}>No response data available.</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -394,15 +487,79 @@ export function TransactionTimeline({
                 }}>✕</div>
               </div>
               <div style={{ flex: 1, paddingTop: 8 }}>
-                <div style={{ ...sans, fontSize: 13, fontWeight: 600, color: "var(--ak-status-failed-color)", marginBottom: 4 }}>
-                  {events.find(e => e.status === "failed")?.label ?? "Transaction Failed"}
+                <div
+                  onClick={() => setExpandedStep(expandedStep === "failed" ? null : "failed")}
+                  style={{ cursor: "pointer", userSelect: "none" }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span style={{ ...sans, fontSize: 13, fontWeight: 600, color: "var(--ak-status-failed-color)" }}>
+                      {events.find(e => e.status === "failed")?.label ?? "Transaction Failed"}
+                    </span>
+                    <span style={{ ...mono, fontSize: 10, color: "var(--ak-text-subtle)", marginLeft: "auto", display: "inline-block", transition: "transform 0.2s", transform: expandedStep === "failed" ? "rotate(180deg)" : "rotate(0deg)" }}>▾</span>
+                  </div>
+                  <p style={{ ...sans, fontSize: 12, color: "var(--ak-status-failed-color)", lineHeight: 1.55, margin: 0 }}>
+                    {events.find(e => e.status === "failed")?.description ?? DEFAULT_DESCRIPTIONS.failed[type]}
+                  </p>
+                  {events.find(e => e.status === "failed")?.timestamp && (
+                    <span style={{ ...mono, fontSize: 10, color: "var(--ak-status-failed-color)", marginTop: 4, display: "block" }}>
+                      {formatTs(events.find(e => e.status === "failed")!.timestamp)}
+                    </span>
+                  )}
                 </div>
-                <p style={{ ...sans, fontSize: 12, color: "var(--ak-status-failed-color)", lineHeight: 1.55, margin: 0 }}>
-                  {events.find(e => e.status === "failed")?.description ?? DEFAULT_DESCRIPTIONS.failed[type]}
+                {expandedStep === "failed" && (() => {
+                  const ev = events.find(e => e.status === "failed");
+                  return (
+                    <div style={{ marginTop: 10, padding: "12px 14px", borderRadius: 10, border: "1px solid var(--ak-status-failed-border)", background: "var(--ak-status-failed-bg)", display: "flex", flexDirection: "column", gap: 8 }}>
+                      {ev?.timestamp && (
+                        <div>
+                          <span style={{ ...mono, fontSize: 9, letterSpacing: "0.1em", color: "var(--ak-status-failed-color)", textTransform: "uppercase", display: "block", marginBottom: 2 }}>Timestamp</span>
+                          <span style={{ ...mono, fontSize: 11, color: "var(--ak-status-failed-color)" }}>{ev.timestamp}</span>
+                        </div>
+                      )}
+                      {ev?.error && (
+                        <div>
+                          <span style={{ ...mono, fontSize: 9, letterSpacing: "0.1em", color: "var(--ak-status-failed-color)", textTransform: "uppercase", display: "block", marginBottom: 2 }}>Error</span>
+                          <span style={{ ...mono, fontSize: 11, color: "var(--ak-status-failed-color)" }}>{ev.error}</span>
+                        </div>
+                      )}
+                      {ev?.rawApiResponse !== undefined && (
+                        <div>
+                          <span style={{ ...mono, fontSize: 9, letterSpacing: "0.1em", color: "var(--ak-status-failed-color)", textTransform: "uppercase", display: "block", marginBottom: 2 }}>Raw API Response</span>
+                          <pre style={{ ...mono, fontSize: 10, color: "var(--ak-status-failed-color)", background: "var(--ak-surface-3)", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--ak-status-failed-border)", overflowX: "auto", margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 200, overflowY: "auto" }}>
+                            {JSON.stringify(ev.rawApiResponse, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Refunded node — appended after steps; distinct from failed (funds are returning) */}
+          {refunded && (
+            <div style={{ display: "flex", gap: 16, position: "relative" }}>
+              <div style={{ position: "relative", width: 40, height: 40, flexShrink: 0 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: "50%",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: `2px solid var(--ak-status-refunded-color)`,
+                  background: "var(--ak-status-refunded-bg)",
+                  boxShadow: "0 0 0 4px var(--ak-status-refunded-bg), 0 2px 12px rgba(124,58,237,0.2)",
+                  fontSize: 16, color: "var(--ak-status-refunded-color)", fontWeight: 700, zIndex: 1, position: "relative",
+                }}>↩</div>
+              </div>
+              <div style={{ flex: 1, paddingTop: 8 }}>
+                <div style={{ ...sans, fontSize: 13, fontWeight: 600, color: "var(--ak-status-refunded-color-strong)", marginBottom: 4 }}>
+                  {events.find(e => e.status === "refunded")?.label ?? "Transaction Refunded"}
+                </div>
+                <p style={{ ...sans, fontSize: 12, color: "var(--ak-status-refunded-color)", lineHeight: 1.55, margin: 0 }}>
+                  {events.find(e => e.status === "refunded")?.description ?? DEFAULT_DESCRIPTIONS.refunded[type]}
                 </p>
-                {events.find(e => e.status === "failed")?.timestamp && (
-                  <span style={{ ...mono, fontSize: 10, color: "var(--ak-status-failed-color)", marginTop: 4, display: "block" }}>
-                    {formatTs(events.find(e => e.status === "failed")!.timestamp)}
+                {events.find(e => e.status === "refunded")?.timestamp && (
+                  <span style={{ ...mono, fontSize: 10, color: "var(--ak-status-refunded-color-subtle)", marginTop: 4, display: "block" }}>
+                    {formatTs(events.find(e => e.status === "refunded")!.timestamp)}
                   </span>
                 )}
               </div>
@@ -458,7 +615,6 @@ export function TransactionTimeline({
 
       {/* Keyframes */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
         @keyframes txs-ping        { 0%{transform:scale(1);opacity:.8} 100%{transform:scale(2.2);opacity:0} }
         @keyframes txs-ping-slow   { 0%,100%{opacity:1} 50%{opacity:0.4} }
         @keyframes txs-spin        { to{transform:rotate(360deg)} }
@@ -580,7 +736,6 @@ export default function TransactionTimelineDemo() {
       padding: "40px 24px",
     }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         button:hover { opacity: 0.88; }
       `}</style>
