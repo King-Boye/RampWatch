@@ -176,7 +176,7 @@ The contract exposes 134 public functions from a single `#[contractimpl] impl Sw
 
 | Function | Description | Auth |
 |---|---|---|
-| `create_remittance(sender, agent, amount, expiry?, token?, idempotency_key?, settlement_config?, recipient_hash?)` | Creates a pending remittance: validates agent/reputation/token whitelist, enforces daily send limit and corridor caps, checks idempotency, and moves funds into escrow | sender auth required |
+| `create_remittance(sender, agent, amount, integrator, expiry?, token?, idempotency_key?, settlement_config?, recipient_hash?)` | Creates a pending remittance: validates agent/reputation/token whitelist, enforces daily send limit and corridor caps, checks idempotency, records the integrator for fee splitting, and moves funds into escrow | sender auth required |
 | `create_remittance_with_corridor(sender, agent, amount, expiry?, from_country?, to_country?)` | Like `create_remittance`, but applies a country-pair fee corridor if one is configured | sender auth required |
 | `confirm_payout(agent, remittance_id, proof?, recipient_details_hash?)` | Agent confirms payout: transitions Pending → Processing → Completed, pays the agent (minus fees), pays the treasury protocol fee, and locks the settlement hash against double payout | agent auth required (must be the remittance's assigned, registered agent) |
 | `mark_failed(remittance_id)` | Refunds the escrow to the sender and sets the remittance status to `Cancelled` (despite the name, it does not set a `Failed` status — see note below) | agent auth required (assigned agent) |
@@ -626,7 +626,7 @@ sequenceDiagram
     rect rgb(235, 245, 255)
         Note over Sender,Contract: Happy path — creation → settlement
         Sender->>USDC: approve(contract, amount)
-        Sender->>Contract: create_remittance(agent, amount)
+        Sender->>Contract: create_remittance(sender, agent, amount, integrator)
         Contract->>USDC: transfer(sender → escrow, amount)
         Contract-->>Sender: remittance_id (status: Pending)
 
@@ -729,7 +729,7 @@ Terminal states (`Completed`, `Cancelled`) cannot transition further. `Failed` a
 
 2. **Create Remittance**
    - Sender approves USDC transfer to contract
-   - Sender calls `create_remittance` with agent and amount
+   - Sender calls `create_remittance` with sender, agent, amount, and integrator
    - Contract transfers USDC from sender to escrow
    - Remittance ID returned for tracking (status: Pending)
 
