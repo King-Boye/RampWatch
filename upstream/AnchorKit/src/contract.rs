@@ -2383,7 +2383,8 @@ impl AnchorKitContract {
         } else if strategy_sym == balanced_sym {
             // score = (40_000 / fee_percentage) + (30_000 / settlement_time) + (reputation * 3_000 / 10_000)
             // All terms are dimensionless integers; higher score is better.
-            // fee_percentage = 0 or settlement_time = 0 contribute 0 to avoid division by zero.
+            // fee_percentage = 0 or settlement_time = 0 are the best possible values, so they score
+            // one point above the best non-zero value (fee 1 / time 1) instead of dividing by zero.
             let balanced_score = |env: &Env, q: &Quote| -> u64 {
                 let mk = StorageKey::AnchorMeta(q.anchor.clone());
                 let meta: AnchorMetadata = env.storage().persistent()
@@ -2398,8 +2399,8 @@ impl AnchorKitContract {
                         is_active: false,
                         homepage_url: None,
                     });
-                let fee_term = if q.fee_percentage > 0 { 40_000 / q.fee_percentage as u64 } else { 0 };
-                let time_term = 30_000u64.checked_div(meta.average_settlement_time).unwrap_or(0);
+                let fee_term = if q.fee_percentage > 0 { 40_000 / q.fee_percentage as u64 } else { 40_001 };
+                let time_term = 30_000u64.checked_div(meta.average_settlement_time).unwrap_or(30_001);
                 // Scale reputation (0–10_000) to a 0–3_000 range to match the weight of other terms.
                 let rep_term = meta.reputation_score as u64 * 3_000 / 10_000;
                 fee_term + time_term + rep_term
@@ -2431,17 +2432,17 @@ impl AnchorKitContract {
                 best = candidates.get(random_idx as u32).unwrap();
             } else {
                 let random_score: u64 = env.prng().gen_range(0u64..total_score as u64);
-                let mut threshold: i64 = random_score as i64;
+                let mut cumulative: u64 = 0;
                 for q in candidates.iter() {
-                    threshold -= health_score(&env, &q);
-                    if threshold <= 0 {
+                    let score = health_score(&env, &q) as u64;
+                    if score == 0 {
+                        continue;
+                    }
+                    cumulative += score;
+                    if random_score < cumulative {
                         best = q;
                         break;
                     }
-                }
-                // If we didn't select due to rounding, pick the last one
-                if threshold > 0 {
-                    best = candidates.get(candidates.len() - 1).unwrap();
                 }
             }
         }
@@ -3065,10 +3066,7 @@ fn verify_attestation_signature(
         rotation_interval_seconds: u64,
         require_encryption: bool,
     ) {
-        if Self::is_initialized(env.clone()) {
-            let admin = Self::get_admin(env.clone());
-            admin.require_auth();
-        }
+        Self::require_admin(&env);
         let now = env.ledger().timestamp();
         let policy = CredentialPolicy {
             attestor: attestor.clone(),
@@ -3076,16 +3074,23 @@ fn verify_attestation_signature(
             require_encryption,
             last_rotated: now,
         };
+        let policy_key = StorageKey::CredentialPolicy(attestor);
+        env.storage().persistent().set(&policy_key, &policy);
         env.storage()
             .persistent()
-            .set(&StorageKey::CredentialPolicy(attestor), &policy);
+            .extend_ttl(&policy_key, PERSISTENT_TTL, PERSISTENT_TTL);
     }
 
     /// Get the credential policy for an attestor.
     pub fn get_credential_policy(env: Env, attestor: Address) -> Option<CredentialPolicy> {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::CredentialPolicy(attestor))
+        let key = StorageKey::CredentialPolicy(attestor);
+        let policy = env.storage().persistent().get(&key);
+        if policy.is_some() {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+        }
+        policy
     }
 
     /// Store an encrypted credential for an attestor.
@@ -3096,10 +3101,7 @@ fn verify_attestation_signature(
         encrypted_value: String,
         expires_at: u64,
     ) {
-        if Self::is_initialized(env.clone()) {
-            let admin = Self::get_admin(env.clone());
-            admin.require_auth();
-        }
+        Self::require_admin(&env);
         let now = env.ledger().timestamp();
         let cred = StoredCredential {
             attestor: attestor.clone(),
@@ -3108,9 +3110,11 @@ fn verify_attestation_signature(
             expires_at,
             updated_at: now,
         };
+        let cred_key = StorageKey::StoredCredential(attestor);
+        env.storage().persistent().set(&cred_key, &cred);
         env.storage()
             .persistent()
-            .set(&StorageKey::StoredCredential(attestor), &cred);
+            .extend_ttl(&cred_key, PERSISTENT_TTL, PERSISTENT_TTL);
     }
 
     /// Check whether an attestor's credential needs rotation according to its policy or expiration.
@@ -3147,10 +3151,7 @@ fn verify_attestation_signature(
         new_encrypted_value: String,
         expires_at: u64,
     ) {
-        if Self::is_initialized(env.clone()) {
-            let admin = Self::get_admin(env.clone());
-            admin.require_auth();
-        }
+        Self::require_admin(&env);
         let now = env.ledger().timestamp();
         let cred = StoredCredential {
             attestor: attestor.clone(),
@@ -3159,18 +3160,22 @@ fn verify_attestation_signature(
             expires_at,
             updated_at: now,
         };
+        let cred_key = StorageKey::StoredCredential(attestor.clone());
+        env.storage().persistent().set(&cred_key, &cred);
         env.storage()
             .persistent()
-            .set(&StorageKey::StoredCredential(attestor.clone()), &cred);
+            .extend_ttl(&cred_key, PERSISTENT_TTL, PERSISTENT_TTL);
         if let Some(mut policy) = env
             .storage()
             .persistent()
             .get::<_, CredentialPolicy>(&StorageKey::CredentialPolicy(attestor.clone()))
         {
             policy.last_rotated = now;
+            let policy_key = StorageKey::CredentialPolicy(attestor);
+            env.storage().persistent().set(&policy_key, &policy);
             env.storage()
                 .persistent()
-                .set(&StorageKey::CredentialPolicy(attestor), &policy);
+                .extend_ttl(&policy_key, PERSISTENT_TTL, PERSISTENT_TTL);
         }
     }
 }
