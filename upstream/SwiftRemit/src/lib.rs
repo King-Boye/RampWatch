@@ -572,6 +572,18 @@ impl SwiftRemitContract {
 
         sender.require_auth();
 
+        // Replay existing requests before enforcing or recording any usage limits.
+        if let Some(ref key) = idempotency_key {
+            if let Some(record) = storage::get_idempotency_record(&env, key) {
+                let request_hash =
+                    hashing::compute_request_hash(&env, &sender, &agent, amount, expiry);
+                if request_hash != record.request_hash {
+                    return Err(ContractError::IdempotencyConflict);
+                }
+                return Ok(record.remittance_id);
+            }
+        }
+
         // SR-123: Apply abuse-protection sliding-window rate limit and cooldown for Transfer.
         abuse_protection::check_rate_limit(&env, &sender, ActionType::Transfer)?;
         check_cooldown(&env, &sender, ActionType::Transfer)?;
@@ -595,20 +607,6 @@ impl SwiftRemitContract {
         if let Some(ref config) = settlement_config {
             if config.require_proof && config.oracle_address.is_none() {
                 return Err(ContractError::InvalidOracleAddress);
-            }
-        }
-
-        // Check idempotency if key provided
-        if let Some(ref key) = idempotency_key {
-            if let Some(record) = storage::get_idempotency_record(&env, key) {
-                // Key exists and not expired - verify payload matches
-                let request_hash =
-                    hashing::compute_request_hash(&env, &sender, &agent, amount, expiry);
-                if request_hash != record.request_hash {
-                    return Err(ContractError::IdempotencyConflict);
-                }
-                // Same key and payload - return existing remittance_id
-                return Ok(record.remittance_id);
             }
         }
 
