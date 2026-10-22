@@ -2598,6 +2598,36 @@ impl SwiftRemitContract {
         get_last_settlement_time(&env, &sender)
     }
 
+    /// Returns a page of remittances created by `sender`.
+    ///
+    /// Pagination is shard-aware: only the shards that intersect the requested
+    /// `[offset, offset + limit)` window are read, so the number of storage
+    /// reads is proportional to the page size rather than the total number of
+    /// remittances the sender has ever created.
+    pub fn get_sender_remittances(
+        env: Env,
+        sender: Address,
+        offset: u32,
+        limit: u32,
+    ) -> Vec<u64> {
+        storage::get_sender_remittances_paged(&env, &sender, offset, limit)
+    }
+
+    /// Returns a page of remittances assigned to `agent`.
+    ///
+    /// Pagination is shard-aware: only the shards that intersect the requested
+    /// `[offset, offset + limit)` window are read, so the number of storage
+    /// reads is proportional to the page size rather than the total number of
+    /// remittances the agent has ever handled.
+    pub fn get_agent_remittances(
+        env: Env,
+        agent: Address,
+        offset: u32,
+        limit: u32,
+    ) -> Vec<u64> {
+        storage::get_agent_remittances_paged(&env, &agent, offset, limit)
+    }
+
     /// Set daily send limit for a currency/country pair (admin only).
     ///
     /// `limit` must be greater than zero. Zero is rejected to prevent
@@ -2717,10 +2747,31 @@ impl SwiftRemitContract {
         caller: Address,
         extend_by_ledgers: u32,
     ) -> Result<(), ContractError> {
+        // `require_admin` already performs `caller.require_auth()`; do not call it again.
         require_admin(&env, &caller)?;
-        caller.require_auth();
         crate::storage::extend_critical_ttls(&env, extend_by_ledgers);
         Ok(())
+    }
+
+    /// Creates a single remittance.
+    ///
+    /// # Deprecated
+    ///
+    /// This is a legacy alias of [`Self::create_remittance`] and is scheduled
+    /// for removal in a future release. It is kept only for ABI compatibility
+    /// with existing integrators; new integrations should call
+    /// `create_remittance` directly.
+    #[deprecated(
+        note = "use `create_remittance` instead; this alias will be removed in a future release"
+    )]
+    pub fn create_settlement(
+        env: Env,
+        sender: Address,
+        agent: Address,
+        amount: i128,
+        expiry: Option<u64>,
+    ) -> Result<u64, ContractError> {
+        Self::create_remittance(env, sender, agent, amount, expiry)
     }
 
     pub fn get_version(env: Env) -> soroban_sdk::String {
@@ -2956,6 +3007,20 @@ impl SwiftRemitContract {
     }
 
     /// Creates multiple remittances in one transaction (#590).
+    ///
+    /// # Deprecated
+    ///
+    /// This is a legacy alias of [`Self::batch_create_remittances`] and is
+    /// scheduled for removal in a future release. It is kept only for ABI
+    /// compatibility with existing integrators.
+    ///
+    /// Note that this alias emits an additional `("batch", "created")` event
+    /// that the canonical `batch_create_remittances` entrypoint does not emit.
+    /// New integrations should call `batch_create_remittances` directly to
+    /// avoid relying on this extra event.
+    #[deprecated(
+        note = "use `batch_create_remittances` instead; this alias will be removed in a future release"
+    )]
     pub fn create_batch_remittance(
         env: Env,
         sender: Address,
