@@ -179,14 +179,14 @@ The contract exposes 134 public functions from a single `#[contractimpl] impl Sw
 | `create_remittance(sender, agent, amount, expiry?, token?, idempotency_key?, settlement_config?, recipient_hash?)` | Creates a pending remittance: validates agent/reputation/token whitelist, enforces daily send limit and corridor caps, checks idempotency, and moves funds into escrow | sender auth required |
 | `create_remittance_with_corridor(sender, agent, amount, expiry?, from_country?, to_country?)` | Like `create_remittance`, but applies a country-pair fee corridor if one is configured | sender auth required |
 | `confirm_payout(agent, remittance_id, proof?, recipient_details_hash?)` | Agent confirms payout: transitions Pending → Processing → Completed, pays the agent (minus fees), pays the treasury protocol fee, and locks the settlement hash against double payout | agent auth required (must be the remittance's assigned, registered agent) |
-| `mark_failed(remittance_id)` | Refunds the escrow to the sender and sets the remittance status to `Cancelled` (despite the name, it does not set a `Failed` status — see note below) | agent auth required (assigned agent) |
+| `mark_failed(remittance_id)` | Marks the remittance `Failed` while retaining escrow during the sender's dispute window | agent auth required (assigned agent) |
 | `raise_dispute(remittance_id, evidence_hash)` | Sender disputes a remittance in the `Failed` status, within the dispute window | sender auth required |
 | `resolve_dispute(remittance_id, in_favour_of_sender)` | Admin resolves a disputed remittance — refunds the sender or pays the agent | admin only |
 | `set_dispute_window(seconds)` | Sets how long after failure a sender may raise a dispute | admin only |
 | `get_dispute_window()` | Returns the current dispute window in seconds | none (public query) |
 | `confirm_partial_payout(remittance_id, amount)` | Disburses a partial amount toward a remittance; auto-completes once fully disbursed | agent auth required (assigned agent) |
 | `finalize_remittance(caller, remittance_id)` | Verifies a remittance is in the `Completed` status | admin only |
-| `cancel_remittance(remittance_id)` | Sender cancels a pending remittance and receives a full refund | sender auth required |
+| `cancel_remittance(remittance_id)` | Sender cancels a pending remittance for a full refund, or recovers the remaining escrow from a `Failed` remittance after its dispute window expires | sender auth required |
 | `process_expired_remittances(remittance_ids)` | Batch-refunds expired pending remittances from the given ID list (max batch size configurable, see `set_max_expired_batch_size`) | none (callable by anyone) |
 | `get_remittance(remittance_id)` | Fetches a remittance record | none (public query) |
 | `get_remittances_by_sender(sender, offset, limit)` | Paginated list of a sender's remittance IDs (max page 100) | none (public query) |
@@ -715,6 +715,7 @@ All remittance lifecycle state is tracked by a single canonical `RemittanceStatu
 | Processing | Cancelled  | Expiry or internal failure/refund path |
 | Processing | Failed     | Agent calls `mark_failed` |
 | Failed     | Disputed   | Sender calls `raise_dispute` within dispute window |
+| Failed     | Cancelled  | Sender calls `cancel_remittance` after the dispute window expires |
 | Disputed   | Cancelled  | Admin calls `resolve_dispute` in favour of sender |
 | Disputed   | Completed  | Admin calls `resolve_dispute` in favour of agent |
 

@@ -989,7 +989,7 @@ impl SwiftRemitContract {
     ///
     /// * `Ok(())` - Payout successfully confirmed and transferred
     /// * `Err(ContractError::RemittanceNotFound)` - Remittance ID does not exist
-    /// * `Err(ContractError::InvalidStatus)` - Remittance is not in Pending status
+    /// * `Err(ContractError::InvalidStatus)` - Remittance is not cancellable yet
     /// * `Err(ContractError::DuplicateSettlement)` - Settlement already executed
     /// * `Err(ContractError::SettlementExpired)` - Current time exceeds expiry timestamp
     /// * `Err(ContractError::InvalidAddress)` - Agent address validation failed
@@ -1560,10 +1560,12 @@ impl SwiftRemitContract {
         Ok(())
     }
 
-    /// Cancels a pending remittance and refunds the sender.
+    /// Cancels a pending remittance or recovers a failed remittance after its dispute
+    /// window expires, refunding any escrow still held to the sender.
     ///
-    /// Returns the full remittance amount to the sender and marks the remittance
-    /// as cancelled. Can only be called by the original sender.
+    /// Pending remittances return the full amount. Failed remittances can only be
+    /// cancelled after the dispute window and return the escrow remaining after any
+    /// partial payout. Can only be called by the original sender.
     ///
     /// # Arguments
     ///
@@ -1594,10 +1596,20 @@ impl SwiftRemitContract {
 
         let usdc_token = get_usdc_token(&env)?;
         let token_client = token::Client::new(&env, &usdc_token);
+        let refund_amount = if remittance.status == RemittanceStatus::Failed
+            || remittance.status == RemittanceStatus::Processing
+        {
+            remittance
+                .amount
+                .checked_sub(storage::get_disbursed_amount(&env, remittance_id))
+                .ok_or(ContractError::Underflow)?
+        } else {
+            remittance.amount
+        };
         token_client.transfer(
             &env.current_contract_address(),
             &remittance.sender,
-            &remittance.amount,
+            &refund_amount,
         );
 
         // SR-125: Route status mutation through the canonical state machine.
@@ -1610,7 +1622,7 @@ impl SwiftRemitContract {
         // SR-123: Record the cancellation action for cooldown tracking.
         record_action(&env, &remittance.sender, ActionType::Cancellation);
 
-        // Event: Remittance cancelled - Fires when sender cancels a pending remittance and receives full refund
+        // Event: Remittance cancelled with the amount returned to the sender.
         // Used by off-chain systems to track cancellations and update transaction status
         emit_remittance_cancelled(
             &env,
@@ -1618,7 +1630,7 @@ impl SwiftRemitContract {
             remittance.sender,
             remittance.agent,
             usdc_token,
-            remittance.amount,
+            refund_amount,
         );
 
         log_cancel_remittance(&env, remittance_id);
