@@ -60,6 +60,7 @@ fn register_anchor_with_sep10(
 ) {
     let pk = Bytes::from_slice(env, signing_key.verifying_key().as_bytes());
     client.set_sep10_jwt_verifying_key(anchor, &pk);
+    client.add_attestation_key(anchor, &pk);
 
     let sub = anchor.to_string();
     let mut buf = [0u8; 128];

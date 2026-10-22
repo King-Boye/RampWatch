@@ -243,7 +243,7 @@ mod attestor_cap_batch_tests {
             window_length: 100,
             burst: 0,
         };
-        client.set_attestor_rate_limit(&admin, &issuer, &rate_config).unwrap();
+        client.set_attestor_rate_limit(&issuer, &rate_config).unwrap();
 
         let subject = Address::generate(&env);
         let ts = env.ledger().timestamp();
@@ -289,7 +289,7 @@ mod attestor_cap_batch_tests {
             window_length: 100,
             burst: 0,
         };
-        client.set_attestor_rate_limit(&admin, &issuer, &rate_config).unwrap();
+        client.set_attestor_rate_limit(&issuer, &rate_config).unwrap();
 
         let subject = Address::generate(&env);
         let ts = env.ledger().timestamp();

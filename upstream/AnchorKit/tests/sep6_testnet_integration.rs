@@ -96,6 +96,7 @@ fn register_anchor(
     // Publish the SEP-10 verifying key so the contract can validate JWTs.
     let vk_bytes = Bytes::from_slice(env, sk.verifying_key().as_bytes());
     client.set_sep10_jwt_verifying_key(anchor, &vk_bytes);
+    client.add_attestation_key(anchor, &vk_bytes);
 
     // Build a JWT whose `sub` matches the anchor's on-chain address string.
     let sub_soroban = anchor.to_string();

@@ -47,6 +47,7 @@ pub fn register_attestor_with_sep10(
 ) {
     let pk = Bytes::from_slice(env, signing_key.verifying_key().as_bytes());
     client.set_sep10_jwt_verifying_key(sep10_issuer, &pk);
+    client.add_attestation_key(sep10_issuer, &pk);
 
     let sub = attestor.to_string();
     let mut buf = [0u8; 128];

@@ -58,6 +58,7 @@ mod session_tests {
         let issuer = attestor.clone();
         let pk = soroban_sdk::Bytes::from_slice(env, sk.verifying_key().as_bytes());
         client.set_sep10_jwt_verifying_key(&issuer, &pk);
+        client.add_attestation_key(&issuer, &pk);
 
         let sub = attestor.to_string();
         let mut buf = [0u8; 128];
