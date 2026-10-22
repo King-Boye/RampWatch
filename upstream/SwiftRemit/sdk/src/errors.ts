@@ -129,6 +129,9 @@ export enum ErrorCode {
 
   // Dispute evidence (83)
   MalformedEvidenceHash = 83,
+
+  // Dispute window bound (84)
+  DisputeWindowTooLong = 84,
 }
 
 /** Human-readable messages for each error code. */
@@ -204,6 +207,7 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.AgentAlreadyRegistered]: "Agent is already registered in the system",
   [ErrorCode.NotDisputed]: "This operation requires the remittance to be in a Disputed state",
   [ErrorCode.MalformedEvidenceHash]: "Evidence hash for a dispute is not a valid 32-byte SHA-256 commitment",
+  [ErrorCode.DisputeWindowTooLong]: "Dispute window exceeds the maximum permitted duration",
   // SR-192: restored variants (70, 72-80)
   [ErrorCode.NotFound]: "The requested record does not exist",
   [ErrorCode.MigrationValidationFailed]: "Post-migration validation detected inconsistent storage state",
@@ -293,6 +297,7 @@ const ERROR_REMEDIATIONS: Record<ErrorCode, string> = {
   [ErrorCode.AgentAlreadyRegistered]: "This agent is already registered; no action needed.",
   [ErrorCode.NotDisputed]: "This operation is only valid while the remittance is in a Disputed state.",
   [ErrorCode.MalformedEvidenceHash]: "Supply a 32-byte SHA-256 hash as the evidence commitment.",
+  [ErrorCode.DisputeWindowTooLong]: "Use a dispute window of 30 days (2,592,000 seconds) or less.",
   // SR-192: restored variants (70, 72-80)
   [ErrorCode.NotFound]: "Verify the requested record exists before operating on it.",
   [ErrorCode.MigrationValidationFailed]: "Re-export the migration snapshot and re-import; contact support if this persists.",

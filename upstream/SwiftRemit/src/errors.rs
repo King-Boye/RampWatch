@@ -327,4 +327,7 @@ pub enum ContractError {
 
     /// Evidence hash for a dispute is not a valid 32-byte SHA-256 commitment.
     MalformedEvidenceHash = 83,
+
+    /// Dispute window exceeds the maximum permitted duration.
+    DisputeWindowTooLong = 84,
 }

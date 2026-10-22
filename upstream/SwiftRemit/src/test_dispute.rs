@@ -204,6 +204,72 @@ fn test_raise_dispute_after_window_expired_rejected() {
 }
 
 #[test]
+fn test_raise_dispute_near_max_timestamp_does_not_overflow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    let token = create_token(&env, &admin);
+    token.mint(&sender, &10_000);
+
+    let contract = make_contract(&env);
+    contract.initialize(&admin, &token.address, &250u32, &0u64, &0u32, &admin);
+    contract.register_agent(&agent, &None);
+
+    let id = contract.create_remittance(&sender, &agent, &1_000i128, &None, &None, &None, &None, &None, &None);
+
+    // Record the failure close to u64::MAX so failed_at + window would
+    // overflow without saturating arithmetic.
+    let near_max = u64::MAX - 1_000;
+    env.ledger().with_mut(|li| li.timestamp = near_max);
+    contract.mark_failed(&id);
+
+    // Saturating addition caps the deadline at u64::MAX, so the window is
+    // still open instead of the call panicking on overflow.
+    contract.raise_dispute(&id, &evidence_hash(&env));
+    assert_eq!(
+        contract.get_remittance(&id).status,
+        crate::types::RemittanceStatus::Disputed
+    );
+}
+
+#[test]
+fn test_set_dispute_window_accepts_max() {
+    let f = setup_failed_remittance();
+
+    f.contract
+        .set_dispute_window(&crate::storage::MAX_DISPUTE_WINDOW_SECONDS);
+    assert_eq!(
+        f.contract.get_dispute_window(),
+        crate::storage::MAX_DISPUTE_WINDOW_SECONDS
+    );
+}
+
+#[test]
+fn test_set_dispute_window_rejects_above_max() {
+    let f = setup_failed_remittance();
+    let max = crate::storage::MAX_DISPUTE_WINDOW_SECONDS;
+
+    assert_eq!(
+        f.contract.try_set_dispute_window(&(max + 1)),
+        Err(Ok(ContractError::DisputeWindowTooLong))
+    );
+    assert_eq!(
+        f.contract.try_set_dispute_window(&u64::MAX),
+        Err(Ok(ContractError::DisputeWindowTooLong))
+    );
+
+    // Rejected values must not overwrite the stored window.
+    assert_eq!(
+        f.contract.get_dispute_window(),
+        crate::storage::DEFAULT_DISPUTE_WINDOW_SECONDS
+    );
+}
+
+#[test]
 fn test_raise_dispute_already_disputed_rejected() {
     let f = setup_failed_remittance();
     let hash = evidence_hash(&f.env);

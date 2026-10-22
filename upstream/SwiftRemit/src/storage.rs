@@ -64,6 +64,12 @@ pub const REMITTANCE_INDEX_SHARD_SIZE: u32 = 500;
 /// Default window, in seconds, during which a failed remittance may be disputed.
 pub const DEFAULT_DISPUTE_WINDOW_SECONDS: u64 = 72 * 3600; // 72 hours
 
+/// Maximum configurable dispute window (30 days).
+///
+/// Bounds the admin-settable window so the deadline computation in
+/// `raise_dispute` can never overflow (#1650).
+pub const MAX_DISPUTE_WINDOW_SECONDS: u64 = 30 * 24 * 60 * 60;
+
 /// How long an admin nomination stays valid before it must be re-issued.
 pub const ADMIN_NOMINATION_EXPIRY_SECONDS: u64 = 48 * 3600;
 
