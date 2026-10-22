@@ -4,7 +4,7 @@
 //! accumulated across confirm_payout, mark_failed, and get_agent_stats.
 
 use crate::{SwiftRemitContract, SwiftRemitContractClient};
-use soroban_sdk::{testutils::Address as _, token, Address, Env};
+use soroban_sdk::{testutils::Address as _, token, Address, Env, String};
 
 fn create_token<'a>(env: &Env, admin: &Address) -> token::StellarAssetClient<'a> {
     token::StellarAssetClient::new(
@@ -122,4 +122,98 @@ fn test_success_rate_mixed_outcomes() {
         let saved = crate::storage::get_agent_stats(&env, &agent);
         assert_eq!(saved.success_rate_bps, 7500); // 3/4 * 10000
     });
+}
+
+/// A dispute resolved in favour of the agent counts as a completed settlement,
+/// so success_rate_bps reflects it (issue #1674).
+#[test]
+fn test_agent_stats_after_dispute_resolved_for_agent() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    let token = create_token(&env, &admin);
+    token.mint(&sender, &10_000);
+
+    let contract = create_contract(&env);
+    contract.initialize(&admin, &token.address, &250, &3600, &0, &admin);
+    contract.register_agent(&agent, &None);
+    crate::storage::assign_role(&env, &agent, &crate::Role::Settler);
+
+    let id = contract.create_remittance(
+        &sender,
+        &agent,
+        &1000_i128,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+    contract.confirm_payout(&id, &None, &None);
+
+    let before = contract.get_agent_stats(&agent);
+    assert_eq!(before.total_settlements, 1);
+    assert_eq!(before.failed_settlements, 0);
+    assert_eq!(before.success_rate_bps, 10000);
+
+    contract.open_dispute(&id, &sender, &String::from_str(&env, "reason"));
+    contract.resolve_dispute(&id, &true);
+
+    let after = contract.get_agent_stats(&agent);
+    // Agent-favoured resolution keeps the settlement as successful.
+    assert_eq!(after.total_settlements, 1);
+    assert_eq!(after.failed_settlements, 0);
+    assert_eq!(after.success_rate_bps, 10000);
+    assert_eq!(after.dispute_count, before.dispute_count + 1);
+    assert!(after.last_active_timestamp >= before.last_active_timestamp);
+}
+
+/// A dispute resolved in favour of the sender counts as a failed settlement
+/// and increments the dispute tally (issue #1674).
+#[test]
+fn test_agent_stats_after_dispute_resolved_for_sender() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    let token = create_token(&env, &admin);
+    token.mint(&sender, &10_000);
+
+    let contract = create_contract(&env);
+    contract.initialize(&admin, &token.address, &250, &3600, &0, &admin);
+    contract.register_agent(&agent, &None);
+    crate::storage::assign_role(&env, &agent, &crate::Role::Settler);
+
+    let id = contract.create_remittance(
+        &sender,
+        &agent,
+        &1000_i128,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+    contract.confirm_payout(&id, &None, &None);
+
+    let before = contract.get_agent_stats(&agent);
+    assert_eq!(before.total_settlements, 1);
+    assert_eq!(before.failed_settlements, 0);
+
+    contract.open_dispute(&id, &sender, &String::from_str(&env, "reason"));
+    contract.resolve_dispute(&id, &false);
+
+    let after = contract.get_agent_stats(&agent);
+    // Sender-favoured resolution marks the settlement as failed.
+    assert_eq!(after.failed_settlements, before.failed_settlements + 1);
+    assert_eq!(after.dispute_count, before.dispute_count + 1);
+    assert!(after.success_rate_bps < before.success_rate_bps);
+    assert!(after.last_active_timestamp >= before.last_active_timestamp);
 }

@@ -460,19 +460,19 @@ pub fn rollback_migration(env: &Env) -> Result<(), ContractError> {
 /// # Errors
 /// - `ContractError::NotFound` — no migration is currently in progress.
 pub fn abort_migration(env: &Env, caller: &Address) -> Result<(), ContractError> {
-    if !crate::storage::is_migration_in_progress(env) {
+    if !is_migration_in_progress(env) {
         return Err(ContractError::NotFound);
     }
 
     // Reset state machine to Idle.
-    crate::storage::set_migration_in_progress(env, false);
+    set_migration_in_progress(env, false);
 
     // Reset batch ordering counter.
     clear_expected_next_batch(env);
 
     env.events().publish(
         (soroban_sdk::Symbol::new(env, "mig"), soroban_sdk::Symbol::new(env, "aborted")),
-        (crate::config::SCHEMA_VERSION, env.ledger().sequence(), caller.clone()),
+        (CURRENT_SCHEMA_VERSION, env.ledger().sequence(), caller.clone()),
     );
 
     Ok(())

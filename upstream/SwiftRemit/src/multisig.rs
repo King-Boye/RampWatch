@@ -36,6 +36,7 @@ fn op_type_tag(op: &AdminOperationType) -> u32 {
         AdminOperationType::Pause => 3,
         AdminOperationType::Unpause => 4,
         AdminOperationType::UpdateMultisigConfig => 5,
+        AdminOperationType::AbortMigration => 6,
     }
 }
 
@@ -291,6 +292,9 @@ fn execute_operation(env: &Env, op: &PendingOperation) -> Result<(), ContractErr
         AdminOperationType::UpdateMultisigConfig => {
             set_multisig_threshold(env, op.new_threshold);
             set_multisig_ttl_seconds(env, op.new_ttl_seconds);
+        }
+        AdminOperationType::AbortMigration => {
+            crate::abort_migration_internal(env)?;
         }
     }
     Ok(())
