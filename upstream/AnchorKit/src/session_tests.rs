@@ -202,7 +202,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p,
-            &sign_payload(&env, &sk, &p),
+            &sign_payload(&env, &sk, &p), &None,
         );
 
         assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 1);
@@ -236,7 +236,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &payload(&env, 0x01),
-            &sig(&env, &[0x0a]),
+            &sig(&env, &[0x0a]), &None,
         );
     }
 
@@ -370,7 +370,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p,
-            &sign_payload(&env, &sk, &p),
+            &sign_payload(&env, &sk, &p), &None,
         );
 
         let log0 = client.get_audit_log(&0u64);
@@ -426,7 +426,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p_a,
-            &sign_payload(&env, &sk_a, &p_a),
+            &sign_payload(&env, &sk_a, &p_a), &None,
         );
 
         // ...and session B
@@ -437,7 +437,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p_b,
-            &sign_payload(&env, &sk_b, &p_b),
+            &sign_payload(&env, &sk_b, &p_b), &None,
         );
 
         // Four operations total => audit log IDs should be strictly monotonically increasing.
@@ -511,7 +511,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p0,
-            &sign_payload(&env, &sk, &p0),
+            &sign_payload(&env, &sk, &p0), &None,
         );
         let id1 = client.submit_attestation_with_session(
             &session_id,
@@ -519,7 +519,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p1,
-            &sign_payload(&env, &sk, &p1),
+            &sign_payload(&env, &sk, &p1), &None,
         );
         assert_eq!(id0, 0);
         assert_eq!(id1, 1);
@@ -597,7 +597,7 @@ mod session_tests {
             &attestor,
             &env.ledger().timestamp(),
             &ph,
-            &s,
+            &s, &None,
         );
 
         // log_id=2 must be accessible.
@@ -636,7 +636,7 @@ mod session_tests {
             &attestor,
             &env.ledger().timestamp(),
             &ph,
-            &s,
+            &s, &None,
         );
 
         // Accessing pruned entry must panic.
