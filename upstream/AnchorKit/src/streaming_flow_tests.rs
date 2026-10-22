@@ -15,7 +15,7 @@ mod streaming_flow_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
+    use crate::sep10_test_util::{register_attestor_with_sep10, sign_attestation};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -123,7 +123,7 @@ mod streaming_flow_tests {
             &subject,
             &(env.ledger().timestamp()),
             &p,
-            &sign_payload(&env, &sk, &p),
+            &sign_attestation(&env, &sk, &client.address, &anchor, &subject, env.ledger().timestamp(), &p),
         );
 
         let log = client.get_audit_log(&0);
@@ -147,8 +147,8 @@ mod streaming_flow_tests {
 
         let subject = Address::generate(&env);
         let p = payload(&env, 2);
-        let sig = sign_payload(&env, &sk, &p);
         let ts = env.ledger().timestamp();
+        let sig = sign_attestation(&env, &sk, &client.address, &anchor, &subject, ts, &p);
 
         client.submit_attestation_with_session(&session_id, &anchor, &subject, &ts, &p, &sig);
 

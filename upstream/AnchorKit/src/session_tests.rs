@@ -10,7 +10,7 @@ mod session_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::{build_sep10_jwt, register_attestor_with_sep10, sign_payload};
+    use crate::sep10_test_util::{build_sep10_jwt, register_attestor_with_sep10, sign_attestation};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -203,7 +203,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p,
-            &sign_payload(&env, &sk, &p),
+            &sign_attestation(&env, &sk, &client.address, &attestor, &subject, env.ledger().timestamp(), &p),
         );
 
         assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 1);
@@ -371,7 +371,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p,
-            &sign_payload(&env, &sk, &p),
+            &sign_attestation(&env, &sk, &client.address, &attestor, &subject, env.ledger().timestamp(), &p),
         );
 
         let log0 = client.get_audit_log(&0u64);
@@ -427,7 +427,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p_a,
-            &sign_payload(&env, &sk_a, &p_a),
+            &sign_attestation(&env, &sk_a, &client.address, &attestor_a, &subject, env.ledger().timestamp(), &p_a),
         );
 
         // ...and session B
@@ -438,7 +438,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p_b,
-            &sign_payload(&env, &sk_b, &p_b),
+            &sign_attestation(&env, &sk_b, &client.address, &attestor_b, &subject, env.ledger().timestamp(), &p_b),
         );
 
         // Four operations total => audit log IDs should be strictly monotonically increasing.
@@ -512,7 +512,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p0,
-            &sign_payload(&env, &sk, &p0),
+            &sign_attestation(&env, &sk, &client.address, &attestor, &subject, env.ledger().timestamp(), &p0),
         );
         let id1 = client.submit_attestation_with_session(
             &session_id,
@@ -520,7 +520,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p1,
-            &sign_payload(&env, &sk, &p1),
+            &sign_attestation(&env, &sk, &client.address, &attestor, &subject, env.ledger().timestamp(), &p1),
         );
         assert_eq!(id0, 0);
         assert_eq!(id1, 1);
@@ -591,7 +591,7 @@ mod session_tests {
 
         // Write log_id=2 → live=[0,1,2], count=3 > max_size=2 → prune log_id=0.
         let ph = payload(&env, 0xAB);
-        let s = sign_payload(&env, &signing_key, &ph);
+        let s = sign_attestation(&env, &signing_key, &client.address, &attestor, &attestor, env.ledger().timestamp(), &ph);
         client.submit_attestation_with_session(
             &session_id,
             &attestor,
@@ -630,7 +630,7 @@ mod session_tests {
 
         // Write log_id=2 → prunes log_id=0.
         let ph = payload(&env, 0xCD);
-        let s = sign_payload(&env, &signing_key, &ph);
+        let s = sign_attestation(&env, &signing_key, &client.address, &attestor, &attestor, env.ledger().timestamp(), &ph);
         client.submit_attestation_with_session(
             &session_id,
             &attestor,

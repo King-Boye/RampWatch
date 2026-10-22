@@ -290,7 +290,8 @@ pub struct RoutingRequest {
 /// | `"Weighted"`          | Selects anchors proportionally based on health score.     |
 ///
 /// **Validation:** `strategy` is required and must contain exactly one symbol.
-/// - Passing an empty `Vec` causes the call to panic with `NoQuotesAvailable`.
+/// - Passing an empty `Vec` causes the call to panic with `InvalidStrategy`,
+///   before any anchor storage is read.
 /// - An unrecognised symbol causes the call to panic with `InvalidStrategy`.
 ///
 /// # Other fields
@@ -299,15 +300,18 @@ pub struct RoutingRequest {
 ///   value are excluded before strategy selection. When `min_reputation = 0`,
 ///   reputation filtering is disabled and all anchors are included regardless
 ///   of their reputation score.
-/// - `max_anchors` — limits how many candidate anchors are considered after
-///   other filters are applied. `0` means no limit.
+/// - `max_anchors` — every eligible anchor is ranked by the strategy, so
+///   registration order never biases the result. It only narrows the randomised
+///   `Weighted` pool to the N healthiest anchors. `0` means no limit.
 /// - `require_kyc` — when `true`, only anchors that advertise `SERVICE_KYC`
 ///   are eligible.
 /// - `jurisdiction` — when `Some`, only anchors registered in that region
 ///   (via `set_anchor_jurisdiction`) are eligible. `None` disables geographic
 ///   filtering.
-/// - `fallback_chain` — ordered list of anchor addresses to try in sequence if
-///   the primary selection fails. When empty, no fallback is used.
+/// - `fallback_chain` — ordered list of registered anchors to try if no anchor
+///   qualifies in the main pass. Fallback anchors are evaluated with
+///   `min_reputation` relaxed (ignored); all other filters still apply and the
+///   first qualifying anchor is used. When empty, no fallback is used.
 #[contracttype]
 #[derive(Clone)]
 pub struct RoutingOptions {
