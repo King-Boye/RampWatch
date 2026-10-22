@@ -163,7 +163,9 @@ impl AnchorKitContract {
     ///
     /// `replay_window_seconds` sets the tolerance window for timestamp-based
     /// replay attack detection.  Attestations whose timestamp falls outside
-    /// `[now - window, now + window]` are rejected.
+    /// `[now - window, now]` are rejected: timestamps in the future are never
+    /// accepted, so an off-chain signer whose clock runs ahead of the ledger
+    /// will get `ErrorCode::InvalidTimestamp`.
     ///
     /// `clock_skew_seconds` sets the tolerance for SEP-10 JWT expiry drift
     /// between the anchor's clock and the Soroban ledger timestamp.
@@ -469,6 +471,110 @@ impl AnchorKitContract {
             .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
     }
 
+    // -----------------------------------------------------------------------
+    // Attestation signing keys (#1378)
+    //
+    // Attestation signatures are verified against `StorageKey::AttestationKey`,
+    // a key set that is independent of the SEP-10 JWT verifying keys. Rotating or
+    // revoking a SEP-10 web-auth key therefore never affects attestation signing,
+    // and a leaked JWT signing key cannot forge attestations.
+    //
+    // Migration: contracts that previously relied on the shared `Sep10Key` list
+    // must call `migrate_sep10_keys_to_attestation_keys(issuer)` once per issuer
+    // (admin-only). It copies the issuer's current SEP-10 keys into the attestation
+    // key set; afterwards the two sets are managed independently with
+    // `add_attestation_key` / `remove_attestation_key` and
+    // `add_sep10_verifying_key` / `remove_sep10_verifying_key`. Until an issuer is
+    // migrated (or given a key via `add_attestation_key`), its attestation
+    // submissions are rejected with `UnauthorizedAttestor`.
+    // -----------------------------------------------------------------------
+
+    /// Register an attestation-signing public key for `issuer` (admin-only).
+    /// Adding a key that is already registered is a no-op.
+    pub fn add_attestation_key(env: Env, issuer: Address, public_key: Bytes) {
+        Self::require_admin(&env);
+        if public_key.len() != 32 {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        let storage_key = StorageKey::AttestationKey(issuer);
+        let mut keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&storage_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        if keys.contains(&public_key) {
+            return;
+        }
+        if keys.len() >= sep10_jwt::MAX_VERIFYING_KEYS {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        keys.push_back(public_key);
+        env.storage().persistent().set(&storage_key, &keys);
+        env.storage()
+            .persistent()
+            .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
+    }
+
+    /// Remove an attestation-signing public key for `issuer` (admin-only).
+    pub fn remove_attestation_key(env: Env, issuer: Address, public_key: Bytes) {
+        Self::require_admin(&env);
+        let storage_key = StorageKey::AttestationKey(issuer);
+        let keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&storage_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let mut new_keys: Vec<Bytes> = Vec::new(&env);
+        for k in keys.iter() {
+            if k != public_key {
+                new_keys.push_back(k);
+            }
+        }
+        env.storage().persistent().set(&storage_key, &new_keys);
+        env.storage()
+            .persistent()
+            .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
+    }
+
+    /// Return the attestation-signing public keys registered for `issuer`.
+    pub fn get_attestation_keys(env: Env, issuer: Address) -> Vec<Bytes> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AttestationKey(issuer))
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// One-time migration helper (admin-only): copy the issuer's existing SEP-10
+    /// verifying keys into its attestation key set. Keys already present are skipped.
+    /// The SEP-10 keys are left in place.
+    pub fn migrate_sep10_keys_to_attestation_keys(env: Env, issuer: Address) {
+        Self::require_admin(&env);
+        let sep10_keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::Sep10Key(issuer.clone()))
+            .unwrap_or_else(|| Vec::new(&env));
+        let storage_key = StorageKey::AttestationKey(issuer);
+        let mut keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&storage_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        for k in sep10_keys.iter() {
+            if keys.contains(&k) {
+                continue;
+            }
+            if keys.len() >= sep10_jwt::MAX_VERIFYING_KEYS {
+                panic_with_error!(&env, ErrorCode::ValidationError);
+            }
+            keys.push_back(k);
+        }
+        env.storage().persistent().set(&storage_key, &keys);
+        env.storage()
+            .persistent()
+            .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
+    }
+
     pub fn verify_sep10_token(env: Env, token: String, issuer: Address) {
         let keys: Vec<Bytes> = env
             .storage()
@@ -575,6 +681,9 @@ impl AnchorKitContract {
             .get::<_, Vec<Address>>(&list_key)
             .unwrap_or_else(|| Vec::new(env));
         if !list.contains(anchor) {
+            if list.len() >= MAX_CACHED_ANCHORS {
+                panic_with_error!(env, ErrorCode::AttestorCapExceeded);
+            }
             list.push_back(anchor.clone());
             env.storage().persistent().set(&list_key, &list);
             env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
@@ -856,7 +965,7 @@ impl AnchorKitContract {
             panic_with_error!(&env, e);
         }
         Self::check_timestamp(&env, timestamp);
-        Self::verify_attestation_signature(&env, &issuer, &payload_hash, &signature);
+        Self::verify_attestation_signature(&env, &issuer, &subject, timestamp, &payload_hash, &signature);
 
         let used_key = StorageKey::Used(payload_hash.clone());
         if env.storage().persistent().has(&used_key) {
@@ -953,7 +1062,7 @@ impl AnchorKitContract {
             panic_with_error!(&env, e);
         }
         Self::check_timestamp(&env, timestamp);
-        Self::verify_attestation_signature(&env, &issuer, &payload_hash, &signature);
+        Self::verify_attestation_signature(&env, &issuer, &subject, timestamp, &payload_hash, &signature);
 
         let used_key = StorageKey::Used(payload_hash.clone());
         if env.storage().persistent().has(&used_key) {
@@ -1353,7 +1462,7 @@ impl AnchorKitContract {
             panic_with_error!(&env, e);
         }
         Self::check_timestamp(&env, timestamp);
-        Self::verify_attestation_signature(&env, &issuer, &payload_hash, &signature);
+        Self::verify_attestation_signature(&env, &issuer, &subject, timestamp, &payload_hash, &signature);
 
         let used_key = StorageKey::Used(payload_hash.clone());
         if env.storage().persistent().has(&used_key) {
@@ -2215,98 +2324,68 @@ impl AnchorKitContract {
     /// - `"Balanced"` — composite score blending fee, speed, and reputation
     /// - `"Weighted"` — health-score-proportional random selection among candidates
     ///
-    /// An empty `strategy` vec panics with `NoQuotesAvailable`.
-    /// An unrecognised symbol panics with `InvalidStrategy`.
+    /// An empty `strategy` vec or an unrecognised symbol panics with
+    /// `InvalidStrategy`; this is checked before any anchor storage is read.
+    ///
+    /// All eligible anchors are considered, regardless of registration order.
+    /// `max_anchors` only narrows the `Weighted` pool (to the healthiest N).
+    ///
+    /// If no anchor qualifies and `fallback_chain` is non-empty, its anchors are
+    /// tried in order with `min_reputation` relaxed; the first that otherwise
+    /// qualifies is used.
+    ///
+    /// Each expired quote emits one `(quote, expired)` event, not one per call.
     pub fn route_transaction(env: Env, options: RoutingOptions) -> Quote {
         Self::select_routing_quote(&env, &options, true)
     }
 
     /// Shared routing logic for `route_transaction` and `route_transaction_dry_run`.
     ///
-    /// When `emit_events` is `true`, expired quotes emit `QuoteExpiredEvent` and the
+    /// The strategy is validated before any anchor storage is read. When
+    /// `emit_events` is `true`, each expired quote emits a single
+    /// `(quote, expired)` event (see [`Self::emit_quote_expired_once`]) and the
     /// selected anchor emits `RoutingDecisionEvent`.
     fn select_routing_quote(env: &Env, options: &RoutingOptions, emit_events: bool) -> Quote {
+        let lowest_fee_sym = Symbol::new(&env, "LowestFee");
+        let fastest_sym = Symbol::new(&env, "FastestSettlement");
+        let reputation_sym = Symbol::new(&env, "HighestReputation");
+        let balanced_sym = Symbol::new(&env, "Balanced");
+        let weighted_sym = Symbol::new(&env, "Weighted");
+
+        // An empty strategy is a malformed request, not a liquidity shortage.
+        let strategy_sym = options.strategy.get(0)
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::InvalidStrategy));
+
+        // Validate that the strategy symbol is recognized
+        if strategy_sym != lowest_fee_sym
+            && strategy_sym != fastest_sym
+            && strategy_sym != reputation_sym
+            && strategy_sym != balanced_sym
+            && strategy_sym != weighted_sym {
+            panic_with_error!(&env, ErrorCode::InvalidStrategy);
+        }
+
         let now = env.ledger().timestamp();
         let list_key = key_anchor_list(&env);
         let anchors: Vec<Address> = env.storage().persistent()
             .get::<_, Vec<Address>>(&list_key)
             .unwrap_or_else(|| Vec::new(&env));
 
+        // Collect every eligible anchor so the strategy sees the whole pool,
+        // not just the first registrants.
         let mut candidates: Vec<Quote> = Vec::new(&env);
         for anchor in anchors.iter() {
-            // Check reputation filter
-            let meta_key = StorageKey::AnchorMeta(anchor.clone());
-            let meta: AnchorMetadata = match env.storage().persistent().get(&meta_key) {
-                Some(m) => m,
-                None => continue,
-            };
-            if !meta.is_active { continue; }
-            if meta.reputation_score < options.min_reputation { continue; }
-
-            // Check jurisdiction filter (regulated flows)
-            if options.jurisdiction.is_some() {
-                let j_key = StorageKey::AnchorJurisdiction(anchor.clone());
-                let anchor_jurisdiction: Option<String> =
-                    env.storage().persistent().get(&j_key);
-                if !crate::types::anchor_matches_jurisdiction(
-                    &options.jurisdiction,
-                    &anchor_jurisdiction,
-                ) {
-                    continue;
-                }
-            }
-
-            // Check KYC requirement filter
-            if options.require_kyc {
-                let services_key = StorageKey::Services(anchor.clone());
-                let services_record: AnchorServices = match env.storage().persistent().get(&services_key) {
-                    Some(sr) => sr,
-                    None => continue,
-                };
-                if !services_record.services.contains(SERVICE_KYC) {
-                    continue;
-                }
-            }
-
-            // Get latest quote for this anchor
-            let lq_key = StorageKey::LatestQuote(anchor.clone());
-            let quote_id: u64 = match env.storage().persistent().get(&lq_key) {
-                Some(id) => id,
-                None => continue,
-            };
-            let q_key = StorageKey::Quote(anchor.clone(), quote_id);
-            let quote: Quote = match env.storage().persistent().get(&q_key) {
-                Some(q) => q,
-                None => continue,
-            };
-
-            if quote.valid_until <= now {
-                if emit_events {
-                    env.events().publish(
-                        (symbol_short!("quote"),),
-                        crate::events::QuoteExpiredEvent {
-                            anchor: anchor.clone(),
-                            quote_id,
-                            valid_until: quote.valid_until,
-                        },
-                    );
-                }
-                continue;
-            }
-            if options.request.amount < quote.minimum_amount || options.request.amount > quote.maximum_amount {
-                continue;
-            }
-
-            candidates.push_back(quote);
-
-            // Stop adding candidates if we've reached max_anchors limit
-            if options.max_anchors > 0 && candidates.len() >= options.max_anchors {
-                break;
+            if let Some(quote) = Self::eligible_routing_quote(
+                env, options, &anchor, now, options.min_reputation, emit_events,
+            ) {
+                candidates.push_back(quote);
             }
         }
 
-        // If no candidates from main list and fallback_chain is provided, try fallback anchors
-        if candidates.is_empty() && !options.fallback_chain.is_empty() {
+        // Fallback: when the main pass yields nothing, try `fallback_chain` in
+        // priority order with `min_reputation` relaxed (disabled) and use the
+        // first anchor that otherwise qualifies.
+        if candidates.is_empty() {
             for fallback_anchor in options.fallback_chain.iter() {
                 // Check if fallback anchor is in the main anchor list
                 if !anchors.contains(&fallback_anchor) {
@@ -2372,12 +2451,12 @@ impl AnchorKitContract {
                     }
                     continue;
                 }
-                if options.request.amount < quote.minimum_amount || options.request.amount > quote.maximum_amount {
-                    continue;
+                if let Some(quote) = Self::eligible_routing_quote(
+                    env, options, &fallback_anchor, now, 0, emit_events,
+                ) {
+                    candidates.push_back(quote);
+                    break;
                 }
-
-                candidates.push_back(quote);
-                break; // Use first valid fallback anchor
             }
         }
 
@@ -2385,22 +2464,29 @@ impl AnchorKitContract {
             panic_with_error!(&env, ErrorCode::NoQuotesAvailable);
         }
 
-        let strategy_sym = options.strategy.get(0)
-            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NoQuotesAvailable));
-
-        let lowest_fee_sym = Symbol::new(&env, "LowestFee");
-        let fastest_sym = Symbol::new(&env, "FastestSettlement");
-        let reputation_sym = Symbol::new(&env, "HighestReputation");
-        let balanced_sym = Symbol::new(&env, "Balanced");
-        let weighted_sym = Symbol::new(&env, "Weighted");
-
-        // Validate that the strategy symbol is recognized
-        if strategy_sym != lowest_fee_sym
-            && strategy_sym != fastest_sym
-            && strategy_sym != reputation_sym
-            && strategy_sym != balanced_sym
-            && strategy_sym != weighted_sym {
-            panic_with_error!(&env, ErrorCode::InvalidStrategy);
+        // Deterministic strategies already pick the best of the whole pool, so
+        // `max_anchors` only needs to narrow the randomised Weighted pool, and it
+        // keeps the healthiest anchors rather than the earliest registered ones.
+        if strategy_sym == weighted_sym
+            && options.max_anchors > 0
+            && candidates.len() > options.max_anchors
+        {
+            let mut remaining = candidates;
+            let mut top: Vec<Quote> = Vec::new(&env);
+            while top.len() < options.max_anchors {
+                let mut best_idx: u32 = 0;
+                let mut best_score: i64 = i64::MIN;
+                for (i, q) in remaining.iter().enumerate() {
+                    let s = Self::routing_health_score(env, &q.anchor);
+                    if s > best_score {
+                        best_score = s;
+                        best_idx = i as u32;
+                    }
+                }
+                top.push_back(remaining.get(best_idx).unwrap());
+                remaining.remove(best_idx);
+            }
+            candidates = top;
         }
 
         let mut best: Quote = candidates.get(0).unwrap();
@@ -2449,7 +2535,8 @@ impl AnchorKitContract {
         } else if strategy_sym == balanced_sym {
             // score = (40_000 / fee_percentage) + (30_000 / settlement_time) + (reputation * 3_000 / 10_000)
             // All terms are dimensionless integers; higher score is better.
-            // fee_percentage = 0 or settlement_time = 0 contribute 0 to avoid division by zero.
+            // fee_percentage = 0 or settlement_time = 0 are the best possible values, so they score
+            // one point above the best non-zero value (fee 1 / time 1) instead of dividing by zero.
             let balanced_score = |env: &Env, q: &Quote| -> u64 {
                 let mk = StorageKey::AnchorMeta(q.anchor.clone());
                 let meta: AnchorMetadata = env.storage().persistent()
@@ -2464,8 +2551,8 @@ impl AnchorKitContract {
                         is_active: false,
                         homepage_url: None,
                     });
-                let fee_term = if q.fee_percentage > 0 { 40_000 / q.fee_percentage as u64 } else { 0 };
-                let time_term = 30_000u64.checked_div(meta.average_settlement_time).unwrap_or(0);
+                let fee_term = if q.fee_percentage > 0 { 40_000 / q.fee_percentage as u64 } else { 40_001 };
+                let time_term = 30_000u64.checked_div(meta.average_settlement_time).unwrap_or(30_001);
                 // Scale reputation (0–10_000) to a 0–3_000 range to match the weight of other terms.
                 let rep_term = meta.reputation_score as u64 * 3_000 / 10_000;
                 fee_term + time_term + rep_term
@@ -2483,17 +2570,7 @@ impl AnchorKitContract {
             // Health score = availability_percent (0-100) - (failure_count * 10)
             // Higher health score = higher probability of selection
             let health_score = |env: &Env, q: &Quote| -> i64 {
-                let health_key = StorageKey::Health(q.anchor.clone());
-                let health: HealthStatus = env.storage().persistent()
-                    .get(&health_key)
-                    .unwrap_or(HealthStatus {
-                        anchor: q.anchor.clone(),
-                        latency_ms: 0,
-                        failure_count: 0,
-                        availability_percent: 100,
-                    });
-                let score = health.availability_percent as i64 - (health.failure_count as i64 * 10);
-                score.max(0)
+                Self::routing_health_score(env, &q.anchor)
             };
 
             let mut total_score: i64 = 0;
@@ -2507,17 +2584,17 @@ impl AnchorKitContract {
                 best = candidates.get(random_idx as u32).unwrap();
             } else {
                 let random_score: u64 = env.prng().gen_range(0u64..total_score as u64);
-                let mut threshold: i64 = random_score as i64;
+                let mut cumulative: u64 = 0;
                 for q in candidates.iter() {
-                    threshold -= health_score(&env, &q);
-                    if threshold <= 0 {
+                    let score = health_score(&env, &q) as u64;
+                    if score == 0 {
+                        continue;
+                    }
+                    cumulative += score;
+                    if random_score < cumulative {
                         best = q;
                         break;
                     }
-                }
-                // If we didn't select due to rounding, pick the last one
-                if threshold > 0 {
-                    best = candidates.get(candidates.len() - 1).unwrap();
                 }
             }
         }
@@ -2549,12 +2626,101 @@ impl AnchorKitContract {
         best
     }
 
+    /// Health score used by the `Weighted` strategy:
+    /// `availability_percent - failure_count * 10`, floored at 0.
+    fn routing_health_score(env: &Env, anchor: &Address) -> i64 {
+        let health_key = StorageKey::Health(anchor.clone());
+        let health: HealthStatus = env.storage().persistent()
+            .get(&health_key)
+            .unwrap_or(HealthStatus {
+                anchor: anchor.clone(),
+                latency_ms: 0,
+                failure_count: 0,
+                availability_percent: 100,
+            });
+        let score = health.availability_percent as i64 - (health.failure_count as i64 * 10);
+        score.max(0)
+    }
+
+    /// Returns the anchor's latest quote if the anchor passes every routing
+    /// filter (active, `min_reputation`, jurisdiction, KYC, unexpired quote,
+    /// amount range). Expired quotes are reported via
+    /// [`Self::emit_quote_expired_once`] when `emit_events` is `true`.
+    fn eligible_routing_quote(
+        env: &Env,
+        options: &RoutingOptions,
+        anchor: &Address,
+        now: u64,
+        min_reputation: u32,
+        emit_events: bool,
+    ) -> Option<Quote> {
+        let meta_key = StorageKey::AnchorMeta(anchor.clone());
+        let meta: AnchorMetadata = env.storage().persistent().get(&meta_key)?;
+        if !meta.is_active { return None; }
+        if meta.reputation_score < min_reputation { return None; }
+
+        // Check jurisdiction filter (regulated flows)
+        if options.jurisdiction.is_some() {
+            let j_key = StorageKey::AnchorJurisdiction(anchor.clone());
+            let anchor_jurisdiction: Option<String> = env.storage().persistent().get(&j_key);
+            if !crate::types::anchor_matches_jurisdiction(&options.jurisdiction, &anchor_jurisdiction) {
+                return None;
+            }
+        }
+
+        // Check KYC requirement filter
+        if options.require_kyc {
+            let services_key = StorageKey::Services(anchor.clone());
+            let services_record: AnchorServices = env.storage().persistent().get(&services_key)?;
+            if !services_record.services.contains(SERVICE_KYC) {
+                return None;
+            }
+        }
+
+        // Get latest quote for this anchor
+        let quote_id: u64 = env.storage().persistent().get(&StorageKey::LatestQuote(anchor.clone()))?;
+        let quote: Quote = env.storage().persistent().get(&StorageKey::Quote(anchor.clone(), quote_id))?;
+
+        if quote.valid_until <= now {
+            if emit_events {
+                Self::emit_quote_expired_once(env, anchor, quote_id, quote.valid_until);
+            }
+            return None;
+        }
+        if options.request.amount < quote.minimum_amount || options.request.amount > quote.maximum_amount {
+            return None;
+        }
+        Some(quote)
+    }
+
+    /// Publishes `QuoteExpiredEvent` under the `(quote, expired)` topic at most
+    /// once per `(anchor, quote_id)`, recording an `ExpiredNotified` marker.
+    fn emit_quote_expired_once(env: &Env, anchor: &Address, quote_id: u64, valid_until: u64) {
+        let key = StorageKey::ExpiredNotified(anchor.clone(), quote_id);
+        if env.storage().persistent().has(&key) {
+            return;
+        }
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+        env.events().publish(
+            (symbol_short!("quote"), symbol_short!("expired")),
+            crate::events::QuoteExpiredEvent {
+                anchor: anchor.clone(),
+                quote_id,
+                valid_until,
+            },
+        );
+    }
+
     // -----------------------------------------------------------------------
     // Anchor Info Discovery
     // -----------------------------------------------------------------------
 
     pub fn fetch_anchor_info(env: Env, anchor: Address, toml_data: StellarToml, network_passphrase: String, ttl_override: Option<u64>) {
         anchor.require_auth();
+        // Only registered attestors may cache TOML data. Without this, any funded
+        // account could append itself to CANCHORS and grow it without bound.
+        Self::check_attestor(&env, &anchor);
 
         // Validate network_passphrase matches a known network before caching.
         // Prevents caching a TOML from the wrong network, which would cause
@@ -2960,68 +3126,96 @@ impl AnchorKitContract {
     }
 
     /// Verifies that the attestation signature is valid for the given payload hash
-    /// using any of the public keys registered for the issuer.
+    /// using any of the attestation keys registered for the issuer via
+    /// `add_attestation_key`. SEP-10 JWT verifying keys are never consulted (#1378).
+    ///
+    /// Two submission formats are accepted:
+    ///
+    /// * 64 bytes: a bare ed25519 signature. Every registered key is tried in turn
+    ///   (supporting key rotation) using `ed25519-dalek`, which returns a `Result`
+    ///   instead of trapping, so a failure on one key does not abort the loop.
+    /// * 96 bytes: the 64-byte signature followed by the 32-byte public key that
+    ///   produced it (a key hint). The hint must be one of the registered keys; the
+    ///   signature is then checked once with the host function
+    ///   `env.crypto().ed25519_verify`, which is much cheaper than in-WASM curve
+    ///   arithmetic (#1377). The host function traps on a bad signature, which is
+    ///   why it is only used when the signer names the key up front.
+    ///
+    /// `ed25519-dalek` is kept for the bare 64-byte format (and for `sep10_jwt`)
+    /// because the host function cannot be used to probe several rotated keys.
     ///
     /// # Panics
     ///
-    /// Panics with `ErrorCode::UnauthorizedAttestor` if no valid signature is found.
-    /// Verifies that the attestation signature is valid for the given payload hash
-    /// using any of the public keys registered for the issuer.
-    /// Supports key rotation by trying all registered keys until one verifies.
-    ///
-    /// # Panics
-    ///
-    /// Panics with `ErrorCode::UnauthorizedAttestor` if no valid signature is found
-    /// or if the signature format is invalid.
-fn verify_attestation_signature(
-    env: &Env,
-    issuer: &Address,
-    payload_hash: &Bytes,
-    signature: &Bytes,
-) {
-    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    /// Panics with `ErrorCode::UnauthorizedAttestor` if no valid signature is found,
+    /// if the signature format is invalid, or if a key hint is not registered.
+    fn verify_attestation_signature(
+        env: &Env,
+        issuer: &Address,
+        payload_hash: &Bytes,
+        signature: &Bytes,
+    ) {
+        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
-    // Retrieve the list of registered public keys for the issuer.
-    let keys: Vec<Bytes> = env
-        .storage()
-        .persistent()
-        .get(&StorageKey::Sep10Key(issuer.clone()))
-        .unwrap_or_else(|| panic_with_error!(env, ErrorCode::UnauthorizedAttestor));
+        // Retrieve the list of registered attestation keys for the issuer.
+        let keys: Vec<Bytes> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::AttestationKey(issuer.clone()))
+            .unwrap_or_else(|| panic_with_error!(env, ErrorCode::UnauthorizedAttestor));
 
-    if signature.len() != 64 {
+        if signature.len() == 96 {
+            let mut raw = [0u8; 96];
+            signature.copy_into_slice(&mut raw);
+            let hint = Bytes::from_slice(env, &raw[64..]);
+            if !keys.contains(&hint) {
+                panic_with_error!(env, ErrorCode::UnauthorizedAttestor);
+            }
+            let mut sig_bytes = [0u8; 64];
+            sig_bytes.copy_from_slice(&raw[..64]);
+            let mut key_bytes = [0u8; 32];
+            key_bytes.copy_from_slice(&raw[64..]);
+            env.crypto().ed25519_verify(
+                &BytesN::from_array(env, &key_bytes),
+                payload_hash,
+                &BytesN::from_array(env, &sig_bytes),
+            );
+            return;
+        }
+
+        if signature.len() != 64 {
+            panic_with_error!(env, ErrorCode::UnauthorizedAttestor);
+        }
+        let mut sig_arr = [0u8; 64];
+        signature.copy_into_slice(&mut sig_arr);
+        let dalek_sig = Signature::from_bytes(&sig_arr);
+
+        let mut msg = alloc::vec::Vec::with_capacity(payload_hash.len() as usize);
+        msg.resize(payload_hash.len() as usize, 0u8);
+        payload_hash.copy_into_slice(&mut msg);
+
+        // Try each registered key until one successfully verifies the signature.
+        // This allows key rotation: an issuer can have up to MAX_VERIFYING_KEYS active keys,
+        // and any one of them can be used to sign attestations.
+        for key in keys.iter() {
+            if key.len() != 32 {
+                continue;
+            }
+            // Use non-trapping verification: convert to VerifyingKey and call verify(),
+            // which returns a Result instead of trapping. This allows the loop to try
+            // the next key on failure.
+            if let Ok(verifying_key) = VerifyingKey::from_bytes(&key.clone().try_into().unwrap()) {
+                if verifying_key.verify(&msg, &dalek_sig).is_ok() {
+                    // Signature verified with this key
+                    return;
+                }
+                // Signature did not verify with this key; try the next one
+            }
+            // Key format invalid; try the next one
+        }
+
+        // If we reach this point, no key verified the signature.
         panic_with_error!(env, ErrorCode::UnauthorizedAttestor);
     }
-    let mut sig_arr = [0u8; 64];
-    signature.copy_into_slice(&mut sig_arr);
-    let dalek_sig = Signature::from_bytes(&sig_arr);
-
-    let mut msg = alloc::vec::Vec::with_capacity(payload_hash.len() as usize);
-    msg.resize(payload_hash.len() as usize, 0u8);
-    payload_hash.copy_into_slice(&mut msg);
-
-    // Try each registered key until one successfully verifies the signature.
-    // This allows key rotation: an issuer can have up to MAX_VERIFYING_KEYS active keys,
-    // and any one of them can be used to sign attestations.
-    for key in keys.iter() {
-        if key.len() != 32 {
-            continue;
-        }
-        // Use non-trapping verification: convert to VerifyingKey and call verify(),
-        // which returns a Result instead of trapping. This allows the loop to try
-        // the next key on failure.
-        if let Ok(verifying_key) = VerifyingKey::from_bytes(&key.clone().try_into().unwrap()) {
-            if verifying_key.verify(&msg, &dalek_sig).is_ok() {
-                // Signature verified with this key
-                return;
-            }
-            // Signature did not verify with this key; try the next one
-        }
-        // Key format invalid; try the next one
-    }
-
-    // If we reach this point, no key verified the signature.
-    panic_with_error!(env, ErrorCode::UnauthorizedAttestor);
-}
 
     pub fn get_rate_limit_rejections(env: Env, attestor: Address) -> u64 {
         crate::rate_limiter::RateLimiter::get_rate_limit_rejections(env, attestor)
@@ -3031,15 +3225,11 @@ fn verify_attestation_signature(
     /// Admin-only. Rejects invalid configurations (window_length=0 or max_submissions=0).
     pub fn update_rate_limit_config(
         env: Env,
-        admin: Address,
         config: crate::rate_limiter::RateLimitConfig,
     ) -> Result<(), ErrorCode> {
         Self::require_not_paused(&env);
-        admin.require_auth();
-        let contract_admin = Self::get_admin(env.clone());
-        if admin != contract_admin {
-            return Err(ErrorCode::UnauthorizedAttestor);
-        }
+        Self::require_admin(&env);
+        let admin = Self::get_admin(env.clone());
         crate::rate_limiter::RateLimiter::update_config(&env, &admin, config, None)
     }
 
@@ -3047,16 +3237,12 @@ fn verify_attestation_signature(
     /// Admin-only. Rejects invalid configurations (window_length=0 or max_submissions=0).
     pub fn set_attestor_rate_limit(
         env: Env,
-        admin: Address,
         attestor: Address,
         config: crate::rate_limiter::RateLimitConfig,
     ) -> Result<(), ErrorCode> {
         Self::require_not_paused(&env);
-        admin.require_auth();
-        let contract_admin = Self::get_admin(env.clone());
-        if admin != contract_admin {
-            return Err(ErrorCode::UnauthorizedAttestor);
-        }
+        Self::require_admin(&env);
+        let admin = Self::get_admin(env.clone());
         crate::rate_limiter::RateLimiter::update_config(&env, &admin, config, Some(&attestor))
     }
 
@@ -3064,15 +3250,11 @@ fn verify_attestation_signature(
     /// Admin-only. Clears submission_count and window_start_ledger; preserves total_requests.
     pub fn reset_attestor_rate_limit(
         env: Env,
-        admin: Address,
         attestor: Address,
     ) -> Result<(), ErrorCode> {
         Self::require_not_paused(&env);
-        admin.require_auth();
-        let contract_admin = Self::get_admin(env.clone());
-        if admin != contract_admin {
-            return Err(ErrorCode::UnauthorizedAttestor);
-        }
+        Self::require_admin(&env);
+        let admin = Self::get_admin(env.clone());
         crate::rate_limiter::RateLimiter::reset_rate_limit(&env, &admin, &attestor)
     }
 
@@ -3083,10 +3265,7 @@ fn verify_attestation_signature(
         rotation_interval_seconds: u64,
         require_encryption: bool,
     ) {
-        if Self::is_initialized(env.clone()) {
-            let admin = Self::get_admin(env.clone());
-            admin.require_auth();
-        }
+        Self::require_admin(&env);
         let now = env.ledger().timestamp();
         let policy = CredentialPolicy {
             attestor: attestor.clone(),
@@ -3094,16 +3273,23 @@ fn verify_attestation_signature(
             require_encryption,
             last_rotated: now,
         };
+        let policy_key = StorageKey::CredentialPolicy(attestor);
+        env.storage().persistent().set(&policy_key, &policy);
         env.storage()
             .persistent()
-            .set(&StorageKey::CredentialPolicy(attestor), &policy);
+            .extend_ttl(&policy_key, PERSISTENT_TTL, PERSISTENT_TTL);
     }
 
     /// Get the credential policy for an attestor.
     pub fn get_credential_policy(env: Env, attestor: Address) -> Option<CredentialPolicy> {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::CredentialPolicy(attestor))
+        let key = StorageKey::CredentialPolicy(attestor);
+        let policy = env.storage().persistent().get(&key);
+        if policy.is_some() {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+        }
+        policy
     }
 
     /// Store an encrypted credential for an attestor.
@@ -3114,10 +3300,7 @@ fn verify_attestation_signature(
         encrypted_value: String,
         expires_at: u64,
     ) {
-        if Self::is_initialized(env.clone()) {
-            let admin = Self::get_admin(env.clone());
-            admin.require_auth();
-        }
+        Self::require_admin(&env);
         let now = env.ledger().timestamp();
         let cred = StoredCredential {
             attestor: attestor.clone(),
@@ -3126,9 +3309,11 @@ fn verify_attestation_signature(
             expires_at,
             updated_at: now,
         };
+        let cred_key = StorageKey::StoredCredential(attestor);
+        env.storage().persistent().set(&cred_key, &cred);
         env.storage()
             .persistent()
-            .set(&StorageKey::StoredCredential(attestor), &cred);
+            .extend_ttl(&cred_key, PERSISTENT_TTL, PERSISTENT_TTL);
     }
 
     /// Check whether an attestor's credential needs rotation according to its policy or expiration.
@@ -3165,10 +3350,7 @@ fn verify_attestation_signature(
         new_encrypted_value: String,
         expires_at: u64,
     ) {
-        if Self::is_initialized(env.clone()) {
-            let admin = Self::get_admin(env.clone());
-            admin.require_auth();
-        }
+        Self::require_admin(&env);
         let now = env.ledger().timestamp();
         let cred = StoredCredential {
             attestor: attestor.clone(),
@@ -3177,18 +3359,22 @@ fn verify_attestation_signature(
             expires_at,
             updated_at: now,
         };
+        let cred_key = StorageKey::StoredCredential(attestor.clone());
+        env.storage().persistent().set(&cred_key, &cred);
         env.storage()
             .persistent()
-            .set(&StorageKey::StoredCredential(attestor.clone()), &cred);
+            .extend_ttl(&cred_key, PERSISTENT_TTL, PERSISTENT_TTL);
         if let Some(mut policy) = env
             .storage()
             .persistent()
             .get::<_, CredentialPolicy>(&StorageKey::CredentialPolicy(attestor.clone()))
         {
             policy.last_rotated = now;
+            let policy_key = StorageKey::CredentialPolicy(attestor);
+            env.storage().persistent().set(&policy_key, &policy);
             env.storage()
                 .persistent()
-                .set(&StorageKey::CredentialPolicy(attestor), &policy);
+                .extend_ttl(&policy_key, PERSISTENT_TTL, PERSISTENT_TTL);
         }
     }
 }
@@ -3216,3 +3402,31 @@ mod attestation_validation_tests;
 #[cfg(test)]
 #[path = "attestor_event_tests.rs"]
 mod attestor_event_tests;
+
+/// Domain separator for attestation signatures; bump on any format change.
+pub const ATTESTATION_SIGNING_DOMAIN: &[u8] = b"anchorkit-attest-v1";
+
+/// The 32 bytes an issuer signs to attest to `(subject, timestamp, payload_hash)`:
+///
+/// `sha256("anchorkit-attest-v1" || network_id || contract_xdr || issuer_xdr || subject_xdr || timestamp_be8 || payload_hash)`
+///
+/// where each `*_xdr` is the address's `ScAddress` XDR. Off-chain signers must
+/// build the identical message; see `docs/test_vectors.md`.
+pub fn attestation_signing_digest(
+    env: &Env,
+    issuer: &Address,
+    subject: &Address,
+    timestamp: u64,
+    payload_hash: &Bytes,
+) -> [u8; 32] {
+    use soroban_sdk::xdr::ToXdr;
+
+    let mut msg = Bytes::from_slice(env, ATTESTATION_SIGNING_DOMAIN);
+    msg.append(&Bytes::from_array(env, &env.ledger().network_id().to_array()));
+    msg.append(&env.current_contract_address().to_xdr(env));
+    msg.append(&issuer.clone().to_xdr(env));
+    msg.append(&subject.clone().to_xdr(env));
+    msg.append(&Bytes::from_array(env, &timestamp.to_be_bytes()));
+    msg.append(payload_hash);
+    env.crypto().sha256(&msg).to_array()
+}

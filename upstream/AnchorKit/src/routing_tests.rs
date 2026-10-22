@@ -3,7 +3,7 @@
 mod routing_tests {
     use soroban_sdk::{
         testutils::{Address as _, Events, Ledger, LedgerInfo},
-        Address, Env, String, Symbol, Vec, symbol_short,
+        Address, Env, IntoVal, String, Symbol, Vec, symbol_short,
     };
 
     use ed25519_dalek::SigningKey;

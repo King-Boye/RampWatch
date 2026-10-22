@@ -60,6 +60,7 @@ fn register_anchor_with_sep10(
 ) {
     let pk = Bytes::from_slice(env, signing_key.verifying_key().as_bytes());
     client.set_sep10_jwt_verifying_key(anchor, &pk);
+    client.add_attestation_key(anchor, &pk);
 
     let sub = anchor.to_string();
     let mut buf = [0u8; 128];
@@ -74,10 +75,29 @@ fn register_anchor_with_sep10(
     client.register_attestor(anchor, &token, anchor);
 }
 
-fn sign_payload(env: &Env, signing_key: &SigningKey, payload_hash: &Bytes) -> Bytes {
-    let mut hash_arr = [0u8; 32];
-    payload_hash.copy_into_slice(&mut hash_arr);
-    let sig = signing_key.sign(&hash_arr);
+fn sign_attestation(
+    env: &Env,
+    signing_key: &SigningKey,
+    contract_id: &Address,
+    issuer: &Address,
+    subject: &Address,
+    timestamp: u64,
+    payload_hash: &Bytes,
+) -> Bytes {
+    use soroban_sdk::xdr::ToXdr;
+
+    // Mirrors the contract's `attestation_signing_digest`; see docs/test_vectors.md.
+    let digest = env.as_contract(contract_id, || {
+        let mut msg = Bytes::from_slice(env, b"anchorkit-attest-v1");
+        msg.append(&Bytes::from_array(env, &env.ledger().network_id().to_array()));
+        msg.append(&env.current_contract_address().to_xdr(env));
+        msg.append(&issuer.clone().to_xdr(env));
+        msg.append(&subject.clone().to_xdr(env));
+        msg.append(&Bytes::from_array(env, &timestamp.to_be_bytes()));
+        msg.append(payload_hash);
+        env.crypto().sha256(&msg).to_array()
+    });
+    let sig = signing_key.sign(&digest);
     Bytes::from_slice(env, &sig.to_bytes())
 }
 
@@ -291,7 +311,7 @@ fn test_connection_pool_high_load() {
             payload_bytes[2] = ((global_idx >> 16) & 0xFF) as u8;
             payload_bytes[3] = 0xCA; // sentinel to distinguish from other tests
             let payload_hash = Bytes::from_slice(&env, &payload_bytes);
-            let signature = sign_payload(&env, sk, &payload_hash);
+            let signature = sign_attestation(&env, sk, &client.address, anchor, &subject, current_time, &payload_hash);
 
             let attestation_id = client.submit_attestation(anchor, &subject, &current_time, &payload_hash, &signature, &None::<soroban_sdk::Map<soroban_sdk::String, soroban_sdk::String>>);
             attestation_ids.push_back(attestation_id);
