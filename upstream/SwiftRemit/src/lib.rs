@@ -2397,13 +2397,8 @@ impl SwiftRemitContract {
     //  6. Tests (new src/test_escrow_tiers.rs), using
     //     env.ledger().with_mut(|l| l.timestamp = ..):
     //     - release before unlock -> EscrowLocked; at unlock -> ok.
-    //     - sender refund during lock: rejected without early-cancel, allowed with it.
-    //     - expiry refund via process_expired_escrows only after expiry.
-    //     - set_escrow_tier with expiry <= lock -> InvalidTimelockDuration.
-    //     - unknown tier_id -> NotFound; non-admin set_escrow_tier rejected.
-    //     - regression: plain create_escrow behaves exactly as before.
-    //  7. Docs: README contract function table, ROADMAP.md (move to shipped),
-    //     and the ABI in abi/ regenerated for the new functions.
+    // Design notes for escrow tiers and the #1557 dispute plan live in
+    // docs/design/ and the tracking GitHub issues; see those for rationale.
 
     pub fn create_escrow(
         env: Env,
