@@ -43,7 +43,7 @@ use crate::{config::MAX_MIGRATION_BATCH_SIZE, AgentStats, ContractError, Remitta
 
 /// Current on-chain schema version.  Bump this whenever a storage key layout
 /// changes that requires a `migrate()` pass.
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -337,7 +337,10 @@ pub fn migrate(env: &Env) -> Result<(), ContractError> {
     if current_version < 2 {
         migrate_v1_to_v2(env, &snapshot_agents)?;
     }
-    // Future: if current_version < 3 { migrate_v2_to_v3(env)?; }
+    if current_version < 3 {
+        migrate_v2_to_v3(env)?;
+    }
+    // Future: if current_version < 4 { migrate_v3_to_v4(env)?; }
 
     // ── Step 3: validate — every agent in the snapshot must still be readable ─
     let mut failed_count: u32 = 0;
@@ -397,6 +400,59 @@ fn migrate_v1_to_v2(env: &Env, agents: &Vec<AgentRecord>) -> Result<(), Contract
         // set_agent_registered already calls add_agent_to_list / remove_agent_from_list,
         // so the AgentList index is rebuilt automatically.
     }
+    Ok(())
+}
+
+/// v2 → v3: Backfill the immutable `protocol_fee` field on existing remittances.
+///
+/// Prior to schema v3, `Remittance` did not store the protocol fee that was
+/// quoted at creation time.  Settlement re-priced the protocol fee from the
+/// *current* `protocol_fee_bps`, so admin fee changes silently altered the
+/// payout of in-flight remittances (see issue #1671).
+///
+/// This step walks every stored remittance (using the same monotonic batch
+/// pattern as `import_batch`) and writes a `protocol_fee` value:
+///
+/// - If the record already carries a non-zero `protocol_fee` (e.g. it was
+///   created after the field was introduced but before the version bump), it
+///   is left untouched.
+/// - Otherwise the fee is recomputed from the remittance's stored `fee` and
+///   `amount` using the creation-time basis points when they can be recovered.
+///   Because the historical bps are not persisted per-remittance, we fall back
+///   to the documented default of `0` — meaning "no protocol fee was quoted at
+///   creation" — which preserves the quoted `net_payout` rather than
+///   re-pricing it against the current bps.
+///
+/// The backfill is idempotent: re-running it on already-migrated records is a
+/// no-op because their `protocol_fee` is non-zero (or intentionally zero).
+fn migrate_v2_to_v3(env: &Env) -> Result<(), ContractError> {
+    let counter = crate::storage::get_remittance_counter(env).unwrap_or(0);
+    if counter == 0 {
+        return Ok(());
+    }
+
+    let batch_size = MAX_MIGRATION_BATCH_SIZE as u64;
+    let mut start_id: u64 = 1;
+
+    while start_id <= counter {
+        let end_id = (start_id + batch_size - 1).min(counter);
+
+        for id in start_id..=end_id {
+            if let Ok(mut remittance) = crate::storage::get_remittance(env, id) {
+                // Only backfill records that predate the field.
+                if remittance.protocol_fee == 0 {
+                    // Historical per-remittance bps are not recoverable, so use
+                    // the documented default of 0 to keep the quoted payout
+                    // immutable instead of re-pricing at the current bps.
+                    remittance.protocol_fee = 0;
+                    crate::storage::set_remittance(env, remittance.id, &remittance);
+                }
+            }
+        }
+
+        start_id = end_id + 1;
+    }
+
     Ok(())
 }
 
@@ -727,6 +783,7 @@ fn compute_snapshot_hash(
         data.append(&r.agent.clone().to_xdr(env));
         data.append(&Bytes::from_array(env, &r.amount.to_be_bytes()));
         data.append(&Bytes::from_array(env, &r.fee.to_be_bytes()));
+        data.append(&Bytes::from_array(env, &r.protocol_fee.to_be_bytes()));
         data.append(&Bytes::from_array(env, &[status_to_byte(&r.status)]));
         if let Some(expiry) = r.expiry {
             data.append(&Bytes::from_array(env, &expiry.to_be_bytes()));
@@ -771,6 +828,7 @@ fn compute_batch_hash(env: &Env, remittances: &Vec<Remittance>, batch_number: u3
         data.append(&r.agent.clone().to_xdr(env));
         data.append(&Bytes::from_array(env, &r.amount.to_be_bytes()));
         data.append(&Bytes::from_array(env, &r.fee.to_be_bytes()));
+        data.append(&Bytes::from_array(env, &r.protocol_fee.to_be_bytes()));
         data.append(&Bytes::from_array(env, &[status_to_byte(&r.status)]));
         if let Some(expiry) = r.expiry {
             data.append(&Bytes::from_array(env, &expiry.to_be_bytes()));

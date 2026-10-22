@@ -120,7 +120,7 @@ mod test_retry_transaction;
 #[cfg(test)]
 mod test_governance_paused;
 
-use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, Map, String, Vec};
 
 pub use abuse_protection::*;
 pub use asset_verification::*;
@@ -1145,8 +1145,14 @@ impl SwiftRemitContract {
         // Settle against the fee quoted at creation time. Re-pricing here would
         // reject any remittance whose fee was discounted by the sender's rolling
         // volume, because that discount is not reproducible from the amount alone.
-        let fee_breakdown =
-            fee_service::breakdown_from_platform_fee(&env, remittance.amount, remittance.fee)?;
+        // #1671: the protocol fee is frozen at creation too, so a later change to
+        // `protocol_fee_bps` cannot alter what this remittance pays out.
+        let fee_breakdown = fee_service::breakdown_from_platform_fee(
+            &env,
+            remittance.amount,
+            remittance.fee,
+            remittance.protocol_fee,
+        )?;
 
         let payout_amount = fee_breakdown.net_amount;
         let protocol_fee = fee_breakdown.protocol_fee;
@@ -1225,6 +1231,87 @@ impl SwiftRemitContract {
         }
 
         Ok(())
+    }
+
+    /// Recovers the undisbursed remainder of a remittance stuck in `Processing`.
+    ///
+    /// After the first `confirm_partial_payout` the remittance moves to `Processing`.
+    /// If the agent disappears, neither `cancel_remittance` nor the expiry sweeper
+    /// (both `Pending`-only) can release the escrow. This lets the sender reclaim
+    /// whatever has not yet been disbursed once `get_processing_timeout` seconds
+    /// have elapsed since the remittance entered `Processing`.
+    ///
+    /// # Authorization
+    /// Requires authentication from the remittance sender.
+    pub fn recover_processing_remittance(
+        env: Env,
+        remittance_id: u64,
+    ) -> Result<(), ContractError> {
+        // #1264 PAUSE POLICY: user exit path — allowed while paused.
+        let mut remittance = get_remittance(&env, remittance_id)?;
+        remittance.sender.require_auth();
+
+        if remittance.status != RemittanceStatus::Processing {
+            return Err(ContractError::InvalidStatus);
+        }
+
+        let timeout = storage::get_processing_timeout(&env);
+        let entered_processing_at = storage::get_processing_started_at(&env, remittance_id)
+            .ok_or(ContractError::InvalidStatus)?;
+        if env.ledger().timestamp() < entered_processing_at.saturating_add(timeout) {
+            return Err(ContractError::ProcessingTimeoutNotReached);
+        }
+
+        let already_disbursed = storage::get_disbursed_amount(&env, remittance_id);
+        let escrow_remaining = remittance
+            .amount
+            .checked_sub(already_disbursed)
+            .ok_or(ContractError::Underflow)?;
+
+        if escrow_remaining > 0 {
+            let token_client = token::Client::new(&env, &remittance.token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &remittance.sender,
+                &escrow_remaining,
+            );
+        }
+
+        storage::sub_processing_volume(&env, remittance.amount)?;
+
+        crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Cancelled)?;
+        remittance.amount = 0;
+        set_remittance(&env, remittance_id, &remittance);
+
+        emit_remittance_cancelled_with_reason(
+            &env,
+            remittance_id,
+            remittance.sender.clone(),
+            remittance.agent.clone(),
+            remittance.token.clone(),
+            escrow_remaining,
+            String::from_str(&env, "processing_timeout"),
+        );
+
+        if let Some(idem_key) = storage::take_remittance_idempotency_key(&env, remittance_id) {
+            storage::remove_idempotency_record(&env, &idem_key);
+        }
+
+        Ok(())
+    }
+
+    /// Sets the timeout (seconds) after which a sender may recover a remittance
+    /// stuck in `Processing` (admin only).
+    pub fn set_processing_timeout(env: Env, seconds: u64) -> Result<(), ContractError> {
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
+        storage::set_processing_timeout(&env, seconds);
+        Ok(())
+    }
+
+    /// Returns the current processing timeout in seconds.
+    pub fn get_processing_timeout(env: Env) -> u64 {
+        storage::get_processing_timeout(&env)
     }
 
     pub fn mark_failed(env: Env, remittance_id: u64) -> Result<(), ContractError> {
@@ -1347,8 +1434,12 @@ impl SwiftRemitContract {
         } else {
             // Honour the fee quoted at creation rather than re-pricing, and pay
             // the agent only the part of their net entitlement not already sent.
-            let fee_breakdown =
-                fee_service::breakdown_from_platform_fee(&env, remittance.amount, remittance.fee)?;
+            let fee_breakdown = fee_service::breakdown_from_platform_fee(
+                &env,
+                remittance.amount,
+                remittance.fee,
+                remittance.protocol_fee,
+            )?;
             let owed = fee_breakdown
                 .net_amount
                 .saturating_sub(already_disbursed)
@@ -1458,7 +1549,12 @@ impl SwiftRemitContract {
         // would produce a different net_payout than what was escrowed if the
         // platform fee or strategy changed after creation, or if the original
         // remittance qualified for a sender-volume discount.
-        let fee_breakdown = fee_service::breakdown_from_platform_fee(&env, remittance.amount, remittance.fee)?;
+        let fee_breakdown = fee_service::breakdown_from_platform_fee(
+            &env,
+            remittance.amount,
+            remittance.fee,
+            remittance.protocol_fee,
+        )?;
         let net_payout = fee_breakdown.net_amount;
 
         let already_disbursed = storage::get_disbursed_amount(&env, remittance_id);
@@ -1474,6 +1570,9 @@ impl SwiftRemitContract {
         if remittance.status == RemittanceStatus::Pending {
             crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Processing)?;
             storage::add_processing_volume(&env, remittance.amount)?;
+            // #1673: record when the remittance entered Processing so the sender
+            // can recover the undisbursed remainder if the agent disappears.
+            storage::set_processing_started_at(&env, remittance_id, env.ledger().timestamp());
         }
 
         let token_client = token::Client::new(&env, &remittance.token);

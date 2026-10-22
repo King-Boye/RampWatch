@@ -296,6 +296,101 @@ fn test_get_agent_reputation_calculates_score() {
     assert_eq!(reputation, 79);
 }
 
+// ── Issue #1673: recovery of remittances stuck in Processing ─────────────────
+
+#[test]
+fn test_recover_processing_escrow_refunds_remainder() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let token = create_token_contract(&env, &admin);
+    token.mint(&sender, &1000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250, &3600, &0, &admin);
+
+    let transfer_id = contract.create_escrow(&sender, &recipient, &500);
+
+    // Simulate a partial payout: move the escrow into Processing with a
+    // recorded disbursed amount, leaving an undisbursed remainder.
+    let disbursed: i128 = 200;
+    let mut escrow = contract.get_escrow(&transfer_id);
+    escrow.status = EscrowStatus::Processing;
+    escrow.disbursed_amount = disbursed;
+    crate::storage::set_escrow(&env, &transfer_id, &escrow);
+
+    // Advance past the recovery timeout.
+    env.ledger().with_mut(|li| li.timestamp += 86400 * 2);
+
+    contract.recover_processing_escrow(&sender, &transfer_id);
+
+    let escrow = contract.get_escrow(&transfer_id);
+    assert_eq!(escrow.status, EscrowStatus::Refunded);
+    assert_eq!(token_balance(&token, &sender), 1000 - disbursed);
+    assert_eq!(token_balance(&token, &contract.address), 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #40)")]
+fn test_recover_processing_escrow_too_early() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let token = create_token_contract(&env, &admin);
+    token.mint(&sender, &1000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250, &3600, &0, &admin);
+
+    let transfer_id = contract.create_escrow(&sender, &recipient, &500);
+
+    let mut escrow = contract.get_escrow(&transfer_id);
+    escrow.status = EscrowStatus::Processing;
+    escrow.disbursed_amount = 200;
+    crate::storage::set_escrow(&env, &transfer_id, &escrow);
+
+    // No time has elapsed — recovery must be rejected.
+    contract.recover_processing_escrow(&sender, &transfer_id);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_recover_processing_escrow_non_sender_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let attacker = Address::generate(&env);
+
+    let token = create_token_contract(&env, &admin);
+    token.mint(&sender, &1000);
+
+    let contract = create_swiftremit_contract(&env);
+    contract.initialize(&admin, &token.address, &250, &3600, &0, &admin);
+
+    let transfer_id = contract.create_escrow(&sender, &recipient, &500);
+
+    let mut escrow = contract.get_escrow(&transfer_id);
+    escrow.status = EscrowStatus::Processing;
+    escrow.disbursed_amount = 200;
+    crate::storage::set_escrow(&env, &transfer_id, &escrow);
+
+    env.ledger().with_mut(|li| li.timestamp += 86400 * 2);
+
+    // Only the original sender may recover the remainder.
+    contract.recover_processing_escrow(&attacker, &transfer_id);
+}
+
 // ── Issue #421: zero-value net positions must not produce a transfer ──────────
 
 #[test]

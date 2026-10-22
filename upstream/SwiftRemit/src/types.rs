@@ -208,6 +208,9 @@ pub struct Remittance {
     pub amount: i128,
     /// Platform fee deducted from the amount (in USDC)
     pub fee: i128,
+    /// Protocol fee quoted at creation (in USDC), frozen so later changes to
+    /// `protocol_fee_bps` cannot re-price existing remittances at settlement.
+    pub protocol_fee: i128,
     /// Current status of the remittance
     pub status: RemittanceStatus,
     /// Optional expiry timestamp (seconds since epoch) for settlement

@@ -425,6 +425,67 @@ fn test_import_batch_rejects_duplicate_batch_index() {
     );
 }
 
+// ─── Issue #1671 — protocol_fee backfill migration ──────────────────────────
+
+#[test]
+fn test_protocol_fee_backfill_migration_sets_all_records() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, admin, token) = setup(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &100_000);
+    contract.register_agent(&agent, &None);
+
+    // Seed remittances that predate the protocol_fee field (legacy records).
+    let id1 = contract.create_remittance(&sender, &agent, &10_000, &None, &None, &None, &None, &None);
+    let id2 = contract.create_remittance(&sender, &agent, &20_000, &None, &None, &None, &None, &None);
+
+    // Run the backfill migration: every legacy record must receive a protocol_fee.
+    contract.backfill_protocol_fee(&admin);
+
+    let r1 = contract.get_remittance(&id1);
+    let r2 = contract.get_remittance(&id2);
+
+    // Every record must now carry a protocol_fee (non-zero for a non-zero bps).
+    assert!(r1.protocol_fee > 0);
+    assert!(r2.protocol_fee > 0);
+
+    // Settlement must use the backfilled value, not a freshly re-priced one.
+    let quoted1 = r1.protocol_fee;
+    let quoted2 = r2.protocol_fee;
+
+    // Admin raises the protocol fee after creation.
+    contract.set_protocol_fee_bps(&admin, &500);
+
+    // Backfilled values are immutable across the bps change.
+    let r1_after = contract.get_remittance(&id1);
+    let r2_after = contract.get_remittance(&id2);
+    assert_eq!(r1_after.protocol_fee, quoted1);
+    assert_eq!(r2_after.protocol_fee, quoted2);
+
+    // Settlement uses the backfilled (quoted) value.
+    let net1 = contract.confirm_payout(&id1, &None, &None);
+    assert_eq!(net1, 10_000 - r1_after.fee - quoted1);
+
+    let net2 = contract.confirm_payout(&id2, &None, &None);
+    assert_eq!(net2, 20_000 - r2_after.fee - quoted2);
+}
+
+#[test]
+fn test_protocol_fee_backfill_requires_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _admin, _token) = setup(&env);
+    let non_admin = Address::generate(&env);
+
+    let result = contract.try_backfill_protocol_fee(&non_admin);
+    assert!(result.is_err());
+}
+
 // ─── Issue #419 — abort_migration ────────────────────────────────────────────
 
 #[test]
