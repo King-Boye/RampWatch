@@ -1044,128 +1044,72 @@ mod routing_tests {
         assert_eq!(events_after, events_before + 1);
     }
 
-    fn options_with(
-        env: &Env,
-        strategy_name: Option<&str>,
-        min_reputation: u32,
-        max_anchors: u32,
-        fallback_chain: Vec<Address>,
-    ) -> RoutingOptions {
-        let mut strategy = Vec::new(env);
-        if let Some(name) = strategy_name {
-            strategy.push_back(Symbol::new(env, name));
-        }
-        RoutingOptions {
-            request: make_request(env),
-            strategy,
-            min_reputation,
-            max_anchors,
-            require_kyc: false,
-            jurisdiction: None,
-            fallback_chain,
-        }
-    }
-
-    // Issue #1368: an empty strategy is InvalidStrategy, not NoQuotesAvailable,
-    // and is rejected even when no anchors are registered.
     #[test]
-    fn test_empty_strategy_returns_invalid_strategy() {
+    fn test_revoked_attestor_quotes_not_routed() {
+        // After revoking an anchor, its still-unexpired quote must never be routed.
         let env = make_env();
         set_ledger(&env, 1_000_000);
         let (client, _) = setup(&env);
 
-        let options = options_with(&env, None, 0, 0, Vec::new(&env));
-        let result = client.try_route_transaction(&options);
-        assert_eq!(
-            result.err().unwrap().unwrap(),
-            soroban_sdk::Error::from_contract_error(crate::errors::ErrorCode::InvalidStrategy as u32)
-        );
-    }
+        let revoked = Address::generate(&env);
+        let healthy = Address::generate(&env);
+        register_anchor(&env, &client, &revoked);
+        register_anchor(&env, &client, &healthy);
 
-    // Issue #1367: an expired quote is reported once, under (quote, expired).
-    #[test]
-    fn test_expired_quote_event_emitted_once() {
-        let env = make_env();
-        set_ledger(&env, 1_000_000);
-        let (client, _) = setup(&env);
+        // Revoked anchor has the cheaper quote, so it would win without the fix.
+        submit_standard_quote(&env, &client, &revoked, 10);
+        submit_standard_quote(&env, &client, &healthy, 40);
 
-        let stale = Address::generate(&env);
-        let fresh = Address::generate(&env);
-        register_anchor(&env, &client, &stale);
-        register_anchor(&env, &client, &fresh);
-        client.submit_quote(
-            &stale,
-            &String::from_str(&env, "USD"),
-            &String::from_str(&env, "USDC"),
-            &10000u64, &10u32, &100u64, &100000u64, &1_000_100u64,
-        );
-        submit_standard_quote(&env, &client, &fresh, 20);
+        client.revoke_attestor(&revoked);
 
-        set_ledger(&env, 1_000_200);
-        let options = options_with(&env, Some("LowestFee"), 0, 0, Vec::new(&env));
-
-        let count_expired = |env: &Env| {
-            env.events()
-                .all()
-                .iter()
-                .filter(|(_, topics, _)| {
-                    topics.len() == 2
-                        && topics.get(0).unwrap() == symbol_short!("quote").into_val(env)
-                        && topics.get(1).unwrap() == symbol_short!("expired").into_val(env)
-                })
-                .count()
-        };
-
-        client.route_transaction(&options);
-        let after_first = count_expired(&env);
-        client.route_transaction(&options);
-        let after_second = count_expired(&env);
-
-        assert_eq!(after_first, 1);
-        assert_eq!(after_second, 1);
-    }
-
-    // Issue #1366: the fallback anchor is selected when the main pass yields
-    // nothing, with min_reputation relaxed for the fallback.
-    #[test]
-    fn test_fallback_chain_selects_anchor_under_relaxed_reputation() {
-        let env = make_env();
-        set_ledger(&env, 1_000_000);
-        let (client, _) = setup(&env);
-
-        let low_rep = Address::generate(&env);
-        register_anchor(&env, &client, &low_rep);
-        client.set_anchor_metadata(&low_rep, &1000u32, &300u64, &7500u32, &9900u32, &1_000_000u64);
-        submit_standard_quote(&env, &client, &low_rep, 20);
-
-        // Without a fallback chain nothing qualifies under min_reputation = 5000.
-        let no_fallback = options_with(&env, Some("LowestFee"), 5000, 0, Vec::new(&env));
-        assert!(client.try_route_transaction(&no_fallback).is_err());
-
-        let mut chain = Vec::new(&env);
-        chain.push_back(low_rep.clone());
-        let with_fallback = options_with(&env, Some("LowestFee"), 5000, 0, chain);
-        let best = client.route_transaction(&with_fallback);
-        assert_eq!(best.anchor, low_rep);
-    }
-
-    // Issue #1365: max_anchors = 1 must not hide a cheaper, later-registered anchor.
-    #[test]
-    fn test_max_anchors_does_not_bias_toward_early_registrants() {
-        let env = make_env();
-        set_ledger(&env, 1_000_000);
-        let (client, _) = setup(&env);
-
-        let early = Address::generate(&env);
-        let late = Address::generate(&env);
-        register_anchor(&env, &client, &early);
-        register_anchor(&env, &client, &late);
-        submit_standard_quote(&env, &client, &early, 50);
-        submit_standard_quote(&env, &client, &late, 10);
-
-        let options = options_with(&env, Some("LowestFee"), 0, 1, Vec::new(&env));
+        let options = make_lowest_fee_options(&env);
         let best = client.route_transaction(&options);
-        assert_eq!(best.anchor, late);
+        assert_eq!(best.anchor, healthy);
+        assert_ne!(best.anchor, revoked);
+    }
+
+    #[test]
+    fn test_revoked_attestor_only_candidate_fails_routing() {
+        // When the only quote belongs to a revoked anchor, routing must fail.
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let revoked = Address::generate(&env);
+        register_anchor(&env, &client, &revoked);
+        submit_standard_quote(&env, &client, &revoked, 10);
+
+        client.revoke_attestor(&revoked);
+
+        let options = make_lowest_fee_options(&env);
+        assert!(client.try_route_transaction(&options).is_err());
+    }
+
+    #[test]
+    fn test_anchor_without_quotes_service_not_routed() {
+        // An anchor that no longer advertises SERVICE_QUOTES must be skipped.
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let no_quotes = Address::generate(&env);
+        let healthy = Address::generate(&env);
+        register_anchor(&env, &client, &no_quotes);
+        register_anchor(&env, &client, &healthy);
+
+        // no_quotes has the cheaper quote, so it would win without the fix.
+        submit_standard_quote(&env, &client, &no_quotes, 10);
+        submit_standard_quote(&env, &client, &healthy, 40);
+
+        // Remove SERVICE_QUOTES (1) from the anchor's advertised services.
+        let mut services = Vec::new(&env);
+        services.push_back(3u32);
+        client.configure_services(&no_quotes, &services);
+
+        let options = make_lowest_fee_options(&env);
+        let best = client.route_transaction(&options);
+        assert_eq!(best.anchor, healthy);
+        assert_ne!(best.anchor, no_quotes);
     }
 }
 

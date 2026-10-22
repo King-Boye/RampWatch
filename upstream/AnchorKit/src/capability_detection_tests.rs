@@ -142,4 +142,54 @@ mod capability_detection_tests {
         let anchor = register(&env, &client, &admin);
         client.get_supported_services(&anchor);
     }
+
+    #[test]
+    fn test_cache_capabilities_accepts_known_codes() {
+        let env = make_env();
+        let (client, admin) = setup(&env);
+        let anchor = register(&env, &client, &admin);
+
+        let caps = services(&env, &[SERVICE_DEPOSITS, SERVICE_WITHDRAWALS, SERVICE_QUOTES]);
+        let res = client.try_cache_capabilities(&anchor, &caps);
+        assert!(res.is_ok());
+
+        let stored = client.get_cached_capabilities(&anchor);
+        assert_eq!(stored.len(), 3);
+        assert_eq!(stored.get(0).unwrap(), SERVICE_DEPOSITS);
+        assert_eq!(stored.get(1).unwrap(), SERVICE_WITHDRAWALS);
+        assert_eq!(stored.get(2).unwrap(), SERVICE_QUOTES);
+    }
+
+    #[test]
+    fn test_cache_capabilities_rejects_unknown_code() {
+        let env = make_env();
+        let (client, admin) = setup(&env);
+        let anchor = register(&env, &client, &admin);
+
+        let caps = services(&env, &[SERVICE_DEPOSITS, 99u32]);
+        let res = client.try_cache_capabilities(&anchor, &caps);
+        assert_eq!(res, Err(Ok(Error::InvalidServiceType)));
+    }
+
+    #[test]
+    fn test_cache_capabilities_rejects_duplicate_codes() {
+        let env = make_env();
+        let (client, admin) = setup(&env);
+        let anchor = register(&env, &client, &admin);
+
+        let caps = services(&env, &[SERVICE_DEPOSITS, SERVICE_DEPOSITS]);
+        let res = client.try_cache_capabilities(&anchor, &caps);
+        assert_eq!(res, Err(Ok(Error::InvalidServiceType)));
+    }
+
+    #[test]
+    fn test_cache_capabilities_rejects_empty_list() {
+        let env = make_env();
+        let (client, admin) = setup(&env);
+        let anchor = register(&env, &client, &admin);
+
+        let caps = services(&env, &[]);
+        let res = client.try_cache_capabilities(&anchor, &caps);
+        assert_eq!(res, Err(Ok(Error::InvalidServiceType)));
+    }
 }

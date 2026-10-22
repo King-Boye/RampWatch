@@ -116,13 +116,18 @@ const MAX_TTL_SECONDS: u64 = u32::MAX as u64;
 /// Maximum number of attestors that can be registered simultaneously.
 pub const MAX_ATTESTORS: u64 = 100;
 
-/// Maximum length of the `CANCHORS` list of anchors with cached TOML data.
-///
-/// `list_cached_anchors` and `invalidate_all_caches` load and iterate the whole
-/// list, so it must stay small enough for those admin calls to fit within
-/// Soroban's CPU, memory and footprint limits. Twice `MAX_ATTESTORS`, since
-/// revoked attestors can leave entries behind until their cache is cleared.
-pub const MAX_CACHED_ANCHORS: u32 = (MAX_ATTESTORS * 2) as u32;
+/// Hard ceiling for the configurable page size used by paginated reads such
+/// as `list_attestations`. Values above this would make a single call read
+/// thousands of entries and exceed the host budget (#1429).
+pub const MAX_PAGE_SIZE: u32 = 200;
+
+/// Maximum accepted clock skew (in seconds) for SEP-10 JWT expiry drift.
+/// A larger skew would effectively disable JWT expiry (#1430).
+pub const MAX_CLOCK_SKEW_SECONDS: u64 = 300;
+
+/// Maximum accepted replay window (in seconds) for timestamp validation.
+/// Defaults to one day; larger windows accept arbitrarily old timestamps (#1430).
+pub const MAX_REPLAY_WINDOW_SECONDS: u64 = 86_400;
 
 fn pending_admin_key(env: &Env) -> soroban_sdk::Vec<soroban_sdk::Symbol> {
     soroban_sdk::vec![env, symbol_short!("PADMIN")]
@@ -196,9 +201,15 @@ impl AnchorKitContract {
         inst.set(&StorageKey::MaxPageSize, &50u32);
         // Default replay window: 300 seconds (5 minutes).
         let window = replay_window_seconds.unwrap_or(300u64);
+        if window > MAX_REPLAY_WINDOW_SECONDS {
+            return Err(ErrorCode::ValidationError);
+        }
         inst.set(&key_replay_window(&env), &window);
         // Default clock skew tolerance: 60 seconds.
         let skew = clock_skew_seconds.unwrap_or(60u64);
+        if skew > MAX_CLOCK_SKEW_SECONDS {
+            return Err(ErrorCode::ValidationError);
+        }
         inst.set(&key_clock_skew(&env), &skew);
         inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
         Ok(())
@@ -262,9 +273,13 @@ impl AnchorKitContract {
             .unwrap_or(50u32)
     }
 
+    /// Set the maximum page size used by paginated reads (admin only).
+    ///
+    /// Must be in `1..=MAX_PAGE_SIZE` (200). Larger values are rejected so a
+    /// single pagination call cannot exceed the host budget (#1429).
     pub fn set_max_page_size(env: Env, max_page_size: u32) {
         Self::require_admin(&env);
-        if max_page_size == 0 {
+        if max_page_size == 0 || max_page_size > MAX_PAGE_SIZE {
             panic_with_error!(&env, ErrorCode::ValidationError);
         }
         env.storage().instance().set(&StorageKey::MaxPageSize, &max_page_size);
@@ -272,6 +287,40 @@ impl AnchorKitContract {
         env.events().publish(
             (symbol_short!("pagesize"), symbol_short!("updated")),
             max_page_size,
+        );
+    }
+
+    /// Update the replay window (admin only).
+    ///
+    /// Must be `<= MAX_REPLAY_WINDOW_SECONDS` (1 day) (#1430).
+    pub fn set_replay_window_seconds(env: Env, seconds: u64) {
+        Self::require_admin(&env);
+        if seconds > MAX_REPLAY_WINDOW_SECONDS {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        let inst = env.storage().instance();
+        inst.set(&key_replay_window(&env), &seconds);
+        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+        env.events().publish(
+            (symbol_short!("replay"), symbol_short!("updated")),
+            seconds,
+        );
+    }
+
+    /// Update the SEP-10 clock skew tolerance (admin only).
+    ///
+    /// Must be `<= MAX_CLOCK_SKEW_SECONDS` (300 s) (#1430).
+    pub fn set_clock_skew_seconds(env: Env, seconds: u64) {
+        Self::require_admin(&env);
+        if seconds > MAX_CLOCK_SKEW_SECONDS {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        let inst = env.storage().instance();
+        inst.set(&key_clock_skew(&env), &seconds);
+        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+        env.events().publish(
+            (symbol_short!("clockskew"), symbol_short!("updated")),
+            seconds,
         );
     }
 
@@ -710,6 +759,8 @@ impl AnchorKitContract {
         let revoked_key = StorageKey::AttestorRevoked(attestor.clone());
         env.storage().persistent().set(&revoked_key, &true);
         env.storage().persistent().extend_ttl(&revoked_key, PERSISTENT_TTL, PERSISTENT_TTL);
+        // Invalidate any outstanding quote so routing cannot pick it up (#1431).
+        env.storage().persistent().remove(&StorageKey::LatestQuote(attestor.clone()));
         env.events().publish(
             (symbol_short!("attestor"), symbol_short!("revoked")),
             AttestorRevoked(attestor),
@@ -863,24 +914,8 @@ impl AnchorKitContract {
         {
             panic_with_error!(&env, ErrorCode::AttestorNotRegistered);
         }
-        if services.is_empty() {
-            panic_with_error!(&env, ErrorCode::InvalidServiceType);
-        }
-        let mut seen = Vec::new(&env);
-        for s in services.iter() {
-            // Reject any value that is not one of the known service constants.
-            if s != SERVICE_DEPOSITS
-                && s != SERVICE_WITHDRAWALS
-                && s != SERVICE_QUOTES
-                && s != SERVICE_KYC
-                && s != SERVICE_EXCHANGE_QUOTES
-            {
-                panic_with_error!(&env, ErrorCode::InvalidServiceType);
-            }
-            if seen.contains(s) {
-                panic_with_error!(&env, ErrorCode::InvalidServiceType);
-            }
-            seen.push_back(s);
+        if let Err(e) = Self::validate_service_codes(&env, &services) {
+            panic_with_error!(&env, e);
         }
         let record = AnchorServices {
             anchor: anchor.clone(),
@@ -2938,6 +2973,34 @@ impl AnchorKitContract {
         {
             panic_with_error!(env, ErrorCode::AttestorNotRegistered);
         }
+    }
+
+    /// Validate a list of service/capability codes.
+    ///
+    /// Rejects empty lists, unknown codes (anything not one of the known
+    /// `SERVICE_*` constants) and duplicates, returning
+    /// [`ErrorCode::InvalidServiceType`]. Shared by `configure_services` and
+    /// `cache_capabilities` (#1432).
+    fn validate_service_codes(env: &Env, codes: &Vec<u32>) -> Result<(), ErrorCode> {
+        if codes.is_empty() {
+            return Err(ErrorCode::InvalidServiceType);
+        }
+        let mut seen = Vec::new(env);
+        for s in codes.iter() {
+            if s != SERVICE_DEPOSITS
+                && s != SERVICE_WITHDRAWALS
+                && s != SERVICE_QUOTES
+                && s != SERVICE_KYC
+                && s != SERVICE_EXCHANGE_QUOTES
+            {
+                return Err(ErrorCode::InvalidServiceType);
+            }
+            if seen.contains(s) {
+                return Err(ErrorCode::InvalidServiceType);
+            }
+            seen.push_back(s);
+        }
+        Ok(())
     }
 
     fn check_timestamp(env: &Env, timestamp: u64) {

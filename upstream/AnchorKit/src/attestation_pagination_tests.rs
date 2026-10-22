@@ -269,6 +269,34 @@ mod attestation_pagination_tests {
     }
 
     #[test]
+    fn test_set_max_page_size_rejects_above_ceiling() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin, &100_u64, &None, &None);
+
+        // Default is 50
+        assert_eq!(client.get_max_page_size(), 50);
+
+        // The ceiling itself is accepted
+        client.set_max_page_size(&200);
+        assert_eq!(client.get_max_page_size(), 200);
+
+        // One above the ceiling is rejected
+        assert!(client.try_set_max_page_size(&201).is_err());
+        // u32::MAX is rejected
+        assert!(client.try_set_max_page_size(&u32::MAX).is_err());
+        // Zero is still rejected
+        assert!(client.try_set_max_page_size(&0).is_err());
+
+        // Value unchanged after rejected updates
+        assert_eq!(client.get_max_page_size(), 200);
+    }
+
+    #[test]
     fn test_get_all_attestors_large_offset_returns_empty() {
         let env = make_env();
         setup_ledger(&env);
@@ -304,6 +332,68 @@ mod attestation_pagination_tests {
     }
 
     #[test]
+    fn test_initialize_rejects_out_of_range_windows() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+
+        // Replay window above the maximum is rejected
+        assert!(client
+            .try_initialize(&admin, &(86_400_u64 + 1), &None, &None)
+            .is_err());
+        // Clock skew above the maximum is rejected
+        assert!(client
+            .try_initialize(&admin, &100_u64, &Some(301_u64), &None)
+            .is_err());
+        // u64::MAX values are rejected
+        assert!(client
+            .try_initialize(&admin, &u64::MAX, &None, &None)
+            .is_err());
+        assert!(client
+            .try_initialize(&admin, &100_u64, &Some(u64::MAX), &None)
+            .is_err());
+    }
+
+    #[test]
+    fn test_initialize_accepts_boundary_windows() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+
+        // Boundary values are accepted
+        client.initialize(&admin, &86_400_u64, &Some(300_u64), &None);
+    }
+
+    #[test]
+    fn test_admin_can_update_replay_window_and_clock_skew() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin, &100_u64, &Some(30_u64), &None);
+
+        // Valid updates are accepted
+        client.set_replay_window_seconds(&3_600_u64);
+        client.set_clock_skew_seconds(&120_u64);
+
+        // Out-of-range updates are rejected
+        assert!(client
+            .try_set_replay_window_seconds(&(86_400_u64 + 1))
+            .is_err());
+        assert!(client.try_set_replay_window_seconds(&u64::MAX).is_err());
+        assert!(client.try_set_clock_skew_seconds(&301_u64).is_err());
+        assert!(client.try_set_clock_skew_seconds(&u64::MAX).is_err());
+    }
+
+    #[test]
     fn test_list_attestations_skips_revoked_by_id() {
         let env = make_env();
         setup_ledger(&env);
@@ -332,6 +422,71 @@ mod attestation_pagination_tests {
         let results = client.list_attestations(&subject, &0, &10);
         assert_eq!(results.len(), 1);
         assert_eq!(results.get(0).unwrap().id, id2);
+    }
+
+    #[test]
+    fn test_route_transaction_skips_revoked_anchor_quotes() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin, &100_u64, &None, &None);
+
+        let anchor = Address::generate(&env);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &anchor, &anchor, &sk);
+
+        // Revoke the anchor's attestor status
+        client.revoke_attestor(&anchor);
+
+        // After revocation, routing must never return this anchor's quotes.
+        // The call may fail or return an empty/other result, but must not
+        // include the revoked anchor.
+        if let Ok(quote) = client.try_route_transaction(&anchor, &1_000_i128, &None) {
+            if let Ok(q) = quote {
+                assert_ne!(q.anchor, anchor);
+            }
+        }
+    }
+
+    #[test]
+    fn test_cache_capabilities_rejects_invalid_codes() {
+        let env = make_env();
+        setup_ledger(&env);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        client.initialize(&admin, &100_u64, &None, &None);
+
+        let anchor = Address::generate(&env);
+        let sk = SigningKey::generate(&mut OsRng);
+        register_attestor_with_sep10(&env, &client, &anchor, &anchor, &sk);
+
+        let toml_url = Bytes::from_slice(&env, b"https://anchor.example/.well-known/stellar.toml");
+
+        // Empty list is rejected
+        let empty: Vec<u32> = Vec::new(&env);
+        assert!(client
+            .try_cache_capabilities(&anchor, &toml_url, &empty)
+            .is_err());
+
+        // Unknown code is rejected
+        let mut unknown: Vec<u32> = Vec::new(&env);
+        unknown.push_back(9_999_u32);
+        assert!(client
+            .try_cache_capabilities(&anchor, &toml_url, &unknown)
+            .is_err());
+
+        // Duplicate codes are rejected
+        let mut dup: Vec<u32> = Vec::new(&env);
+        dup.push_back(1_u32);
+        dup.push_back(1_u32);
+        assert!(client
+            .try_cache_capabilities(&anchor, &toml_url, &dup)
+            .is_err());
     }
 
     #[test]
