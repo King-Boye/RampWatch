@@ -116,6 +116,14 @@ const MAX_TTL_SECONDS: u64 = u32::MAX as u64;
 /// Maximum number of attestors that can be registered simultaneously.
 pub const MAX_ATTESTORS: u64 = 100;
 
+/// Maximum length of the `CANCHORS` list of anchors with cached TOML data.
+///
+/// `list_cached_anchors` and `invalidate_all_caches` load and iterate the whole
+/// list, so it must stay small enough for those admin calls to fit within
+/// Soroban's CPU, memory and footprint limits. Twice `MAX_ATTESTORS`, since
+/// revoked attestors can leave entries behind until their cache is cleared.
+pub const MAX_CACHED_ANCHORS: u32 = (MAX_ATTESTORS * 2) as u32;
+
 fn pending_admin_key(env: &Env) -> soroban_sdk::Vec<soroban_sdk::Symbol> {
     soroban_sdk::vec![env, symbol_short!("PADMIN")]
 }
@@ -150,7 +158,9 @@ impl AnchorKitContract {
     ///
     /// `replay_window_seconds` sets the tolerance window for timestamp-based
     /// replay attack detection.  Attestations whose timestamp falls outside
-    /// `[now - window, now + window]` are rejected.
+    /// `[now - window, now]` are rejected: timestamps in the future are never
+    /// accepted, so an off-chain signer whose clock runs ahead of the ledger
+    /// will get `ErrorCode::InvalidTimestamp`.
     ///
     /// `clock_skew_seconds` sets the tolerance for SEP-10 JWT expiry drift
     /// between the anchor's clock and the Soroban ledger timestamp.
@@ -518,6 +528,9 @@ impl AnchorKitContract {
             .get::<_, Vec<Address>>(&list_key)
             .unwrap_or_else(|| Vec::new(env));
         if !list.contains(anchor) {
+            if list.len() >= MAX_CACHED_ANCHORS {
+                panic_with_error!(env, ErrorCode::AttestorCapExceeded);
+            }
             list.push_back(anchor.clone());
             env.storage().persistent().set(&list_key, &list);
             env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
@@ -813,7 +826,7 @@ impl AnchorKitContract {
             panic_with_error!(&env, e);
         }
         Self::check_timestamp(&env, timestamp);
-        Self::verify_attestation_signature(&env, &issuer, &payload_hash, &signature);
+        Self::verify_attestation_signature(&env, &issuer, &subject, timestamp, &payload_hash, &signature);
 
         let used_key = StorageKey::Used(payload_hash.clone());
         if env.storage().persistent().has(&used_key) {
@@ -910,7 +923,7 @@ impl AnchorKitContract {
             panic_with_error!(&env, e);
         }
         Self::check_timestamp(&env, timestamp);
-        Self::verify_attestation_signature(&env, &issuer, &payload_hash, &signature);
+        Self::verify_attestation_signature(&env, &issuer, &subject, timestamp, &payload_hash, &signature);
 
         let used_key = StorageKey::Used(payload_hash.clone());
         if env.storage().persistent().has(&used_key) {
@@ -1310,7 +1323,7 @@ impl AnchorKitContract {
             panic_with_error!(&env, e);
         }
         Self::check_timestamp(&env, timestamp);
-        Self::verify_attestation_signature(&env, &issuer, &payload_hash, &signature);
+        Self::verify_attestation_signature(&env, &issuer, &subject, timestamp, &payload_hash, &signature);
 
         let used_key = StorageKey::Used(payload_hash.clone());
         if env.storage().persistent().has(&used_key) {
@@ -2566,6 +2579,9 @@ impl AnchorKitContract {
 
     pub fn fetch_anchor_info(env: Env, anchor: Address, toml_data: StellarToml, network_passphrase: String, ttl_override: Option<u64>) {
         anchor.require_auth();
+        // Only registered attestors may cache TOML data. Without this, any funded
+        // account could append itself to CANCHORS and grow it without bound.
+        Self::check_attestor(&env, &anchor);
 
         // Validate network_passphrase matches a known network before caching.
         // Prevents caching a TOML from the wrong network, which would cause
@@ -2956,9 +2972,17 @@ impl AnchorKitContract {
     ///
     /// Panics with `ErrorCode::UnauthorizedAttestor` if no valid signature is found
     /// or if the signature format is invalid.
+    ///
+    /// The signed message is the 32-byte digest returned by
+    /// [`attestation_signing_digest`]: it covers the issuer, subject, timestamp,
+    /// this contract's address and the network id as well as `payload_hash`, so
+    /// a signature cannot be re-paired with a different subject or timestamp, or
+    /// replayed on another deployment or network.
 fn verify_attestation_signature(
     env: &Env,
     issuer: &Address,
+    subject: &Address,
+    timestamp: u64,
     payload_hash: &Bytes,
     signature: &Bytes,
 ) {
@@ -2978,9 +3002,7 @@ fn verify_attestation_signature(
     signature.copy_into_slice(&mut sig_arr);
     let dalek_sig = Signature::from_bytes(&sig_arr);
 
-    let mut msg = alloc::vec::Vec::with_capacity(payload_hash.len() as usize);
-    msg.resize(payload_hash.len() as usize, 0u8);
-    payload_hash.copy_into_slice(&mut msg);
+    let msg = attestation_signing_digest(env, issuer, subject, timestamp, payload_hash);
 
     // Try each registered key until one successfully verifies the signature.
     // This allows key rotation: an issuer can have up to MAX_VERIFYING_KEYS active keys,
@@ -2993,7 +3015,7 @@ fn verify_attestation_signature(
         // which returns a Result instead of trapping. This allows the loop to try
         // the next key on failure.
         if let Ok(verifying_key) = VerifyingKey::from_bytes(&key.clone().try_into().unwrap()) {
-            if verifying_key.verify(&msg, &dalek_sig).is_ok() {
+            if verifying_key.verify(&msg[..], &dalek_sig).is_ok() {
                 // Signature verified with this key
                 return;
             }
@@ -3203,3 +3225,31 @@ mod attestation_validation_tests;
 #[cfg(test)]
 #[path = "attestor_event_tests.rs"]
 mod attestor_event_tests;
+
+/// Domain separator for attestation signatures; bump on any format change.
+pub const ATTESTATION_SIGNING_DOMAIN: &[u8] = b"anchorkit-attest-v1";
+
+/// The 32 bytes an issuer signs to attest to `(subject, timestamp, payload_hash)`:
+///
+/// `sha256("anchorkit-attest-v1" || network_id || contract_xdr || issuer_xdr || subject_xdr || timestamp_be8 || payload_hash)`
+///
+/// where each `*_xdr` is the address's `ScAddress` XDR. Off-chain signers must
+/// build the identical message; see `docs/test_vectors.md`.
+pub fn attestation_signing_digest(
+    env: &Env,
+    issuer: &Address,
+    subject: &Address,
+    timestamp: u64,
+    payload_hash: &Bytes,
+) -> [u8; 32] {
+    use soroban_sdk::xdr::ToXdr;
+
+    let mut msg = Bytes::from_slice(env, ATTESTATION_SIGNING_DOMAIN);
+    msg.append(&Bytes::from_array(env, &env.ledger().network_id().to_array()));
+    msg.append(&env.current_contract_address().to_xdr(env));
+    msg.append(&issuer.clone().to_xdr(env));
+    msg.append(&subject.clone().to_xdr(env));
+    msg.append(&Bytes::from_array(env, &timestamp.to_be_bytes()));
+    msg.append(payload_hash);
+    env.crypto().sha256(&msg).to_array()
+}

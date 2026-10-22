@@ -9,7 +9,7 @@ mod replay_window_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
+    use crate::sep10_test_util::{register_attestor_with_sep10, sign_attestation};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -60,8 +60,9 @@ mod replay_window_tests {
         // timestamp = now - 299 s → inside window
         let ts: u64 = 1_000_000 - 299;
         let hash = dummy_hash(&env, 1);
-        let sig = sign_payload(&env, &sk, &hash);
-        let id = client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
+        let subject = Address::generate(&env);
+        let sig = sign_attestation(&env, &sk, &client.address, &attestor, &subject, ts, &hash);
+        let id = client.submit_attestation(&attestor, &subject, &ts, &hash, &sig);
         assert_eq!(id, 0);
     }
 
@@ -78,8 +79,9 @@ mod replay_window_tests {
         // timestamp = now - 301 s → outside default 300 s window
         let ts: u64 = 1_000_000 - 301;
         let hash = dummy_hash(&env, 2);
-        let sig = sign_payload(&env, &sk, &hash);
-        client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
+        let subject = Address::generate(&env);
+        let sig = sign_attestation(&env, &sk, &client.address, &attestor, &subject, ts, &hash);
+        client.submit_attestation(&attestor, &subject, &ts, &hash, &sig);
     }
 
     // -----------------------------------------------------------------------
@@ -99,8 +101,9 @@ mod replay_window_tests {
         // timestamp = now - 3599 s → inside custom window
         let ts: u64 = 1_000_000 - 3599;
         let hash = dummy_hash(&env, 3);
-        let sig = sign_payload(&env, &sk, &hash);
-        let id = client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
+        let subject = Address::generate(&env);
+        let sig = sign_attestation(&env, &sk, &client.address, &attestor, &subject, ts, &hash);
+        let id = client.submit_attestation(&attestor, &subject, &ts, &hash, &sig);
         assert_eq!(id, 0);
     }
 
@@ -118,8 +121,9 @@ mod replay_window_tests {
         // timestamp = now - 61 s → outside 60 s window
         let ts: u64 = 1_000_000 - 61;
         let hash = dummy_hash(&env, 4);
-        let sig = sign_payload(&env, &sk, &hash);
-        client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
+        let subject = Address::generate(&env);
+        let sig = sign_attestation(&env, &sk, &client.address, &attestor, &subject, ts, &hash);
+        client.submit_attestation(&attestor, &subject, &ts, &hash, &sig);
     }
 
     // -----------------------------------------------------------------------
@@ -139,8 +143,9 @@ mod replay_window_tests {
         // timestamp = now + 1 s → future, must be rejected even though it's within the old symmetric window
         let ts: u64 = 1_000_000 + 1;
         let hash = dummy_hash(&env, 6);
-        let sig = sign_payload(&env, &sk, &hash);
-        client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
+        let subject = Address::generate(&env);
+        let sig = sign_attestation(&env, &sk, &client.address, &attestor, &subject, ts, &hash);
+        client.submit_attestation(&attestor, &subject, &ts, &hash, &sig);
     }
 
     #[test]
@@ -155,8 +160,9 @@ mod replay_window_tests {
 
         let ts: u64 = 1_000_000; // exact match
         let hash = dummy_hash(&env, 5);
-        let sig = sign_payload(&env, &sk, &hash);
-        let id = client.submit_attestation(&attestor, &Address::generate(&env), &ts, &hash, &sig);
+        let subject = Address::generate(&env);
+        let sig = sign_attestation(&env, &sk, &client.address, &attestor, &subject, ts, &hash);
+        let id = client.submit_attestation(&attestor, &subject, &ts, &hash, &sig);
         assert_eq!(id, 0);
     }
 }
