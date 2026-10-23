@@ -1163,6 +1163,7 @@ impl AnchorKitContract {
         timestamp: u64,
         payload_hash: Bytes,
         signature: Bytes,
+        expires_at: Option<u64>,
     ) -> u64 {
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
@@ -1178,7 +1179,7 @@ impl AnchorKitContract {
         }
 
         let id = Self::next_attestation_id(&env);
-        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature, None);
+        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature, expires_at);
 
         env.storage().persistent().set(&used_key, &true);
         env.storage().persistent().extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
@@ -1580,6 +1581,7 @@ impl AnchorKitContract {
         timestamp: u64,
         payload_hash: Bytes,
         signature: Bytes,
+        expires_at: Option<u64>,
     ) -> u64 {
         Self::require_not_paused(&env);
         if let Err(e) = Self::check_session_expiry(&env, session_id) {
@@ -1605,7 +1607,7 @@ impl AnchorKitContract {
         }
 
         let id = Self::next_attestation_id(&env);
-        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature, None);
+        Self::store_attestation(&env, id, issuer.clone(), subject.clone(), timestamp, payload_hash.clone(), signature, expires_at);
 
         env.storage().persistent().set(&used_key, &true);
         env.storage().persistent().extend_ttl(&used_key, PERSISTENT_TTL, PERSISTENT_TTL);
@@ -2420,6 +2422,42 @@ impl AnchorKitContract {
             (symbol_short!("admin"), symbol_short!("ameta")),
             AnchorMetadataSet { anchor, reputation_score, uptime_percentage, is_active, timestamp: now },
         );
+    }
+
+    /// Reactivate an anchor after an administrator has resolved its health
+    /// issue. Metadata updates intentionally preserve `is_active`, so this is
+    /// the explicit administrative recovery path.
+    pub fn reactivate_anchor(env: Env, anchor: Address) {
+        Self::require_admin(&env);
+        let meta_key = StorageKey::AnchorMeta(anchor.clone());
+        let mut metadata: AnchorMetadata = env
+            .storage()
+            .persistent()
+            .get(&meta_key)
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::ValidationError));
+        metadata.is_active = true;
+        env.storage().persistent().set(&meta_key, &metadata);
+        env.storage().persistent().extend_ttl(&meta_key, PERSISTENT_TTL, PERSISTENT_TTL);
+    }
+
+    /// Remove an anchor from the routing candidate list without deleting its
+    /// metadata or historical health information.
+    pub fn remove_anchor(env: Env, anchor: Address) {
+        Self::require_admin(&env);
+        let list_key = key_anchor_list(&env);
+        let list: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&list_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let mut filtered = Vec::new(&env);
+        for candidate in list.iter() {
+            if candidate != anchor {
+                filtered.push_back(candidate);
+            }
+        }
+        env.storage().persistent().set(&list_key, &filtered);
+        env.storage().persistent().extend_ttl(&list_key, PERSISTENT_TTL, PERSISTENT_TTL);
     }
 
     pub fn get_routing_anchors(env: Env) -> Vec<Address> {
