@@ -2732,3 +2732,19 @@ pub fn sub_processing_volume(env: &Env, amount: i128) -> Result<(), ContractErro
         .set(&DataKey::TotalProcessingVolume, &next);
     Ok(())
 }
+pub fn set_pending_admin_with_expiry(env: &Env, new_admin: &Address, expires_at: u64) {
+    let admin = get_admin(env).unwrap_or_else(|| new_admin.clone());
+    let nomination = AdminNomination { nominee: new_admin.clone(), expires_at, nominator: admin };
+    set_admin_nomination(env, &nomination);
+    env.storage().instance().set(&DataKey::PendingAdmin, new_admin);
+}
+pub fn get_pending_admin(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::PendingAdmin)
+}
+pub fn get_admin_nomination(env: &Env) -> Option<AdminNomination> {
+    env.storage().instance().get(&DataKey::NominatedAdmin)
+}
+pub fn clear_pending_admin(env: &Env) {
+    env.storage().instance().remove(&DataKey::PendingAdmin);
+    env.storage().instance().remove(&DataKey::NominatedAdmin);
+}

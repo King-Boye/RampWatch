@@ -2494,15 +2494,26 @@ impl SwiftRemitContract {
     ///
     /// Requires authentication from the current admin.
     pub fn propose_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
-        let caller = get_admin(&env)?;
-        require_admin(&env, &caller)?;
-
-        set_pending_admin(&env, &new_admin);
-        emit_admin_transfer_proposed(&env, caller, new_admin);
-
-        Ok(())
+    let admin = require_admin(&env)?;
+    // NEW: add expiry
+    let expires_at = env.ledger().timestamp() + ADMIN_NOMINATION_EXPIRY_SECONDS;
+    let nomination = crate::storage::AdminNomination {
+        nominee: new_admin.clone(),
+        expires_at,
+        nominator: admin.clone(),
+    };
+    crate::storage::set_admin_nomination(&env, &nomination);
+    // Also keep old key for backward compat but with expiry struct
+    crate::storage::set_pending_admin_with_expiry(&env, &new_admin, expires_at);
+    Ok(())
     }
-
+/// Cancels a pending admin proposal. Only current admin can call.
+/// Fixes #1654 - revokes proposal to compromised key.
+pub fn cancel_admin_proposal(env: Env) -> Result<(), ContractError> {
+    require_admin(&env)?;
+    crate::storage::clear_pending_admin(&env);
+    Ok(())
+}
     /// Step 2 of 2-step admin transfer (#365).
     ///
     /// The proposed admin accepts the role. Only callable by the address that was
@@ -2513,8 +2524,15 @@ impl SwiftRemitContract {
     ///
     /// Requires authentication from the proposed admin address.
     pub fn accept_admin(env: Env) -> Result<(), ContractError> {
-        let new_admin = get_pending_admin(&env)
-            .ok_or(ContractError::NoPendingAdminTransfer)?;
+    // NEW: check expiry
+    let nomination = crate::storage::get_admin_nomination(&env)
+        .ok_or(ContractError::NoPendingAdminTransfer)?;
+    if env.ledger().timestamp() > nomination.expires_at {
+        crate::storage::clear_pending_admin(&env);
+        return Err(ContractError::AdminProposalExpired);
+    }
+    let new_admin = crate::storage::get_pending_admin(&env)
+        .ok_or(ContractError::NoPendingAdminTransfer)?;
 
         new_admin.require_auth();
 
