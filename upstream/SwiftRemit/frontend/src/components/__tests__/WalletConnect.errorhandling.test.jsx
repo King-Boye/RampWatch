@@ -12,7 +12,7 @@ describe('WalletConnect Error Handling', () => {
 
   describe('Freighter not installed', () => {
     it('should show install prompt when Freighter is not installed', async () => {
-      vi.mocked(FreighterAPI.isConnected).mockResolvedValue(false)
+      vi.mocked(FreighterAPI.isConnected).mockResolvedValue({ isConnected: false })
       
       render(<WalletConnect walletAddress={null} setWalletAddress={vi.fn()} />)
       
@@ -30,7 +30,7 @@ describe('WalletConnect Error Handling', () => {
 
   describe('Network mismatch', () => {
     it('should show network mismatch error with guidance', async () => {
-      vi.mocked(FreighterAPI.isConnected).mockResolvedValue(true)
+      vi.mocked(FreighterAPI.isConnected).mockResolvedValue({ isConnected: true })
       vi.mocked(FreighterAPI.requestAccess).mockRejectedValue(
         new Error('Network mismatch: wallet on mainnet but testnet expected')
       )
@@ -48,7 +48,7 @@ describe('WalletConnect Error Handling', () => {
 
   describe('User rejection', () => {
     it('should show retry option when user rejects connection', async () => {
-      vi.mocked(FreighterAPI.isConnected).mockResolvedValue(true)
+      vi.mocked(FreighterAPI.isConnected).mockResolvedValue({ isConnected: true })
       vi.mocked(FreighterAPI.requestAccess).mockRejectedValue(
         new Error('User denied access')
       )
@@ -66,7 +66,7 @@ describe('WalletConnect Error Handling', () => {
 
   describe('Generic error', () => {
     it('should show retry button for generic errors', async () => {
-      vi.mocked(FreighterAPI.isConnected).mockResolvedValue(true)
+      vi.mocked(FreighterAPI.isConnected).mockResolvedValue({ isConnected: true })
       vi.mocked(FreighterAPI.requestAccess).mockRejectedValue(new Error('Connection failed'))
       
       render(<WalletConnect walletAddress={null} setWalletAddress={vi.fn()} />)

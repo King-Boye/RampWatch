@@ -532,6 +532,61 @@ fn test_fee_breakdown_consistency() {
 }
 
 #[test]
+fn test_fee_breakdown_protocol_fee_frozen_after_bps_change() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    let (token, token_admin) = create_token_contract(&env, &admin);
+    token_admin.mint(&sender, &1000000);
+
+    let contract_id = env.register_contract(None, SwiftRemitContract);
+    let client = SwiftRemitContractClient::new(&env, &contract_id);
+
+    // Platform fee: 2.5%, protocol fee: 0.5%
+    client.initialize(&admin, &token.address, &250, &0, &50, &treasury);
+    client.register_agent(&agent, &None);
+
+    let amount = 10000i128;
+
+    // Quoted breakdown at creation time
+    let quoted = client.get_fee_breakdown(&amount, &None, &None);
+    assert_eq!(quoted.platform_fee, 250);
+    assert_eq!(quoted.protocol_fee, 50);
+    assert_eq!(quoted.net_amount, 9700);
+
+    // Create the remittance, freezing the quoted fees
+    let remittance_id = client.create_remittance(&sender, &agent, &amount, &None, &None);
+
+    // Admin raises the protocol fee after creation
+    client.update_protocol_fee_bps(&admin, &200);
+
+    // Breakdown for the existing remittance must reflect the frozen protocol fee
+    let after_change = client.breakdown_from_platform_fee(&remittance_id);
+    assert_eq!(after_change.amount, amount);
+    assert_eq!(after_change.platform_fee, quoted.platform_fee);
+    assert_eq!(after_change.protocol_fee, quoted.protocol_fee);
+    assert_eq!(after_change.net_amount, quoted.net_amount);
+
+    // Partial payout must not re-price the protocol fee
+    client.partial_payout(&agent, &remittance_id, &4000i128);
+
+    let after_partial = client.breakdown_from_platform_fee(&remittance_id);
+    assert_eq!(after_partial.platform_fee, quoted.platform_fee);
+    assert_eq!(after_partial.protocol_fee, quoted.protocol_fee);
+    assert_eq!(after_partial.net_amount, quoted.net_amount);
+
+    // A fresh quote uses the new bps, proving the change took effect
+    let new_quote = client.get_fee_breakdown(&amount, &None, &None);
+    assert_eq!(new_quote.protocol_fee, 200);
+    assert_eq!(new_quote.net_amount, 9550);
+}
+
+#[test]
 fn test_fee_breakdown_multiple_calls_consistent() {
     let env = Env::default();
     env.mock_all_auths();

@@ -31,7 +31,7 @@ use crate::{
 
 // ─── The canonical transition table (mirrors README "Valid Transitions") ──────
 
-/// The 9 valid, non-idempotent `(from, to)` edges documented in README.md.
+/// The 10 valid, non-idempotent `(from, to)` edges documented in README.md.
 ///
 /// This is the single source of truth for the exhaustive matrix test below.
 /// If a row is added here without a matching change to
@@ -47,6 +47,7 @@ fn transition_table() -> std::vec::Vec<(RemittanceStatus, RemittanceStatus)> {
         (RemittanceStatus::Processing, RemittanceStatus::Cancelled),
         (RemittanceStatus::Processing, RemittanceStatus::Failed),
         (RemittanceStatus::Failed, RemittanceStatus::Disputed),
+        (RemittanceStatus::Failed, RemittanceStatus::Cancelled),
         (RemittanceStatus::Disputed, RemittanceStatus::Cancelled),
         (RemittanceStatus::Disputed, RemittanceStatus::Completed),
     ]
@@ -84,6 +85,7 @@ fn arb_valid_transition() -> impl Strategy<Value = (RemittanceStatus, Remittance
         Just((RemittanceStatus::Processing, RemittanceStatus::Cancelled)),
         Just((RemittanceStatus::Processing, RemittanceStatus::Failed)),
         Just((RemittanceStatus::Failed, RemittanceStatus::Disputed)),
+        Just((RemittanceStatus::Failed, RemittanceStatus::Cancelled)),
         Just((RemittanceStatus::Disputed, RemittanceStatus::Cancelled)),
         Just((RemittanceStatus::Disputed, RemittanceStatus::Completed)),
     ]
@@ -147,17 +149,17 @@ fn test_matrix_matches_can_transition_to() {
     }
 
     assert_eq!(asserted_pairs, 36, "Must cover all 6x6 = 36 ordered pairs");
-    // 6 same-state (idempotent) pairs + the 9 documented edges = 15 accepted.
-    assert_eq!(accepted, 15, "Expected exactly 15 accepted pairs (6 idempotent + 9 documented)");
-    assert_eq!(rejected, 21, "Expected exactly 21 rejected pairs");
+    // 6 same-state (idempotent) pairs + the 10 documented edges = 16 accepted.
+    assert_eq!(accepted, 16, "Expected exactly 16 accepted pairs (6 idempotent + 10 documented)");
+    assert_eq!(rejected, 20, "Expected exactly 20 rejected pairs");
 }
 
-/// The table above must have exactly the 9 rows documented in README.md's
+/// The table above must have exactly the 10 rows documented in README.md's
 /// "Valid Transitions" table — this guards against silently editing the table
 /// itself to match a code regression instead of catching one.
 #[test]
 fn test_transition_table_matches_readme_row_count() {
-    assert_eq!(transition_table().len(), 9, "README documents exactly 9 valid transitions");
+    assert_eq!(transition_table().len(), 10, "README documents exactly 10 valid transitions");
 }
 
 /// Terminal states (Completed, Cancelled) must reject every one of the 5 other

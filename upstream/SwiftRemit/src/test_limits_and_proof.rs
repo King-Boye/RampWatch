@@ -65,6 +65,46 @@ fn test_set_daily_limit_and_enforcement() {
 }
 
 #[test]
+fn test_daily_limit_status_unchanged_on_idempotent_replay() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, _admin, sender, agent, _token_admin) = setup(&env);
+
+    let currency = String::from_str(&env, "USDC");
+    let country = String::from_str(&env, "GLOBAL");
+    contract.set_daily_limit(&currency, &country, &1000);
+
+    let key = String::from_str(&env, "daily-limit-replay-key");
+    let remittance_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &600,
+        &None,
+        &None,
+        &Some(key.clone()),
+        &None,
+        &None,
+    );
+    let status_before = contract.get_daily_limit_status(&sender, &currency, &country);
+
+    let replayed_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &600,
+        &None,
+        &None,
+        &Some(key),
+        &None,
+        &None,
+    );
+    let status_after = contract.get_daily_limit_status(&sender, &currency, &country);
+
+    assert_eq!(replayed_id, remittance_id);
+    assert_eq!(status_after, status_before);
+}
+
+#[test]
 fn test_daily_limit_rolling_24h_window_resets() {
     let env = Env::default();
     env.mock_all_auths();
@@ -180,6 +220,35 @@ fn test_confirm_payout_missing_required_proof() {
 
     let result = contract.try_confirm_payout(&remittance_id, &None, &None);
     assert_eq!(result.unwrap_err().unwrap(), ContractError::MissingProof);
+}
+
+#[test]
+fn test_confirm_partial_payout_missing_required_proof() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, admin, sender, agent, _token_admin) = setup(&env);
+    let config = SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin),
+    };
+    let remittance_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &2_000,
+        &None,
+        &None,
+        &None,
+        &Some(config),
+        &None,
+    );
+
+    let result = contract.try_confirm_partial_payout(&remittance_id, &100);
+    assert_eq!(result.unwrap_err().unwrap(), ContractError::MissingProof);
+    assert_eq!(
+        contract.get_remittance(&remittance_id).status,
+        crate::RemittanceStatus::Pending
+    );
 }
 
 #[test]

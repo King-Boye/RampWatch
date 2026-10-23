@@ -221,24 +221,24 @@ pub fn calculate_fees_with_breakdown(
     Ok(breakdown)
 }
 
-/// Builds a fee breakdown around an already-quoted platform fee.
+/// Builds a fee breakdown around already-quoted fees.
 ///
-/// The platform fee is fixed when a remittance is created — it is the figure the
-/// sender was quoted and the amount escrowed against. Settlement must honour that
-/// quote rather than re-price, because the inputs to pricing (the sender's rolling
-/// volume, the configured strategy, the corridor table) can all legitimately move
-/// between creation and payout. Re-pricing at settlement makes any remittance that
-/// was quoted at a volume-discounted rate impossible to complete.
-pub fn breakdown_from_platform_fee(
-    env: &Env,
+/// Both the platform fee and the protocol fee are fixed when a remittance is
+/// created — they are the figures the sender was quoted and the amount escrowed
+/// against. Settlement must honour that quote rather than re-price, because the
+/// inputs to pricing (the sender's rolling volume, the configured strategy, the
+/// corridor table, the protocol fee bps) can all legitimately move between
+/// creation and payout. Re-pricing at settlement makes any remittance that was
+/// quoted at a volume-discounted rate impossible to complete, and re-pricing the
+/// protocol fee changes `net_payout` between partial payouts.
+pub fn breakdown_from_quoted_fees(
     amount: i128,
     platform_fee: i128,
+    protocol_fee: i128,
 ) -> Result<FeeBreakdown, ContractError> {
-    if amount <= 0 || platform_fee < 0 || platform_fee > amount {
+    if amount <= 0 || platform_fee < 0 || platform_fee > amount || protocol_fee < 0 {
         return Err(ContractError::InvalidAmount);
     }
-
-    let protocol_fee = calculate_protocol_fee(amount, get_protocol_fee_bps(env))?;
 
     let total_fees = platform_fee
         .checked_add(protocol_fee)
@@ -261,6 +261,32 @@ pub fn breakdown_from_platform_fee(
     };
     breakdown.validate()?;
     Ok(breakdown)
+}
+
+/// Builds a fee breakdown around an already-quoted platform fee.
+///
+/// The platform fee is fixed when a remittance is created — it is the figure the
+/// sender was quoted and the amount escrowed against. Settlement must honour that
+/// quote rather than re-price, because the inputs to pricing (the sender's rolling
+/// volume, the configured strategy, the corridor table) can all legitimately move
+/// between creation and payout. Re-pricing at settlement makes any remittance that
+/// was quoted at a volume-discounted rate impossible to complete.
+///
+/// The protocol fee is likewise frozen at creation; callers that have the stored
+/// value should use [`breakdown_from_quoted_fees`] instead. This helper is kept
+/// for callers that only have the platform fee and computes the protocol fee from
+/// the current configuration.
+pub fn breakdown_from_platform_fee(
+    env: &Env,
+    amount: i128,
+    platform_fee: i128,
+) -> Result<FeeBreakdown, ContractError> {
+    if amount <= 0 || platform_fee < 0 || platform_fee > amount {
+        return Err(ContractError::InvalidAmount);
+    }
+
+    let protocol_fee = calculate_protocol_fee(amount, get_protocol_fee_bps(env))?;
+    breakdown_from_quoted_fees(amount, platform_fee, protocol_fee)
 }
 
 /// Calculates complete fee breakdown for a sender using rolling volume discounts.
@@ -693,6 +719,33 @@ mod tests {
         };
 
         assert!(breakdown.validate().is_err());
+    }
+
+    #[test]
+    fn test_breakdown_from_quoted_fees_uses_stored_protocol_fee() {
+        // Quoted at creation: 2.5% platform, 0.5% protocol.
+        let quoted = breakdown_from_quoted_fees(10000, 250, 50).unwrap();
+        assert_eq!(quoted.platform_fee, 250);
+        assert_eq!(quoted.protocol_fee, 50);
+        assert_eq!(quoted.net_amount, 9700);
+
+        // Even if the admin later raises the protocol fee bps, the stored
+        // quote must be reproduced exactly.
+        let env = Env::default();
+        let repriced = breakdown_from_quoted_fees(10000, 250, 50).unwrap();
+        assert_eq!(repriced, quoted);
+        assert!(repriced.validate().is_ok());
+        let _ = env;
+    }
+
+    #[test]
+    fn test_breakdown_from_quoted_fees_rejects_invalid_inputs() {
+        assert!(breakdown_from_quoted_fees(0, 0, 0).is_err());
+        assert!(breakdown_from_quoted_fees(1000, -1, 0).is_err());
+        assert!(breakdown_from_quoted_fees(1000, 1001, 0).is_err());
+        assert!(breakdown_from_quoted_fees(1000, 10, -1).is_err());
+        // Total fees exceed amount.
+        assert!(breakdown_from_quoted_fees(1000, 600, 500).is_err());
     }
 
     #[test]

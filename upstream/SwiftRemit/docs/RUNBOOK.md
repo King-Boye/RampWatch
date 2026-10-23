@@ -698,6 +698,53 @@ Quoting on a stale rate loses money on every transaction, so the critical varian
 | P2 | Migration stuck / partial state | 1 hour | 8 hours | On-call engineer → Contract lead |
 | P3 | TTL warnings / non-critical degradation | 4 hours | 24 hours | On-call engineer |
 
+## Pause Policy Matrix
+
+The contract can be paused by any admin via `emergency_pause` (see [1. Emergency Pause](#1-emergency-pause)). The table below lists every public entrypoint in the `#[contractimpl]` block of `src/lib.rs` and whether it may be called while the contract is paused. It mirrors the `#1264 PAUSE POLICY` comments in `src/lib.rs`.
+
+| Entrypoint | Blocked while paused? | Notes |
+|------------|-----------------------|-------|
+| `initialize` | No | One-time setup; cannot run after initialization regardless of pause state. |
+| `create_remittance` | **Yes** | Blocked — no new funds may enter escrow while paused. |
+| `create_escrow` | **Yes** | Blocked — no new escrows while paused. |
+| `release_escrow` | **Yes** | Blocked — payouts are halted while paused. |
+| `refund_escrow` | No | Allowed — refunds return funds to senders and must remain available during an incident. |
+| `confirm_payout` | **Yes** | Blocked — settlement is halted while paused. |
+| `cancel_remittance` | **Yes** | Blocked — cancellation is a state transition and is halted while paused. |
+| `process_expired_escrows` | No | Allowed — expiry processing is a safety valve and continues while paused. |
+| `process_expired_remittances` | No | Allowed — logical expiry processing continues while paused. |
+| `withdraw_fees` | **Yes** | Blocked — treasury sweeps are halted while paused. |
+| `update_fee` | **Yes** | Blocked — fee configuration changes are halted while paused. |
+| `register_agent` | **Yes** | Blocked — agent registration is halted while paused. |
+| `remove_agent` | **Yes** | Blocked — agent removal is halted while paused. |
+| `set_agent_fee` | **Yes** | Blocked — agent fee changes are halted while paused. |
+| `get_remittance` | No | Read-only getter — always available. |
+| `get_escrow` | No | Read-only getter — always available. |
+| `get_agent` | No | Read-only getter — always available. |
+| `get_admin_list` | No | Read-only getter — always available. |
+| `get_admin_count` | No | Read-only getter — always available. |
+| `is_admin` | No | Read-only getter — always available. |
+| `get_fee` | No | Read-only getter — always available. |
+| `get_accumulated_fees` | No | Read-only getter — always available. |
+| `health` | No | Allowed — returns `paused`, `pause_reason`, `pause_votes`, `required_votes` and `timelock_remaining`; required to observe pause state. |
+| `export_state` | No | Read-only — always available for incident forensics. |
+| `emergency_pause` | No | Allowed — any admin can pause at any time. |
+| `emergency_unpause` | No | Allowed — break-glass unpause; bypasses quorum. |
+| `vote_unpause` | No | Allowed — admins must be able to vote while paused. |
+| `propose` | No | Allowed — governance proposals remain available while paused. |
+| `vote` | No | Allowed — governance voting remains available while paused. |
+| `execute` | No | Allowed — governance execution remains available while paused. |
+| `propose_admin` | No | Allowed — admin rotation must work during an incident. |
+| `accept_admin` | No | Allowed — admin rotation must work during an incident. |
+| `remove_admin` | No | Allowed — admin rotation must work during an incident. |
+| `abort_migration` | No | Allowed — recovery from a stuck migration must work while paused. |
+| `rollback_migration` | No | Allowed — recovery from a stuck migration must work while paused. |
+| `import_batch` | **Yes** | Blocked — migration batches are halted while paused. |
+
+> **Note:** This table is validated in CI by `docs-accuracy.yml`, which checks it against the `#1264 PAUSE POLICY` comments in `src/lib.rs`. Update both together when adding or changing an entrypoint.
+
+---
+
 ## Prometheus alerting rules
 
 Alerting rules live in two files, both loaded by `backend/monitoring/prometheus.yml`:

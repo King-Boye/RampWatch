@@ -327,4 +327,12 @@ pub enum ContractError {
 
     /// Evidence hash for a dispute is not a valid 32-byte SHA-256 commitment.
     MalformedEvidenceHash = 83,
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Recovery Errors (84)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Recovery of a Processing remittance was attempted before the recovery
+    /// timeout elapsed.
+    RecoveryTooEarly = 84,
 }

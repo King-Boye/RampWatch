@@ -119,8 +119,16 @@ mod test_error_handler_exhaustiveness;
 mod test_retry_transaction;
 #[cfg(test)]
 mod test_governance_paused;
+#[cfg(test)]
+mod fee_calculation_standalone_tests;
+#[cfg(test)]
+mod fee_service_property_tests;
+#[cfg(test)]
+mod test_fee_breakdown;
+#[cfg(test)]
+mod test_invariants;
 
-use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, Map, String, Vec};
 
 pub use abuse_protection::*;
 pub use asset_verification::*;
@@ -239,6 +247,39 @@ pub struct SwiftRemitContract;
 // Runtime Configurable Values:
 // - fee_bps: Can be updated by admin via update_fee()
 // ============================================================================
+
+// #1690 PAUSE POLICY
+//
+// Canonical source for the pause matrix documented in docs/RUNBOOK.md.
+// Every entrypoint below is either gated by `validate_not_paused(&env)?` (which
+// returns `ContractError::ContractPaused` while the circuit breaker is active)
+// or intentionally left callable while paused. Keep this list in sync with the
+// RUNBOOK table; CI checks the two against each other.
+//
+// BLOCKED while paused (call `validate_not_paused`):
+//   - create_remittance
+//   - confirm_payout
+//   - cancel_remittance
+//   - withdraw_fees
+//   - withdraw_integrator_fees
+//   - create_escrow
+//   - release_escrow
+//
+// ALLOWED while paused (no pause check):
+//   - refund_escrow            — senders must be able to reclaim their own escrow
+//   - process_expired_escrows  — expiry refunds must keep flowing during an incident
+//   - dispute / resolve        — dispute lifecycle must not be frozen by a pause
+//   - all read-only views (get_*, is_*, compute_settlement_hash, get_fee_breakdown, …)
+//   - admin / governance entrypoints (pause, unpause, emergency_*, vote_unpause,
+//     set_pause_timelock, set_unpause_quorum, set_cooldown_period, propose_*,
+//     approve_*, execute_*, migrate_to_governance, propose, vote, execute, …)
+//   - multisig and upgrade governance entrypoints
+//   - migration export/import entrypoints
+//   - blacklist / KYC / asset-verification admin setters
+//
+// Rationale: a pause is an incident-response tool for outbound value transfer.
+// It must never trap user funds (refunds and expiry stay open) and must never
+// prevent the admins from unpausing or upgrading the contract.
 
 #[contractimpl]
 impl SwiftRemitContract {
@@ -499,26 +540,57 @@ impl SwiftRemitContract {
         }
     }
 
-    /// Creates a new remittance transaction.
+    /// Creates a new remittance transaction, supporting optional off-chain proof validation.
     ///
     /// Transfers the specified amount from the sender to the contract, calculates
-    /// the platform fee, and creates a pending remittance record. The agent can later
+    /// platform and corridor fees, and creates a pending remittance record. The agent can later
     /// confirm the payout to receive the amount minus fees.
+    ///
+    /// # Proof Validation Configuration
+    ///
+    /// When `settlement_config` is provided:
+    /// * `settlement_config.require_proof` - When `true`, enforces that [`Self::confirm_payout`]
+    ///   cannot release funds without cryptographic verification of off-chain or oracle conditions.
+    /// * `settlement_config.oracle_address` - The designated oracle/signer address authorized
+    ///   to attest to off-chain completion. If `require_proof` is `true`, `oracle_address` must
+    ///   be `Some(Address)`, otherwise fails with [`ContractError::InvalidOracleAddress`].
+    ///
+    /// When proof validation is required:
+    /// 1. The configuration is stored in the [`Remittance`] record.
+    /// 2. A deterministic payout commitment is computed from canonical remittance fields and stored on-chain.
+    /// 3. Payout confirmation via [`Self::confirm_payout`] requires proof matching this commitment.
+    ///
+    /// For backward compatibility, when `settlement_config` is `None` or `require_proof` is `false`,
+    /// proof validation is not enforced, and standard agent authorization is used.
     ///
     /// # Arguments
     ///
     /// * `env` - The contract execution environment
     /// * `sender` - Address initiating the remittance
     /// * `agent` - Address of the registered agent who will receive the payout
-    /// * `amount` - Amount to remit in USDC (must be positive)
+    /// * `amount` - Amount to remit (must be positive)
     /// * `expiry` - Optional expiry timestamp (seconds since epoch) after which settlement fails
+    /// * `token` - Optional asset token address (defaults to USDC if `None`)
+    /// * `idempotency_key` - Optional idempotency key preventing duplicate remittance creation
+    /// * `settlement_config` - Optional [`SettlementConfig`] for off-chain proof validation
+    /// * `recipient_hash` - Optional SHA-256 hash of recipient details
+    /// * `integrator` - Optional partner/integrator address for fee accrual
     ///
     /// # Returns
     ///
     /// * `Ok(remittance_id)` - Unique ID of the created remittance
+    /// * `Err(ContractError::InvalidOracleAddress)` - `require_proof` is `true` but `oracle_address` is `None`
     /// * `Err(ContractError::InvalidAmount)` - Amount is zero or negative
     /// * `Err(ContractError::AgentNotRegistered)` - Specified agent is not registered
-    /// * `Err(ContractError::Overflow)` - Arithmetic overflow in fee calculation
+    /// * `Err(ContractError::BelowMinReputation)` - Agent reputation is below the minimum threshold
+    /// * `Err(ContractError::TokenNotWhitelisted)` - Specified token is not whitelisted
+    /// * `Err(ContractError::SuspiciousAsset)` - Specified token is flagged as suspicious
+    /// * `Err(ContractError::IdempotencyConflict)` - Idempotency key reused with mismatched payload
+    /// * `Err(ContractError::MigrationInProgress)` - Contract migration is active
+    /// * `Err(ContractError::ContractPaused)` - Contract circuit breaker is active
+    /// * `Err(ContractError::RateLimitExceeded)` - Sender exceeded rate limits
+    /// * `Err(ContractError::DailyLimitExceeded)` - Daily sending limit exceeded
+    /// * `Err(ContractError::Overflow)` - Arithmetic overflow in fee or counter calculation
     /// * `Err(ContractError::NotInitialized)` - Contract not initialized
     ///
     /// # Authorization
@@ -572,6 +644,18 @@ impl SwiftRemitContract {
 
         sender.require_auth();
 
+        // Replay existing requests before enforcing or recording any usage limits.
+        if let Some(ref key) = idempotency_key {
+            if let Some(record) = storage::get_idempotency_record(&env, key) {
+                let request_hash =
+                    hashing::compute_request_hash(&env, &sender, &agent, amount, expiry);
+                if request_hash != record.request_hash {
+                    return Err(ContractError::IdempotencyConflict);
+                }
+                return Ok(record.remittance_id);
+            }
+        }
+
         // SR-123: Apply abuse-protection sliding-window rate limit and cooldown for Transfer.
         abuse_protection::check_rate_limit(&env, &sender, ActionType::Transfer)?;
         check_cooldown(&env, &sender, ActionType::Transfer)?;
@@ -595,20 +679,6 @@ impl SwiftRemitContract {
         if let Some(ref config) = settlement_config {
             if config.require_proof && config.oracle_address.is_none() {
                 return Err(ContractError::InvalidOracleAddress);
-            }
-        }
-
-        // Check idempotency if key provided
-        if let Some(ref key) = idempotency_key {
-            if let Some(record) = storage::get_idempotency_record(&env, key) {
-                // Key exists and not expired - verify payload matches
-                let request_hash =
-                    hashing::compute_request_hash(&env, &sender, &agent, amount, expiry);
-                if request_hash != record.request_hash {
-                    return Err(ContractError::IdempotencyConflict);
-                }
-                // Same key and payload - return existing remittance_id
-                return Ok(record.remittance_id);
             }
         }
 
@@ -702,7 +772,68 @@ impl SwiftRemitContract {
         Ok(remittance_id)
     }
 
-    /// Alias for create_remittance to satisfy legacy/external interfaces
+    /// Creates a new settlement transaction, supporting off-chain verification proof configuration.
+    ///
+    /// This function acts as the settlement creation entrypoint (and external/legacy alias
+    /// for [`Self::create_remittance`]). It escrows the settlement `amount` from the `sender`,
+    /// assesses platform and corridor fees, records a pending settlement, and configures optional
+    /// off-chain cryptographic proof requirements before payout confirmation.
+    ///
+    /// # Proof Validation Configuration
+    ///
+    /// When `settlement_config` is provided:
+    /// * `settlement_config.require_proof` - When `true`, enforces that [`Self::confirm_payout`]
+    ///   cannot release funds without cryptographic verification of off-chain or oracle conditions.
+    /// * `settlement_config.oracle_address` - The designated oracle/signer address authorized
+    ///   to attest to off-chain completion. If `require_proof` is `true`, `oracle_address` must
+    ///   be `Some(Address)`. Providing `require_proof = true` with `oracle_address = None`
+    ///   fails immediately with [`ContractError::InvalidOracleAddress`].
+    ///
+    /// When proof validation is required:
+    /// 1. The settlement configuration is persisted in the [`Remittance`] record.
+    /// 2. A deterministic payout commitment hash is derived from the canonical settlement fields
+    ///    (`id`, `sender`, `agent`, `amount`, `fee`, `expiry`) and stored on-chain.
+    /// 3. Payout confirmation via [`Self::confirm_payout`] will strictly require a valid proof
+    ///    matching this commitment and signed by the configured `oracle_address`.
+    ///
+    /// For backward compatibility, when `settlement_config` is `None` or `require_proof` is `false`,
+    /// proof validation is not enforced, and payout confirmation proceeds under standard agent
+    /// authorization.
+    ///
+    /// # Arguments
+    ///
+    /// * `env` - The contract execution environment.
+    /// * `sender` - Address initiating the settlement and funding the escrow.
+    /// * `agent` - Address of the registered payout agent.
+    /// * `amount` - Amount to settle (must be positive).
+    /// * `expiry` - Optional expiry timestamp (seconds since Unix epoch) after which settlement fails.
+    /// * `token` - Optional asset token address (defaults to USDC when `None`).
+    /// * `idempotency_key` - Optional idempotency key preventing duplicate settlement creation.
+    /// * `settlement_config` - Optional [`SettlementConfig`] defining proof validation requirements
+    ///   and authorized oracle address.
+    /// * `recipient_hash` - Optional SHA-256 hash of recipient details for privacy-preserving routing.
+    /// * `integrator` - Optional partner/integrator address for fee-sharing accrual.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(u64)` - Unique ID of the created settlement.
+    /// * `Err(ContractError::InvalidOracleAddress)` - `require_proof` is `true` but `oracle_address` is `None`.
+    /// * `Err(ContractError::InvalidAmount)` - Amount is non-positive or exceeds maximum allowable transfer.
+    /// * `Err(ContractError::AgentNotRegistered)` - Designated agent is not registered.
+    /// * `Err(ContractError::BelowMinReputation)` - Agent reputation is below the minimum threshold.
+    /// * `Err(ContractError::TokenNotWhitelisted)` - Specified token is not whitelisted.
+    /// * `Err(ContractError::SuspiciousAsset)` - Specified token is flagged as suspicious by asset verification.
+    /// * `Err(ContractError::IdempotencyConflict)` - Idempotency key reused with mismatched request parameters.
+    /// * `Err(ContractError::MigrationInProgress)` - Contract migration is currently in progress.
+    /// * `Err(ContractError::ContractPaused)` - Contract circuit breaker is currently active.
+    /// * `Err(ContractError::RateLimitExceeded)` - Sender exceeded rate limits.
+    /// * `Err(ContractError::DailyLimitExceeded)` - Sender daily volume limit exceeded.
+    /// * `Err(ContractError::Overflow)` - Arithmetic overflow during fee or counter calculations.
+    /// * `Err(ContractError::NotInitialized)` - Contract is not initialized.
+    ///
+    /// # Authorization
+    ///
+    /// Requires authentication from the `sender` address (`sender.require_auth()`).
     pub fn create_settlement(
         env: Env,
         sender: Address,
@@ -989,7 +1120,7 @@ impl SwiftRemitContract {
     ///
     /// * `Ok(())` - Payout successfully confirmed and transferred
     /// * `Err(ContractError::RemittanceNotFound)` - Remittance ID does not exist
-    /// * `Err(ContractError::InvalidStatus)` - Remittance is not in Pending status
+    /// * `Err(ContractError::InvalidStatus)` - Remittance is not cancellable yet
     /// * `Err(ContractError::DuplicateSettlement)` - Settlement already executed
     /// * `Err(ContractError::SettlementExpired)` - Current time exceeds expiry timestamp
     /// * `Err(ContractError::InvalidAddress)` - Agent address validation failed
@@ -1145,8 +1276,14 @@ impl SwiftRemitContract {
         // Settle against the fee quoted at creation time. Re-pricing here would
         // reject any remittance whose fee was discounted by the sender's rolling
         // volume, because that discount is not reproducible from the amount alone.
-        let fee_breakdown =
-            fee_service::breakdown_from_platform_fee(&env, remittance.amount, remittance.fee)?;
+        // #1671: the protocol fee is frozen at creation too, so a later change to
+        // `protocol_fee_bps` cannot alter what this remittance pays out.
+        let fee_breakdown = fee_service::breakdown_from_platform_fee(
+            &env,
+            remittance.amount,
+            remittance.fee,
+            remittance.protocol_fee,
+        )?;
 
         let payout_amount = fee_breakdown.net_amount;
         let protocol_fee = fee_breakdown.protocol_fee;
@@ -1225,6 +1362,87 @@ impl SwiftRemitContract {
         }
 
         Ok(())
+    }
+
+    /// Recovers the undisbursed remainder of a remittance stuck in `Processing`.
+    ///
+    /// After the first `confirm_partial_payout` the remittance moves to `Processing`.
+    /// If the agent disappears, neither `cancel_remittance` nor the expiry sweeper
+    /// (both `Pending`-only) can release the escrow. This lets the sender reclaim
+    /// whatever has not yet been disbursed once `get_processing_timeout` seconds
+    /// have elapsed since the remittance entered `Processing`.
+    ///
+    /// # Authorization
+    /// Requires authentication from the remittance sender.
+    pub fn recover_processing_remittance(
+        env: Env,
+        remittance_id: u64,
+    ) -> Result<(), ContractError> {
+        // #1264 PAUSE POLICY: user exit path — allowed while paused.
+        let mut remittance = get_remittance(&env, remittance_id)?;
+        remittance.sender.require_auth();
+
+        if remittance.status != RemittanceStatus::Processing {
+            return Err(ContractError::InvalidStatus);
+        }
+
+        let timeout = storage::get_processing_timeout(&env);
+        let entered_processing_at = storage::get_processing_started_at(&env, remittance_id)
+            .ok_or(ContractError::InvalidStatus)?;
+        if env.ledger().timestamp() < entered_processing_at.saturating_add(timeout) {
+            return Err(ContractError::ProcessingTimeoutNotReached);
+        }
+
+        let already_disbursed = storage::get_disbursed_amount(&env, remittance_id);
+        let escrow_remaining = remittance
+            .amount
+            .checked_sub(already_disbursed)
+            .ok_or(ContractError::Underflow)?;
+
+        if escrow_remaining > 0 {
+            let token_client = token::Client::new(&env, &remittance.token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &remittance.sender,
+                &escrow_remaining,
+            );
+        }
+
+        storage::sub_processing_volume(&env, remittance.amount)?;
+
+        crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Cancelled)?;
+        remittance.amount = 0;
+        set_remittance(&env, remittance_id, &remittance);
+
+        emit_remittance_cancelled_with_reason(
+            &env,
+            remittance_id,
+            remittance.sender.clone(),
+            remittance.agent.clone(),
+            remittance.token.clone(),
+            escrow_remaining,
+            String::from_str(&env, "processing_timeout"),
+        );
+
+        if let Some(idem_key) = storage::take_remittance_idempotency_key(&env, remittance_id) {
+            storage::remove_idempotency_record(&env, &idem_key);
+        }
+
+        Ok(())
+    }
+
+    /// Sets the timeout (seconds) after which a sender may recover a remittance
+    /// stuck in `Processing` (admin only).
+    pub fn set_processing_timeout(env: Env, seconds: u64) -> Result<(), ContractError> {
+        let caller = get_admin(&env)?;
+        require_admin(&env, &caller)?;
+        storage::set_processing_timeout(&env, seconds);
+        Ok(())
+    }
+
+    /// Returns the current processing timeout in seconds.
+    pub fn get_processing_timeout(env: Env) -> u64 {
+        storage::get_processing_timeout(&env)
     }
 
     pub fn mark_failed(env: Env, remittance_id: u64) -> Result<(), ContractError> {
@@ -1344,11 +1562,33 @@ impl SwiftRemitContract {
             );
             // SR-125: Route status mutation through the canonical state machine.
             crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Cancelled)?;
+
+            // #1674: A sender-favoured resolution is a failed settlement for the
+            // agent — no completed volume, and the failure is counted in stats.
+            let mut stats = crate::storage::get_agent_stats(&env, &remittance.agent);
+            stats.failed_settlements = stats.failed_settlements.saturating_add(1);
+            stats.last_active_timestamp = env.ledger().timestamp();
+            let successful = stats
+                .total_settlements
+                .saturating_sub(stats.failed_settlements);
+            stats.success_rate_bps = if stats.total_settlements == 0 {
+                10000
+            } else {
+                successful
+                    .saturating_mul(10000)
+                    .checked_div(stats.total_settlements)
+                    .unwrap_or(0)
+            };
+            crate::storage::set_agent_stats(&env, &remittance.agent, &stats);
         } else {
             // Honour the fee quoted at creation rather than re-pricing, and pay
             // the agent only the part of their net entitlement not already sent.
-            let fee_breakdown =
-                fee_service::breakdown_from_platform_fee(&env, remittance.amount, remittance.fee)?;
+            let fee_breakdown = fee_service::breakdown_from_platform_fee(
+                &env,
+                remittance.amount,
+                remittance.fee,
+                remittance.protocol_fee,
+            )?;
             let owed = fee_breakdown
                 .net_amount
                 .saturating_sub(already_disbursed)
@@ -1364,7 +1604,34 @@ impl SwiftRemitContract {
             }
             // SR-125: Route status mutation through the canonical state machine.
             crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Completed)?;
+
+            // #1674: An agent-favoured resolution counts as a completed settlement
+            // and moves the remittance volume into completed volume.
+            storage::add_completed_volume(&env, remittance.amount)?;
+
+            let mut stats = crate::storage::get_agent_stats(&env, &remittance.agent);
+            stats.total_settlements = stats.total_settlements.saturating_add(1);
+            stats.last_active_timestamp = env.ledger().timestamp();
+            let successful = stats
+                .total_settlements
+                .saturating_sub(stats.failed_settlements);
+            stats.success_rate_bps = successful
+                .saturating_mul(10000)
+                .checked_div(stats.total_settlements)
+                .unwrap_or(10000);
+            crate::storage::set_agent_stats(&env, &remittance.agent, &stats);
         }
+
+        // #1674: Tally the resolved dispute. `dispute_count` is incremented once in
+        // raise_dispute; here we only record the resolution outcome.
+        let mut resolved_stats = crate::storage::get_agent_stats(&env, &remittance.agent);
+        resolved_stats.disputes_resolved = resolved_stats.disputes_resolved.saturating_add(1);
+        if in_favour_of_sender {
+            resolved_stats.disputes_lost = resolved_stats.disputes_lost.saturating_add(1);
+        } else {
+            resolved_stats.disputes_won = resolved_stats.disputes_won.saturating_add(1);
+        }
+        crate::storage::set_agent_stats(&env, &remittance.agent, &resolved_stats);
 
         set_remittance(&env, remittance_id, &remittance);
         emit_dispute_resolved(&env, remittance_id, caller, in_favour_of_sender);
@@ -1428,6 +1695,9 @@ impl SwiftRemitContract {
     /// `amount` from escrow to the agent. When the total disbursed equals the net payout
     /// (amount - fee), the remittance is automatically marked Completed.
     ///
+    /// Remittances configured to require proof are rejected because this endpoint
+    /// does not accept proof data.
+    ///
     /// # Authorization
     /// Requires authentication from the agent assigned to the remittance.
     pub fn confirm_partial_payout(
@@ -1450,6 +1720,12 @@ impl SwiftRemitContract {
             return Err(ContractError::InvalidStatus);
         }
 
+        if let crate::MaybeSettlementConfig::Some(ref config) = remittance.settlement_config {
+            if config.require_proof {
+                return Err(ContractError::MissingProof);
+            }
+        }
+
         // Enforce per-agent daily cap
         storage::check_and_record_agent_withdrawal(&env, &remittance.agent, amount)?;
 
@@ -1458,7 +1734,12 @@ impl SwiftRemitContract {
         // would produce a different net_payout than what was escrowed if the
         // platform fee or strategy changed after creation, or if the original
         // remittance qualified for a sender-volume discount.
-        let fee_breakdown = fee_service::breakdown_from_platform_fee(&env, remittance.amount, remittance.fee)?;
+        let fee_breakdown = fee_service::breakdown_from_platform_fee(
+            &env,
+            remittance.amount,
+            remittance.fee,
+            remittance.protocol_fee,
+        )?;
         let net_payout = fee_breakdown.net_amount;
 
         let already_disbursed = storage::get_disbursed_amount(&env, remittance_id);
@@ -1474,6 +1755,9 @@ impl SwiftRemitContract {
         if remittance.status == RemittanceStatus::Pending {
             crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Processing)?;
             storage::add_processing_volume(&env, remittance.amount)?;
+            // #1673: record when the remittance entered Processing so the sender
+            // can recover the undisbursed remainder if the agent disappears.
+            storage::set_processing_started_at(&env, remittance_id, env.ledger().timestamp());
         }
 
         let token_client = token::Client::new(&env, &remittance.token);
@@ -1560,10 +1844,12 @@ impl SwiftRemitContract {
         Ok(())
     }
 
-    /// Cancels a pending remittance and refunds the sender.
+    /// Cancels a pending remittance or recovers a failed remittance after its dispute
+    /// window expires, refunding any escrow still held to the sender.
     ///
-    /// Returns the full remittance amount to the sender and marks the remittance
-    /// as cancelled. Can only be called by the original sender.
+    /// Pending remittances return the full amount. Failed remittances can only be
+    /// cancelled after the dispute window and return the escrow remaining after any
+    /// partial payout. Can only be called by the original sender.
     ///
     /// # Arguments
     ///
@@ -1594,10 +1880,20 @@ impl SwiftRemitContract {
 
         let usdc_token = get_usdc_token(&env)?;
         let token_client = token::Client::new(&env, &usdc_token);
+        let refund_amount = if remittance.status == RemittanceStatus::Failed
+            || remittance.status == RemittanceStatus::Processing
+        {
+            remittance
+                .amount
+                .checked_sub(storage::get_disbursed_amount(&env, remittance_id))
+                .ok_or(ContractError::Underflow)?
+        } else {
+            remittance.amount
+        };
         token_client.transfer(
             &env.current_contract_address(),
             &remittance.sender,
-            &remittance.amount,
+            &refund_amount,
         );
 
         // SR-125: Route status mutation through the canonical state machine.
@@ -1610,7 +1906,7 @@ impl SwiftRemitContract {
         // SR-123: Record the cancellation action for cooldown tracking.
         record_action(&env, &remittance.sender, ActionType::Cancellation);
 
-        // Event: Remittance cancelled - Fires when sender cancels a pending remittance and receives full refund
+        // Event: Remittance cancelled with the amount returned to the sender.
         // Used by off-chain systems to track cancellations and update transaction status
         emit_remittance_cancelled(
             &env,
@@ -1618,7 +1914,7 @@ impl SwiftRemitContract {
             remittance.sender,
             remittance.agent,
             usdc_token,
-            remittance.amount,
+            refund_amount,
         );
 
         log_cancel_remittance(&env, remittance_id);
@@ -1792,6 +2088,13 @@ impl SwiftRemitContract {
         validate_not_paused(&env)?;
         // Auth: only the integrator themselves may withdraw their own balance.
         integrator.require_auth();
+
+        // #1672: Reject the contract's own address as the recipient, mirroring
+        // withdraw_fees (#609). Otherwise the balance is zeroed while the tokens
+        // stay in the contract and the integrator loses them.
+        if to == env.current_contract_address() {
+            return Err(ContractError::InvalidAddress);
+        }
 
         // #1263: Use per-integrator balance, not the shared global counter.
         let fees = storage::get_integrator_balance(&env, &integrator);
@@ -2397,13 +2700,8 @@ impl SwiftRemitContract {
     //  6. Tests (new src/test_escrow_tiers.rs), using
     //     env.ledger().with_mut(|l| l.timestamp = ..):
     //     - release before unlock -> EscrowLocked; at unlock -> ok.
-    //     - sender refund during lock: rejected without early-cancel, allowed with it.
-    //     - expiry refund via process_expired_escrows only after expiry.
-    //     - set_escrow_tier with expiry <= lock -> InvalidTimelockDuration.
-    //     - unknown tier_id -> NotFound; non-admin set_escrow_tier rejected.
-    //     - regression: plain create_escrow behaves exactly as before.
-    //  7. Docs: README contract function table, ROADMAP.md (move to shipped),
-    //     and the ABI in abi/ regenerated for the new functions.
+    // Design notes for escrow tiers and the #1557 dispute plan live in
+    // docs/design/ and the tracking GitHub issues; see those for rationale.
 
     pub fn create_escrow(
         env: Env,
@@ -2598,6 +2896,36 @@ impl SwiftRemitContract {
         get_last_settlement_time(&env, &sender)
     }
 
+    /// Returns a page of remittances created by `sender`.
+    ///
+    /// Pagination is shard-aware: only the shards that intersect the requested
+    /// `[offset, offset + limit)` window are read, so the number of storage
+    /// reads is proportional to the page size rather than the total number of
+    /// remittances the sender has ever created.
+    pub fn get_sender_remittances(
+        env: Env,
+        sender: Address,
+        offset: u32,
+        limit: u32,
+    ) -> Vec<u64> {
+        storage::get_sender_remittances_paged(&env, &sender, offset, limit)
+    }
+
+    /// Returns a page of remittances assigned to `agent`.
+    ///
+    /// Pagination is shard-aware: only the shards that intersect the requested
+    /// `[offset, offset + limit)` window are read, so the number of storage
+    /// reads is proportional to the page size rather than the total number of
+    /// remittances the agent has ever handled.
+    pub fn get_agent_remittances(
+        env: Env,
+        agent: Address,
+        offset: u32,
+        limit: u32,
+    ) -> Vec<u64> {
+        storage::get_agent_remittances_paged(&env, &agent, offset, limit)
+    }
+
     /// Set daily send limit for a currency/country pair (admin only).
     ///
     /// `limit` must be greater than zero. Zero is rejected to prevent
@@ -2655,7 +2983,9 @@ impl SwiftRemitContract {
     /// - `limit` is the configured corridor limit in stroops (0 = no limit set)
     /// - `used` is the rolling 24-hour volume already sent by this sender
     /// - `remaining` is `limit - used` (0 when no limit is configured)
-    /// - `resets_at` is the Unix timestamp when the oldest in-window transfer ages out
+    /// - `resets_at` is the Unix timestamp when the oldest in-window transfer ages
+    ///   out of the rolling window and capacity is restored. It is `0` when
+    ///   `used == 0` (nothing to reset — the full limit is already available).
     pub fn get_daily_limit_status(
         env: Env,
         sender: Address,
@@ -2670,7 +3000,7 @@ impl SwiftRemitContract {
 
         let transfers = get_user_transfers(&env, &sender);
         let mut used: i128 = 0;
-        let mut oldest_in_window: u64 = now;
+        let mut oldest_in_window: Option<u64> = None;
 
         for i in 0..transfers.len() {
             let record = transfers.get_unchecked(i);
@@ -2679,9 +3009,10 @@ impl SwiftRemitContract {
                 && record.country == country
             {
                 used = used.saturating_add(record.amount);
-                if record.timestamp < oldest_in_window {
-                    oldest_in_window = record.timestamp;
-                }
+                oldest_in_window = match oldest_in_window {
+                    Some(oldest) if oldest <= record.timestamp => Some(oldest),
+                    _ => Some(record.timestamp),
+                };
             }
         }
 
@@ -2695,8 +3026,14 @@ impl SwiftRemitContract {
             0
         };
 
-        // resets_at: when the oldest in-window transfer exits the 24h window
-        let resets_at = oldest_in_window.saturating_add(DAILY_LIMIT_WINDOW_SECONDS);
+        // resets_at: when the oldest in-window transfer exits the 24h window.
+        // When nothing has been sent in the window (`used == 0`) the full limit is
+        // available, so there is nothing to reset: return 0 rather than a
+        // misleading `now + 24h`.
+        let resets_at = match oldest_in_window {
+            Some(oldest) => oldest.saturating_add(DAILY_LIMIT_WINDOW_SECONDS),
+            None => 0,
+        };
 
         (limit, used, remaining, resets_at)
     }
@@ -2717,10 +3054,31 @@ impl SwiftRemitContract {
         caller: Address,
         extend_by_ledgers: u32,
     ) -> Result<(), ContractError> {
+        // `require_admin` already performs `caller.require_auth()`; do not call it again.
         require_admin(&env, &caller)?;
-        caller.require_auth();
         crate::storage::extend_critical_ttls(&env, extend_by_ledgers);
         Ok(())
+    }
+
+    /// Creates a single remittance.
+    ///
+    /// # Deprecated
+    ///
+    /// This is a legacy alias of [`Self::create_remittance`] and is scheduled
+    /// for removal in a future release. It is kept only for ABI compatibility
+    /// with existing integrators; new integrations should call
+    /// `create_remittance` directly.
+    #[deprecated(
+        note = "use `create_remittance` instead; this alias will be removed in a future release"
+    )]
+    pub fn create_settlement(
+        env: Env,
+        sender: Address,
+        agent: Address,
+        amount: i128,
+        expiry: Option<u64>,
+    ) -> Result<u64, ContractError> {
+        Self::create_remittance(env, sender, agent, amount, expiry)
     }
 
     pub fn get_version(env: Env) -> soroban_sdk::String {
@@ -2956,6 +3314,20 @@ impl SwiftRemitContract {
     }
 
     /// Creates multiple remittances in one transaction (#590).
+    ///
+    /// # Deprecated
+    ///
+    /// This is a legacy alias of [`Self::batch_create_remittances`] and is
+    /// scheduled for removal in a future release. It is kept only for ABI
+    /// compatibility with existing integrators.
+    ///
+    /// Note that this alias emits an additional `("batch", "created")` event
+    /// that the canonical `batch_create_remittances` entrypoint does not emit.
+    /// New integrations should call `batch_create_remittances` directly to
+    /// avoid relying on this extra event.
+    #[deprecated(
+        note = "use `batch_create_remittances` instead; this alias will be removed in a future release"
+    )]
     pub fn create_batch_remittance(
         env: Env,
         sender: Address,
@@ -3540,6 +3912,11 @@ impl SwiftRemitContract {
     /// Adds a user to the blacklist.
     ///
     /// Requires authentication from the configured admin.
+    ///
+    /// # Deprecated
+    /// Thin wrapper over `set_blacklist_status`. Scheduled for removal in the
+    /// next ABI version — use `set_blacklist_status(user, true)` instead.
+    #[deprecated(note = "use set_blacklist_status(user, true); removed in the next ABI version")]
     pub fn blacklist_user(env: Env, user: Address) -> Result<(), ContractError> {
         Self::set_blacklist_status(&env, user, true)
     }
@@ -3547,11 +3924,21 @@ impl SwiftRemitContract {
     /// Removes a user from the blacklist.
     ///
     /// Requires authentication from the configured admin.
+    ///
+    /// # Deprecated
+    /// Thin wrapper over `set_blacklist_status`. Scheduled for removal in the
+    /// next ABI version — use `set_blacklist_status(user, false)` instead.
+    #[deprecated(note = "use set_blacklist_status(user, false); removed in the next ABI version")]
     pub fn remove_from_blacklist(env: Env, user: Address) -> Result<(), ContractError> {
         Self::set_blacklist_status(&env, user, false)
     }
 
     /// Set user blacklist status (admin only)
+    ///
+    /// # Deprecated
+    /// Thin wrapper over `set_blacklist_status`. Scheduled for removal in the
+    /// next ABI version — use `set_blacklist_status(user, blacklisted)` instead.
+    #[deprecated(note = "use set_blacklist_status(user, blacklisted); removed in the next ABI version")]
     pub fn set_user_blacklisted(
         env: Env,
         user: Address,
@@ -3575,10 +3962,21 @@ impl SwiftRemitContract {
         let admin = get_admin(&env)?;
         admin.require_auth();
 
+        // #1677: An approval must not already be expired when it is granted.
+        if approved && expiry <= env.ledger().timestamp() {
+            return Err(ContractError::InvalidExpiry);
+        }
+
         set_kyc_approved(&env, &user, approved);
         if approved {
             set_kyc_expiry(&env, &user, expiry);
+        } else {
+            // Revoking clears any stored expiry so a stale timestamp cannot linger.
+            clear_kyc_expiry(&env, &user);
         }
+
+        // #1677: Emit an audit event for every KYC change.
+        emit_kyc_updated(&env, user, approved, expiry, admin);
         Ok(())
     }
 
@@ -3632,9 +4030,11 @@ impl SwiftRemitContract {
     /// Imports a single batch of remittances produced by `export_migration_snapshot`.
     ///
     /// Each batch carries its own `batch_hash` which is verified before any data is
-    /// written. Batches must be imported in order (0, 1, 2, …). After the final batch
-    /// (`batch_number == total_batches - 1`) the `MigrationInProgress` flag is cleared,
-    /// re-enabling normal operations.
+    /// written. Batches must be imported strictly in order (0, 1, 2, …): a batch is
+    /// only accepted when its `batch_number` equals the next expected index, so
+    /// out-of-order imports and replays are rejected with `InvalidMigrationBatch`.
+    /// The `MigrationInProgress` flag is cleared only once every batch in
+    /// `0..total_batches` has been imported.
     ///
     /// # Authorization
     /// Admin only — caller must authenticate.
@@ -3646,7 +4046,8 @@ impl SwiftRemitContract {
     /// - `NotInitialized` — contract not yet initialized
     /// - `Unauthorized` — caller is not an admin
     /// - `InvalidMigrationHash` — batch hash verification failed
-    /// - `InvalidMigrationBatch` — batch_number ≥ total_batches
+    /// - `InvalidMigrationBatch` — batch_number ≥ total_batches, batch_number is not
+    ///   the next expected batch (out of order), or the batch was already imported
     pub fn import_migration_batch(
         env: Env,
         caller: Address,
@@ -3667,11 +4068,24 @@ impl SwiftRemitContract {
         let batch_number = batch.batch_number;
         let total_batches = batch.total_batches;
 
+        // Enforce ordering: the batch must be exactly the next expected index.
+        // This rejects both out-of-order imports and replays of already-imported
+        // batches (a replay has batch_number < next expected).
+        let next_expected = crate::storage::get_migration_next_batch(&env);
+        if batch_number != next_expected {
+            return Err(ContractError::InvalidMigrationBatch);
+        }
+
         // Delegate to migration module (performs hash verification + import)
         migration::import_batch(&env, batch)?;
 
-        // Clear the lock after the final batch
-        if batch_number == total_batches.saturating_sub(1) {
+        // Record the imported batch and advance the expected index.
+        crate::storage::set_migration_batch_imported(&env, batch_number);
+        let imported = next_expected.checked_add(1).ok_or(ContractError::Overflow)?;
+        crate::storage::set_migration_next_batch(&env, imported);
+
+        // Clear the lock only once every batch has been imported.
+        if imported >= total_batches {
             crate::storage::set_migration_in_progress(&env, false);
         }
 
