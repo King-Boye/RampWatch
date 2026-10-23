@@ -1,5 +1,11 @@
 #![cfg(test)]
 
+// Issue #1105 — resolved: all `submit_attestation_with_session` call sites in this file
+// previously passed a trailing `metadata: Option<Map<String, String>>` argument that was
+// added in feat commit cc3eb4ed and removed from the contract in fix commit 7bc36508.
+// Every call site now passes exactly the 6 arguments the current contract expects:
+//   (session_id, issuer, subject, timestamp, payload_hash, signature).
+
 mod session_tests {
     use soroban_sdk::{
         testutils::{Address as _, Ledger, LedgerInfo},
@@ -10,7 +16,7 @@ mod session_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::{build_sep10_jwt, register_attestor_with_sep10, sign_payload};
+    use crate::sep10_test_util::{build_sep10_jwt, register_attestor_with_sep10, sign_attestation};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -58,6 +64,7 @@ mod session_tests {
         let issuer = attestor.clone();
         let pk = soroban_sdk::Bytes::from_slice(env, sk.verifying_key().as_bytes());
         client.set_sep10_jwt_verifying_key(&issuer, &pk);
+        client.add_attestation_key(&issuer, &pk);
 
         let sub = attestor.to_string();
         let mut buf = [0u8; 128];
@@ -171,7 +178,7 @@ mod session_tests {
         let attestor = Address::generate(&env);
         client.initialize(&admin, &100_u64, &None, &None);
 
-        let session_id = client.create_session(&user);
+        let session_id = client.create_session(&admin);
         let sk = SigningKey::generate(&mut OsRng);
         register_with_session(&env, &client, session_id, &attestor, &sk);
 
@@ -202,7 +209,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p,
-            &sign_payload(&env, &sk, &p),
+            &sign_attestation(&env, &sk, &client.address, &attestor, &subject, env.ledger().timestamp(), &p),
         );
 
         assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 1);
@@ -256,7 +263,7 @@ mod session_tests {
         let attestor = Address::generate(&env);
         client.initialize(&admin, &100_u64, &None, &None);
 
-        let session_id = client.create_session(&user);
+        let session_id = client.create_session(&admin);
         let sk = SigningKey::generate(&mut OsRng);
         register_with_session(&env, &client, session_id, &attestor, &sk);
 
@@ -275,7 +282,7 @@ mod session_tests {
         let attestor = Address::generate(&env);
         client.initialize(&admin, &100_u64, &None, &None);
 
-        let session_id = client.create_session(&user);
+        let session_id = client.create_session(&admin);
         let sk = SigningKey::generate(&mut OsRng);
         register_with_session(&env, &client, session_id, &attestor, &sk);
 
@@ -306,7 +313,7 @@ mod session_tests {
         let attestor = Address::generate(&env);
         client.initialize(&admin, &100_u64, &None, &None);
 
-        let session_id = client.create_session(&user);
+        let session_id = client.create_session(&admin);
         let sk = SigningKey::generate(&mut OsRng);
         register_with_session(&env, &client, session_id, &attestor, &sk);
         client.revoke_attestor_with_session(&session_id, &attestor);
@@ -326,7 +333,7 @@ mod session_tests {
         let attestor = Address::generate(&env);
         client.initialize(&admin, &100_u64, &None, &None);
 
-        let session_id = client.create_session(&user);
+        let session_id = client.create_session(&admin);
         let sk = SigningKey::generate(&mut OsRng);
         register_with_session(&env, &client, session_id, &attestor, &sk);
         client.revoke_attestor_with_session(&session_id, &attestor);
@@ -360,9 +367,10 @@ mod session_tests {
         client.initialize(&admin, &100_u64, &None, &None);
 
         let session_id = client.create_session(&attestor);
-        // Set Sep10 key so signature verification works, then register via session (writes audit log)
+        let admin_session_id = client.create_session(&admin);
+        // Set Sep10 key so signature verification works, then register via the admin session.
         let sk = SigningKey::generate(&mut OsRng);
-        register_with_session(&env, &client, session_id, &attestor, &sk);
+        register_with_session(&env, &client, admin_session_id, &attestor, &sk);
         let p = payload(&env, 0x01);
         client.submit_attestation_with_session(
             &session_id,
@@ -370,7 +378,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p,
-            &sign_payload(&env, &sk, &p),
+            &sign_attestation(&env, &sk, &client.address, &attestor, &subject, env.ledger().timestamp(), &p),
         );
 
         let log0 = client.get_audit_log(&0u64);
@@ -404,6 +412,8 @@ mod session_tests {
         let initiator_b = Address::generate(&env);
         let session_a = client.create_session(&initiator_a);
         let session_b = client.create_session(&initiator_b);
+        let admin_session_a = client.create_session(&admin);
+        let admin_session_b = client.create_session(&admin);
 
         // For attestations: use one subject and two distinct attestations.
         let subject = Address::generate(&env);
@@ -411,12 +421,12 @@ mod session_tests {
         // Session A attestor
         let attestor_a = Address::generate(&env);
         let sk_a = SigningKey::generate(&mut OsRng);
-        register_with_session(&env, &client, session_a, &attestor_a, &sk_a);
+        register_with_session(&env, &client, admin_session_a, &attestor_a, &sk_a);
 
         // Interleave: Session B attestor
         let attestor_b = Address::generate(&env);
         let sk_b = SigningKey::generate(&mut OsRng);
-        register_with_session(&env, &client, session_b, &attestor_b, &sk_b);
+        register_with_session(&env, &client, admin_session_b, &attestor_b, &sk_b);
 
         // Interleave further: submit attestation in session A
         let p_a = payload(&env, 0x11);
@@ -426,7 +436,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p_a,
-            &sign_payload(&env, &sk_a, &p_a),
+            &sign_attestation(&env, &sk_a, &client.address, &attestor_a, &subject, env.ledger().timestamp(), &p_a),
         );
 
         // ...and session B
@@ -437,7 +447,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p_b,
-            &sign_payload(&env, &sk_b, &p_b),
+            &sign_attestation(&env, &sk_b, &client.address, &attestor_b, &subject, env.ledger().timestamp(), &p_b),
         );
 
         // Four operations total => audit log IDs should be strictly monotonically increasing.
@@ -497,9 +507,10 @@ mod session_tests {
         let session_id = client.create_session(&attestor);
         assert_eq!(session_id, 0);
 
-        // Step 2: set Sep10 key, then register via session (writes audit log_id=0 "register")
+        let admin_session_id = client.create_session(&admin);
+        // Step 2: set Sep10 key, then register via the admin session.
         let sk = SigningKey::generate(&mut OsRng);
-        register_with_session(&env, &client, session_id, &attestor, &sk);
+        register_with_session(&env, &client, admin_session_id, &attestor, &sk);
         assert!(client.is_attestor(&attestor));
 
         // Step 3: two attestations
@@ -511,7 +522,7 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p0,
-            &sign_payload(&env, &sk, &p0),
+            &sign_attestation(&env, &sk, &client.address, &attestor, &subject, env.ledger().timestamp(), &p0),
         );
         let id1 = client.submit_attestation_with_session(
             &session_id,
@@ -519,13 +530,14 @@ mod session_tests {
             &subject,
             &env.ledger().timestamp(),
             &p1,
-            &sign_payload(&env, &sk, &p1),
+            &sign_attestation(&env, &sk, &client.address, &attestor, &subject, env.ledger().timestamp(), &p1),
         );
         assert_eq!(id0, 0);
         assert_eq!(id1, 1);
 
-        // Step 4: verify operation count = 3 (register + 2 attests)
-        assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 3);
+        // Step 4: the admin session records registration; the attestor session records attestations.
+        assert_eq!(client.get_session_operation_count(&admin_session_id).unwrap(), 1);
+        assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 2);
 
         // Step 5: verify audit logs
         let log0 = client.get_audit_log(&0u64);
@@ -579,10 +591,11 @@ mod session_tests {
 
         // Write log_id=0 via register_attestor_with_session
         let session_id = client.create_session(&attestor);
-        register_with_session(&env, &client, session_id, &attestor, &signing_key);
+        let admin_session_id = client.create_session(&admin);
+        register_with_session(&env, &client, admin_session_id, &attestor, &signing_key);
 
         // Write log_id=1 via register_attestor_with_session for attestor2
-        register_with_session(&env, &client, session_id, &attestor2, &sk2);
+        register_with_session(&env, &client, admin_session_id, &attestor2, &sk2);
 
         // log_id=0 still accessible (live=[0,1], count=2 == max_size, no prune yet).
         let log0 = client.get_audit_log(&0u64);
@@ -590,7 +603,7 @@ mod session_tests {
 
         // Write log_id=2 → live=[0,1,2], count=3 > max_size=2 → prune log_id=0.
         let ph = payload(&env, 0xAB);
-        let s = sign_payload(&env, &signing_key, &ph);
+        let s = sign_attestation(&env, &signing_key, &client.address, &attestor, &attestor, env.ledger().timestamp(), &ph);
         client.submit_attestation_with_session(
             &session_id,
             &attestor,
@@ -624,12 +637,13 @@ mod session_tests {
 
         // Write log_id=0 and log_id=1 via register_attestor_with_session
         let session_id = client.create_session(&attestor);
-        register_with_session(&env, &client, session_id, &attestor, &signing_key);
-        register_with_session(&env, &client, session_id, &attestor2, &sk2);
+        let admin_session_id = client.create_session(&admin);
+        register_with_session(&env, &client, admin_session_id, &attestor, &signing_key);
+        register_with_session(&env, &client, admin_session_id, &attestor2, &sk2);
 
         // Write log_id=2 → prunes log_id=0.
         let ph = payload(&env, 0xCD);
-        let s = sign_payload(&env, &signing_key, &ph);
+        let s = sign_attestation(&env, &signing_key, &client.address, &attestor, &attestor, env.ledger().timestamp(), &ph);
         client.submit_attestation_with_session(
             &session_id,
             &attestor,

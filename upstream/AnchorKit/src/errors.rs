@@ -72,6 +72,7 @@ use alloc::string::String;
 /// | 62   | PathTraversalDetected       |
 /// | 63   | InvalidAmount               |
 /// | 64   | AttestationRevoked          |
+/// | 65   | UnauthorizedSession         |
 /// | 121  | AttestationExpired          |
 /// | 122  | ContractPaused              |
 /// | 123  | AdminTransferPending        |
@@ -115,6 +116,7 @@ pub enum ErrorCode {
     PathTraversalDetected = 62,
     InvalidAmount = 63,
     AttestationRevoked = 64,
+    UnauthorizedSession = 65,
     AttestationExpired = 121,
     ContractPaused = 122,
     AdminTransferPending = 123,
@@ -138,7 +140,7 @@ impl ErrorCode {
             ErrorCode::InvalidEndpointFormat => "Endpoint format is invalid",
             ErrorCode::NoQuotesAvailable => "No quotes are available",
             ErrorCode::ServicesNotConfigured => "Services are not configured",
-            ErrorCode::ValidationError => "Response schema validation failed",
+            ErrorCode::ValidationError => "Input validation failed",
             ErrorCode::RateLimitExceeded => "Rate limit exceeded",
             ErrorCode::AttestationNotFound => "Attestation not found",
             ErrorCode::InvalidSep10Token => "SEP-10 JWT is missing, expired, or invalid",
@@ -152,13 +154,14 @@ impl ErrorCode {
             ErrorCode::UnauthorizedProposeAdmin => "Only admin can propose new admin",
             ErrorCode::SessionNotFound => "Session not found",
             ErrorCode::SessionExpired => "Session has expired",
-            ErrorCode::MissingSigningKey => "Anchor TOML does not publish a signing key",
+            ErrorCode::MissingSigningKey => "No SEP-10 verifying key registered for issuer",
             ErrorCode::InvalidStrategy => "Routing strategy symbol is not recognized",
             ErrorCode::AttestationLimitReached => "Attestation ID counter has reached its maximum value",
             ErrorCode::AttestorCapExceeded => "Maximum number of attestors has been reached",
             ErrorCode::PathTraversalDetected => "URL contains a path traversal sequence",
             ErrorCode::InvalidAmount => "Amount is outside the allowed min/max range for this asset",
             ErrorCode::AttestationRevoked => "Attestation has been revoked",
+            ErrorCode::UnauthorizedSession => "Session was not initiated by the current admin",
             ErrorCode::AttestationExpired => "Attestation has expired",
             ErrorCode::ContractPaused => "Contract is paused",
             ErrorCode::AdminTransferPending => "Admin transfer is already pending",
@@ -498,4 +501,3 @@ mod tests {
         assert_eq!(formatted, "[E15] Schema mismatch (field: transaction_id)");
     }
 }
-

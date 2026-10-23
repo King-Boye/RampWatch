@@ -248,8 +248,6 @@ impl RateLimiter {
     ///
     /// Clears `submission_count` and `window_start_ledger`; preserves `total_requests`.
     pub fn reset_rate_limit(env: &Env, admin: &Address, attestor: &Address) -> Result<(), ErrorCode> {
-        admin.require_auth();
-
         let state_key = StorageKey::RateLimitState(attestor.clone());
         let current_state = env.storage().persistent().get::<_, RateLimitState>(&state_key)
             .unwrap_or(RateLimitState {

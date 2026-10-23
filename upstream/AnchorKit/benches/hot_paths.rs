@@ -83,6 +83,7 @@ fn register_attestor(
 ) {
     let pk = Bytes::from_slice(env, signing_key.verifying_key().as_bytes());
     client.set_sep10_jwt_verifying_key(attestor, &pk);
+    client.add_attestation_key(attestor, &pk);
 
     let sub = attestor.to_string();
     let mut buf = [0u8; 128];
@@ -96,11 +97,30 @@ fn register_attestor(
     client.register_attestor(attestor, &token, attestor);
 }
 
-/// Sign a 32-byte payload hash, returning a 64-byte ed25519 signature as `Bytes`.
-fn sign_payload(env: &Env, signing_key: &SigningKey, payload_hash: &Bytes) -> Bytes {
-    let mut hash_arr = [0u8; 32];
-    payload_hash.copy_into_slice(&mut hash_arr);
-    let sig = signing_key.sign(&hash_arr);
+/// Sign an attestation (contract, issuer, subject, timestamp, payload hash), returning a 64-byte ed25519 signature as `Bytes`.
+fn sign_attestation(
+    env: &Env,
+    signing_key: &SigningKey,
+    contract_id: &Address,
+    issuer: &Address,
+    subject: &Address,
+    timestamp: u64,
+    payload_hash: &Bytes,
+) -> Bytes {
+    use soroban_sdk::xdr::ToXdr;
+
+    // Mirrors the contract's `attestation_signing_digest`; see docs/test_vectors.md.
+    let digest = env.as_contract(contract_id, || {
+        let mut msg = Bytes::from_slice(env, b"anchorkit-attest-v1");
+        msg.append(&Bytes::from_array(env, &env.ledger().network_id().to_array()));
+        msg.append(&env.current_contract_address().to_xdr(env));
+        msg.append(&issuer.clone().to_xdr(env));
+        msg.append(&subject.clone().to_xdr(env));
+        msg.append(&Bytes::from_array(env, &timestamp.to_be_bytes()));
+        msg.append(payload_hash);
+        env.crypto().sha256(&msg).to_array()
+    });
+    let sig = signing_key.sign(&digest);
     Bytes::from_slice(env, &sig.to_bytes())
 }
 
@@ -131,7 +151,7 @@ fn bench_submit_attestation(c: &mut Criterion) {
                 let mut hash = [0u8; 32];
                 hash[..8].copy_from_slice(&counter.to_be_bytes());
                 let payload_hash = Bytes::from_slice(&env, &hash);
-                let signature = sign_payload(&env, &signing_key, &payload_hash);
+                let signature = sign_attestation(&env, &signing_key, &client.address, &attestor, &subject, timestamp, &payload_hash);
                 (payload_hash, signature)
             },
             |(payload_hash, signature)| {
