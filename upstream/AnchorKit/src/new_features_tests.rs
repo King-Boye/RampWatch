@@ -9,7 +9,7 @@ mod new_features_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
+    use crate::sep10_test_util::{register_attestor_with_sep10, sign_attestation};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -84,12 +84,12 @@ mod new_features_tests {
         let subject = Address::generate(&env);
 
         let p1 = payload(&env, 0x01);
-        client.submit_attestation(&attestor, &subject, &1700000000u64, &p1, &sign_payload(&env, &signing_key, &p1));
+        client.submit_attestation(&attestor, &subject, &1700000000u64, &p1, &sign_attestation(&env, &signing_key, &client.address, &attestor, &subject, 1700000000u64, &p1));
 
         assert_eq!(client.get_attestation_count(&attestor), 1);
 
         let p2 = payload(&env, 0x02);
-        client.submit_attestation(&attestor, &subject, &1700000000u64, &p2, &sign_payload(&env, &signing_key, &p2));
+        client.submit_attestation(&attestor, &subject, &1700000000u64, &p2, &sign_attestation(&env, &signing_key, &client.address, &attestor, &subject, 1700000000u64, &p2));
 
         assert_eq!(client.get_attestation_count(&attestor), 2);
     }
@@ -107,7 +107,7 @@ mod new_features_tests {
 
         let subject = Address::generate(&env);
         let p1 = payload(&env, 0x10);
-        client.submit_attestation(&attestor1, &subject, &1700000000u64, &p1, &sign_payload(&env, &signing_key1, &p1));
+        client.submit_attestation(&attestor1, &subject, &1700000000u64, &p1, &sign_attestation(&env, &signing_key1, &client.address, &attestor1, &subject, 1700000000u64, &p1));
 
         assert_eq!(client.get_attestation_count(&attestor1), 1);
         assert_eq!(client.get_attestation_count(&attestor2), 0);
@@ -125,7 +125,7 @@ mod new_features_tests {
         let subject = Address::generate(&env);
 
         let p = payload(&env, 0xAA);
-        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_payload(&env, &signing_key, &p));
+        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_attestation(&env, &signing_key, &client.address, &attestor, &subject, 1700000000u64, &p));
 
         // Attestation exists before revocation
         assert!(client.get_attestation(&id).is_some());
@@ -150,7 +150,7 @@ mod new_features_tests {
 
         let subject = Address::generate(&env);
         let p = payload(&env, 0xBB);
-        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_payload(&env, &signing_key, &p));
+        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_attestation(&env, &signing_key, &client.address, &attestor, &subject, 1700000000u64, &p));
 
         // attestor2 tries to revoke attestor's attestation — should fail
         let result = client.try_revoke_attestation(&attestor2, &id);
@@ -170,7 +170,7 @@ mod new_features_tests {
 
         // Submit with no expiry — should succeed
         let p = payload(&env, 0xCC);
-        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_payload(&env, &signing_key, &p));
+        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_attestation(&env, &signing_key, &client.address, &attestor, &subject, 1700000000u64, &p));
 
         // The base Attestation has expires_at = None so it never expires
         assert!(client.get_attestation(&id).is_some());

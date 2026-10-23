@@ -13,12 +13,18 @@ use soroban_sdk::{contracttype, Address, Bytes};
 pub enum StorageKey {
     /// SEP-10 JWT verifying key for an attestor (persistent).
     Sep10Key(Address),
+    /// Ed25519 attestation-signing keys for an issuer (persistent). Kept separate
+    /// from `Sep10Key` so web-auth key rotation never affects attestation signing.
+    AttestationKey(Address),
     /// Whether an address is a registered attestor (persistent).
     Attestor(Address),
     /// Revocation marker for an attestor — present when the attestor has been
     /// revoked. Used by `get_attestation` to populate `issuer_revoked` without
     /// rewriting every stored attestation (persistent).
     AttestorRevoked(Address),
+    /// First attestation ID not covered by the attestor's latest revocation.
+    /// Attestations with a lower ID remain revoked after re-registration.
+    AttestorRevokedBefore(Address),
     /// HTTPS endpoint URL for an attestor (persistent).
     Endpoint(Address),
     /// Supported services record for an anchor (persistent).
@@ -69,6 +75,8 @@ pub enum StorageKey {
     PerAttestorCount(Address),
     /// Revocation marker for an individual attestation (persistent).
     AttestationRevoked(u64),
+    /// Marker that `QuoteExpiredEvent` was already emitted for an anchor's quote (persistent).
+    ExpiredNotified(Address, u64),
     /// Contract pause state (instance storage).
     IsPaused,
     /// Credential policy for an attestor (persistent).
