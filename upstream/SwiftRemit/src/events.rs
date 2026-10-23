@@ -573,6 +573,20 @@ pub fn emit_migration_aborted(env: &Env, caller: Address) {
     );
 }
 
+/// Emits an event when an agent's KYC approval status is updated.
+///
+/// Topics: `("kyc", "updated")`
+/// Payload: `(schema_version, ledger_seq, ledger_ts, agent, approved, expiry, caller)`
+pub fn emit_kyc_updated(
+    env: &Env,
+    agent: Address,
+    approved: bool,
+    expiry: Option<u64>,
+    caller: Address,
+) {
+    emit_event!(env, "kyc", "updated", agent, approved, expiry, caller);
+}
+
 // ── Admin Transfer Events (#365) ───────────────────────────────────
 
 /// Emits an event when an admin proposes a new admin (step 1 of 2-step transfer).

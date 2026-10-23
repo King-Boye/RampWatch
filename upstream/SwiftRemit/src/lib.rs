@@ -1344,6 +1344,24 @@ impl SwiftRemitContract {
             );
             // SR-125: Route status mutation through the canonical state machine.
             crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Cancelled)?;
+
+            // #1674: A sender-favoured resolution is a failed settlement for the
+            // agent — no completed volume, and the failure is counted in stats.
+            let mut stats = crate::storage::get_agent_stats(&env, &remittance.agent);
+            stats.failed_settlements = stats.failed_settlements.saturating_add(1);
+            stats.last_active_timestamp = env.ledger().timestamp();
+            let successful = stats
+                .total_settlements
+                .saturating_sub(stats.failed_settlements);
+            stats.success_rate_bps = if stats.total_settlements == 0 {
+                10000
+            } else {
+                successful
+                    .saturating_mul(10000)
+                    .checked_div(stats.total_settlements)
+                    .unwrap_or(0)
+            };
+            crate::storage::set_agent_stats(&env, &remittance.agent, &stats);
         } else {
             // Honour the fee quoted at creation rather than re-pricing, and pay
             // the agent only the part of their net entitlement not already sent.
@@ -1364,7 +1382,34 @@ impl SwiftRemitContract {
             }
             // SR-125: Route status mutation through the canonical state machine.
             crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Completed)?;
+
+            // #1674: An agent-favoured resolution counts as a completed settlement
+            // and moves the remittance volume into completed volume.
+            storage::add_completed_volume(&env, remittance.amount)?;
+
+            let mut stats = crate::storage::get_agent_stats(&env, &remittance.agent);
+            stats.total_settlements = stats.total_settlements.saturating_add(1);
+            stats.last_active_timestamp = env.ledger().timestamp();
+            let successful = stats
+                .total_settlements
+                .saturating_sub(stats.failed_settlements);
+            stats.success_rate_bps = successful
+                .saturating_mul(10000)
+                .checked_div(stats.total_settlements)
+                .unwrap_or(10000);
+            crate::storage::set_agent_stats(&env, &remittance.agent, &stats);
         }
+
+        // #1674: Tally the resolved dispute. `dispute_count` is incremented once in
+        // raise_dispute; here we only record the resolution outcome.
+        let mut resolved_stats = crate::storage::get_agent_stats(&env, &remittance.agent);
+        resolved_stats.disputes_resolved = resolved_stats.disputes_resolved.saturating_add(1);
+        if in_favour_of_sender {
+            resolved_stats.disputes_lost = resolved_stats.disputes_lost.saturating_add(1);
+        } else {
+            resolved_stats.disputes_won = resolved_stats.disputes_won.saturating_add(1);
+        }
+        crate::storage::set_agent_stats(&env, &remittance.agent, &resolved_stats);
 
         set_remittance(&env, remittance_id, &remittance);
         emit_dispute_resolved(&env, remittance_id, caller, in_favour_of_sender);
@@ -1792,6 +1837,13 @@ impl SwiftRemitContract {
         validate_not_paused(&env)?;
         // Auth: only the integrator themselves may withdraw their own balance.
         integrator.require_auth();
+
+        // #1672: Reject the contract's own address as the recipient, mirroring
+        // withdraw_fees (#609). Otherwise the balance is zeroed while the tokens
+        // stay in the contract and the integrator loses them.
+        if to == env.current_contract_address() {
+            return Err(ContractError::InvalidAddress);
+        }
 
         // #1263: Use per-integrator balance, not the shared global counter.
         let fees = storage::get_integrator_balance(&env, &integrator);
@@ -3570,10 +3622,21 @@ impl SwiftRemitContract {
         let admin = get_admin(&env)?;
         admin.require_auth();
 
+        // #1677: An approval must not already be expired when it is granted.
+        if approved && expiry <= env.ledger().timestamp() {
+            return Err(ContractError::InvalidExpiry);
+        }
+
         set_kyc_approved(&env, &user, approved);
         if approved {
             set_kyc_expiry(&env, &user, expiry);
+        } else {
+            // Revoking clears any stored expiry so a stale timestamp cannot linger.
+            clear_kyc_expiry(&env, &user);
         }
+
+        // #1677: Emit an audit event for every KYC change.
+        emit_kyc_updated(&env, user, approved, expiry, admin);
         Ok(())
     }
 
