@@ -491,5 +491,5 @@ For questions or issues:
 <!-- handsoff-issue-1235 -->
 - #1235: WEBHOOK_MIDDLEWARE.md's Features section (HMAC/Ed25519 signing, 8-type suspicious-activity logging, delivery tracking) describes functionality absent from the codebase
 
-<!-- handsoff-issue-1396 -->
-- #1396: `anchorkit attest` prints a submit_attestation command missing issuer, timestamp, and signature
+<!-- handsoff-issue-1395 -->
+- #1395: `anchorkit init` prints an initialize command that's missing required contract arguments
