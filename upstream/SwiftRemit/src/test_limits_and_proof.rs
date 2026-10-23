@@ -183,6 +183,35 @@ fn test_confirm_payout_missing_required_proof() {
 }
 
 #[test]
+fn test_confirm_partial_payout_missing_required_proof() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _token, admin, sender, agent, _token_admin) = setup(&env);
+    let config = SettlementConfig {
+        require_proof: true,
+        oracle_address: Some(admin),
+    };
+    let remittance_id = contract.create_remittance(
+        &sender,
+        &agent,
+        &2_000,
+        &None,
+        &None,
+        &None,
+        &Some(config),
+        &None,
+    );
+
+    let result = contract.try_confirm_partial_payout(&remittance_id, &100);
+    assert_eq!(result.unwrap_err().unwrap(), ContractError::MissingProof);
+    assert_eq!(
+        contract.get_remittance(&remittance_id).status,
+        crate::RemittanceStatus::Pending
+    );
+}
+
+#[test]
 fn test_public_get_rate_limit_status_within_and_across_windows() {
     let env = Env::default();
     env.mock_all_auths();

@@ -1605,6 +1605,9 @@ impl SwiftRemitContract {
     /// `amount` from escrow to the agent. When the total disbursed equals the net payout
     /// (amount - fee), the remittance is automatically marked Completed.
     ///
+    /// Remittances configured to require proof are rejected because this endpoint
+    /// does not accept proof data.
+    ///
     /// # Authorization
     /// Requires authentication from the agent assigned to the remittance.
     pub fn confirm_partial_payout(
@@ -1625,6 +1628,12 @@ impl SwiftRemitContract {
             && remittance.status != RemittanceStatus::Processing
         {
             return Err(ContractError::InvalidStatus);
+        }
+
+        if let crate::MaybeSettlementConfig::Some(ref config) = remittance.settlement_config {
+            if config.require_proof {
+                return Err(ContractError::MissingProof);
+            }
         }
 
         // Enforce per-agent daily cap
