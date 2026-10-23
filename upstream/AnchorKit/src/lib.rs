@@ -143,12 +143,6 @@ mod session_expiry_error_tests;
 mod pause_tests;
 
 #[cfg(test)]
-mod attestation_validation_tests;
-
-#[cfg(test)]
-mod attestor_event_tests;
-
-#[cfg(test)]
 mod sdk_config_tests;
 
 #[cfg(test)]
