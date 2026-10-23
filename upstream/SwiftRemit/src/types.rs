@@ -260,6 +260,22 @@ pub struct SenderVolumeEntry {
     pub amount: i128,
 }
 
+/// Per-item entry for `confirm_batch_payout` (#1668).
+///
+/// Carries the remittance ID together with optional proof and recipient-details
+/// hash so that proof-gated and recipient-hashed remittances can be settled
+/// inside a batch without forcing the whole batch to fail.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchPayoutEntry {
+    /// The unique ID of the remittance to confirm.
+    pub remittance_id: u64,
+    /// Optional cryptographic proof required by proof-gated remittances.
+    pub proof: Option<ProofData>,
+    /// Optional recipient-details hash for recipient-verified remittances.
+    pub recipient_details_hash: Option<soroban_sdk::BytesN<32>>,
+}
+
 /// Entry for batch remittance creation.
 /// Each entry represents a single remittance to be created in a batch.
 #[contracttype]
