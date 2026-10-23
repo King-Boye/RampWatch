@@ -31,7 +31,7 @@ Every error is identified by a numeric code. The canonical list appears in `src/
 | 12 | InvalidEndpointFormat | Endpoint format is invalid |
 | 13 | NoQuotesAvailable | No quotes are available |
 | 14 | ServicesNotConfigured | Services are not configured |
-| 15 | ValidationError | Response schema validation failed |
+| 15 | ValidationError | Input validation failed |
 | 16 | RateLimitExceeded | Rate limit exceeded |
 | 17 | AttestationNotFound | Attestation not found |
 | 18 | InvalidSep10Token | SEP-10 JWT is missing, expired, or invalid |
@@ -45,7 +45,7 @@ Every error is identified by a numeric code. The canonical list appears in `src/
 | 54 | NotPendingAdmin | Caller is not the pending admin |
 | 55 | SessionNotFound | Session not found |
 | 56 | SessionExpired | Session has expired |
-| 57 | MissingSigningKey | Anchor TOML does not publish a signing key |
+| 57 | MissingSigningKey | No SEP-10 verifying key registered for issuer |
 | 58 | UnauthorizedProposeAdmin | Only admin can propose new admin |
 | 59 | InvalidStrategy | Routing strategy symbol is not recognized |
 | 60 | AttestationLimitReached | Attestation ID counter has reached its maximum value |
@@ -114,7 +114,7 @@ let err = AnchorKitError::from_code(ErrorCode::InvalidEndpointFormat);
 
 Errors implement `Display` and format as:
 
-- Without context: `[E15] Response schema validation failed`
+- Without context: `[E15] Input validation failed`
 - With context: `[E15] Schema mismatch (field: transaction_id)`
 
 The numeric code (e.g., `15`) is always included for logging and upstream handling.

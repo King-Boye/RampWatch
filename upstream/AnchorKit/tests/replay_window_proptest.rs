@@ -17,7 +17,7 @@ use soroban_sdk::{
 };
 
 use anchorkit::contract::{AnchorKitContract, AnchorKitContractClient};
-use anchorkit::sep10_test_util::{register_attestor_with_sep10, sign_payload};
+use anchorkit::sep10_test_util::{register_attestor_with_sep10, sign_attestation};
 
 // ---------------------------------------------------------------------------
 // Test harness helpers
@@ -99,9 +99,8 @@ proptest! {
         let (client, attestor, sk) = setup_with_window(&env, Some(window));
 
         let hash = unique_hash(&env, nonce);
-        let sig  = sign_payload(&env, &sk, &hash);
-
         let subject = Address::generate(&env);
+        let sig  = sign_attestation(&env, &sk, &client.address, &attestor, &subject, ts, &hash);
         // Must not panic — an inside-window timestamp is always valid.
         let id = client.submit_attestation(&attestor, &subject, &ts, &hash, &sig);
         // The returned ID is the current attestation counter; must be ≥ 0.
@@ -126,9 +125,8 @@ proptest! {
         let (client, attestor, sk) = setup_with_window(&env, Some(window));
 
         let hash = unique_hash(&env, nonce);
-        let sig  = sign_payload(&env, &sk, &hash);
-
         let subject = Address::generate(&env);
+        let sig  = sign_attestation(&env, &sk, &client.address, &attestor, &subject, ts, &hash);
         // The contract should panic (Soroban panics propagate as Err in catch_unwind).
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             client.submit_attestation(&attestor, &subject, &ts, &hash, &sig)
@@ -156,9 +154,8 @@ proptest! {
         let (client, attestor, sk) = setup_with_window(&env, Some(window));
 
         let hash = unique_hash(&env, nonce);
-        let sig  = sign_payload(&env, &sk, &hash);
-
         let subject = Address::generate(&env);
+        let sig  = sign_attestation(&env, &sk, &client.address, &attestor, &subject, ts, &hash);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             client.submit_attestation(&attestor, &subject, &ts, &hash, &sig)
         }));
@@ -185,9 +182,8 @@ proptest! {
         let (client, attestor, sk) = setup_with_window(&env, Some(window));
 
         let hash = unique_hash(&env, nonce);
-        let sig  = sign_payload(&env, &sk, &hash);
-
         let subject = Address::generate(&env);
+        let sig  = sign_attestation(&env, &sk, &client.address, &attestor, &subject, ts, &hash);
         let id = client.submit_attestation(&attestor, &subject, &ts, &hash, &sig);
         prop_assert!(id >= 0, "expected acceptance at boundary ts={} now={} window={}", ts, now, window);
     }
@@ -208,11 +204,10 @@ proptest! {
         let (client, attestor, sk) = setup_with_window(&env, Some(window));
 
         let hash_a = unique_hash(&env, nonce_a);
-        let sig_a  = sign_payload(&env, &sk, &hash_a);
-        let hash_b = unique_hash(&env, nonce_b);
-        let sig_b  = sign_payload(&env, &sk, &hash_b);
-
         let subject = Address::generate(&env);
+        let sig_a  = sign_attestation(&env, &sk, &client.address, &attestor, &subject, now, &hash_a);
+        let hash_b = unique_hash(&env, nonce_b);
+        let sig_b  = sign_attestation(&env, &sk, &client.address, &attestor, &subject, now, &hash_b);
 
         // Both submissions must succeed because the payloads are distinct.
         let id_a = client.submit_attestation(&attestor, &subject, &now, &hash_a, &sig_a);
@@ -236,9 +231,8 @@ proptest! {
         let (client, attestor, sk) = setup_with_window(&env, Some(window));
 
         let hash = unique_hash(&env, nonce);
-        let sig  = sign_payload(&env, &sk, &hash);
-
         let subject = Address::generate(&env);
+        let sig  = sign_attestation(&env, &sk, &client.address, &attestor, &subject, now, &hash);
         // First submission: must succeed.
         client.submit_attestation(&attestor, &subject, &now, &hash, &sig);
 

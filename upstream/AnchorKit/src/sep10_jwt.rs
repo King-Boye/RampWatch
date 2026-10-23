@@ -118,6 +118,7 @@ fn find_top_level_key(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 /// Parse top-level `"exp": <digits>`.
 fn parse_json_exp(payload: &[u8]) -> Result<u64, ()> {
+    reject_duplicate_top_level_key(payload, b"\"exp\":")?;
     let key = b"\"exp\":";
     let pos = find_top_level_key(payload, key).ok_or(())?;
     let mut i = pos + key.len();
@@ -145,6 +146,7 @@ fn parse_json_exp(payload: &[u8]) -> Result<u64, ()> {
 
 /// Parse top-level `"sub":"..."` string value, handling `\"` escape sequences.
 fn parse_json_sub(env: &Env, payload: &[u8]) -> Result<String, ()> {
+    reject_duplicate_top_level_key(payload, b"\"sub\":")?;
     let key = b"\"sub\":";
     let pos = find_top_level_key(payload, key).ok_or(())?;
     let mut i = pos + key.len();
@@ -176,6 +178,7 @@ fn parse_json_sub(env: &Env, payload: &[u8]) -> Result<String, ()> {
 
 /// Parse top-level `"scp":"..."` string value from the JWT payload.
 fn parse_json_scp(payload: &[u8]) -> Result<Vec<u8>, ()> {
+    reject_duplicate_top_level_key(payload, b"\"scp\":")?;
     let key = b"\"scp\":";
     let pos = find_top_level_key(payload, key).ok_or(())?;
     let mut i = pos + key.len();
@@ -205,6 +208,7 @@ fn parse_json_scp(payload: &[u8]) -> Result<Vec<u8>, ()> {
 
 /// Parse top-level `"alg":"..."` string value from the JWT header.
 fn parse_json_alg(header: &[u8]) -> Result<Vec<u8>, ()> {
+    reject_duplicate_top_level_key(header, b"\"alg\":")?;
     let key = b"\"alg\":";
     let pos = find_top_level_key(header, key).ok_or(())?;
     let mut i = pos + key.len();

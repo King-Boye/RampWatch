@@ -28,7 +28,7 @@ Error codes are non-contiguous. See the table below for the current values.
 | 12   | InvalidEndpointFormat    | Endpoint format is invalid |
 | 13   | NoQuotesAvailable        | No quotes are available |
 | 14   | ServicesNotConfigured    | Services are not configured |
-| 15   | ValidationError          | Response schema validation failed |
+| 15   | ValidationError          | Input validation failed |
 | 16   | RateLimitExceeded        | Rate limit exceeded |
 | 17   | AttestationNotFound      | Attestation not found |
 | 18   | InvalidSep10Token        | SEP-10 JWT is missing, expired, or invalid |
@@ -46,7 +46,7 @@ Error codes are non-contiguous. See the table below for the current values.
 | 58   | UnauthorizedProposeAdmin | Only admin can propose new admin **(reserved, never raised)** |
 | 59   | InvalidStrategy          | Routing strategy symbol is not recognized |
 | 60   | AttestationLimitReached  | Attestation ID counter has reached its maximum value |
-| 61   | AttestorCapExceeded      | Maximum number of attestors has been reached |
+| 61   | AttestorCapExceeded      | Maximum number of attestors has been reached (also raised when the cached-anchor list is full) |
 | 62   | PathTraversalDetected    | URL contains a path traversal sequence |
 | 63   | InvalidAmount            | Amount is outside the allowed min/max range for this asset |
 | 64   | AttestationRevoked       | Attestation has been revoked |
