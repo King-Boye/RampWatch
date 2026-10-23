@@ -2776,6 +2776,11 @@ impl SwiftRemitContract {
             return Err(ContractError::ContractPaused);
         }
 
+        // #1667: Block netting settlements during migration to prevent state corruption.
+        if crate::storage::is_migration_in_progress(&env) {
+            return Err(ContractError::MigrationInProgress);
+        }
+
         // SR-122: Require caller authentication. batch_settle_with_netting is an
         // admin-only reconciliation path; only a registered, Settler-role agent or
         // the contract admin may invoke it.
@@ -2925,14 +2930,20 @@ impl SwiftRemitContract {
             set_accumulated_fees(&env, current_fees);
         }
 
-        // Mark all remittances as completed and set settlement hashes
+        // #1665: Complete each remittance through the canonical bookkeeping steps so
+        // that agent stats, treasury protocol fee, integrator accrual, idempotency
+        // cleanup, cooldown recording and rate-limit timestamps match the single-item
+        // confirm_payout path.  The net token transfers were already executed above, so
+        // we only perform state transitions and accounting here (no second transfer).
         let mut settled_ids = Vec::new(&env);
 
         for i in 0..remittances.len() {
             let mut remittance = remittances.get_unchecked(i);
+
             // SR-122 / SR-125: set settlement hash before status change (optimistic lock),
             // then route the status update through the canonical state machine.
             set_settlement_hash(&env, remittance.id);
+
             // Transition through Processing if still Pending, then to Completed.
             if remittance.status == RemittanceStatus::Pending {
                 crate::transitions::transition_status(&env, &mut remittance, RemittanceStatus::Processing)?;
@@ -2942,14 +2953,61 @@ impl SwiftRemitContract {
             storage::sub_processing_volume(&env, remittance.amount)?;
             storage::add_completed_volume(&env, remittance.amount)?;
             set_remittance(&env, remittance.id, &remittance);
-            settled_ids.push_back(remittance.id);
 
-            // Emit individual remittance completion event
-            let payout_amount = remittance
-                .amount
-                .checked_sub(remittance.fee)
-                .ok_or(ContractError::Overflow)?;
+            // #1665a: Update agent reputation stats (was missing from netting path).
+            let mut stats = crate::storage::get_agent_stats(&env, &remittance.agent);
+            stats.total_settlements += 1;
+            stats.total_settlement_time += env
+                .ledger()
+                .timestamp()
+                .saturating_sub(remittance.created_at);
+            stats.last_active_timestamp = env.ledger().timestamp();
+            let successful = stats.total_settlements.saturating_sub(stats.failed_settlements);
+            stats.success_rate_bps = successful
+                .saturating_mul(10000)
+                .checked_div(stats.total_settlements)
+                .unwrap_or(10000);
+            crate::storage::set_agent_stats(&env, &remittance.agent, &stats);
+
+            // #1665b: Accrue treasury protocol fee from the per-remittance platform fee.
+            // The net token transfer above already paid the net amount to the recipient;
+            // we still owe the treasury its slice of each individual remittance's fee.
+            let fee_breakdown =
+                fee_service::breakdown_from_platform_fee(&env, remittance.amount, remittance.fee)?;
+            let protocol_fee = fee_breakdown.protocol_fee;
+            if protocol_fee > 0 {
+                let token_client_inner = token::Client::new(&env, &usdc_token);
+                let treasury = get_treasury(&env)?;
+                token_client_inner.transfer(
+                    &env.current_contract_address(),
+                    &treasury,
+                    &protocol_fee,
+                );
+            }
+
+            // #1665c: Accrue integrator share (10% of platform fee) if applicable.
+            if let Some(intg) = storage::get_remittance_integrator(&env, remittance.id) {
+                let integrator_share = remittance.fee / 10;
+                if integrator_share > 0 {
+                    storage::add_integrator_balance(&env, &intg, integrator_share);
+                }
+            }
+
+            // #1665d: Record the Settlement action for cooldown tracking.
+            record_action(&env, &remittance.agent, ActionType::Settlement);
+
+            // #1665e: Update last settlement time for sender rate limiting.
+            set_last_settlement_time(&env, &remittance.sender, env.ledger().timestamp());
+
+            // #1665f: Cleanup idempotency record on terminal state.
+            if let Some(idem_key) = storage::take_remittance_idempotency_key(&env, remittance.id) {
+                storage::remove_idempotency_record(&env, &idem_key);
+            }
+
+            // #1666: `payout_amount` previously computed here was never read; removed.
             emit_remittance_completed(&env, remittance.id, remittance.sender, remittance.agent);
+
+            settled_ids.push_back(remittance.id);
         }
 
         Ok(BatchSettlementResult { settled_ids })
@@ -2970,13 +3028,17 @@ impl SwiftRemitContract {
     }
 
     /// Confirms payouts for multiple remittances in one transaction (#590).
+    ///
+    /// Each entry carries an optional proof and optional recipient-details hash
+    /// so that proof-gated or recipient-hashed remittances can participate in a
+    /// batch without failing the whole batch (#1668).
     pub fn confirm_batch_payout(
         env: Env,
         agent: Address,
-        remittance_ids: Vec<u64>,
+        entries: Vec<BatchPayoutEntry>,
     ) -> Result<Vec<u64>, ContractError> {
         // #1264 PAUSE POLICY: pause is enforced inside confirm_payout_inner → validate_confirm_payout_request.
-        let batch_size = remittance_ids.len();
+        let batch_size = entries.len();
         if batch_size == 0 || batch_size > MAX_BATCH_SIZE {
             return Err(ContractError::InvalidBatchSize);
         }
@@ -2988,9 +3050,16 @@ impl SwiftRemitContract {
 
         let mut confirmed = Vec::new(&env);
         for i in 0..batch_size {
-            let id = remittance_ids.get_unchecked(i);
-            Self::confirm_payout_inner(env.clone(), agent.clone(), id, None, None, false)?;
-            confirmed.push_back(id);
+            let entry = entries.get_unchecked(i);
+            Self::confirm_payout_inner(
+                env.clone(),
+                agent.clone(),
+                entry.remittance_id,
+                entry.proof,
+                entry.recipient_details_hash,
+                false,
+            )?;
+            confirmed.push_back(entry.remittance_id);
         }
         env.events().publish(
             (soroban_sdk::symbol_short!("batch"), soroban_sdk::symbol_short!("paid")),
