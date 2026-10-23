@@ -56,8 +56,8 @@ const MIN_TEMP_TTL: u32 = 15; // min_temp_entry_ttl - 1
 const LEDGER_PERIOD_SECS: u64 = 5; // approximate seconds per ledger
 
 use crate::events::{
-    AdminTransferred, AnchorDeactivated, AttestationRevoked, AttestEvent, AuditLogEvent, AuditLogPruned,
-    ContractPaused, ContractUnpaused, EndpointUpdated,
+    AdminTransferCancelled, AdminTransferred, AnchorDeactivated, AttestationRevoked, AttestEvent,
+    AuditLogEvent, AuditLogPruned, ContractPaused, ContractUnpaused, EndpointUpdated,
     QuoteReceivedEvent, QuoteSubmitEvent, SessionCreatedEvent,
 };
 
@@ -145,6 +145,21 @@ pub struct AnchorKitContract;
 #[contractimpl]
 #[allow(clippy::too_many_arguments)]
 impl AnchorKitContract {
+    /// Deploy-time constructor — runs atomically with contract creation so no
+    /// other account can front-run `initialize` and claim the admin slot.
+    ///
+    /// The `admin` address is written to instance storage here; `initialize`
+    /// then reads it back and completes the rest of the setup (#1346).
+    pub fn __constructor(env: Env, admin: Address) {
+        if admin == env.current_contract_address() {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&key_admin(&env), &admin);
+    }
+
     pub fn get_version(env: Env) -> String {
         String::from_str(&env, env!("CARGO_PKG_VERSION"))
     }
@@ -180,23 +195,23 @@ impl AnchorKitContract {
     /// attempts gracefully (#628).
     pub fn initialize(
         env: Env,
-        admin: Address,
         max_audit_log_size: u64,
         replay_window_seconds: Option<u64>,
         clock_skew_seconds: Option<u64>,
     ) -> Result<(), ErrorCode> {
+        // Admin was written atomically by __constructor at deploy time (#1346).
+        // Require its auth to ensure only the legitimate deployer can finish setup.
+        let admin = Self::get_admin(env.clone());
         admin.require_auth();
-        if admin == env.current_contract_address() {
-            return Err(ErrorCode::ValidationError);
-        }
         if max_audit_log_size == 0 {
             return Err(ErrorCode::AuditLogMaxSizeInvalid);
         }
         let inst = env.storage().instance();
-        if inst.has(&key_admin(&env)) {
+        // Guard against being called more than once (AuditLogMaxSize is only
+        // written here, so its presence is a reliable "already initialised" sentinel).
+        if inst.has(&StorageKey::AuditLogMaxSize) {
             return Err(ErrorCode::AlreadyInitialized);
         }
-        inst.set(&key_admin(&env), &admin);
         inst.set(&StorageKey::AuditLogMaxSize, &max_audit_log_size);
         inst.set(&StorageKey::MaxPageSize, &50u32);
         // Default replay window: 300 seconds (5 minutes).
@@ -254,6 +269,31 @@ impl AnchorKitContract {
             AdminTransferred {
                 old_admin,
                 new_admin: pending,
+                timestamp,
+            },
+        );
+    }
+
+    /// Cancel a pending admin proposal (current admin only).
+    ///
+    /// Removes the pending admin entry so that `propose_admin` can be called
+    /// again — for example to correct a mistyped address (#1345). Panics with
+    /// `NoPendingAdmin` when there is nothing to cancel.
+    pub fn cancel_admin_proposal(env: Env) {
+        Self::require_admin(&env);
+        let inst = env.storage().instance();
+        let cancelled: Address = inst
+            .get(&pending_admin_key(&env))
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::NoPendingAdmin));
+        inst.remove(&pending_admin_key(&env));
+        inst.extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+        let admin = Self::get_admin(env.clone());
+        let timestamp = env.ledger().timestamp();
+        env.events().publish(
+            (symbol_short!("admin"), symbol_short!("cancel")),
+            AdminTransferCancelled {
+                admin,
+                cancelled_proposed: cancelled,
                 timestamp,
             },
         );
@@ -1092,7 +1132,6 @@ impl AnchorKitContract {
     // Quote submission with request ID + tracing span
     // -----------------------------------------------------------------------
 
-    #[allow(unused_variables)]
     #[allow(clippy::too_many_arguments)]
     pub fn quote_with_request_id(
         env: Env,
@@ -1105,7 +1144,7 @@ impl AnchorKitContract {
         min_amount: u64,
         max_amount: u64,
         expires_at: u64,
-    ) {
+    ) -> u64 {
         Self::require_not_paused(&env);
         anchor.require_auth();
         Self::check_attestor(&env, &anchor);
@@ -1130,8 +1169,8 @@ impl AnchorKitContract {
         let quote = Quote {
             quote_id: next,
             anchor: anchor.clone(),
-            base_asset: from_asset,
-            quote_asset: to_asset,
+            base_asset: from_asset.clone(),
+            quote_asset: to_asset.clone(),
             rate: amount,
             fee_percentage: fee_bps,
             minimum_amount: min_amount,
@@ -1147,7 +1186,21 @@ impl AnchorKitContract {
         env.storage().persistent().extend_ttl(&lq_key, PERSISTENT_TTL, PERSISTENT_TTL);
 
         let now = env.ledger().timestamp();
-        Self::store_span(&env, &request_id, String::from_str(&env, "submit_quote"), anchor, now, String::from_str(&env, "success"));
+        Self::store_span(&env, &request_id, String::from_str(&env, "submit_quote"), anchor.clone(), now, String::from_str(&env, "success"));
+
+        env.events().publish(
+            (symbol_short!("quote"), symbol_short!("submit"), next),
+            QuoteSubmitEvent {
+                quote_id: next,
+                anchor,
+                base_asset: from_asset,
+                quote_asset: to_asset,
+                rate: amount,
+                valid_until: expires_at,
+            },
+        );
+
+        next
     }
 
     // -----------------------------------------------------------------------
@@ -1393,6 +1446,11 @@ impl AnchorKitContract {
         let q_key = StorageKey::Quote(anchor.clone(), quote_id);
         let quote: Quote = env.storage().persistent().get(&q_key)
             .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound));
+
+        // Reject expired quotes — ErrorCode::StaleQuote (#1349).
+        if env.ledger().timestamp() > quote.valid_until {
+            panic_with_error!(&env, ErrorCode::StaleQuote);
+        }
 
         env.events().publish(
             (symbol_short!("quote"), symbol_short!("received"), quote_id),

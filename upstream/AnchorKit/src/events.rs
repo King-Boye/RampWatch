@@ -117,6 +117,14 @@ pub struct AdminTransferred {
 
 #[contracttype]
 #[derive(Clone)]
+pub struct AdminTransferCancelled {
+    pub admin: Address,
+    pub cancelled_proposed: Address,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
 pub struct ContractPaused {
     pub admin: Address,
     pub timestamp: u64,
