@@ -6,6 +6,12 @@ on:
     paths:
       - '**/*.md'
       - 'scripts/check-markdown-links.js'
+      - 'scripts/check_readme_functions.sh'
+      - 'scripts/check_pause_matrix.sh'
+      - 'src/lib.rs'
+      - 'README.md'
+      - 'docs/RUNBOOK.md'
+      - 'abi/**'
 
 jobs:
   markdown-links:
@@ -17,3 +23,23 @@ jobs:
         with:
           node-version: 20.x
       - run: node scripts/check-markdown-links.js
+
+  readme-functions:
+    name: Check README function signatures against ABI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify README function signatures match ABI
+        run: |
+          chmod +x ./scripts/check_readme_functions.sh
+          ./scripts/check_readme_functions.sh
+
+  pause-matrix:
+    name: Check RUNBOOK pause policy matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify every contract entrypoint appears in the pause policy table
+        run: |
+          chmod +x ./scripts/check_pause_matrix.sh
+          ./scripts/check_pause_matrix.sh

@@ -119,6 +119,14 @@ mod test_error_handler_exhaustiveness;
 mod test_retry_transaction;
 #[cfg(test)]
 mod test_governance_paused;
+#[cfg(test)]
+mod fee_calculation_standalone_tests;
+#[cfg(test)]
+mod fee_service_property_tests;
+#[cfg(test)]
+mod test_fee_breakdown;
+#[cfg(test)]
+mod test_invariants;
 
 use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, String, Vec};
 
@@ -239,6 +247,39 @@ pub struct SwiftRemitContract;
 // Runtime Configurable Values:
 // - fee_bps: Can be updated by admin via update_fee()
 // ============================================================================
+
+// #1690 PAUSE POLICY
+//
+// Canonical source for the pause matrix documented in docs/RUNBOOK.md.
+// Every entrypoint below is either gated by `validate_not_paused(&env)?` (which
+// returns `ContractError::ContractPaused` while the circuit breaker is active)
+// or intentionally left callable while paused. Keep this list in sync with the
+// RUNBOOK table; CI checks the two against each other.
+//
+// BLOCKED while paused (call `validate_not_paused`):
+//   - create_remittance
+//   - confirm_payout
+//   - cancel_remittance
+//   - withdraw_fees
+//   - withdraw_integrator_fees
+//   - create_escrow
+//   - release_escrow
+//
+// ALLOWED while paused (no pause check):
+//   - refund_escrow            — senders must be able to reclaim their own escrow
+//   - process_expired_escrows  — expiry refunds must keep flowing during an incident
+//   - dispute / resolve        — dispute lifecycle must not be frozen by a pause
+//   - all read-only views (get_*, is_*, compute_settlement_hash, get_fee_breakdown, …)
+//   - admin / governance entrypoints (pause, unpause, emergency_*, vote_unpause,
+//     set_pause_timelock, set_unpause_quorum, set_cooldown_period, propose_*,
+//     approve_*, execute_*, migrate_to_governance, propose, vote, execute, …)
+//   - multisig and upgrade governance entrypoints
+//   - migration export/import entrypoints
+//   - blacklist / KYC / asset-verification admin setters
+//
+// Rationale: a pause is an incident-response tool for outbound value transfer.
+// It must never trap user funds (refunds and expiry stay open) and must never
+// prevent the admins from unpausing or upgrading the contract.
 
 #[contractimpl]
 impl SwiftRemitContract {
