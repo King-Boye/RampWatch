@@ -1,4 +1,5 @@
 import { FC, useState, useEffect, CSSProperties } from 'react'
+import { SkeletonBlock, SkeletonLine } from './SkeletonLoader'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 const RANGES = ['7d', '30d', '90d'] as const
@@ -107,7 +108,13 @@ const CorridorAnalytics: FC = () => {
         ))}
       </div>
 
-      {loading && <p>Loading…</p>}
+      {loading && (
+        <div>
+          <SkeletonLine />
+          <SkeletonLine />
+          <SkeletonBlock height="12rem" />
+        </div>
+      )}
       {error && <p style={{ color: 'red' }}>Error: {error}</p>}
 
       {!loading && !error && data && (

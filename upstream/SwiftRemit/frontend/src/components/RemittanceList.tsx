@@ -1,4 +1,5 @@
 import { FC, useState, useEffect, useCallback, useRef, CSSProperties } from 'react'
+import { SkeletonTable } from './SkeletonLoader'
 import { signTransaction } from '@stellar/freighter-api'
 import {
   Contract,
@@ -425,7 +426,7 @@ const RemittanceList: FC<RemittanceListProps> = ({ walletAddress, contractId }) 
     <div className="panel remittance-list">
       <h2>Your Remittances</h2>
 
-      {loading && <p>Loading...</p>}
+      {loading && <SkeletonTable count={3} />}
 
       {fetchError && (
         <div className="error" style={{ marginBottom: 12 }}>
