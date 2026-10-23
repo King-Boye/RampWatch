@@ -166,6 +166,10 @@ enum MigrationKey {
     /// Tracks whether a cross-contract migration is in progress.
     /// Blocks normal operations until migration completes successfully.
     MigrationInProgress,
+    /// Tracks the set of batch indices already imported during a cross-contract
+    /// migration. Used to reject replays and to require every batch before the
+    /// migration lock is cleared.
+    ImportedBatches,
 }
 
 fn get_schema_version(env: &Env) -> u32 {
@@ -218,6 +222,39 @@ fn clear_expected_next_batch(env: &Env) {
     env.storage()
         .instance()
         .remove(&MigrationKey::ExpectedNextBatch);
+}
+
+// ─── Imported batch set helpers ───────────────────────────────────────────────
+
+fn get_imported_batches(env: &Env) -> Vec<u32> {
+    env.storage()
+        .instance()
+        .get(&MigrationKey::ImportedBatches)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+fn is_batch_imported(env: &Env, batch_number: u32) -> bool {
+    let imported = get_imported_batches(env);
+    for i in 0..imported.len() {
+        if imported.get_unchecked(i) == batch_number {
+            return true;
+        }
+    }
+    false
+}
+
+fn mark_batch_imported(env: &Env, batch_number: u32) {
+    let mut imported = get_imported_batches(env);
+    imported.push_back(batch_number);
+    env.storage()
+        .instance()
+        .set(&MigrationKey::ImportedBatches, &imported);
+}
+
+fn clear_imported_batches(env: &Env) {
+    env.storage()
+        .instance()
+        .remove(&MigrationKey::ImportedBatches);
 }
 
 // ─── Migration state helpers ──────────────────────────────────────────────────
@@ -516,19 +553,20 @@ pub fn rollback_migration(env: &Env) -> Result<(), ContractError> {
 /// # Errors
 /// - `ContractError::NotFound` — no migration is currently in progress.
 pub fn abort_migration(env: &Env, caller: &Address) -> Result<(), ContractError> {
-    if !crate::storage::is_migration_in_progress(env) {
+    if !is_migration_in_progress(env) {
         return Err(ContractError::NotFound);
     }
 
     // Reset state machine to Idle.
-    crate::storage::set_migration_in_progress(env, false);
+    set_migration_in_progress(env, false);
 
-    // Reset batch ordering counter.
+    // Reset batch ordering counter and imported batch set.
     clear_expected_next_batch(env);
+    clear_imported_batches(env);
 
     env.events().publish(
         (soroban_sdk::Symbol::new(env, "mig"), soroban_sdk::Symbol::new(env, "aborted")),
-        (crate::config::SCHEMA_VERSION, env.ledger().sequence(), caller.clone()),
+        (CURRENT_SCHEMA_VERSION, env.ledger().sequence(), caller.clone()),
     );
 
     Ok(())
@@ -728,6 +766,11 @@ pub fn import_batch(env: &Env, batch: MigrationBatch) -> Result<(), ContractErro
         return Err(ContractError::InvalidMigrationHash);
     }
 
+    // Reject replays: a batch index may only be imported once.
+    if is_batch_imported(env, batch.batch_number) {
+        return Err(ContractError::InvalidMigrationBatch);
+    }
+
     // Enforce strict monotonic ordering: reject any batch whose index != expected_next_batch.
     let expected = get_expected_next_batch(env);
     if batch.batch_number != expected {
@@ -745,12 +788,22 @@ pub fn import_batch(env: &Env, batch: MigrationBatch) -> Result<(), ContractErro
         crate::storage::set_remittance(env, remittance.id, &remittance);
     }
 
-    // Advance the counter for the next expected batch.
+    // Record this batch as imported and advance the counter for the next expected batch.
+    mark_batch_imported(env, batch.batch_number);
     set_expected_next_batch(env, expected + 1);
 
-    // Clear the flag after the final batch completes successfully
-    if batch.batch_number == batch.total_batches.saturating_sub(1) {
+    // Only unlock once every batch in 0..total_batches has been imported.
+    let mut all_imported = batch.total_batches > 0;
+    for n in 0..batch.total_batches {
+        if !is_batch_imported(env, n) {
+            all_imported = false;
+            break;
+        }
+    }
+
+    if all_imported {
         clear_expected_next_batch(env);
+        clear_imported_batches(env);
         set_migration_in_progress(env, false);
     }
 

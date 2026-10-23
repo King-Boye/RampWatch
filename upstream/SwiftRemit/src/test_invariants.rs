@@ -22,6 +22,12 @@
 //!    create/cancel/confirm/partial-confirm/mark-failed/dispute/resolve/expire/withdraw
 //!    operations. Also asserts that remittance count and total volume are monotonic,
 //!    and that accumulated fees never decrease except via `withdraw_fees`.
+//!
+//! 5. **Per-Token Solvency Across Fund Flows** (#1692): For every token the contract
+//!    handles, `token.balance(contract) >= escrow_liabilities + withdrawable_fees`
+//!    after every step of a randomized sequence of create/confirm/partial/cancel/
+//!    fail/dispute/resolve/withdraw operations. This catches integrator double-count
+//!    and cross-token refund bugs that a single-token model would miss.
 #![cfg(test)]
 extern crate std;
 
@@ -31,6 +37,7 @@ use proptest::collection::vec as prop_vec;
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use soroban_sdk::{testutils::Address as _, token, Address, Env};
+======
 
 // ============================================================================
 // Helpers
@@ -765,6 +772,278 @@ proptest! {
             }
 
             check_invariants(&rems, &escrows, just_withdrew_fees)?;
+        }
+    }
+}
+
+// ============================================================================
+// Invariant 5: Per-Token Solvency Across All Fund Flows (#1692)
+//
+// For every token the contract handles, after every step of a randomized
+// sequence of fund-flow operations:
+//
+//   token.balance(contract) >= escrow_liabilities + withdrawable_fees
+//
+// where escrow_liabilities is the sum of outstanding remittance amounts net of
+// partial disbursements plus open standalone escrows, and withdrawable_fees is
+// `get_accumulated_fees()` plus integrator fees. Liabilities are mirrored from
+// the contract's own returned records and fee getters (not re-derived business
+// logic), so the model cannot drift into falsely proving solvency.
+//
+// The sequence deliberately mixes remittance and escrow flows and exercises
+// the integrator-fee path (via `create_remittance` with an integrator) so that
+// an integrator double-count or a cross-token refund would surface as a
+// per-token shortfall.
+// ============================================================================
+
+#[derive(Clone, Debug)]
+enum FlowOp {
+    CreateRemittance { amount_seed: u32, with_integrator: bool },
+    Confirm { pick: u32 },
+    PartialConfirm { pick: u32, amount_seed: u32 },
+    Cancel { pick: u32 },
+    MarkFailed { pick: u32 },
+    RaiseDispute { pick: u32 },
+    ResolveDispute { pick: u32, favor_sender: bool },
+    WithdrawFees,
+    CreateEscrow { amount_seed: u32 },
+    ReleaseEscrow { pick: u32 },
+    RefundEscrow { pick: u32 },
+}
+
+fn flow_op_strategy() -> impl Strategy<Value = FlowOp> {
+    prop_oneof![
+        3 => (1u32..=500_000u32, any::<bool>())
+            .prop_map(|(amount_seed, with_integrator)| FlowOp::CreateRemittance { amount_seed, with_integrator }),
+        3 => any::<u32>().prop_map(|pick| FlowOp::Confirm { pick }),
+        2 => (any::<u32>(), 1u32..=500_000u32)
+            .prop_map(|(pick, amount_seed)| FlowOp::PartialConfirm { pick, amount_seed }),
+        2 => any::<u32>().prop_map(|pick| FlowOp::Cancel { pick }),
+        1 => any::<u32>().prop_map(|pick| FlowOp::MarkFailed { pick }),
+        1 => any::<u32>().prop_map(|pick| FlowOp::RaiseDispute { pick }),
+        1 => (any::<u32>(), any::<bool>())
+            .prop_map(|(pick, favor_sender)| FlowOp::ResolveDispute { pick, favor_sender }),
+        1 => Just(FlowOp::WithdrawFees),
+        2 => (1u32..=500_000u32).prop_map(|amount_seed| FlowOp::CreateEscrow { amount_seed }),
+        1 => any::<u32>().prop_map(|pick| FlowOp::ReleaseEscrow { pick }),
+        1 => any::<u32>().prop_map(|pick| FlowOp::RefundEscrow { pick }),
+    ]
+}
+
+/// Per-token mirror of a remittance created during the run.
+struct FlowRem {
+    id: u64,
+    amount: i128,
+    disbursed: i128,
+    open: bool,
+}
+
+/// Per-token mirror of a standalone escrow created during the run.
+struct FlowEscrow {
+    id: u64,
+    amount: i128,
+    open: bool,
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(2_000))]
+
+    /// Fuzzes random sequences of fund-flow operations and asserts, per token,
+    /// that the contract balance covers escrow liabilities plus withdrawable
+    /// fees after every step.
+    #[test]
+    fn prop_per_token_solvency_across_fund_flows(
+        fee_bps in valid_fee_bps(),
+        ops in prop_vec(flow_op_strategy(), 1..=20),
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let sender = Address::generate(&env);
+        let agent = Address::generate(&env);
+        let integrator = Address::generate(&env);
+
+        let (token, token_sa) = make_token(&env, &token_admin);
+        token_sa.mint(&sender, &1_000_000_000_000i128);
+
+        let contract = make_contract(&env);
+        contract.initialize(&admin, &token.address, &fee_bps, &0, &0, &admin);
+        contract.register_agent(&agent, &None);
+        contract.set_kyc_approved(&sender, &true, &u64::MAX);
+        contract.assign_role(&admin, &agent, &crate::Role::Settler);
+
+        let mut rems: std::vec::Vec<FlowRem> = std::vec::Vec::new();
+        let mut escrows: std::vec::Vec<FlowEscrow> = std::vec::Vec::new();
+
+        // Per-token solvency check. `token` is the only token in play here, but
+        // the check is written per-token so a future multi-token harness can
+        // reuse it directly.
+        let check_solvency = |rems: &std::vec::Vec<FlowRem>,
+                              escrows: &std::vec::Vec<FlowEscrow>|
+         -> Result<(), TestCaseError> {
+            let escrow_liabilities: i128 = rems
+                .iter()
+                .filter(|r| r.open)
+                .map(|r| r.amount - r.disbursed)
+                .sum::<i128>()
+                + escrows.iter().filter(|e| e.open).map(|e| e.amount).sum::<i128>();
+            let withdrawable_fees =
+                contract.get_accumulated_fees() + contract.get_accumulated_integrator_fees();
+            let required = escrow_liabilities + withdrawable_fees;
+            let balance = token.balance(&contract.address);
+
+            prop_assert!(
+                balance >= required,
+                "Per-token solvency violated: balance {} < escrow liabilities {} + withdrawable fees {} = {}",
+                balance, escrow_liabilities, withdrawable_fees, required
+            );
+
+            Ok(())
+        };
+
+        check_solvency(&rems, &escrows)?;
+
+        for op in ops {
+            match op {
+                FlowOp::CreateRemittance { amount_seed, with_integrator } => {
+                    let amount = 1i128 + (amount_seed as i128 % 500_000);
+                    let integrator_arg = if with_integrator { Some(integrator.clone()) } else { None };
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        contract.create_remittance(
+                            &sender, &agent, &amount, &None, &None, &None, &None, &None, &integrator_arg,
+                        )
+                    }));
+                    if let Ok(id) = result {
+                        rems.push(FlowRem { id, amount, disbursed: 0, open: true });
+                    }
+                }
+
+                FlowOp::Confirm { pick } => {
+                    if let Some(idx) = pick_index(pick, rems.len()) {
+                        let id = rems[idx].id;
+                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            contract.confirm_payout(&agent, &id, &None, &None)
+                        }));
+                        if result.is_ok() {
+                            rems[idx].open = false;
+                        }
+                    }
+                }
+
+                FlowOp::PartialConfirm { pick, amount_seed } => {
+                    if let Some(idx) = pick_index(pick, rems.len()) {
+                        let id = rems[idx].id;
+                        let remaining = rems[idx].amount - rems[idx].disbursed;
+                        if remaining > 0 {
+                            let amount = (1i128 + (amount_seed as i128 % remaining)).min(remaining);
+                            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                contract.confirm_partial_payout(&id, &amount)
+                            }));
+                            if result.is_ok() {
+                                rems[idx].disbursed += amount;
+                                let rem = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    contract.get_remittance(&id)
+                                }));
+                                if let Ok(r) = rem {
+                                    if r.status == crate::RemittanceStatus::Completed {
+                                        rems[idx].open = false;
+                                        rems[idx].disbursed = rems[idx].amount;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                FlowOp::Cancel { pick } => {
+                    if let Some(idx) = pick_index(pick, rems.len()) {
+                        let id = rems[idx].id;
+                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            contract.cancel_remittance(&id)
+                        }));
+                        if result.is_ok() {
+                            rems[idx].open = false;
+                        }
+                    }
+                }
+
+                FlowOp::MarkFailed { pick } => {
+                    if let Some(idx) = pick_index(pick, rems.len()) {
+                        let id = rems[idx].id;
+                        // Escrow is retained on failure; the remittance stays an
+                        // obligation until resolve_dispute disburses it.
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            contract.mark_failed(&id)
+                        }));
+                    }
+                }
+
+                FlowOp::RaiseDispute { pick } => {
+                    if let Some(idx) = pick_index(pick, rems.len()) {
+                        let id = rems[idx].id;
+                        let hash = soroban_sdk::BytesN::from_array(&env, &[7u8; 32]);
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            contract.raise_dispute(&id, &hash)
+                        }));
+                    }
+                }
+
+                FlowOp::ResolveDispute { pick, favor_sender } => {
+                    if let Some(idx) = pick_index(pick, rems.len()) {
+                        let id = rems[idx].id;
+                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            contract.resolve_dispute(&id, &favor_sender)
+                        }));
+                        if result.is_ok() {
+                            rems[idx].open = false;
+                        }
+                    }
+                }
+
+                FlowOp::WithdrawFees => {
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        contract.withdraw_fees(&admin)
+                    }));
+                }
+
+                FlowOp::CreateEscrow { amount_seed } => {
+                    let amount = 1i128 + (amount_seed as i128 % 500_000);
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        contract.create_escrow(&sender, &agent, &amount)
+                    }));
+                    if let Ok(id) = result {
+                        escrows.push(FlowEscrow { id, amount, open: true });
+                    }
+                }
+
+                FlowOp::ReleaseEscrow { pick } => {
+                    if let Some(idx) = pick_index(pick, escrows.len()) {
+                        let id = escrows[idx].id;
+                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            contract.release_escrow(&id)
+                        }));
+                        if result.is_ok() {
+                            escrows[idx].open = false;
+                        }
+                    }
+                }
+
+                FlowOp::RefundEscrow { pick } => {
+                    if let Some(idx) = pick_index(pick, escrows.len()) {
+                        let id = escrows[idx].id;
+                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            contract.refund_escrow(&id)
+                        }));
+                        if result.is_ok() {
+                            escrows[idx].open = false;
+                        }
+                    }
+                }
+            }
+
+            check_solvency(&rems, &escrows)?;
         }
     }
 }

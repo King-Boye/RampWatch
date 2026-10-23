@@ -586,3 +586,57 @@ fn test_abort_migration_resets_batch_counter() {
     let batch_fresh = build_single_batch(&env, &snapshot2);
     contract.import_migration_batch(&admin, &batch_fresh);
 }
+
+#[test]
+fn test_abort_migration_allows_create_remittance() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, admin, token) = setup(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10_000);
+    contract.register_agent(&agent, &None);
+
+    // Lock via export — creates are blocked
+    contract.export_migration_snapshot(&admin);
+    let blocked = contract.try_create_remittance(&sender, &agent, &1000, &None, &None, &None, &None, &None);
+    assert_eq!(
+        blocked.unwrap_err().unwrap(),
+        ContractError::MigrationInProgress
+    );
+
+    // Abort clears the lock — creates resume
+    contract.abort_migration(&admin);
+    let id = contract.create_remittance(&sender, &agent, &1000, &None, &None, &None, &None, &None);
+    assert_eq!(id, 1);
+}
+
+#[test]
+fn test_abort_migration_allows_confirm_payout() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, admin, token) = setup(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &50_000);
+    contract.register_agent(&agent, &None);
+
+    let remittance_id =
+        contract.create_remittance(&sender, &agent, &10_000, &None, &None, &None, &None, &None);
+
+    // Lock via export — payouts are blocked
+    contract.export_migration_snapshot(&admin);
+    let blocked = contract.try_confirm_payout(&remittance_id, &None, &None);
+    assert_eq!(
+        blocked.unwrap_err().unwrap(),
+        ContractError::MigrationInProgress
+    );
+
+    // Abort clears the lock — payouts resume
+    contract.abort_migration(&admin);
+    contract.confirm_payout(&remittance_id, &None, &None);
+}

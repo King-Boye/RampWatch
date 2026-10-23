@@ -145,6 +145,132 @@ fn test_pause_unpause_updates_state_and_emits_events() {
 }
 
 #[test]
+fn test_blacklisted_agent_cannot_confirm_payout() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _admin, token) = setup(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10_000);
+    contract.register_agent(&agent, &None);
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1_000, &None, &None, &None, &None, &None);
+
+    contract.blacklist_user(&agent);
+
+    let result = contract.try_confirm_payout(&remittance_id, &None, &None);
+    assert_eq!(result, Err(Ok(ContractError::UserBlacklisted)));
+}
+
+#[test]
+fn test_sender_blacklisted_after_creation_cannot_confirm_payout() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _admin, token) = setup(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10_000);
+    contract.register_agent(&agent, &None);
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1_000, &None, &None, &None, &None, &None);
+
+    contract.blacklist_user(&sender);
+
+    let result = contract.try_confirm_payout(&remittance_id, &None, &None);
+    assert_eq!(result, Err(Ok(ContractError::UserBlacklisted)));
+}
+
+#[test]
+fn test_blacklisted_agent_cannot_partial_payout() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _admin, token) = setup(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10_000);
+    contract.register_agent(&agent, &None);
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1_000, &None, &None, &None, &None, &None);
+
+    contract.blacklist_user(&agent);
+
+    let result = contract.try_partial_payout(&remittance_id, &500, &None, &None);
+    assert_eq!(result, Err(Ok(ContractError::UserBlacklisted)));
+}
+
+#[test]
+fn test_sender_blacklisted_after_creation_cannot_partial_payout() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _admin, token) = setup(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10_000);
+    contract.register_agent(&agent, &None);
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1_000, &None, &None, &None, &None, &None);
+
+    contract.blacklist_user(&sender);
+
+    let result = contract.try_partial_payout(&remittance_id, &500, &None, &None);
+    assert_eq!(result, Err(Ok(ContractError::UserBlacklisted)));
+}
+
+#[test]
+fn test_blacklisted_agent_cannot_batch_settle() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _admin, token) = setup(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10_000);
+    contract.register_agent(&agent, &None);
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1_000, &None, &None, &None, &None, &None);
+
+    contract.blacklist_user(&agent);
+
+    let mut ids = soroban_sdk::Vec::new(&env);
+    ids.push_back(remittance_id);
+
+    let result = contract.try_batch_settle(&agent, &ids);
+    assert_eq!(result, Err(Ok(ContractError::UserBlacklisted)));
+}
+
+#[test]
+fn test_sender_blacklisted_after_creation_cannot_batch_settle() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, _admin, token) = setup(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    token.mint(&sender, &10_000);
+    contract.register_agent(&agent, &None);
+
+    let remittance_id = contract.create_remittance(&sender, &agent, &1_000, &None, &None, &None, &None, &None);
+
+    contract.blacklist_user(&sender);
+
+    let mut ids = soroban_sdk::Vec::new(&env);
+    ids.push_back(remittance_id);
+
+    let result = contract.try_batch_settle(&agent, &ids);
+    assert_eq!(result, Err(Ok(ContractError::UserBlacklisted)));
+}
+
+#[test]
 fn test_confirm_payout_blocked_while_paused_and_allowed_after_unpause() {
     let env = Env::default();
     env.mock_all_auths();
