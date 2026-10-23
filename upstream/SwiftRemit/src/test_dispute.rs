@@ -196,11 +196,90 @@ fn test_raise_dispute_after_window_expired_rejected() {
     let f = setup_failed_remittance();
     let hash = evidence_hash(&f.env);
 
-    // Default dispute window is 7 days; advance past it
-    advance(&f.env, 7 * 24 * 3600 + 1);
+    advance(&f.env, f.contract.get_dispute_window() + 1);
 
     let result = f.contract.try_raise_dispute(&f.remittance_id, &hash);
     assert_eq!(result, Err(Ok(ContractError::DisputeWindowExpired)));
+}
+
+#[test]
+fn test_failed_remittance_refunded_after_dispute_window_without_dispute() {
+    let f = setup_failed_remittance();
+    let sender_before = balance(&f.env, &f.token, &f.sender);
+    let contract_before = balance(&f.env, &f.token, &f.contract.address);
+
+    let too_early = f.contract.try_cancel_remittance(&f.remittance_id);
+    assert_eq!(too_early, Err(Ok(ContractError::InvalidStatus)));
+
+    advance(&f.env, f.contract.get_dispute_window() + 1);
+    f.contract.cancel_remittance(&f.remittance_id);
+
+    let remittance = f.contract.get_remittance(&f.remittance_id);
+    assert_eq!(remittance.status, crate::types::RemittanceStatus::Cancelled);
+    assert_eq!(balance(&f.env, &f.token, &f.sender) - sender_before, 1_000);
+    assert_eq!(contract_before - balance(&f.env, &f.token, &f.contract.address), 1_000);
+}
+
+#[test]
+fn test_failed_remittance_refunds_only_escrow_remaining_after_partial_payout() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let token = create_token(&env, &admin);
+    token.mint(&sender, &10_000);
+
+    let contract = make_contract(&env);
+    contract.initialize(&admin, &token.address, &250u32, &0u64, &0u32, &admin);
+    contract.register_agent(&agent, &None);
+
+    let escrow_recipient = Address::generate(&env);
+    contract.create_escrow(&sender, &escrow_recipient, &51);
+    let remittance_id =
+        contract.create_remittance(&sender, &agent, &1_000i128, &None, &None, &None, &None, &None, &None);
+    contract.confirm_partial_payout(&remittance_id, &400);
+    contract.mark_failed(&remittance_id);
+
+    let sender_before = balance(&env, &token, &sender);
+    let contract_before = balance(&env, &token, &contract.address);
+    advance(&env, contract.get_dispute_window() + 1);
+    contract.cancel_remittance(&remittance_id);
+
+    assert_eq!(balance(&env, &token, &sender) - sender_before, 600);
+    assert_eq!(balance(&env, &token, &contract.address), 51);
+    assert_eq!(contract_before, 651);
+}
+
+#[test]
+fn test_processing_remittance_refunds_only_escrow_remaining_after_partial_payout() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+    let token = create_token(&env, &admin);
+    token.mint(&sender, &10_000);
+
+    let contract = make_contract(&env);
+    contract.initialize(&admin, &token.address, &250u32, &0u64, &0u32, &admin);
+    contract.register_agent(&agent, &None);
+
+    let escrow_recipient = Address::generate(&env);
+    contract.create_escrow(&sender, &escrow_recipient, &51);
+    let remittance_id =
+        contract.create_remittance(&sender, &agent, &1_000i128, &None, &None, &None, &None, &None, &None);
+    contract.confirm_partial_payout(&remittance_id, &400);
+
+    let sender_before = balance(&env, &token, &sender);
+    let contract_before = balance(&env, &token, &contract.address);
+    contract.cancel_remittance(&remittance_id);
+
+    assert_eq!(balance(&env, &token, &sender) - sender_before, 600);
+    assert_eq!(balance(&env, &token, &contract.address), 51);
+    assert_eq!(contract_before, 651);
 }
 
 #[test]

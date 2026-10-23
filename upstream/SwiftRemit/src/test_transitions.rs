@@ -151,6 +151,7 @@ fn arb_valid_transition() -> impl Strategy<Value = (RemittanceStatus, Remittance
         Just((RemittanceStatus::Processing, RemittanceStatus::Failed)),
         // From Failed
         Just((RemittanceStatus::Failed, RemittanceStatus::Disputed)),
+        Just((RemittanceStatus::Failed, RemittanceStatus::Cancelled)),
         // Idempotent transitions (same state)
         Just((RemittanceStatus::Pending, RemittanceStatus::Pending)),
         Just((RemittanceStatus::Processing, RemittanceStatus::Processing)),
@@ -182,7 +183,6 @@ fn arb_invalid_transition() -> impl Strategy<Value = (RemittanceStatus, Remittan
         Just((RemittanceStatus::Failed, RemittanceStatus::Pending)),
         Just((RemittanceStatus::Failed, RemittanceStatus::Processing)),
         Just((RemittanceStatus::Failed, RemittanceStatus::Completed)),
-        Just((RemittanceStatus::Failed, RemittanceStatus::Cancelled)),
         Just((RemittanceStatus::Disputed, RemittanceStatus::Pending)),
         Just((RemittanceStatus::Disputed, RemittanceStatus::Processing)),
         Just((RemittanceStatus::Disputed, RemittanceStatus::Failed)),
@@ -348,6 +348,7 @@ fn test_state_machine_graph_coverage() {
         (RemittanceStatus::Processing, RemittanceStatus::Cancelled),
         (RemittanceStatus::Processing, RemittanceStatus::Failed),
         (RemittanceStatus::Failed, RemittanceStatus::Disputed),
+        (RemittanceStatus::Failed, RemittanceStatus::Cancelled),
     ];
 
     for (from, to) in valid_transitions {

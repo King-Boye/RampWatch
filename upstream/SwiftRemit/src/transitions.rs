@@ -5,7 +5,9 @@
 //! ```text
 //! Pending → Processing → Completed
 //!         ↘            ↘
-//!           Cancelled    Cancelled
+//!           Failed → Disputed → Completed | Cancelled
+//!             ↘
+//!              Cancelled (after the dispute window)
 //! ```
 //!
 //! Rules:
@@ -167,7 +169,10 @@ pub fn get_valid_next_states(status: &RemittanceStatus) -> soroban_sdk::Vec<Remi
             result.push_back(RemittanceStatus::Cancelled);
         }
         RemittanceStatus::Completed | RemittanceStatus::Cancelled => {}
-        RemittanceStatus::Failed => { result.push_back(RemittanceStatus::Disputed); }
+        RemittanceStatus::Failed => {
+            result.push_back(RemittanceStatus::Disputed);
+            result.push_back(RemittanceStatus::Cancelled);
+        }
         RemittanceStatus::Disputed => {
             result.push_back(RemittanceStatus::Cancelled);
             result.push_back(RemittanceStatus::Completed);

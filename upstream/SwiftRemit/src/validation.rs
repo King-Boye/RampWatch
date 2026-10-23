@@ -60,10 +60,22 @@ pub fn validate_remittance_exists(env: &Env, remittance_id: u64) -> Result<crate
     get_remittance(env, remittance_id)
 }
 
-/// Validates that a remittance is in a cancellable state (Pending or Processing).
-pub fn validate_remittance_cancellable(remittance: &crate::Remittance) -> Result<(), ContractError> {
+/// Validates that a remittance is cancellable by its sender.
+pub fn validate_remittance_cancellable(
+    env: &Env,
+    remittance: &crate::Remittance,
+) -> Result<(), ContractError> {
     match remittance.status {
         RemittanceStatus::Pending | RemittanceStatus::Processing => Ok(()),
+        RemittanceStatus::Failed => {
+            let failed_at = remittance.failed_at.ok_or(ContractError::InvalidStatus)?;
+            let elapsed = env.ledger().timestamp().saturating_sub(failed_at);
+            if elapsed > crate::storage::get_dispute_window(env) {
+                Ok(())
+            } else {
+                Err(ContractError::InvalidStatus)
+            }
+        }
         _ => Err(ContractError::InvalidStatus),
     }
 }
@@ -178,7 +190,7 @@ pub fn validate_cancel_remittance_request(
     remittance_id: u64,
 ) -> Result<crate::Remittance, ContractError> {
     let remittance = validate_remittance_exists(env, remittance_id)?;
-    validate_remittance_pending(&remittance)?;
+    validate_remittance_cancellable(env, &remittance)?;
     // Address type is guaranteed valid by the Soroban SDK runtime; no further
     // address validation is required or possible at the contract level.
     Ok(remittance)
