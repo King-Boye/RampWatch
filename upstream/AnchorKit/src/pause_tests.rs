@@ -9,7 +9,7 @@ mod pause_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
+    use crate::sep10_test_util::{register_attestor_with_sep10, sign_attestation};
 
     fn setup() -> (Env, AnchorKitContractClient<'static>, Address) {
         let env = Env::default();
@@ -82,7 +82,7 @@ mod pause_tests {
             for i in 0u8..32 { b.push_back(i); }
             b
         };
-        let sig = sign_payload(&env, &key, &hash);
+        let sig = sign_attestation(&env, &key, &client.address, &attestor, &subject, ts, &hash);
         client.submit_attestation(&attestor, &subject, &ts, &hash, &sig);
     }
 
@@ -126,7 +126,7 @@ mod pause_tests {
             for i in 0u8..32 { b.push_back(i); }
             b
         };
-        let sig = sign_payload(&env, &key, &hash);
+        let sig = sign_attestation(&env, &key, &client.address, &attestor, &subject, ts, &hash);
         // must not panic
         client.submit_attestation(&attestor, &subject, &ts, &hash, &sig);
     }
@@ -153,7 +153,7 @@ mod pause_tests {
             for i in 0u8..32 { b.push_back(i); }
             b
         };
-        let sig = sign_payload(&env, &key, &hash);
+        let sig = sign_attestation(&env, &key, &client.address, &attestor, &subject, ts, &hash);
         let request_id = Bytes::from_slice(&env, &[0u8; 32]);
         // submit_with_request_id should respect pause like submit_attestation does
         client.submit_with_request_id(&request_id, &attestor, &subject, &ts, &hash, &sig, &None);

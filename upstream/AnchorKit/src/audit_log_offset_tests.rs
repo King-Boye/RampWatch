@@ -10,7 +10,7 @@ mod audit_log_offset_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::{build_sep10_jwt, sign_payload};
+    use crate::sep10_test_util::{build_sep10_jwt, sign_attestation};
     use crate::deterministic_hash::compute_payload_hash;
     use soroban_sdk::Bytes;
 
@@ -43,6 +43,7 @@ mod audit_log_offset_tests {
         let issuer = attestor.clone();
         let pk = Bytes::from_slice(env, sk.verifying_key().as_bytes());
         client.set_sep10_jwt_verifying_key(&issuer, &pk);
+        client.add_attestation_key(&issuer, &pk);
 
         let sub = attestor.to_string();
         let mut buf = [0u8; 128];

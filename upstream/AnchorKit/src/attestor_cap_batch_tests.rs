@@ -227,7 +227,7 @@ mod attestor_cap_batch_tests {
     /// Filling the rate limit via the plain path must also throttle the batch path.
     #[test]
     fn test_batch_rate_limit_enforced() {
-        use crate::sep10_test_util::sign_payload;
+        use crate::sep10_test_util::sign_attestation;
 
         let env = make_env();
         let (client, admin) = setup(&env);
@@ -243,7 +243,7 @@ mod attestor_cap_batch_tests {
             window_length: 100,
             burst: 0,
         };
-        client.set_attestor_rate_limit(&admin, &issuer, &rate_config).unwrap();
+        client.set_attestor_rate_limit(&issuer, &rate_config).unwrap();
 
         let subject = Address::generate(&env);
         let ts = env.ledger().timestamp();
@@ -251,8 +251,8 @@ mod attestor_cap_batch_tests {
         // Use up both slots via the plain submit_attestation path.
         let ph0 = payload(&env, 0xA0);
         let ph1 = payload(&env, 0xA1);
-        client.submit_attestation(&issuer, &subject, &ts, &ph0, &sign_payload(&env, &signing_key, &ph0));
-        client.submit_attestation(&issuer, &subject, &ts, &ph1, &sign_payload(&env, &signing_key, &ph1));
+        client.submit_attestation(&issuer, &subject, &ts, &ph0, &sign_attestation(&env, &signing_key, &client.address, &issuer, &subject, ts, &ph0));
+        client.submit_attestation(&issuer, &subject, &ts, &ph1, &sign_attestation(&env, &signing_key, &client.address, &issuer, &subject, ts, &ph1));
 
         // The third submission — routed through submit_attestation_batch —
         // must be rejected with RateLimitExceeded, not silently accepted.
@@ -262,7 +262,7 @@ mod attestor_cap_batch_tests {
             subject: subject.clone(),
             timestamp: ts,
             payload_hash: ph2.clone(),
-            signature: sign_payload(&env, &signing_key, &ph2),
+            signature: sign_attestation(&env, &signing_key, &client.address, &issuer, &subject, ts, &ph2),
         });
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             client.submit_attestation_batch(&issuer, &inputs);
@@ -273,7 +273,7 @@ mod attestor_cap_batch_tests {
     /// Filling the rate limit via the plain path must also throttle submit_attestation_with_session.
     #[test]
     fn test_session_rate_limit_enforced() {
-        use crate::sep10_test_util::sign_payload;
+        use crate::sep10_test_util::sign_attestation;
 
         let env = make_env();
         let (client, admin) = setup(&env);
@@ -289,7 +289,7 @@ mod attestor_cap_batch_tests {
             window_length: 100,
             burst: 0,
         };
-        client.set_attestor_rate_limit(&admin, &issuer, &rate_config).unwrap();
+        client.set_attestor_rate_limit(&issuer, &rate_config).unwrap();
 
         let subject = Address::generate(&env);
         let ts = env.ledger().timestamp();
@@ -297,8 +297,8 @@ mod attestor_cap_batch_tests {
         // Use up both slots via the plain submit_attestation path.
         let ph0 = payload(&env, 0xB0);
         let ph1 = payload(&env, 0xB1);
-        client.submit_attestation(&issuer, &subject, &ts, &ph0, &sign_payload(&env, &signing_key, &ph0));
-        client.submit_attestation(&issuer, &subject, &ts, &ph1, &sign_payload(&env, &signing_key, &ph1));
+        client.submit_attestation(&issuer, &subject, &ts, &ph0, &sign_attestation(&env, &signing_key, &client.address, &issuer, &subject, ts, &ph0));
+        client.submit_attestation(&issuer, &subject, &ts, &ph1, &sign_attestation(&env, &signing_key, &client.address, &issuer, &subject, ts, &ph1));
 
         // Open a session for the issuer.
         let session_id = client.create_session(&issuer);
@@ -306,7 +306,7 @@ mod attestor_cap_batch_tests {
         // The third submission — routed through submit_attestation_with_session —
         // must be rejected with RateLimitExceeded, not silently accepted.
         let ph2 = payload(&env, 0xB2);
-        let sig2 = sign_payload(&env, &signing_key, &ph2);
+        let sig2 = sign_attestation(&env, &signing_key, &client.address, &issuer, &subject, ts, &ph2);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             client.submit_attestation_with_session(
                 &session_id,
