@@ -182,7 +182,7 @@ The contract exposes 134 public functions from a single `#[contractimpl] impl Sw
 | `mark_failed(remittance_id)` | Marks the remittance `Failed` while retaining escrow during the sender's dispute window | agent auth required (assigned agent) |
 | `raise_dispute(remittance_id, evidence_hash)` | Sender disputes a remittance in the `Failed` status, within the dispute window | sender auth required |
 | `resolve_dispute(remittance_id, in_favour_of_sender)` | Admin resolves a disputed remittance — refunds the sender or pays the agent | admin only |
-| `set_dispute_window(seconds)` | Sets how long after failure a sender may raise a dispute | admin only |
+| `set_dispute_window(seconds)` | Sets how long after failure a sender may raise a dispute (bounded at 30 days) | admin only |
 | `get_dispute_window()` | Returns the current dispute window in seconds | none (public query) |
 | `confirm_partial_payout(remittance_id, amount)` | Disburses a partial amount toward a remittance; auto-completes once fully disbursed | agent auth required (assigned agent) |
 | `finalize_remittance(caller, remittance_id)` | Verifies a remittance is in the `Completed` status | admin only |
@@ -831,6 +831,7 @@ changes (CI can run it with no `--write` and diff the output to catch drift).
 | **69** | AgentAlreadyRegistered | Agent is already registered in the system | Attempting to register an agent address that's already on the whitelist. | No action required; verify with get_agent. |
 | **71** | NotDisputed | This operation requires the remittance to be in a Disputed state | Calling a dispute-resolution function on a remittance that hasn't been disputed. | Call raise_dispute first, or verify the remittance status. |
 | **83** | MalformedEvidenceHash | Evidence hash for a dispute is not a valid 32-byte SHA-256 commitment | Supplying an evidence hash that isn't exactly 32 bytes. | Compute a SHA-256 hash of the evidence and pass the raw 32-byte digest. |
+| **84** | DisputeWindowTooLong | Dispute window exceeds the maximum permitted duration | Setting a dispute window longer than 30 days. | Use a dispute window of 30 days (2,592,000 seconds) or less. |
 
 <!-- ERROR_TABLE:END -->
 

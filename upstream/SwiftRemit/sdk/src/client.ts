@@ -1838,7 +1838,7 @@ export class SwiftRemitClient {
     return native != null ? BigInt(native as number) : null;
   }
 
-  /** Sets the dispute window in seconds. Requires admin. */
+  /** Sets the dispute window in seconds (max 30 days). Requires admin. */
   async setDisputeWindow(admin: string, seconds: bigint): Promise<Transaction> {
     return this.prepareTransaction(admin, "set_dispute_window", [u64ToScVal(seconds)]);
   }

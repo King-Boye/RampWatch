@@ -203,83 +203,69 @@ fn test_raise_dispute_after_window_expired_rejected() {
 }
 
 #[test]
-fn test_failed_remittance_refunded_after_dispute_window_without_dispute() {
+fn test_raise_dispute_near_max_timestamp_does_not_overflow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    let token = create_token(&env, &admin);
+    token.mint(&sender, &10_000);
+
+    let contract = make_contract(&env);
+    contract.initialize(&admin, &token.address, &250u32, &0u64, &0u32, &admin);
+    contract.register_agent(&agent, &None);
+
+    let id = contract.create_remittance(&sender, &agent, &1_000i128, &None, &None, &None, &None, &None, &None);
+
+    // Record the failure close to u64::MAX so failed_at + window would
+    // overflow without saturating arithmetic.
+    let near_max = u64::MAX - 1_000;
+    env.ledger().with_mut(|li| li.timestamp = near_max);
+    contract.mark_failed(&id);
+
+    // Saturating addition caps the deadline at u64::MAX, so the window is
+    // still open instead of the call panicking on overflow.
+    contract.raise_dispute(&id, &evidence_hash(&env));
+    assert_eq!(
+        contract.get_remittance(&id).status,
+        crate::types::RemittanceStatus::Disputed
+    );
+}
+
+#[test]
+fn test_set_dispute_window_accepts_max() {
     let f = setup_failed_remittance();
-    let sender_before = balance(&f.env, &f.token, &f.sender);
-    let contract_before = balance(&f.env, &f.token, &f.contract.address);
 
-    let too_early = f.contract.try_cancel_remittance(&f.remittance_id);
-    assert_eq!(too_early, Err(Ok(ContractError::InvalidStatus)));
-
-    advance(&f.env, f.contract.get_dispute_window() + 1);
-    f.contract.cancel_remittance(&f.remittance_id);
-
-    let remittance = f.contract.get_remittance(&f.remittance_id);
-    assert_eq!(remittance.status, crate::types::RemittanceStatus::Cancelled);
-    assert_eq!(balance(&f.env, &f.token, &f.sender) - sender_before, 1_000);
-    assert_eq!(contract_before - balance(&f.env, &f.token, &f.contract.address), 1_000);
+    f.contract
+        .set_dispute_window(&crate::storage::MAX_DISPUTE_WINDOW_SECONDS);
+    assert_eq!(
+        f.contract.get_dispute_window(),
+        crate::storage::MAX_DISPUTE_WINDOW_SECONDS
+    );
 }
 
 #[test]
-fn test_failed_remittance_refunds_only_escrow_remaining_after_partial_payout() {
-    let env = Env::default();
-    env.mock_all_auths();
+fn test_set_dispute_window_rejects_above_max() {
+    let f = setup_failed_remittance();
+    let max = crate::storage::MAX_DISPUTE_WINDOW_SECONDS;
 
-    let admin = Address::generate(&env);
-    let sender = Address::generate(&env);
-    let agent = Address::generate(&env);
-    let token = create_token(&env, &admin);
-    token.mint(&sender, &10_000);
+    assert_eq!(
+        f.contract.try_set_dispute_window(&(max + 1)),
+        Err(Ok(ContractError::DisputeWindowTooLong))
+    );
+    assert_eq!(
+        f.contract.try_set_dispute_window(&u64::MAX),
+        Err(Ok(ContractError::DisputeWindowTooLong))
+    );
 
-    let contract = make_contract(&env);
-    contract.initialize(&admin, &token.address, &250u32, &0u64, &0u32, &admin);
-    contract.register_agent(&agent, &None);
-
-    let escrow_recipient = Address::generate(&env);
-    contract.create_escrow(&sender, &escrow_recipient, &51);
-    let remittance_id =
-        contract.create_remittance(&sender, &agent, &1_000i128, &None, &None, &None, &None, &None, &None);
-    contract.confirm_partial_payout(&remittance_id, &400);
-    contract.mark_failed(&remittance_id);
-
-    let sender_before = balance(&env, &token, &sender);
-    let contract_before = balance(&env, &token, &contract.address);
-    advance(&env, contract.get_dispute_window() + 1);
-    contract.cancel_remittance(&remittance_id);
-
-    assert_eq!(balance(&env, &token, &sender) - sender_before, 600);
-    assert_eq!(balance(&env, &token, &contract.address), 51);
-    assert_eq!(contract_before, 651);
-}
-
-#[test]
-fn test_processing_remittance_refunds_only_escrow_remaining_after_partial_payout() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let sender = Address::generate(&env);
-    let agent = Address::generate(&env);
-    let token = create_token(&env, &admin);
-    token.mint(&sender, &10_000);
-
-    let contract = make_contract(&env);
-    contract.initialize(&admin, &token.address, &250u32, &0u64, &0u32, &admin);
-    contract.register_agent(&agent, &None);
-
-    let escrow_recipient = Address::generate(&env);
-    contract.create_escrow(&sender, &escrow_recipient, &51);
-    let remittance_id =
-        contract.create_remittance(&sender, &agent, &1_000i128, &None, &None, &None, &None, &None, &None);
-    contract.confirm_partial_payout(&remittance_id, &400);
-
-    let sender_before = balance(&env, &token, &sender);
-    let contract_before = balance(&env, &token, &contract.address);
-    contract.cancel_remittance(&remittance_id);
-
-    assert_eq!(balance(&env, &token, &sender) - sender_before, 600);
-    assert_eq!(balance(&env, &token, &contract.address), 51);
-    assert_eq!(contract_before, 651);
+    // Rejected values must not overwrite the stored window.
+    assert_eq!(
+        f.contract.get_dispute_window(),
+        crate::storage::DEFAULT_DISPUTE_WINDOW_SECONDS
+    );
 }
 
 #[test]

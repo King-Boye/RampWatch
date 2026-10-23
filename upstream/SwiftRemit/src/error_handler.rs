@@ -579,6 +579,12 @@ impl ErrorHandler {
                 ErrorCategory::Validation,
                 ErrorSeverity::Medium,
             ),
+            ContractError::DisputeWindowTooLong => (
+                84,
+                SorobanString::from_str(env, "Dispute window exceeds the maximum permitted duration"),
+                ErrorCategory::Validation,
+                ErrorSeverity::Medium,
+            ),
 
             // ── Arithmetic / extended ─────────────────────────────────────────
             ContractError::Underflow => (

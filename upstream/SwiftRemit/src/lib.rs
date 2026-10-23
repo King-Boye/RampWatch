@@ -1512,7 +1512,10 @@ impl SwiftRemitContract {
 
         let failed_at = remittance.failed_at.ok_or(ContractError::InvalidStatus)?;
         let window = get_dispute_window(&env);
-        if env.ledger().timestamp() > failed_at + window {
+        // #1650: saturating_add keeps this comparison safe even if `failed_at`
+        // is close to u64::MAX, instead of panicking (overflow checks on) or
+        // wrapping around (overflow checks off).
+        if env.ledger().timestamp() > failed_at.saturating_add(window) {
             return Err(ContractError::DisputeWindowExpired);
         }
 
@@ -1680,6 +1683,12 @@ impl SwiftRemitContract {
     pub fn set_dispute_window(env: Env, seconds: u64) -> Result<(), ContractError> {
         let caller = get_admin(&env)?;
         require_admin(&env, &caller)?;
+        // #1650: Reject windows above the hard cap so an admin cannot set a
+        // deadline so large that failed_at + window overflows, and so the
+        // dispute deadline always remains meaningful.
+        if seconds > storage::MAX_DISPUTE_WINDOW_SECONDS {
+            return Err(ContractError::DisputeWindowTooLong);
+        }
         storage::set_dispute_window(&env, seconds);
         Ok(())
     }

@@ -121,6 +121,7 @@ fn test_all_contract_errors_have_distinct_mappings() {
         // Dispute Errors (71-83)
         ContractError::NotDisputed,
         ContractError::MalformedEvidenceHash,
+        ContractError::DisputeWindowTooLong,
 
         // Restored Variants (70-79)
         ContractError::NotFound,

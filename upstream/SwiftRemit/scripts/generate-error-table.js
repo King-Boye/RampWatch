@@ -377,6 +377,11 @@ const DETAILS = {
     cause: "Supplying an evidence hash that isn't exactly 32 bytes.",
     resolution: "Compute a SHA-256 hash of the evidence and pass the raw 32-byte digest.",
   },
+  DisputeWindowTooLong: {
+    description: "Dispute window exceeds the maximum permitted duration",
+    cause: "Setting a dispute window longer than 30 days.",
+    resolution: "Use a dispute window of 30 days (2,592,000 seconds) or less.",
+  },
 };
 
 function parseVariants(rsSource) {
