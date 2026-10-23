@@ -68,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [fuzz_deterministic_hash, fuzz_domain_validator]
+        target: [fuzz_deterministic_hash, fuzz_domain_validator, fuzz_jwt_parsing, fuzz_sep6_response]
 
     steps:
       - uses: actions/checkout@v4

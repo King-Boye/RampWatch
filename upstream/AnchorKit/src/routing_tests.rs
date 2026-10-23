@@ -3,7 +3,7 @@
 mod routing_tests {
     use soroban_sdk::{
         testutils::{Address as _, Events, Ledger, LedgerInfo},
-        Address, Env, String, Symbol, Vec, symbol_short,
+        Address, Env, IntoVal, String, Symbol, Vec, symbol_short,
     };
 
     use ed25519_dalek::SigningKey;
@@ -80,6 +80,36 @@ mod routing_tests {
             &100000u64,
             &1_003_600u64,
         );
+    }
+
+    #[test]
+    fn test_quote_fee_rejects_values_above_10000_bps() {
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+        let anchor = Address::generate(&env);
+        register_anchor(&env, &client, &anchor);
+
+        assert!(client.try_submit_quote(
+            &anchor,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64,
+            &10_000u32,
+            &100u64,
+            &100000u64,
+            &1_003_600u64,
+        ).is_ok());
+        assert!(client.try_submit_quote(
+            &anchor,
+            &String::from_str(&env, "USD"),
+            &String::from_str(&env, "USDC"),
+            &10000u64,
+            &10_001u32,
+            &100u64,
+            &100000u64,
+            &1_003_600u64,
+        ).is_err());
     }
 
     #[test]
@@ -1042,6 +1072,74 @@ mod routing_tests {
 
         assert_eq!(routed.anchor, anchor);
         assert_eq!(events_after, events_before + 1);
+    }
+
+    #[test]
+    fn test_revoked_attestor_quotes_not_routed() {
+        // After revoking an anchor, its still-unexpired quote must never be routed.
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let revoked = Address::generate(&env);
+        let healthy = Address::generate(&env);
+        register_anchor(&env, &client, &revoked);
+        register_anchor(&env, &client, &healthy);
+
+        // Revoked anchor has the cheaper quote, so it would win without the fix.
+        submit_standard_quote(&env, &client, &revoked, 10);
+        submit_standard_quote(&env, &client, &healthy, 40);
+
+        client.revoke_attestor(&revoked);
+
+        let options = make_lowest_fee_options(&env);
+        let best = client.route_transaction(&options);
+        assert_eq!(best.anchor, healthy);
+        assert_ne!(best.anchor, revoked);
+    }
+
+    #[test]
+    fn test_revoked_attestor_only_candidate_fails_routing() {
+        // When the only quote belongs to a revoked anchor, routing must fail.
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let revoked = Address::generate(&env);
+        register_anchor(&env, &client, &revoked);
+        submit_standard_quote(&env, &client, &revoked, 10);
+
+        client.revoke_attestor(&revoked);
+
+        let options = make_lowest_fee_options(&env);
+        assert!(client.try_route_transaction(&options).is_err());
+    }
+
+    #[test]
+    fn test_anchor_without_quotes_service_not_routed() {
+        // An anchor that no longer advertises SERVICE_QUOTES must be skipped.
+        let env = make_env();
+        set_ledger(&env, 1_000_000);
+        let (client, _) = setup(&env);
+
+        let no_quotes = Address::generate(&env);
+        let healthy = Address::generate(&env);
+        register_anchor(&env, &client, &no_quotes);
+        register_anchor(&env, &client, &healthy);
+
+        // no_quotes has the cheaper quote, so it would win without the fix.
+        submit_standard_quote(&env, &client, &no_quotes, 10);
+        submit_standard_quote(&env, &client, &healthy, 40);
+
+        // Remove SERVICE_QUOTES (1) from the anchor's advertised services.
+        let mut services = Vec::new(&env);
+        services.push_back(3u32);
+        client.configure_services(&no_quotes, &services);
+
+        let options = make_lowest_fee_options(&env);
+        let best = client.route_transaction(&options);
+        assert_eq!(best.anchor, healthy);
+        assert_ne!(best.anchor, no_quotes);
     }
 }
 

@@ -9,7 +9,7 @@ mod get_attestation_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
+    use crate::sep10_test_util::{register_attestor_with_sep10, sign_attestation};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -55,7 +55,7 @@ mod get_attestation_tests {
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &signing_key);
 
         let p = payload(&env, 0xAB);
-        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_payload(&env, &signing_key, &p));
+        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_attestation(&env, &signing_key, &client.address, &attestor, &subject, 1700000000u64, &p));
 
         client.revoke_attestation(&attestor, &id);
 
@@ -79,7 +79,7 @@ mod get_attestation_tests {
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &signing_key);
 
         let p = payload(&env, 0xAB);
-        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_payload(&env, &signing_key, &p));
+        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_attestation(&env, &signing_key, &client.address, &attestor, &subject, 1700000000u64, &p));
 
         assert!(client.is_attestation_valid(&id));
 
@@ -105,7 +105,7 @@ mod get_attestation_tests {
         register_attestor_with_sep10(&env, &client, &attestor, &attestor, &signing_key);
 
         let p = payload(&env, 0xAB);
-        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_payload(&env, &signing_key, &p));
+        let id = client.submit_attestation(&attestor, &subject, &1700000000u64, &p, &sign_attestation(&env, &signing_key, &client.address, &attestor, &subject, 1700000000u64, &p));
 
         let result = client.get_attestation(&id);
         assert!(result.is_some());
@@ -150,7 +150,7 @@ mod get_attestation_tests {
             &subject,
             &1700000000u64,
             &p,
-            &sign_payload(&env, &signing_key, &p),
+            &sign_attestation(&env, &signing_key, &client.address, &attestor, &subject, 1700000000u64, &p),
         );
 
         // 5. The new attestation must NOT be flagged as issuer_revoked

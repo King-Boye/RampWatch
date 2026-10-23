@@ -15,7 +15,7 @@ mod streaming_flow_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
+    use crate::sep10_test_util::{register_attestor_with_sep10, sign_attestation};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -56,6 +56,7 @@ mod streaming_flow_tests {
         let issuer = attestor.clone();
         let pk = Bytes::from_slice(env, sk.verifying_key().as_bytes());
         client.set_sep10_jwt_verifying_key(&issuer, &pk);
+        client.add_attestation_key(&issuer, &pk);
 
         let sub = attestor.to_string();
         let mut buf = [0u8; 128];
@@ -84,10 +85,9 @@ mod streaming_flow_tests {
     fn test_session_operation_count_increments_on_each_step() {
         let env = make_env();
         setup_ledger(&env);
-        let (client, _admin, _anchor, _sk) = setup(&env);
+        let (client, admin, _anchor, _sk) = setup(&env);
 
-        let initiator = Address::generate(&env);
-        let session_id = client.create_session(&initiator);
+        let session_id = client.create_session(&admin);
 
         assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 0);
 
@@ -122,7 +122,7 @@ mod streaming_flow_tests {
             &subject,
             &(env.ledger().timestamp()),
             &p,
-            &sign_payload(&env, &sk, &p),
+            &sign_attestation(&env, &sk, &client.address, &anchor, &subject, env.ledger().timestamp(), &p),
         );
 
         let log = client.get_audit_log(&0);
@@ -146,8 +146,8 @@ mod streaming_flow_tests {
 
         let subject = Address::generate(&env);
         let p = payload(&env, 2);
-        let sig = sign_payload(&env, &sk, &p);
         let ts = env.ledger().timestamp();
+        let sig = sign_attestation(&env, &sk, &client.address, &anchor, &subject, ts, &p);
 
         client.submit_attestation_with_session(&session_id, &anchor, &subject, &ts, &p, &sig);
 
