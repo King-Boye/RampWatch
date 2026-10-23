@@ -86,10 +86,20 @@ mod anchor_info_discovery_tests {
         }
     }
 
+    /// Mark `anchor` as a registered attestor, which `fetch_anchor_info` requires.
+    fn register_anchor(env: &Env, client: &AnchorKitContractClient, anchor: &Address) {
+        env.as_contract(&client.address, || {
+            env.storage()
+                .persistent()
+                .set(&crate::storage::StorageKey::Attestor(anchor.clone()), &true);
+        });
+    }
+
     fn setup(env: &Env) -> (AnchorKitContractClient, Address) {
         let contract_id = env.register_contract(None, AnchorKitContract);
         let client = AnchorKitContractClient::new(env, &contract_id);
         let anchor = Address::generate(env);
+        register_anchor(env, &client, &anchor);
         (client, anchor)
     }
 
@@ -191,6 +201,7 @@ mod anchor_info_discovery_tests {
 
         // None falls back to default 3600s TTL
         let anchor2 = Address::generate(&env);
+        register_anchor(&env, &client, &anchor2);
         set_ledger(&env, 1000);
         client.fetch_anchor_info(&anchor2, &sample_toml(&env), &String::from_str(&env, "Test SDF Network ; September 2015"), &None);
         set_ledger(&env, 5000);
@@ -423,6 +434,7 @@ mod anchor_info_discovery_tests {
         set_ledger(&env, 0);
         let (client, anchor1) = setup(&env);
         let anchor2 = Address::generate(&env);
+        register_anchor(&env, &client, &anchor2);
 
         let mut currencies2 = Vec::new(&env);
         currencies2.push_back(AssetInfo {
@@ -553,6 +565,7 @@ mod anchor_info_discovery_tests {
             claimable_balance_supported: false,
         };
         let anchor2 = Address::generate(&env);
+        register_anchor(&env, &client, &anchor2);
         client.fetch_anchor_info(&anchor2, &toml_btc, &String::from_str(&env, "Test SDF Network ; September 2015"), &Some(3600u64));
         let btcln = client.get_anchor_asset_info(&anchor2, &String::from_str(&env, "BTCLN"));
         assert_eq!(btcln.decimals, 8);
@@ -680,6 +693,51 @@ mod anchor_info_discovery_tests {
         assert_eq!(
             result.unwrap_err().unwrap(),
             crate::errors::ErrorCode::CacheNotFound,
+        );
+    }
+
+    #[test]
+    fn test_fetch_anchor_info_rejects_unregistered_anchor() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let contract_id = env.register_contract(None, AnchorKitContract);
+        let client = AnchorKitContractClient::new(&env, &contract_id);
+        let stranger = Address::generate(&env);
+
+        let result = client.try_fetch_anchor_info(
+            &stranger,
+            &sample_toml(&env),
+            &String::from_str(&env, "Test SDF Network ; September 2015"),
+            &Some(3600u64),
+        );
+
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            crate::errors::ErrorCode::AttestorNotRegistered,
+        );
+        assert!(client.try_get_anchor_toml(&stranger).is_err(), "nothing must be cached");
+    }
+
+    #[test]
+    fn test_cached_anchor_list_is_bounded() {
+        let env = make_env();
+        set_ledger(&env, 0);
+        let (client, _) = setup(&env);
+        let network = String::from_str(&env, "Test SDF Network ; September 2015");
+
+        for _ in 0..crate::contract::MAX_CACHED_ANCHORS {
+            let anchor = Address::generate(&env);
+            register_anchor(&env, &client, &anchor);
+            client.fetch_anchor_info(&anchor, &sample_toml(&env), &network, &Some(3600u64));
+        }
+
+        let overflow = Address::generate(&env);
+        register_anchor(&env, &client, &overflow);
+        let result = client.try_fetch_anchor_info(&overflow, &sample_toml(&env), &network, &Some(3600u64));
+
+        assert_eq!(
+            result.unwrap_err().unwrap(),
+            crate::errors::ErrorCode::AttestorCapExceeded,
         );
     }
 }

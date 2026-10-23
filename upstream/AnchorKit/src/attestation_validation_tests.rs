@@ -5,7 +5,7 @@ use soroban_sdk::{
 };
 use ed25519_dalek::SigningKey;
 use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
+use crate::sep10_test_util::{register_attestor_with_sep10, sign_attestation};
 
 #[test]
 fn test_submit_attestation_happy_path() {
@@ -42,8 +42,8 @@ fn test_submit_attestation_happy_path() {
     let mut hash_data = [0u8; 32];
     hash_data[0] = 1;
     let payload_hash = Bytes::from_slice(&env, &hash_data);
-    let signature = sign_payload(&env, &keypair, &payload_hash);
     let timestamp = env.ledger().timestamp();
+    let signature = sign_attestation(&env, &keypair, &client.address, &issuer, &subject, timestamp, &payload_hash);
 
     let id = client.submit_attestation(
         &issuer,
@@ -124,16 +124,17 @@ fn test_submit_attestation_valid_signature() {
     // Setup keys
     let pk_bytes = Bytes::from_slice(&env, &public_key);
     client.set_sep10_jwt_verifying_key(&issuer, &pk_bytes);
+    client.add_attestation_key(&issuer, &pk_bytes);
 
     let mut hash_data = [0u8; 32];
     hash_data[0] = 42;
     let payload_hash = Bytes::from_slice(&env, &hash_data);
     
     // Sign the hash
-    use ed25519_dalek::Signer;
-    let dalek_sig = keypair.sign(&hash_data);
-    let signature = Bytes::from_slice(&env, &dalek_sig.to_bytes());
     let timestamp = 123456789;
+    let signature = crate::sep10_test_util::sign_attestation(
+        &env, &keypair, &contract_id, &issuer, &subject, timestamp, &payload_hash,
+    );
 
     // We do NOT need register_attestor here because the method checks authorization directly.
     // Wait, submit_attestation checks: verify_attestor_registered(&env, issuer);
@@ -177,6 +178,7 @@ fn test_submit_attestation_tampered_signature() {
 
     let pk_bytes = Bytes::from_slice(&env, &public_key);
     client.set_sep10_jwt_verifying_key(&issuer, &pk_bytes);
+    client.add_attestation_key(&issuer, &pk_bytes);
 
     let mut hash_data = [0u8; 32];
     hash_data[0] = 42;
@@ -197,4 +199,70 @@ fn test_submit_attestation_tampered_signature() {
     });
 
     client.submit_attestation(&issuer, &subject, &timestamp, &payload_hash, &signature);
+}
+
+// ---------------------------------------------------------------------------
+// #1376: the signature covers issuer, subject, timestamp, contract and network
+// ---------------------------------------------------------------------------
+
+/// A registered issuer with a signing key on a fresh contract, ledger at t=1000.
+fn signed_setup(
+    env: &Env,
+    seed: u8,
+) -> (Address, AnchorKitContractClient<'_>, ed25519_dalek::SigningKey, Address, Bytes) {
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+
+    let contract_id = env.register_contract(None, AnchorKitContract);
+    let client = AnchorKitContractClient::new(env, &contract_id);
+    let keypair = ed25519_dalek::SigningKey::from_bytes(&[seed; 32]);
+    let issuer = Address::generate(env);
+    client.set_sep10_jwt_verifying_key(&issuer, &Bytes::from_slice(env, &keypair.verifying_key().to_bytes()));
+    env.as_contract(&contract_id, || {
+        env.storage().persistent().set(&crate::storage::StorageKey::Attestor(issuer.clone()), &true);
+    });
+    (contract_id, client, keypair, issuer, Bytes::from_slice(env, &[7u8; 32]))
+}
+
+#[test]
+fn test_attestation_signature_binds_subject_and_timestamp() {
+    let env = Env::default();
+    let (contract_id, client, keypair, issuer, payload_hash) = signed_setup(&env, 3);
+    let subject = Address::generate(&env);
+    let sig = crate::sep10_test_util::sign_attestation(&env, &keypair, &contract_id, &issuer, &subject, 900, &payload_hash);
+
+    // Changing the subject or the timestamp invalidates the signature.
+    let other_subject = Address::generate(&env);
+    assert_eq!(
+        client.try_submit_attestation(&issuer, &other_subject, &900, &payload_hash, &sig).unwrap_err().unwrap(),
+        crate::errors::ErrorCode::UnauthorizedAttestor,
+    );
+    assert_eq!(
+        client.try_submit_attestation(&issuer, &subject, &901, &payload_hash, &sig).unwrap_err().unwrap(),
+        crate::errors::ErrorCode::UnauthorizedAttestor,
+    );
+
+    // The untouched submission verifies.
+    assert_eq!(client.submit_attestation(&issuer, &subject, &900, &payload_hash, &sig), 0);
+}
+
+#[test]
+fn test_attestation_signature_is_bound_to_the_contract() {
+    let env = Env::default();
+    let (contract_a, _client_a, keypair, issuer, payload_hash) = signed_setup(&env, 4);
+    let subject = Address::generate(&env);
+    let sig_for_a = crate::sep10_test_util::sign_attestation(&env, &keypair, &contract_a, &issuer, &subject, 900, &payload_hash);
+
+    // A second deployment registering the same issuer key must not accept it.
+    let contract_b = env.register_contract(None, AnchorKitContract);
+    let client_b = AnchorKitContractClient::new(&env, &contract_b);
+    client_b.set_sep10_jwt_verifying_key(&issuer, &Bytes::from_slice(&env, &keypair.verifying_key().to_bytes()));
+    env.as_contract(&contract_b, || {
+        env.storage().persistent().set(&crate::storage::StorageKey::Attestor(issuer.clone()), &true);
+    });
+
+    assert_eq!(
+        client_b.try_submit_attestation(&issuer, &subject, &900, &payload_hash, &sig_for_a).unwrap_err().unwrap(),
+        crate::errors::ErrorCode::UnauthorizedAttestor,
+    );
 }
