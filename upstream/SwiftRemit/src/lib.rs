@@ -2702,7 +2702,9 @@ impl SwiftRemitContract {
     /// - `limit` is the configured corridor limit in stroops (0 = no limit set)
     /// - `used` is the rolling 24-hour volume already sent by this sender
     /// - `remaining` is `limit - used` (0 when no limit is configured)
-    /// - `resets_at` is the Unix timestamp when the oldest in-window transfer ages out
+    /// - `resets_at` is the Unix timestamp when the oldest in-window transfer ages
+    ///   out of the rolling window and capacity is restored. It is `0` when
+    ///   `used == 0` (nothing to reset — the full limit is already available).
     pub fn get_daily_limit_status(
         env: Env,
         sender: Address,
@@ -2717,7 +2719,7 @@ impl SwiftRemitContract {
 
         let transfers = get_user_transfers(&env, &sender);
         let mut used: i128 = 0;
-        let mut oldest_in_window: u64 = now;
+        let mut oldest_in_window: Option<u64> = None;
 
         for i in 0..transfers.len() {
             let record = transfers.get_unchecked(i);
@@ -2726,9 +2728,10 @@ impl SwiftRemitContract {
                 && record.country == country
             {
                 used = used.saturating_add(record.amount);
-                if record.timestamp < oldest_in_window {
-                    oldest_in_window = record.timestamp;
-                }
+                oldest_in_window = match oldest_in_window {
+                    Some(oldest) if oldest <= record.timestamp => Some(oldest),
+                    _ => Some(record.timestamp),
+                };
             }
         }
 
@@ -2742,8 +2745,14 @@ impl SwiftRemitContract {
             0
         };
 
-        // resets_at: when the oldest in-window transfer exits the 24h window
-        let resets_at = oldest_in_window.saturating_add(DAILY_LIMIT_WINDOW_SECONDS);
+        // resets_at: when the oldest in-window transfer exits the 24h window.
+        // When nothing has been sent in the window (`used == 0`) the full limit is
+        // available, so there is nothing to reset: return 0 rather than a
+        // misleading `now + 24h`.
+        let resets_at = match oldest_in_window {
+            Some(oldest) => oldest.saturating_add(DAILY_LIMIT_WINDOW_SECONDS),
+            None => 0,
+        };
 
         (limit, used, remaining, resets_at)
     }
@@ -3587,6 +3596,11 @@ impl SwiftRemitContract {
     /// Adds a user to the blacklist.
     ///
     /// Requires authentication from the configured admin.
+    ///
+    /// # Deprecated
+    /// Thin wrapper over `set_blacklist_status`. Scheduled for removal in the
+    /// next ABI version — use `set_blacklist_status(user, true)` instead.
+    #[deprecated(note = "use set_blacklist_status(user, true); removed in the next ABI version")]
     pub fn blacklist_user(env: Env, user: Address) -> Result<(), ContractError> {
         Self::set_blacklist_status(&env, user, true)
     }
@@ -3594,11 +3608,21 @@ impl SwiftRemitContract {
     /// Removes a user from the blacklist.
     ///
     /// Requires authentication from the configured admin.
+    ///
+    /// # Deprecated
+    /// Thin wrapper over `set_blacklist_status`. Scheduled for removal in the
+    /// next ABI version — use `set_blacklist_status(user, false)` instead.
+    #[deprecated(note = "use set_blacklist_status(user, false); removed in the next ABI version")]
     pub fn remove_from_blacklist(env: Env, user: Address) -> Result<(), ContractError> {
         Self::set_blacklist_status(&env, user, false)
     }
 
     /// Set user blacklist status (admin only)
+    ///
+    /// # Deprecated
+    /// Thin wrapper over `set_blacklist_status`. Scheduled for removal in the
+    /// next ABI version — use `set_blacklist_status(user, blacklisted)` instead.
+    #[deprecated(note = "use set_blacklist_status(user, blacklisted); removed in the next ABI version")]
     pub fn set_user_blacklisted(
         env: Env,
         user: Address,
@@ -3690,9 +3714,11 @@ impl SwiftRemitContract {
     /// Imports a single batch of remittances produced by `export_migration_snapshot`.
     ///
     /// Each batch carries its own `batch_hash` which is verified before any data is
-    /// written. Batches must be imported in order (0, 1, 2, …). After the final batch
-    /// (`batch_number == total_batches - 1`) the `MigrationInProgress` flag is cleared,
-    /// re-enabling normal operations.
+    /// written. Batches must be imported strictly in order (0, 1, 2, …): a batch is
+    /// only accepted when its `batch_number` equals the next expected index, so
+    /// out-of-order imports and replays are rejected with `InvalidMigrationBatch`.
+    /// The `MigrationInProgress` flag is cleared only once every batch in
+    /// `0..total_batches` has been imported.
     ///
     /// # Authorization
     /// Admin only — caller must authenticate.
@@ -3704,7 +3730,8 @@ impl SwiftRemitContract {
     /// - `NotInitialized` — contract not yet initialized
     /// - `Unauthorized` — caller is not an admin
     /// - `InvalidMigrationHash` — batch hash verification failed
-    /// - `InvalidMigrationBatch` — batch_number ≥ total_batches
+    /// - `InvalidMigrationBatch` — batch_number ≥ total_batches, batch_number is not
+    ///   the next expected batch (out of order), or the batch was already imported
     pub fn import_migration_batch(
         env: Env,
         caller: Address,
@@ -3725,11 +3752,24 @@ impl SwiftRemitContract {
         let batch_number = batch.batch_number;
         let total_batches = batch.total_batches;
 
+        // Enforce ordering: the batch must be exactly the next expected index.
+        // This rejects both out-of-order imports and replays of already-imported
+        // batches (a replay has batch_number < next expected).
+        let next_expected = crate::storage::get_migration_next_batch(&env);
+        if batch_number != next_expected {
+            return Err(ContractError::InvalidMigrationBatch);
+        }
+
         // Delegate to migration module (performs hash verification + import)
         migration::import_batch(&env, batch)?;
 
-        // Clear the lock after the final batch
-        if batch_number == total_batches.saturating_sub(1) {
+        // Record the imported batch and advance the expected index.
+        crate::storage::set_migration_batch_imported(&env, batch_number);
+        let imported = next_expected.checked_add(1).ok_or(ContractError::Overflow)?;
+        crate::storage::set_migration_next_batch(&env, imported);
+
+        // Clear the lock only once every batch has been imported.
+        if imported >= total_batches {
             crate::storage::set_migration_in_progress(&env, false);
         }
 
