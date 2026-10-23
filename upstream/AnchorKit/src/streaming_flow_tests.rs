@@ -85,10 +85,9 @@ mod streaming_flow_tests {
     fn test_session_operation_count_increments_on_each_step() {
         let env = make_env();
         setup_ledger(&env);
-        let (client, _admin, _anchor, _sk) = setup(&env);
+        let (client, admin, _anchor, _sk) = setup(&env);
 
-        let initiator = Address::generate(&env);
-        let session_id = client.create_session(&initiator);
+        let session_id = client.create_session(&admin);
 
         assert_eq!(client.get_session_operation_count(&session_id).unwrap(), 0);
 

@@ -119,6 +119,9 @@ mod attestor_cap_batch_tests;
 mod anchor_health_score_tests;
 
 #[cfg(test)]
+mod issue_1355_1362_1364_tests;
+
+#[cfg(test)]
 mod compute_payload_hash_tests;
 
 #[cfg(test)]
