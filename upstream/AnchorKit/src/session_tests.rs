@@ -1,5 +1,11 @@
 #![cfg(test)]
 
+// Issue #1105 — resolved: all `submit_attestation_with_session` call sites in this file
+// previously passed a trailing `metadata: Option<Map<String, String>>` argument that was
+// added in feat commit cc3eb4ed and removed from the contract in fix commit 7bc36508.
+// Every call site now passes exactly the 6 arguments the current contract expects:
+//   (session_id, issuer, subject, timestamp, payload_hash, signature).
+
 mod session_tests {
     use soroban_sdk::{
         testutils::{Address as _, Ledger, LedgerInfo},
