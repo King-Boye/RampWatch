@@ -48,6 +48,7 @@ jest.mock('expo-device', () => ({
 // ── expo-crypto ────────────────────────────────────────────────────────────
 jest.mock('expo-crypto', () => ({
   digestStringAsync: jest.fn().mockResolvedValue('mocked-digest-hash'),
+  getRandomBytesAsync: jest.fn().mockResolvedValue(new Uint8Array(32).fill(7)),
   CryptoDigestAlgorithm: {
     SHA1: 'SHA1',
     SHA256: 'SHA256',

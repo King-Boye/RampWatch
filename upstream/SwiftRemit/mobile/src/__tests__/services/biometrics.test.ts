@@ -32,6 +32,7 @@ const mockGetItemAsync = SecureStore.getItemAsync as jest.Mock;
 const mockSetItemAsync = SecureStore.setItemAsync as jest.Mock;
 const mockDeleteItemAsync = SecureStore.deleteItemAsync as jest.Mock;
 const mockDigestStringAsync = Crypto.digestStringAsync as jest.Mock;
+const mockGetRandomBytesAsync = Crypto.getRandomBytesAsync as jest.Mock;
 
 describe('biometrics.ts — isBiometricAvailable', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -210,6 +211,19 @@ describe('biometrics.ts — authenticateAndGetSigningKey (hardened API with all 
     expect(result.keystoreKeyId).toBe('@swiftremit:signing_key:active');
   });
 
+  it('uses 32 CSPRNG bytes for a newly generated key', async () => {
+    mockHasHardware.mockResolvedValue(true);
+    mockIsEnrolled.mockResolvedValue(true);
+    mockAuthenticate.mockResolvedValue({ success: true });
+    mockGetRandomBytesAsync.mockResolvedValue(new Uint8Array(32).fill(0xab));
+    await authenticateAndGetSigningKey();
+    expect(mockGetRandomBytesAsync).toHaveBeenCalledWith(32);
+    expect(mockSetItemAsync).toHaveBeenCalledWith(
+      '@swiftremit:signing_key:active',
+      'ab'.repeat(32),
+      expect.objectContaining({ requireAuthentication: true }),
+    );
+  });
   // ── SR-186: key is stored in SecureStore, not a timestamp stub ────────
   it('stores the signing key in SecureStore with requireAuthentication on first use', async () => {
     mockHasHardware.mockResolvedValue(true);

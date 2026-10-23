@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './App.css'
-import WalletConnect from './components/WalletConnect'
+import WalletConnect from './components/WalletConnect.tsx'
 import CreateRemittance from './components/CreateRemittance'
 import RemittanceList from './components/RemittanceList'
 import AgentPanel from './components/AgentPanel.tsx'
