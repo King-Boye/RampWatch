@@ -240,7 +240,7 @@ let result = retry_with_backoff(
         match make_api_call() {
             Ok(response) => Ok(response),
             Err(e) if should_retry(&e) => {
-                println!("Retryable error on attempt {}, backing off...", attempt + 1);
+                println!("Retryable error on attempt {}: {:?}", attempt, e);
                 Err(e)
             }
             Err(e) => Err(e),
@@ -251,184 +251,65 @@ let result = retry_with_backoff(
 );
 ```
 
-### Transient Failure Recovery
+## Backoff Calculation
 
-```rust
-use anchorkit::retry::{RetryConfig, retry_with_backoff, is_retryable};
-
-let config = RetryConfig::new(4, 100, 5000, 2);
-
-let result = retry_with_backoff(
-    &config,
-    |attempt| {
-        match fetch_anchor_data() {
-            Ok(data) => Ok(data),
-            Err(e) if is_retryable(e.code as u32) => {
-                println!("Transient error on attempt {}, retrying...", attempt + 1);
-                Err(e)
-            }
-            Err(e) => Err(e),
-        }
-    },
-    |e| is_retryable(e.code as u32),
-    |delay_ms| std::thread::sleep(std::time::Duration::from_millis(delay_ms)),
-);
-```
-
-## Backoff Timing
-
-The delay between retries uses **full jitter**: a uniformly random value between 0 and the exponential backoff cap. This spreads retries evenly across the retry window, preventing thundering-herd problems when many clients retry simultaneously.
+Delays are calculated as:
 
 ```
-delay = uniform_random(0, min(base_delay_ms * multiplier^attempt, max_delay_ms))
+delay = min(base_delay_ms * (backoff_multiplier ^ (attempt - 1)), max_delay_ms)
 ```
 
-Rather than a small perturbation around a deterministic value, each retry picks a fresh random value in the entire allowed range.
+### Example Progression
 
-### Example with Default Config
+With `base_delay_ms = 100`, `backoff_multiplier = 2`, `max_delay_ms = 5000`:
 
-```
-max_attempts: 3
-base_delay_ms: 100
-backoff_multiplier: 2
-max_delay_ms: 5000
-
-Attempt 0: 0–100ms
-Attempt 1: 0–200ms
-Attempt 2: 0–400ms
-```
-
-All delays are uniformly random within their range — not centered around the exponential value.
-
-### Example with Aggressive Config
-
-```
-max_attempts: 5
-base_delay_ms: 50
-backoff_multiplier: 3
-max_delay_ms: 5000
-
-Attempt 0: 0–50ms
-Attempt 1: 0–150ms
-Attempt 2: 0–450ms
-Attempt 3: 0–1350ms
-Attempt 4: 0–4050ms
-```
-
-### Example with Rate Limit Config
-
-```
-max_attempts: 5
-base_delay_ms: 500
-backoff_multiplier: 3
-max_delay_ms: 30000
-
-Attempt 0: 0–500ms
-Attempt 1: 0–1500ms
-Attempt 2: 0–4500ms
-Attempt 3: 0–13500ms
-Attempt 4: 0–30000ms (capped at max_delay_ms)
-```
-
-**Why full jitter:** Full jitter provides better load distribution than additive jitter when many clients retry on the same schedule. See [AWS Exponential Backoff And Jitter](https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/).
+| Attempt | Delay (ms) |
+| --- | --- |
+| 1 | 100 |
+| 2 | 200 |
+| 3 | 400 |
+| 4 | 800 |
+| 5 | 1600 |
+| 6 | 3200 |
+| 7 | 5000 (capped) |
 
 ## Best Practices
 
-### 1. Choose Appropriate Strategy
-
-- **Transient failures**: Moderate attempts (3-5), short delays (100-500ms)
-- **Service unavailability**: Fewer attempts (3-4), longer delays (500-1000ms), higher multiplier (3)
-- **Cache misses**: Moderate attempts (3-5), moderate delays (200-500ms)
-
-### 2. Set Reasonable Max Delays
-
-```rust
-// For user-facing operations: keep max delay low
-let user_facing = RetryConfig::new(3, 100, 2000, 2);
-
-// For background operations: can use longer delays
-let background = RetryConfig::new(5, 500, 30000, 3);
-```
-
-### 3. Provide Custom Sleep Function
-
-```rust
-// For synchronous code
-let result = retry_with_backoff(
-    &config,
-    |attempt| operation(attempt),
-    |e| is_retryable(e.code as u32),
-    |delay_ms| std::thread::sleep(std::time::Duration::from_millis(delay_ms)),
-);
-
-// For testing (no actual sleep)
-let result = retry_with_backoff(
-    &config,
-    |attempt| operation(attempt),
-    |e| is_retryable(e.code as u32),
-    |_| {}, // no-op sleep for tests
-);
-```
-
-### 4. Handle Non-Retryable Errors
-
-```rust
-let result = retry_with_backoff(
-    &config,
-    |attempt| {
-        match operation() {
-            Err(e) if !is_retryable(e.code as u32) => {
-                // Non-retryable, fail fast
-                return Err(e);
-            }
-            other => other,
-        }
-    },
-    |e| is_retryable(e.code as u32),
-    |delay_ms| std::thread::sleep(std::time::Duration::from_millis(delay_ms)),
-);
-```
+1. **Use exponential backoff** for network operations
+2. **Set reasonable max attempts** (3-5 for most cases)
+3. **Cap maximum delay** to avoid excessive waits
+4. **Classify errors correctly** — don't retry permanent failures
+5. **Log retry attempts** for debugging
+6. **Consider jitter** for distributed systems to avoid thundering herd
 
 ## Testing
 
-The retry logic includes comprehensive tests:
-
-```bash
-# Run all retry tests
-cargo test retry --lib
-
-# Run specific test categories
-cargo test test_success_on_first_try --lib
-cargo test test_exhausted_retries --lib
-cargo test test_delay_increases_exponentially --lib
-```
-
-## Integration with Application Code
-
-The retry logic is designed to work with any operation that returns a `Result`:
-
 ```rust
-use anchorkit::retry::{RetryConfig, retry_with_backoff, is_retryable};
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-let config = RetryConfig::default();
+    #[test]
+    fn test_retry_succeeds_after_failures() {
+        let config = RetryConfig::new(3, 10, 100, 2);
+        let mut attempts = 0;
 
-let result = retry_with_backoff(
-    &config,
-    |attempt| {
-        // Your operation that might fail
-        perform_operation(attempt)
-    },
-    |e| is_retryable(e.code as u32),
-    |delay_ms| std::thread::sleep(std::time::Duration::from_millis(delay_ms)),
-);
+        let result = retry_with_backoff(
+            &config,
+            |_| {
+                attempts += 1;
+                if attempts < 3 {
+                    Err("transient")
+                } else {
+                    Ok("success")
+                }
+            },
+            |_| true,
+            |_| {},
+        );
+
+        assert_eq!(result, Ok("success"));
+        assert_eq!(attempts, 3);
+    }
+}
 ```
-
-## Summary
-
-- ✅ Exponential backoff with configurable parameters
-- ✅ Smart error classification (retryable vs non-retryable)
-- ✅ Transient failure handling (service unavailability, cache misses)
-- ✅ Configurable retry strategies
-- ✅ Jitter to prevent retry storms
-- ✅ Comprehensive test coverage
-- ✅ Simple function-based API with `retry_with_backoff`

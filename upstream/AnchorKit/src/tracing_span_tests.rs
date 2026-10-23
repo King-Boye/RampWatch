@@ -10,7 +10,7 @@ mod tracing_span_tests {
     use rand::rngs::OsRng;
 
     use crate::contract::{AnchorKitContract, AnchorKitContractClient};
-    use crate::sep10_test_util::{register_attestor_with_sep10, sign_payload};
+    use crate::sep10_test_util::{register_attestor_with_sep10, sign_attestation};
 
     fn make_env() -> Env {
         let env = Env::default();
@@ -86,7 +86,7 @@ mod tracing_span_tests {
             &subject,
             &env.ledger().timestamp(),
             &p,
-            &sign_payload(&env, &sk, &p),
+            &sign_attestation(&env, &sk, &client.address, &attestor, &subject, env.ledger().timestamp(), &p),
         );
 
         let span = client.get_tracing_span(&req_id.id).unwrap();
@@ -120,7 +120,7 @@ mod tracing_span_tests {
 
         let req_id = client.generate_request_id();
         let p = payload(&env, 0x01);
-        client.submit_with_request_id(&req_id, &attestor, &subject, &1000u64, &p, &sign_payload(&env, &sk, &p));
+        client.submit_with_request_id(&req_id, &attestor, &subject, &1000u64, &p, &sign_attestation(&env, &sk, &client.address, &attestor, &subject, 1000u64, &p));
 
         let span = client.get_tracing_span(&req_id.id).unwrap();
         assert_eq!(span.operation, String::from_str(&env, "submit_attestation"));
@@ -162,7 +162,7 @@ mod tracing_span_tests {
             &subject,
             &env.ledger().timestamp(),
             &p,
-            &sign_payload(&env, &sk, &p),
+            &sign_attestation(&env, &sk, &client.address, &attestor, &subject, env.ledger().timestamp(), &p),
         );
 
         let span = client.get_tracing_span(&req_id.id).unwrap();
