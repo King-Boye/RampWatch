@@ -168,10 +168,8 @@ async function generateOrGetSigningKey(): Promise<string> {
   if (existing) return SIGNING_KEY_STORE_KEY;
 
   // Generate fresh key material: 32 random bytes represented as hex
-  const randomBytes = await Crypto.digestStringAsync(
-    Crypto.CryptoDigestAlgorithm.SHA256,
-    `${Date.now()}-${Math.random()}`,
-  );
+  const bytes = await Crypto.getRandomBytesAsync(32);
+  const randomBytes = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
   await SecureStore.setItemAsync(SIGNING_KEY_STORE_KEY, randomBytes, {
     // SR-186: requireAuthentication binds the stored value to a biometric
     // prompt on supported devices.  On devices where the option is not

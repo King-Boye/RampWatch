@@ -5,6 +5,7 @@
  * interceptor, so we mock axios.create to return our controlled mock object.
  */
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
 // ── Axios mock ─────────────────────────────────────────────────────────────
@@ -61,6 +62,20 @@ describe('api.ts — authService', () => {
     expect(result).toEqual({ token: 'jwt-abc' });
   });
 
+  it('removes the current wallet cache when logging out', async () => {
+    mockGetItemAsync.mockImplementation(async (key: string) =>
+      key === 'wallet_address' ? 'wallet-A' : null,
+    );
+    (AsyncStorage.getAllKeys as jest.Mock).mockResolvedValue([
+      'cache:v2:wallet-A:history', 'cache:v2:wallet-B:history', 'cache:legacy',
+    ]);
+    await authService.logout();
+    expect(AsyncStorage.multiRemove).toHaveBeenCalledWith([
+      'cache:v2:wallet-A:history', 'cache:legacy',
+    ]);
+    expect(mockDeleteItemAsync).toHaveBeenCalledWith('auth_token');
+    expect(mockDeleteItemAsync).toHaveBeenCalledWith('wallet_address');
+  });
   it('deletes auth_token and wallet_address on logout', async () => {
     await authService.logout();
     expect(mockDeleteItemAsync).toHaveBeenCalledWith('auth_token');

@@ -20,8 +20,9 @@
 //     into escrow. Returns the Vec of assigned remittance IDs.
 //
 //   create_batch_remittance(sender, entries) → Vec<u64>
-//     Thin wrapper around batch_create_remittances that also emits a
-//     "batch_created" event for off-chain indexers.
+//     DEPRECATED (see issue #1681): pure alias of batch_create_remittances.
+//     Retained for backwards compatibility only; scheduled for removal.
+//     New code should call batch_create_remittances directly.
 //
 //   confirm_batch_payout(agent, remittance_ids) → ()
 //     Confirms payout for multiple already-created remittances in one call.
@@ -74,6 +75,10 @@
 //   test_batch_create_invalid_amount   — zero amount in one entry → InvalidAmount
 //   test_batch_create_max_size         — exactly 100 entries succeeds
 //   test_batch_create_different_amounts — fee calculation verified per entry
+//   test_create_batch_remittance_alias_equivalence
+//                                      — deprecated alias produces the same
+//                                        remittances and events as the
+//                                        canonical batch_create_remittances
 //
 // ─── FILES CHANGED FOR THIS FEATURE ──────────────────────────────────────────
 //
@@ -92,9 +97,17 @@
 
 //! Unit tests for batch remittance creation functionality.
 
+// The deprecated alias `create_batch_remittance` is still exercised here to
+// prove it stays behaviourally equivalent to `batch_create_remittances`
+// (issue #1681). Silence the deprecation lint for this test module only.
+#![allow(deprecated)]
+
 #[cfg(test)]
 mod tests {
-    use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+    use soroban_sdk::{
+        testutils::{Address as _, Events as _},
+        Address, Env, IntoVal, Vec,
+    };
 
     use crate::{
         BatchCreateEntry, ContractError, RemittanceStatus, SwiftRemitContract,
@@ -235,6 +248,40 @@ mod tests {
     }
 
     #[test]
+    fn test_batch_create_expiry_window_read_once() {
+        let env = Env::default();
+        let (contract, _admin, _) = setup(&env);
+        let sender = Address::generate(&env);
+
+        let agent1 = Address::generate(&env);
+        let agent2 = Address::generate(&env);
+        let agent3 = Address::generate(&env);
+        contract.register_agent(&agent1, &None);
+        contract.register_agent(&agent2, &None);
+        contract.register_agent(&agent3, &None);
+
+        // All entries request the default expiry window (expiry: None), so the
+        // resolved expiry must be identical across the whole batch. This holds
+        // only if the expiry window and ledger timestamp are read once before
+        // the loop rather than re-read per iteration.
+        let mut entries = Vec::new(&env);
+        entries.push_back(BatchCreateEntry { agent: agent1.clone(), amount: 100_000_000, expiry: None });
+        entries.push_back(BatchCreateEntry { agent: agent2.clone(), amount: 200_000_000, expiry: None });
+        entries.push_back(BatchCreateEntry { agent: agent3.clone(), amount: 150_000_000, expiry: None });
+
+        let remittance_ids = contract.batch_create_remittances(&sender, &entries);
+        assert_eq!(remittance_ids.len(), 3);
+
+        let r1 = contract.get_remittance(&remittance_ids.get_unchecked(0));
+        let r2 = contract.get_remittance(&remittance_ids.get_unchecked(1));
+        let r3 = contract.get_remittance(&remittance_ids.get_unchecked(2));
+
+        assert!(r1.expiry.is_some());
+        assert_eq!(r1.expiry, r2.expiry);
+        assert_eq!(r2.expiry, r3.expiry);
+    }
+
+    #[test]
     fn test_batch_create_different_amounts() {
         let env = Env::default();
         let (contract, _admin, _) = setup(&env);
@@ -256,5 +303,79 @@ mod tests {
         assert!(r1.fee > 0);
         assert!(r2.fee > 0);
         assert_ne!(r1.fee, r2.fee);
+    }
+
+    /// Issue #1681: `create_batch_remittance` is a deprecated alias of
+    /// `batch_create_remittances`. This test pins the equivalence so the
+    /// deprecation (and eventual removal) is safe: both entry points must
+    /// create identical remittances and emit identical events.
+    #[test]
+    fn test_create_batch_remittance_alias_equivalence() {
+        let env = Env::default();
+        let (contract, _admin, _) = setup(&env);
+        let sender = Address::generate(&env);
+
+        let agent1 = Address::generate(&env);
+        let agent2 = Address::generate(&env);
+        contract.register_agent(&agent1, &None);
+        contract.register_agent(&agent2, &None);
+
+        let mut entries = Vec::new(&env);
+        entries.push_back(BatchCreateEntry {
+            agent: agent1.clone(),
+            amount: 100_000_000,
+            expiry: None,
+        });
+        entries.push_back(BatchCreateEntry {
+            agent: agent2.clone(),
+            amount: 250_000_000,
+            expiry: Some(env.ledger().timestamp() + 3600),
+        });
+
+        // Canonical entry point.
+        let canonical_ids = contract.batch_create_remittances(&sender, &entries);
+        let canonical_events = env.events().all();
+
+        // Deprecated alias — must behave identically.
+        let alias_ids = contract.create_batch_remittance(&sender, &entries);
+        let alias_events = env.events().all();
+
+        // Same number of remittances created.
+        assert_eq!(canonical_ids.len(), alias_ids.len());
+        assert_eq!(alias_ids.len(), entries.len());
+
+        // Each remittance produced by the alias matches the canonical one
+        // field-for-field (IDs differ only by sequence, so compare content).
+        for i in 0..entries.len() {
+            let canonical = contract.get_remittance(&canonical_ids.get_unchecked(i));
+            let alias = contract.get_remittance(&alias_ids.get_unchecked(i));
+            assert_eq!(alias.sender, canonical.sender);
+            assert_eq!(alias.agent, canonical.agent);
+            assert_eq!(alias.amount, canonical.amount);
+            assert_eq!(alias.fee, canonical.fee);
+            assert_eq!(alias.expiry, canonical.expiry);
+            assert_eq!(alias.status, canonical.status);
+        }
+
+        // Both calls emit the same event topics/data. Compare the event
+        // payloads emitted by each call (the alias must not add extra events
+        // beyond what the canonical function emits).
+        let canonical_count = canonical_events.len();
+        let alias_count = alias_events.len();
+        assert_eq!(
+            canonical_count, alias_count,
+            "deprecated alias must emit the same number of events as the canonical function"
+        );
+
+        for i in 0..canonical_count {
+            let (c_contract, c_topics, c_data) = canonical_events.get_unchecked(i);
+            let (a_contract, a_topics, a_data) = alias_events.get_unchecked(i);
+            assert_eq!(c_contract, a_contract);
+            assert_eq!(c_topics, a_topics);
+            assert_eq!(c_data, a_data);
+        }
+
+        // Sanity: the event data round-trips through the SDK's value type.
+        let _: soroban_sdk::Val = 0u32.into_val(&env);
     }
 }

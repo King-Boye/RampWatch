@@ -259,6 +259,12 @@ enum DataKey {
     PartialPayoutHistory(u64),
     // === Remittance Expiry Window ===
     RemittanceExpiryWindow,
+    // === Processing Recovery ===
+    /// Configurable timeout (seconds) after the last partial payout before the
+    /// sender may recover the undisbursed remainder of a Processing remittance.
+    ProcessingRecoveryTimeout,
+    /// Timestamp of the most recent partial payout for a remittance (persistent storage).
+    LastPartialPayoutAt(u64),
     // === Idempotency ===
     IdempotencyRecord(soroban_sdk::String),
     IdempotencyTTL,
@@ -2262,6 +2268,10 @@ pub fn append_partial_payout_record(
     env.storage()
         .persistent()
         .set(&DataKey::PartialPayoutHistory(remittance_id), &history);
+
+    // Track when the last partial payout happened so the sender can recover
+    // the undisbursed remainder once the recovery timeout elapses (#1673).
+    set_last_partial_payout_at(env, remittance_id, env.ledger().timestamp());
 }
 
 /// Appends a remittance ID to the sender's persistent remittance index.
@@ -2528,6 +2538,43 @@ pub fn get_dispute_window(env: &Env) -> u64 {
         .unwrap_or(DEFAULT_DISPUTE_WINDOW_SECONDS)
 }
 
+// === Processing Recovery ===
+
+/// Default timeout, in seconds, after the last partial payout before the sender
+/// may recover the undisbursed remainder of a Processing remittance.
+pub const DEFAULT_PROCESSING_RECOVERY_TIMEOUT_SECONDS: u64 = 7 * 24 * 3600; // 7 days
+
+/// Returns the configured processing-recovery timeout in seconds.
+///
+/// Falls back to `DEFAULT_PROCESSING_RECOVERY_TIMEOUT_SECONDS` when unset.
+pub fn get_processing_recovery_timeout(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::ProcessingRecoveryTimeout)
+        .unwrap_or(DEFAULT_PROCESSING_RECOVERY_TIMEOUT_SECONDS)
+}
+
+/// Sets the processing-recovery timeout in seconds (admin only, enforced at call site).
+pub fn set_processing_recovery_timeout(env: &Env, seconds: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::ProcessingRecoveryTimeout, &seconds);
+}
+
+/// Records the timestamp of the most recent partial payout for a remittance.
+pub fn set_last_partial_payout_at(env: &Env, remittance_id: u64, timestamp: u64) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::LastPartialPayoutAt(remittance_id), &timestamp);
+}
+
+/// Returns the timestamp of the most recent partial payout for a remittance, if any.
+pub fn get_last_partial_payout_at(env: &Env, remittance_id: u64) -> Option<u64> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::LastPartialPayoutAt(remittance_id))
+}
+
 // === Min Agent Reputation Threshold ===
 pub fn get_min_agent_reputation(env: &Env) -> u32 {
     env.storage().instance().get(&DataKey::MinAgentReputation).unwrap_or(0)
@@ -2690,4 +2737,20 @@ pub fn sub_processing_volume(env: &Env, amount: i128) -> Result<(), ContractErro
         .instance()
         .set(&DataKey::TotalProcessingVolume, &next);
     Ok(())
+}
+pub fn set_pending_admin_with_expiry(env: &Env, new_admin: &Address, expires_at: u64) {
+    let admin = get_admin(env).unwrap_or_else(|| new_admin.clone());
+    let nomination = AdminNomination { nominee: new_admin.clone(), expires_at, nominator: admin };
+    set_admin_nomination(env, &nomination);
+    env.storage().instance().set(&DataKey::PendingAdmin, new_admin);
+}
+pub fn get_pending_admin(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::PendingAdmin)
+}
+pub fn get_admin_nomination(env: &Env) -> Option<AdminNomination> {
+    env.storage().instance().get(&DataKey::NominatedAdmin)
+}
+pub fn clear_pending_admin(env: &Env) {
+    env.storage().instance().remove(&DataKey::PendingAdmin);
+    env.storage().instance().remove(&DataKey::NominatedAdmin);
 }

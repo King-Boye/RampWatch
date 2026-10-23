@@ -14,6 +14,12 @@ interface WebhookSubscription extends WebhookForm {
   secret_rotated_at?: string | null
   has_previous_secret?: boolean
 }
+interface WebhookDelivery {
+  timestamp: string
+  event: string
+  status_code?: number
+  status?: string
+}
 
 const EMPTY_FORM: WebhookForm = { url: '', events: [], secret: '' }
 const ALL_EVENTS = ['remittance.created', 'remittance.completed', 'remittance.cancelled', 'payout.confirmed', 'dispute.raised', 'dispute.resolved']
@@ -32,6 +38,10 @@ const WebhookSubscriptions: FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [rotateTarget, setRotateTarget] = useState<string | null>(null)
+  const [historyId, setHistoryId] = useState<string | null>(null)
+  const [history, setHistory] = useState<WebhookDelivery[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [testResults, setTestResults] = useState<Record<string, string>>({})
 
   useEffect(() => { fetchSubscriptions() }, [])
 
@@ -93,6 +103,41 @@ const WebhookSubscriptions: FC = () => {
     setLoading(true)
     await fetch(`${API_URL}/api/webhooks/${subId}/rotate-secret`, { method: 'POST' })
     await fetchSubscriptions()
+  }
+
+  async function handleDelete(id: string): Promise<void> {
+    if (!window.confirm('Delete this webhook subscription?')) return
+    try {
+      const response = await fetch(`${API_URL}/api/webhooks/${id}`, { method: 'DELETE' })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      await fetchSubscriptions()
+    } catch {
+      setError('Failed to delete webhook subscription')
+    }
+  }
+  async function handleTest(id: string): Promise<void> {
+    setTestResults(prev => ({ ...prev, [id]: 'sending...' }))
+    try {
+      const response = await fetch(`${API_URL}/api/webhooks/${id}/test`, { method: 'POST' })
+      setTestResults(prev => ({ ...prev, [id]: response.ok ? 'Delivered' : `HTTP ${response.status}` }))
+    } catch {
+      setTestResults(prev => ({ ...prev, [id]: 'Delivery test unavailable' }))
+    }
+  }
+  async function loadHistory(id: string): Promise<void> {
+    if (historyId === id) { setHistoryId(null); return }
+    setHistoryId(id)
+    setHistoryLoading(true)
+    try {
+      const response = await fetch(`${API_URL}/api/webhooks/${id}/deliveries`)
+      if (!response.ok) throw new Error('Unavailable')
+      const entries: unknown = await response.json()
+      setHistory(Array.isArray(entries) ? entries as WebhookDelivery[] : [])
+    } catch {
+      setHistory([])
+    } finally {
+      setHistoryLoading(false)
+    }
   }
 
   return (
@@ -190,8 +235,31 @@ const WebhookSubscriptions: FC = () => {
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button onClick={() => setRotateTarget(sub.id)}>Rotate Secret</button>
                   <button onClick={() => handleEdit(sub)}>Edit</button>
+                  <button onClick={() => handleTest(sub.id)}>Test</button>
+                  <button onClick={() => handleDelete(sub.id)}>Delete</button>
+                  <button onClick={() => loadHistory(sub.id)}>History</button>
                 </div>
               </div>
+              {testResults[sub.id] && <p role="status">{testResults[sub.id]}</p>}
+              {historyId === sub.id && (
+                <div aria-label="Delivery history">
+                  <strong>Delivery History</strong>
+                  {historyLoading ? <p>Loading...</p> : history.length === 0 ? (
+                    <p>No deliveries yet.</p>
+                  ) : (
+                    <table>
+                      <thead><tr><th>Time</th><th>Event</th><th>Status</th></tr></thead>
+                      <tbody>{history.map((delivery, i) => (
+                        <tr key={i}>
+                          <td>{new Date(delivery.timestamp).toLocaleString()}</td>
+                          <td>{delivery.event}</td>
+                          <td>{delivery.status_code ?? delivery.status ?? 'Unknown'}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  )}
+                </div>
+              )}
             </li>
           ))}
         </ul>

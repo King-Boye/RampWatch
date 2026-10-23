@@ -231,6 +231,68 @@ fn test_get_treasury_public() {
 }
 
 #[test]
+fn test_protocol_fee_immutable_after_creation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let agent = Address::generate(&env);
+
+    // Register token contract
+    let token_admin = Address::generate(&env);
+    let token = env.register_stellar_asset_contract_v2(token_admin.clone());
+    let token_client = token::StellarAssetClient::new(&env, &token.address());
+    let token_view = token::Client::new(&env, &token.address());
+
+    let contract_id = env.register_contract(None, SwiftRemitContract {});
+    let client = SwiftRemitContractClient::new(&env, &contract_id);
+
+    // Initialize contract with a 1% protocol fee
+    client.initialize(&admin, &token.address(), &250, &5, &50, &treasury);
+    client.update_protocol_fee(&admin, &100);
+    assert_eq!(client.get_protocol_fee_bps(), 100);
+
+    let amount = 10_000i128;
+    token_client.mint(&sender, &amount);
+
+    // Create remittance: quoted protocol fee is 1% of amount
+    let remittance_id = client.create_remittance(&sender, &agent, &amount, &None);
+    let quoted = client.get_remittance(&remittance_id);
+    let quoted_protocol_fee = quoted.protocol_fee;
+    let quoted_net_payout = quoted.net_payout;
+    assert_eq!(quoted_protocol_fee, amount * 100 / 10_000);
+    assert_eq!(quoted_net_payout, amount - quoted_protocol_fee);
+
+    // Admin raises the protocol fee after creation
+    client.update_protocol_fee(&admin, &200);
+    assert_eq!(client.get_protocol_fee_bps(), 200);
+
+    // Partial payout: quoted fee and net payout must be unchanged
+    let first_partial = amount / 2;
+    client.settle_remittance(&remittance_id, &first_partial);
+    let after_partial = client.get_remittance(&remittance_id);
+    assert_eq!(after_partial.protocol_fee, quoted_protocol_fee);
+    assert_eq!(after_partial.net_payout, quoted_net_payout);
+
+    // Raise the fee again mid-way through partial payouts
+    client.update_protocol_fee(&admin, &150);
+    assert_eq!(client.get_protocol_fee_bps(), 150);
+
+    // Final settlement: still uses the quoted fee
+    client.settle_remittance(&remittance_id, &(amount - first_partial));
+    let settled = client.get_remittance(&remittance_id);
+    assert_eq!(settled.protocol_fee, quoted_protocol_fee);
+    assert_eq!(settled.net_payout, quoted_net_payout);
+
+    // Agent receives the originally quoted net payout
+    assert_eq!(token_view.balance(&agent), quoted_net_payout);
+    // Treasury receives the originally quoted protocol fee
+    assert_eq!(token_view.balance(&treasury), quoted_protocol_fee);
+}
+
+#[test]
 fn test_protocol_fee_event_emission() {
     let env = Env::default();
     env.mock_all_auths();

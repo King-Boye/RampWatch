@@ -42,6 +42,34 @@ fn test_withdraw_integrator_fees_success() {
     assert_eq!(token::Client::new(&env, &token.address).balance(&to), 500);
 }
 
+/// #1672: withdrawing to the contract's own address must be rejected and leave
+/// the integrator balance untouched.
+#[test]
+fn test_withdraw_integrator_fees_to_contract_address_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract, token) = setup(&env);
+    let integrator = Address::generate(&env);
+
+    token.mint(&contract.address, &500);
+    env.as_contract(&contract.address, || {
+        crate::storage::add_integrator_balance(&env, &integrator, 500);
+    });
+
+    let result = contract.try_withdraw_integrator_fees(&integrator, &contract.address);
+    assert_eq!(result, Err(Ok(ContractError::InvalidAddress)));
+
+    // Balance must be unchanged and tokens must remain in the contract.
+    env.as_contract(&contract.address, || {
+        assert_eq!(crate::storage::get_integrator_balance(&env, &integrator), 500);
+    });
+    assert_eq!(
+        token::Client::new(&env, &token.address).balance(&contract.address),
+        500
+    );
+}
+
 #[test]
 fn test_withdraw_integrator_fees_no_fees_returns_error() {
     let env = Env::default();

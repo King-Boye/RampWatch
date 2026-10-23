@@ -43,15 +43,39 @@ pub fn validate_not_paused(env: &Env) -> Result<(), ContractError> {
     Ok(())
 }
 
+/// Validates that an address is not blacklisted.
+///
+/// Used to enforce the blacklist at payout time (confirm_payout, partial
+/// payout and batch settlement) so that senders or agents blacklisted after
+/// remittance creation can no longer settle funds.
+pub fn validate_not_blacklisted(env: &Env, address: &Address) -> Result<(), ContractError> {
+    if is_user_blacklisted(env, address) {
+        return Err(ContractError::UserBlacklisted);
+    }
+    Ok(())
+}
+
 /// Validates that a remittance exists and returns it.
 pub fn validate_remittance_exists(env: &Env, remittance_id: u64) -> Result<crate::Remittance, ContractError> {
     get_remittance(env, remittance_id)
 }
 
-/// Validates that a remittance is in a cancellable state (Pending or Processing).
-pub fn validate_remittance_cancellable(remittance: &crate::Remittance) -> Result<(), ContractError> {
+/// Validates that a remittance is cancellable by its sender.
+pub fn validate_remittance_cancellable(
+    env: &Env,
+    remittance: &crate::Remittance,
+) -> Result<(), ContractError> {
     match remittance.status {
         RemittanceStatus::Pending | RemittanceStatus::Processing => Ok(()),
+        RemittanceStatus::Failed => {
+            let failed_at = remittance.failed_at.ok_or(ContractError::InvalidStatus)?;
+            let elapsed = env.ledger().timestamp().saturating_sub(failed_at);
+            if elapsed > crate::storage::get_dispute_window(env) {
+                Ok(())
+            } else {
+                Err(ContractError::InvalidStatus)
+            }
+        }
         _ => Err(ContractError::InvalidStatus),
     }
 }
@@ -149,6 +173,10 @@ pub fn validate_confirm_payout_request(
     }
     validate_no_duplicate_settlement(env, remittance_id)?;
     validate_settlement_not_expired(env, remittance.expiry)?;
+    // Enforce the blacklist at payout time: a sender or agent blacklisted after
+    // the remittance was created must not be able to settle it.
+    validate_not_blacklisted(env, &remittance.sender)?;
+    validate_not_blacklisted(env, &remittance.agent)?;
     // Address type is guaranteed valid by the Soroban SDK runtime; no further
     // address validation is required or possible at the contract level.
     Ok(remittance)
@@ -162,7 +190,7 @@ pub fn validate_cancel_remittance_request(
     remittance_id: u64,
 ) -> Result<crate::Remittance, ContractError> {
     let remittance = validate_remittance_exists(env, remittance_id)?;
-    validate_remittance_pending(&remittance)?;
+    validate_remittance_cancellable(env, &remittance)?;
     // Address type is guaranteed valid by the Soroban SDK runtime; no further
     // address validation is required or possible at the contract level.
     Ok(remittance)
@@ -259,5 +287,23 @@ mod tests {
     fn test_validate_fees_available_invalid() {
         assert_eq!(validate_fees_available(0), Err(ContractError::NoFeesToWithdraw));
         assert_eq!(validate_fees_available(-1), Err(ContractError::NoFeesToWithdraw));
+    }
+
+    #[test]
+    fn test_validate_not_blacklisted_allows_clean_address() {
+        let env = Env::default();
+        let address = Address::generate(&env);
+        assert!(validate_not_blacklisted(&env, &address).is_ok());
+    }
+
+    #[test]
+    fn test_validate_not_blacklisted_rejects_blacklisted_address() {
+        let env = Env::default();
+        let address = Address::generate(&env);
+        crate::add_to_blacklist(&env, &address);
+        assert_eq!(
+            validate_not_blacklisted(&env, &address),
+            Err(ContractError::UserBlacklisted)
+        );
     }
 }

@@ -1,5 +1,22 @@
 import { FC, useState, FormEvent } from 'react'
 
+const STROOPS_PER_UNIT = 10_000_000n
+const DECIMALS = 7
+
+/** Convert a decimal amount string to stroops without floating point rounding. */
+export function amountToStroops(amount: string): bigint {
+  if (typeof amount !== 'string') throw new Error('Amount must be a string')
+  const trimmed = amount.trim()
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+    throw new Error('Amount must be a non-negative decimal number')
+  }
+  const [intPart, fracPart = ''] = trimmed.split('.')
+  if (fracPart.length > DECIMALS) {
+    throw new Error(`Amount cannot have more than ${DECIMALS} decimal places`)
+  }
+  return BigInt(intPart) * STROOPS_PER_UNIT + BigInt(fracPart.padEnd(DECIMALS, '0'))
+}
+
 interface CreateRemittanceProps {
   walletAddress: string
   contractId: string
@@ -10,6 +27,7 @@ interface RemittanceResult {
   message: string
   id: number
   amount: string
+  amountInStroops: string
   agent: string
   token: string
   memo: string | null
@@ -39,6 +57,7 @@ const CreateRemittance: FC<CreateRemittanceProps> = ({ contractId, whitelistedTo
         throw new Error('Please select a token')
       }
 
+      const amountInStroops = amountToStroops(amount)
       // This is a placeholder - you'll need to implement actual contract interaction
       // using Stellar SDK and the contract's WASM interface
       
@@ -46,6 +65,7 @@ const CreateRemittance: FC<CreateRemittanceProps> = ({ contractId, whitelistedTo
         message: 'Remittance created successfully!',
         id: Math.floor(Math.random() * 1000), // Mock ID
         amount: amount,
+        amountInStroops: amountInStroops.toString(),
         agent: agentAddress,
         token: selectedToken,
         memo: memo || null,

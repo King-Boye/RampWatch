@@ -1,4 +1,5 @@
 import axios, { AxiosRequestConfig } from 'axios';
+import { clearOfflineCacheForUser } from './offlineCache';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import { DeviceEventEmitter } from 'react-native';
@@ -15,7 +16,14 @@ const SECRET_KEYS = ['auth_token', 'wallet_address', 'last_active'];
 const http = axios.create({ baseURL: BASE_URL, timeout: 15000, withCredentials: true });
 
 async function clearAllSecrets(): Promise<void> {
-  await Promise.all(SECRET_KEYS.map((key) => SecureStore.deleteItemAsync(key)));
+  // Wipe the wallet's offline financial data on logout and session expiry.
+  // Even if storage cleanup fails, never leave authentication secrets intact.
+  try {
+    const wallet = await SecureStore.getItemAsync('wallet_address');
+    if (wallet) await clearOfflineCacheForUser(wallet);
+  } finally {
+    await Promise.all(SECRET_KEYS.map((key) => SecureStore.deleteItemAsync(key)));
+  }
 }
 
 async function touchActivity(): Promise<void> {

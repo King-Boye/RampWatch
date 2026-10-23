@@ -200,6 +200,27 @@ fn test_add_then_remove_admin_via_governance() {
 }
 
 #[test]
+fn test_admin_count_stays_consistent_and_last_admin_cannot_be_removed() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let second_admin = Address::generate(&env);
+    init(&env, &client, &admin);
+
+    assert_eq!(client.get_admin_count(), 1u32);
+
+    client.add_admin(&admin, &second_admin);
+    assert_eq!(client.get_admin_count(), 2u32);
+
+    client.remove_admin(&admin, &second_admin);
+    assert_eq!(client.get_admin_count(), 1u32);
+
+    let result = client.try_remove_admin(&admin, &admin);
+    assert_eq!(result, Err(Ok(ContractError::CannotRemoveLastAdmin)));
+    assert_eq!(client.get_admin_count(), 1u32);
+    assert!(client.is_admin(&admin));
+}
+
+#[test]
 fn test_cannot_remove_last_admin() {
     let (env, client) = setup();
     let admin = Address::generate(&env);

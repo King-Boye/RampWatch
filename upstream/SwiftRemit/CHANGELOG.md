@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **#938** Content Security Policy enforced on the frontend: strict CSP in Vite dev server, `<meta>` tag injection for production builds, HTTP response headers in `vercel.json` and `_headers`. Staging uses `Content-Security-Policy-Report-Only` first before production enforcement.
 - **#940** Input sanitization applied to all user-supplied string fields across backend API endpoints (`api.ts`, `routes/compliance.ts`) and API service routes (`agents`, `auth`, `anchors`). Parameterized query audit confirmed across all DB-touching code paths.
 
+### Deprecated
+- **#1680** `blacklist_user`, `remove_from_blacklist`, and `set_user_blacklisted` are deprecated in favor of `set_blacklist_status`; the thin wrappers will be removed in the next ABI version.
+
+### Changed
+- **#1679** `get_daily_limit_status` now returns `resets_at = 0` when `used == 0` (no in-window transfers), instead of `now + 24h`. A non-zero `resets_at` is only reported once the rolling window has activity.
+
 ### Fixed
 - Dark mode support with CSS custom properties and theme toggle component
 - Correlation ID propagation from API through to webhook delivery

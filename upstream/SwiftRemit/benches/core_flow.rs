@@ -305,6 +305,85 @@ fn bench_full_cancel_path(c: &mut Criterion) {
     });
 }
 
+// ─── Benchmark: get_remittances_by_sender / by_agent pagination ──────────────
+
+/// Measures the cost of paginating the sender/agent remittance indexes.
+///
+/// The index is sharded; after the shard-range optimization the contract should
+/// only read the shards that overlap the requested `[offset, offset + limit)`
+/// window, so the cost of a page should be proportional to the page size rather
+/// than to the total number of remittances for that sender/agent.
+///
+/// We seed a prolific sender (and agent) with `TOTAL` remittances and then
+/// benchmark fetching a small page from the start, middle and end of the index.
+/// If reads were O(total) all three pages would cost roughly the same; with the
+/// shard-range optimization the cost should stay flat as `TOTAL` grows and scale
+/// with `limit`.
+fn bench_paginated_index(c: &mut Criterion) {
+    const TOTAL: u32 = 256;
+    const PAGE: u32 = 8;
+
+    let mut group = c.benchmark_group("core_flow");
+
+    let f = setup();
+
+    // Seed the sender index with TOTAL remittances.
+    for _ in 0..TOTAL {
+        f.client
+            .create_remittance(
+                &f.sender,
+                &f.agent,
+                &10_000_000i128,
+                &None,
+                &None,
+                &None,
+                &None,
+                &None,
+            )
+            .unwrap();
+    }
+
+    // Pages at the start, middle and end of the index.  Each should read only
+    // the shards covering its window.
+    let offsets: &[(u32, &str)] = &[
+        (0, "first_page"),
+        (TOTAL / 2, "middle_page"),
+        (TOTAL - PAGE, "last_page"),
+    ];
+
+    for &(offset, label) in offsets {
+        group.bench_with_input(
+            BenchmarkId::new("get_remittances_by_sender", label),
+            &offset,
+            |b, &off| {
+                b.iter(|| {
+                    black_box(f.client.get_remittances_by_sender(
+                        &f.sender,
+                        &off,
+                        &PAGE,
+                    ))
+                })
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("get_remittances_by_agent", label),
+            &offset,
+            |b, &off| {
+                b.iter(|| {
+                    black_box(f.client.get_remittances_by_agent(
+                        &f.agent,
+                        &off,
+                        &PAGE,
+                    ))
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
 // ─── Benchmark group registration ────────────────────────────────────────────
 
 criterion_group!(
@@ -314,5 +393,6 @@ criterion_group!(
     bench_cancel_remittance,
     bench_full_happy_path,
     bench_full_cancel_path,
+    bench_paginated_index,
 );
 criterion_main!(core_flow_benches);

@@ -297,6 +297,22 @@ pub fn emit_remittance_expired(
     emit_event!(env, "remit", "expired", remittance_id, sender, token, refund_amount, expires_at);
 }
 
+/// Emits an event when a sender recovers the undisbursed remainder of a
+/// remittance stuck in `Processing` after the recovery timeout elapses.
+///
+/// Topics: `("remit", "recovered")`
+/// Payload: `(schema_version, ledger_seq, ledger_ts, remittance_id, sender, agent, token, refund_amount)`
+pub fn emit_remittance_recovered(
+    env: &Env,
+    remittance_id: u64,
+    sender: Address,
+    agent: Address,
+    token: Address,
+    refund_amount: i128,
+) {
+    emit_event!(env, "remit", "recovered", remittance_id, sender, agent, token, refund_amount);
+}
+
 pub fn emit_agent_cap_set(env: &Env, agent: Address, cap: i128, caller: Address) {
     env.events().publish(
         (Symbol::new(env, "agent_cap_set"),),
@@ -571,6 +587,20 @@ pub fn emit_migration_aborted(env: &Env, caller: Address) {
         (Symbol::new(env, "mig"), Symbol::new(env, "aborted")),
         (SCHEMA_VERSION, env.ledger().sequence(), caller),
     );
+}
+
+/// Emits an event when an agent's KYC approval status is updated.
+///
+/// Topics: `("kyc", "updated")`
+/// Payload: `(schema_version, ledger_seq, ledger_ts, agent, approved, expiry, caller)`
+pub fn emit_kyc_updated(
+    env: &Env,
+    agent: Address,
+    approved: bool,
+    expiry: Option<u64>,
+    caller: Address,
+) {
+    emit_event!(env, "kyc", "updated", agent, approved, expiry, caller);
 }
 
 // ── Admin Transfer Events (#365) ───────────────────────────────────
