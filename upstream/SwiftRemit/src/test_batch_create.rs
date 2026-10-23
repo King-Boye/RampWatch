@@ -248,6 +248,40 @@ mod tests {
     }
 
     #[test]
+    fn test_batch_create_expiry_window_read_once() {
+        let env = Env::default();
+        let (contract, _admin, _) = setup(&env);
+        let sender = Address::generate(&env);
+
+        let agent1 = Address::generate(&env);
+        let agent2 = Address::generate(&env);
+        let agent3 = Address::generate(&env);
+        contract.register_agent(&agent1, &None);
+        contract.register_agent(&agent2, &None);
+        contract.register_agent(&agent3, &None);
+
+        // All entries request the default expiry window (expiry: None), so the
+        // resolved expiry must be identical across the whole batch. This holds
+        // only if the expiry window and ledger timestamp are read once before
+        // the loop rather than re-read per iteration.
+        let mut entries = Vec::new(&env);
+        entries.push_back(BatchCreateEntry { agent: agent1.clone(), amount: 100_000_000, expiry: None });
+        entries.push_back(BatchCreateEntry { agent: agent2.clone(), amount: 200_000_000, expiry: None });
+        entries.push_back(BatchCreateEntry { agent: agent3.clone(), amount: 150_000_000, expiry: None });
+
+        let remittance_ids = contract.batch_create_remittances(&sender, &entries);
+        assert_eq!(remittance_ids.len(), 3);
+
+        let r1 = contract.get_remittance(&remittance_ids.get_unchecked(0));
+        let r2 = contract.get_remittance(&remittance_ids.get_unchecked(1));
+        let r3 = contract.get_remittance(&remittance_ids.get_unchecked(2));
+
+        assert!(r1.expiry.is_some());
+        assert_eq!(r1.expiry, r2.expiry);
+        assert_eq!(r2.expiry, r3.expiry);
+    }
+
+    #[test]
     fn test_batch_create_different_amounts() {
         let env = Env::default();
         let (contract, _admin, _) = setup(&env);

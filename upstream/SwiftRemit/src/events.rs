@@ -297,6 +297,22 @@ pub fn emit_remittance_expired(
     emit_event!(env, "remit", "expired", remittance_id, sender, token, refund_amount, expires_at);
 }
 
+/// Emits an event when a sender recovers the undisbursed remainder of a
+/// remittance stuck in `Processing` after the recovery timeout elapses.
+///
+/// Topics: `("remit", "recovered")`
+/// Payload: `(schema_version, ledger_seq, ledger_ts, remittance_id, sender, agent, token, refund_amount)`
+pub fn emit_remittance_recovered(
+    env: &Env,
+    remittance_id: u64,
+    sender: Address,
+    agent: Address,
+    token: Address,
+    refund_amount: i128,
+) {
+    emit_event!(env, "remit", "recovered", remittance_id, sender, agent, token, refund_amount);
+}
+
 pub fn emit_agent_cap_set(env: &Env, agent: Address, cap: i128, caller: Address) {
     env.events().publish(
         (Symbol::new(env, "agent_cap_set"),),

@@ -44,6 +44,51 @@ pub fn validate_transition(
     }
 }
 
+/// Validates a `Processing → Cancelled` refund transition with a timeout guard.
+///
+/// A remittance that has entered `Processing` (i.e. at least one partial payout
+/// has been confirmed) can only be cancelled by the sender once the configured
+/// timeout has elapsed since the last partial payout. This lets the sender
+/// recover the undisbursed remainder if the agent disappears.
+///
+/// # Arguments
+///
+/// * `now` - Current ledger timestamp
+/// * `last_payout_at` - Timestamp of the last partial payout (or the moment the
+///   remittance entered `Processing` if no payout has been recorded yet)
+/// * `timeout` - Configured recovery timeout in seconds
+///
+/// # Errors
+///
+/// * `ContractError::InvalidStateTransition` - The refund timeout has not elapsed
+pub fn validate_processing_refund(
+    now: u64,
+    last_payout_at: u64,
+    timeout: u64,
+) -> Result<(), ContractError> {
+    let deadline = last_payout_at.saturating_add(timeout);
+    if now < deadline {
+        return Err(ContractError::InvalidStateTransition);
+    }
+    Ok(())
+}
+
+/// Checks whether a `Processing` remittance is eligible for a sender refund.
+///
+/// Returns `true` once the recovery timeout has elapsed since the last partial
+/// payout. Terminal states are never eligible.
+pub fn is_refund_eligible(
+    status: &RemittanceStatus,
+    now: u64,
+    last_payout_at: u64,
+    timeout: u64,
+) -> bool {
+    if *status != RemittanceStatus::Processing {
+        return false;
+    }
+    validate_processing_refund(now, last_payout_at, timeout).is_ok()
+}
+
 /// Atomically updates the remittance status with validation.
 ///
 /// This function ensures that:
@@ -354,6 +399,57 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), ContractError::InvalidStateTransition);
         assert_eq!(remittance.status, RemittanceStatus::Completed);
+    }
+
+    #[test]
+    fn test_processing_refund_after_timeout() {
+        // last payout at t=100, timeout 60 → eligible at t>=160
+        assert!(validate_processing_refund(160, 100, 60).is_ok());
+        assert!(validate_processing_refund(200, 100, 60).is_ok());
+    }
+
+    #[test]
+    fn test_processing_refund_before_timeout() {
+        assert_eq!(
+            validate_processing_refund(159, 100, 60).unwrap_err(),
+            ContractError::InvalidStateTransition
+        );
+        assert_eq!(
+            validate_processing_refund(100, 100, 60).unwrap_err(),
+            ContractError::InvalidStateTransition
+        );
+    }
+
+    #[test]
+    fn test_is_refund_eligible_only_processing() {
+        assert!(is_refund_eligible(&RemittanceStatus::Processing, 200, 100, 60));
+        assert!(!is_refund_eligible(&RemittanceStatus::Processing, 150, 100, 60));
+        assert!(!is_refund_eligible(&RemittanceStatus::Pending, 200, 100, 60));
+        assert!(!is_refund_eligible(&RemittanceStatus::Completed, 200, 100, 60));
+        assert!(!is_refund_eligible(&RemittanceStatus::Cancelled, 200, 100, 60));
+    }
+
+    #[test]
+    fn test_processing_to_cancelled_transition_allowed() {
+        assert!(validate_transition(
+            &RemittanceStatus::Processing,
+            &RemittanceStatus::Cancelled
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn test_terminal_states_remain_terminal_after_refund() {
+        assert!(validate_transition(
+            &RemittanceStatus::Cancelled,
+            &RemittanceStatus::Processing
+        )
+        .is_err());
+        assert!(validate_transition(
+            &RemittanceStatus::Completed,
+            &RemittanceStatus::Processing
+        )
+        .is_err());
     }
 
     #[test]

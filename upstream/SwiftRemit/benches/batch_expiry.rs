@@ -116,10 +116,81 @@ fn bench_process_expired_mixed_states(c: &mut Criterion) {
     });
 }
 
+fn setup_contract_for_netting(env: &Env) -> SwiftRemitContractClient {
+    let contract_id = env.register_contract(None, SwiftRemitContract);
+    let client = SwiftRemitContractClient::new(env, &contract_id);
+
+    let admin = Address::generate(env);
+    let usdc_token = Address::generate(env);
+
+    env.mock_all_auths();
+    client.initialize(&admin, &usdc_token, &250);
+
+    client
+}
+
+fn bench_batch_settle_with_netting_100_unique(c: &mut Criterion) {
+    let env = Env::default();
+    let client = setup_contract_for_netting(&env);
+
+    // ~100 unique remittance IDs
+    let ids = {
+        let mut ids = Vec::new(&env);
+        for i in 0..100u64 {
+            ids.push_back(i + 1);
+        }
+        ids
+    };
+
+    c.bench_function("batch_settle_with_netting_100_unique", |b| {
+        b.iter(|| {
+            let ids_clone = {
+                let mut cloned = Vec::new(&env);
+                for i in 0..ids.len() {
+                    cloned.push_back(ids.get_unchecked(i));
+                }
+                cloned
+            };
+            black_box(client.try_batch_settle_with_netting(&ids_clone))
+        })
+    });
+}
+
+fn bench_batch_settle_with_netting_100_with_duplicate(c: &mut Criterion) {
+    let env = Env::default();
+    let client = setup_contract_for_netting(&env);
+
+    // ~100 IDs where the last entry duplicates an earlier one, exercising the
+    // duplicate-detection path that previously used an O(n^2) scan.
+    let ids = {
+        let mut ids = Vec::new(&env);
+        for i in 0..99u64 {
+            ids.push_back(i + 1);
+        }
+        ids.push_back(1); // duplicate of the first ID
+        ids
+    };
+
+    c.bench_function("batch_settle_with_netting_100_with_duplicate", |b| {
+        b.iter(|| {
+            let ids_clone = {
+                let mut cloned = Vec::new(&env);
+                for i in 0..ids.len() {
+                    cloned.push_back(ids.get_unchecked(i));
+                }
+                cloned
+            };
+            black_box(client.try_batch_settle_with_netting(&ids_clone))
+        })
+    });
+}
+
 criterion_group!(
     batch_expiry_benches,
     bench_process_expired_batch_sizes,
     bench_process_expired_max_batch,
-    bench_process_expired_mixed_states
+    bench_process_expired_mixed_states,
+    bench_batch_settle_with_netting_100_unique,
+    bench_batch_settle_with_netting_100_with_duplicate
 );
 criterion_main!(batch_expiry_benches);

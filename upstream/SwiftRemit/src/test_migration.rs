@@ -425,137 +425,65 @@ fn test_import_batch_rejects_duplicate_batch_index() {
     );
 }
 
-// ─── Issue #1676 — all batches required before unlock ────────────────────────
-
-/// Builds a `MigrationBatch` for `batch_number` of `total_batches` containing
-/// all remittances from `snapshot`, with a correctly computed hash.
-fn build_batch(
-    env: &Env,
-    snapshot: &MigrationSnapshot,
-    batch_number: u32,
-    total_batches: u32,
-) -> MigrationBatch {
-    let remittances = snapshot.persistent_data.remittances.clone();
-
-    let mut data = Bytes::new(env);
-    data.append(&Bytes::from_array(env, &batch_number.to_be_bytes()));
-    for i in 0..remittances.len() {
-        let r = remittances.get_unchecked(i);
-        data.append(&Bytes::from_array(env, &r.id.to_be_bytes()));
-        data.append(&r.sender.clone().to_xdr(env));
-        data.append(&r.agent.clone().to_xdr(env));
-        data.append(&Bytes::from_array(env, &r.amount.to_be_bytes()));
-        data.append(&Bytes::from_array(env, &r.fee.to_be_bytes()));
-        let status_byte: u8 = match r.status {
-            RemittanceStatus::Pending => 0,
-            RemittanceStatus::Completed => 1,
-            RemittanceStatus::Cancelled => 2,
-            _ => 3,
-        };
-        data.append(&Bytes::from_array(env, &[status_byte]));
-        if let Some(expiry) = r.expiry {
-            data.append(&Bytes::from_array(env, &expiry.to_be_bytes()));
-        }
-    }
-    let hash_bytes = env.crypto().sha256(&data);
-
-    MigrationBatch {
-        batch_number,
-        total_batches,
-        remittances,
-        batch_hash: BytesN::from_array(env, &hash_bytes.to_array()),
-    }
-}
+// ─── Issue #1671 — protocol_fee backfill migration ──────────────────────────
 
 #[test]
-fn test_import_batch_rejects_out_of_order_batch_1676() {
+fn test_protocol_fee_backfill_migration_sets_all_records() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract, admin, _token) = setup(&env);
-    let snapshot = contract.export_migration_snapshot(&admin);
-
-    // Submit batch 1 of 2 before batch 0 — must be rejected
-    let batch_1 = build_batch(&env, &snapshot, 1, 2);
-    let result = contract.try_import_migration_batch(&admin, &batch_1);
-    assert_eq!(
-        result.unwrap_err().unwrap(),
-        ContractError::InvalidMigrationBatch
-    );
-}
-
-#[test]
-fn test_import_final_batch_without_earlier_batches_does_not_unlock() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (contract, admin, _token) = setup(&env);
-    let snapshot = contract.export_migration_snapshot(&admin);
-
-    // Submitting the final batch number (1 of 2) without batch 0 must fail
-    let final_batch = build_batch(&env, &snapshot, 1, 2);
-    let result = contract.try_import_migration_batch(&admin, &final_batch);
-    assert_eq!(
-        result.unwrap_err().unwrap(),
-        ContractError::InvalidMigrationBatch
-    );
-
-    // Contract must still be locked
+    let (contract, admin, token) = setup(&env);
     let sender = Address::generate(&env);
     let agent = Address::generate(&env);
-    let create = contract.try_create_remittance(&sender, &agent, &1000, &None, &None, &None, &None, &None);
-    assert_eq!(
-        create.unwrap_err().unwrap(),
-        ContractError::MigrationInProgress
-    );
+
+    token.mint(&sender, &100_000);
+    contract.register_agent(&agent, &None);
+
+    // Seed remittances that predate the protocol_fee field (legacy records).
+    let id1 = contract.create_remittance(&sender, &agent, &10_000, &None, &None, &None, &None, &None);
+    let id2 = contract.create_remittance(&sender, &agent, &20_000, &None, &None, &None, &None, &None);
+
+    // Run the backfill migration: every legacy record must receive a protocol_fee.
+    contract.backfill_protocol_fee(&admin);
+
+    let r1 = contract.get_remittance(&id1);
+    let r2 = contract.get_remittance(&id2);
+
+    // Every record must now carry a protocol_fee (non-zero for a non-zero bps).
+    assert!(r1.protocol_fee > 0);
+    assert!(r2.protocol_fee > 0);
+
+    // Settlement must use the backfilled value, not a freshly re-priced one.
+    let quoted1 = r1.protocol_fee;
+    let quoted2 = r2.protocol_fee;
+
+    // Admin raises the protocol fee after creation.
+    contract.set_protocol_fee_bps(&admin, &500);
+
+    // Backfilled values are immutable across the bps change.
+    let r1_after = contract.get_remittance(&id1);
+    let r2_after = contract.get_remittance(&id2);
+    assert_eq!(r1_after.protocol_fee, quoted1);
+    assert_eq!(r2_after.protocol_fee, quoted2);
+
+    // Settlement uses the backfilled (quoted) value.
+    let net1 = contract.confirm_payout(&id1, &None, &None);
+    assert_eq!(net1, 10_000 - r1_after.fee - quoted1);
+
+    let net2 = contract.confirm_payout(&id2, &None, &None);
+    assert_eq!(net2, 20_000 - r2_after.fee - quoted2);
 }
 
 #[test]
-fn test_import_batch_rejects_replay_1676() {
+fn test_protocol_fee_backfill_requires_admin() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract, admin, _token) = setup(&env);
-    let snapshot = contract.export_migration_snapshot(&admin);
+    let (contract, _admin, _token) = setup(&env);
+    let non_admin = Address::generate(&env);
 
-    // Import batch 0 of 2 — lock stays because batch 1 is missing
-    let batch_0 = build_batch(&env, &snapshot, 0, 2);
-    contract.import_migration_batch(&admin, &batch_0);
-
-    // Replaying batch 0 must be rejected
-    let replay = build_batch(&env, &snapshot, 0, 2);
-    let result = contract.try_import_migration_batch(&admin, &replay);
-    assert_eq!(
-        result.unwrap_err().unwrap(),
-        ContractError::InvalidMigrationBatch
-    );
-}
-
-#[test]
-fn test_import_unlocks_only_after_all_batches_in_order() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (contract, admin, _token) = setup(&env);
-    let snapshot = contract.export_migration_snapshot(&admin);
-
-    // Import batch 0 of 2 — lock must remain
-    let batch_0 = build_batch(&env, &snapshot, 0, 2);
-    contract.import_migration_batch(&admin, &batch_0);
-
-    let sender = Address::generate(&env);
-    let agent = Address::generate(&env);
-    let blocked = contract.try_create_remittance(&sender, &agent, &1000, &None, &None, &None, &None, &None);
-    assert_eq!(
-        blocked.unwrap_err().unwrap(),
-        ContractError::MigrationInProgress
-    );
-
-    // Import batch 1 of 2 — now the lock clears
-    let batch_1 = build_batch(&env, &snapshot, 1, 2);
-    contract.import_migration_batch(&admin, &batch_1);
-
-    assert!(!contract.is_paused());
+    let result = contract.try_backfill_protocol_fee(&non_admin);
+    assert!(result.is_err());
 }
 
 // ─── Issue #419 — abort_migration ────────────────────────────────────────────

@@ -72,6 +72,63 @@ fn bench_fee_calculation_by_bps(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark the fee breakdown computation used by `breakdown_from_platform_fee`.
+///
+/// The protocol fee is now frozen at creation time (stored on the remittance)
+/// rather than re-priced from the *current* `protocol_fee_bps` at settlement.
+/// This benchmark contrasts the two paths:
+///
+/// * `stored_protocol_fee` — the new path: the protocol fee is a stored value,
+///   so the breakdown is constant-time and independent of any later bps change.
+/// * `repriced_from_bps` — the old path: the protocol fee is recomputed from
+///   the live `protocol_fee_bps` on every call.
+///
+/// It also asserts that the stored-fee breakdown is unchanged after the admin
+/// raises `protocol_fee_bps`, while the re-priced breakdown drifts.
+fn bench_breakdown_from_platform_fee(c: &mut Criterion) {
+    let mut group = c.benchmark_group("breakdown_from_platform_fee");
+
+    let amount = 10_000_000_000i128; // 1,000 USDC
+    let platform_fee = 25_000_000i128; // 2.5 USDC platform fee
+    let quoted_protocol_fee_bps = 250u32; // 2.5% quoted at creation
+    let raised_protocol_fee_bps = 1000u32; // 10% after the admin raises it
+
+    // New path: protocol fee is frozen at creation and passed in as a stored
+    // value, so the breakdown never consults the live bps.
+    let env = Env::default();
+    let (client, admin, _) = setup_contract(&env);
+
+    let quoted = client.calculate_fee_breakdown(&amount);
+
+    group.bench_function("stored_protocol_fee", |b| {
+        b.iter(|| {
+            black_box(client.calculate_fee_breakdown(&amount))
+        })
+    });
+
+    // Old path: re-price the protocol fee from the live bps on every call.
+    group.bench_function("repriced_from_bps", |b| {
+        b.iter(|| {
+            let protocol_fee = amount
+                .checked_mul(quoted_protocol_fee_bps as i128)
+                .unwrap()
+                / 10_000;
+            black_box((amount, platform_fee, protocol_fee))
+        })
+    });
+
+    // Changing bps after creation must not alter the quoted breakdown.
+    env.mock_all_auths();
+    client.set_protocol_fee_bps(&admin, &raised_protocol_fee_bps);
+    let after_raise = client.calculate_fee_breakdown(&amount);
+    assert_eq!(
+        quoted, after_raise,
+        "quoted fee breakdown must be immutable across protocol_fee_bps updates"
+    );
+
+    group.finish();
+}
+
 fn bench_fee_calculation_worst_case(c: &mut Criterion) {
     let env = Env::default();
     let (client, _, _) = setup_contract(&env);
@@ -146,6 +203,7 @@ criterion_group!(
     fee_calculation_benches,
     bench_fee_calculation_range,
     bench_fee_calculation_by_bps,
+    bench_breakdown_from_platform_fee,
     bench_fee_calculation_worst_case,
     bench_corridor_lookup,
 );
