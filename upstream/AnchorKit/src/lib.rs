@@ -77,6 +77,12 @@ mod sep10_contract_tests;
 mod routing_tests;
 
 #[cfg(test)]
+mod routing_score_tests;
+
+#[cfg(test)]
+mod credential_storage_tests;
+
+#[cfg(test)]
 mod deterministic_hash_snapshot_tests {
     // Snapshot tests live inside deterministic_hash module itself.
     // This module exists to satisfy the test_snapshots/deterministic_hash_tests path.
@@ -113,6 +119,9 @@ mod attestor_cap_batch_tests;
 mod anchor_health_score_tests;
 
 #[cfg(test)]
+mod issue_1355_1362_1364_tests;
+
+#[cfg(test)]
 mod compute_payload_hash_tests;
 
 #[cfg(test)]
@@ -134,13 +143,19 @@ mod session_expiry_error_tests;
 mod pause_tests;
 
 #[cfg(test)]
-mod attestation_validation_tests;
-
-#[cfg(test)]
-mod attestor_event_tests;
-
-#[cfg(test)]
 mod sdk_config_tests;
 
 #[cfg(test)]
 mod streaming_flow_tests;
+
+// Issue #959 – Holder pagination edge cases (empty, exact, partial, out-of-range).
+#[cfg(test)]
+mod holder_pagination_tests;
+
+// Issue #958 – Forced-transfer audit record integrity.
+#[cfg(test)]
+mod forced_transfer_audit_tests;
+
+// Issue #956 – Rent vs capital claim separation regression.
+#[cfg(test)]
+mod typed_distribution_separation_tests;
