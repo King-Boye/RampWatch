@@ -192,27 +192,42 @@ pub async fn hmac_middleware(
 mod tests {
     use super::*;
 
+    /// A fresh random secret per test, so no key material lives in the code.
+    fn secret() -> String {
+        format!("whsec_{}", uuid::Uuid::new_v4().simple())
+    }
+
+    /// Reference implementation of fluxapay's `generateWebhookSignature`:
+    /// HMAC-SHA256 over the literal string `"{timestamp}.{body}"`.
+    fn fluxapay_sign(secret: &str, timestamp: &str, body: &str) -> String {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(format!("{timestamp}.{body}").as_bytes());
+        hex::encode(mac.finalize().into_bytes())
+    }
+
     #[test]
     fn signature_matches_fluxapay_scheme() {
-        // node -e 'console.log(require("crypto").createHmac("sha256","whsec_test")
-        //   .update("1730749212." + "{\"a\":1}").digest("hex"))'
-        let sig = sign("whsec_test", "1730749212", br#"{"a":1}"#);
+        let (a, b) = (secret(), secret());
+        let body = r#"{"a":1}"#;
+        let sig = sign(&a, "1730749212", body.as_bytes());
         assert_eq!(sig.len(), 64);
-        assert_eq!(sig, sign("whsec_test", "1730749212", br#"{"a":1}"#));
-        assert_ne!(sig, sign("whsec_other", "1730749212", br#"{"a":1}"#));
-        assert_ne!(sig, sign("whsec_test", "1730749213", br#"{"a":1}"#));
+        assert_eq!(sig, fluxapay_sign(&a, "1730749212", body));
+        assert_ne!(sig, sign(&b, "1730749212", body.as_bytes()));
+        assert_ne!(sig, sign(&a, "1730749213", body.as_bytes()));
     }
 
     #[test]
     fn verify_accepts_either_secret_during_rotation() {
         let body = b"{}";
-        let old = sign("old", "1", body);
-        let new = sign("new", "1", body);
-        assert!(verify(&["new", "old"], "1", body, &[&old]));
-        assert!(verify(&["new", "old"], "1", body, &[&new]));
-        assert!(verify(&["new", "old"], "1", body, &["bad", &old]));
-        assert!(!verify(&["new"], "1", body, &[&old]));
-        assert!(!verify(&["new"], "1", b"{ }", &[&new]));
+        let (old_secret, new_secret) = (secret(), secret());
+        let old = sign(&old_secret, "1", body);
+        let new = sign(&new_secret, "1", body);
+        let both = [new_secret.as_str(), old_secret.as_str()];
+        assert!(verify(&both, "1", body, &[&old]));
+        assert!(verify(&both, "1", body, &[&new]));
+        assert!(verify(&both, "1", body, &["bad", &old]));
+        assert!(!verify(&[&new_secret], "1", body, &[&old]));
+        assert!(!verify(&[&new_secret], "1", b"{ }", &[&new]));
     }
 
     #[test]

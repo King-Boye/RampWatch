@@ -183,12 +183,13 @@ async fn bad_signature_gets_401() {
     let h = harness().await;
     let body = event("co_9", "pending", 40).to_string();
 
-    // Wrong secret.
+    // Wrong secret (random, so no key material lives in the test).
+    let wrong_secret = format!("whsec_{}", uuid::Uuid::new_v4().simple());
     let req = h.signed(
         "/v1/payouts/events",
         body.clone(),
         Some("k1"),
-        "whsec_wrong",
+        &wrong_secret,
     );
     let (status, _, res) = call(&h.app, req).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
