@@ -9,7 +9,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 /// Required environment variables that must be set
-const REQUIRED_VARS: &[&str] = &["DATABASE_URL", "ENCRYPTION_KEY", "JWT_SECRET"];
+const REQUIRED_VARS: &[&str] = &["DATABASE_URL"];
 
 /// Environment variables that should be validated if present
 const VALIDATED_VARS: &[(&str, fn(&str) -> bool)] = &[
@@ -175,15 +175,15 @@ pub fn validate_env() -> Result<()> {
         }
     }
 
-    // SNAPSHOT_CONTRACT_ID must not be the placeholder value when set.
+    // REGISTRY_CONTRACT_ID must not be the placeholder value when set.
     // This is the primary contract ID consumed by ContractService for
     // snapshot submission; a placeholder silently disables on-chain anchoring.
-    if let Ok(contract_id) = env::var("SNAPSHOT_CONTRACT_ID") {
+    if let Ok(contract_id) = env::var("REGISTRY_CONTRACT_ID") {
         if contract_id == "CHANGE_ME_source_contracts_env_testnet" {
             errors.push(
-                "SNAPSHOT_CONTRACT_ID is set to the placeholder value. \
+                "REGISTRY_CONTRACT_ID is set to the placeholder value. \
                 Source contracts/.env.testnet to get the real deployed contract ID: \
-                source contracts/.env.testnet && export SNAPSHOT_CONTRACT_ID=$PAYRAIDER_CONTRACT_ID"
+                source contracts/.env.testnet && export REGISTRY_CONTRACT_ID=$RAMPWATCH_REGISTRY_CONTRACT_ID"
                     .to_string(),
             );
         }
@@ -239,7 +239,7 @@ pub fn log_env_config() {
 
     // Soroban contract IDs
     log_var("SOROBAN_RPC_URL");
-    log_var("SNAPSHOT_CONTRACT_ID");
+    log_var("REGISTRY_CONTRACT_ID");
     if env::var("STELLAR_SOURCE_SECRET_KEY").is_ok() {
         tracing::info!("  STELLAR_SOURCE_SECRET_KEY: [REDACTED]");
     }
@@ -584,7 +584,7 @@ mod tests {
 
     #[test]
     fn test_sanitize_sqlite_url() {
-        let url = "sqlite:./payraider.db";
+        let url = "sqlite:./rampwatch.db";
         assert_eq!(sanitize_database_url(url), url);
     }
 

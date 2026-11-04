@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::models::api_key::{extract_key_prefix, verify_api_key};
+use crate::auth::api_key_model::{extract_key_prefix, verify_api_key};
 
 /// Rate limit configuration for an endpoint
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,9 +105,9 @@ fn normalize_ip_for_rate_limit(ip: &str) -> String {
     }
 }
 
-/// Comma-separated user/API-key IDs in `PAYRAIDER_PREMIUM_CLIENT_IDS` map to premium tier.
+/// Comma-separated user/API-key IDs in `RAMPWATCH_PREMIUM_CLIENT_IDS` map to premium tier.
 fn client_id_has_premium_env_override(client_id: &str) -> bool {
-    std::env::var("PAYRAIDER_PREMIUM_CLIENT_IDS")
+    std::env::var("RAMPWATCH_PREMIUM_CLIENT_IDS")
         .ok()
         .is_some_and(|raw| raw.split(',').any(|part| part.trim() == client_id))
 }
@@ -197,7 +197,7 @@ impl RateLimiter {
     ) -> ClientIdentifier {
         // Try to extract API key from Authorization header
         if let Some(token) = bearer_token {
-            if token.starts_with("si_live_") || token.starts_with("si_test_") {
+            if token.starts_with("rw_live_") || token.starts_with("rw_test_") {
                 // Validate API key against database if available
                 if let Some(api_key_id) = self.resolve_api_key_id(&token).await {
                     return ClientIdentifier::ApiKey(api_key_id);
@@ -223,9 +223,15 @@ impl RateLimiter {
         &self,
         pool: &sqlx::SqlitePool,
         plain_key: &str,
-    ) -> Result<Option<crate::models::api_key::ApiKey>, sqlx::Error> {
-        let candidates = sqlx::query_as::<_, crate::models::api_key::ApiKey>(
-            "SELECT * FROM api_keys WHERE key_prefix = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > datetime('now'))"
+    ) -> Result<Option<crate::auth::api_key_model::ApiKey>, sqlx::Error> {
+        let candidates = sqlx::query_as::<_, crate::auth::api_key_model::ApiKey>(
+            // The upstream copy selected `*` from api_keys, which has no
+            // rate_limit_per_minute column, so the row never decoded and no
+            // key was recognised. Join the limit table like api_key_db does.
+            "SELECT k.*, COALESCE(c.limit_per_minute, 200) AS rate_limit_per_minute
+             FROM api_keys k LEFT JOIN api_keys_rate_limit_config c ON c.api_key_id = k.id
+             WHERE k.key_prefix = ? AND k.status = 'active'
+               AND (k.expires_at IS NULL OR k.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
         )
         .bind(extract_key_prefix(plain_key))
         .fetch_all(pool)
@@ -256,81 +262,15 @@ impl RateLimiter {
                 if client_id_has_premium_env_override(id) {
                     return ClientTier::Premium;
                 }
-                // A key with a paid subscription in force is premium.
-                if let Some(pool) = &self.db_pool {
-                    if matches!(crate::billing::active_limit(pool, id).await, Ok(Some(_))) {
-                        return ClientTier::Premium;
-                    }
-                }
-                // For API keys, we check if the associated user/wallet has a premium subscription
-                // If we have a DB pool, query the user_subscriptions table
-                if let Some(pool) = &self.db_pool {
-                    match self.get_subscription_tier_by_client_id(pool, id).await {
-                        Ok(tier) => tier,
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to fetch subscription tier for API key {}: {}",
-                                id,
-                                e
-                            );
-                            ClientTier::Authenticated
-                        }
-                    }
-                } else {
-                    ClientTier::Authenticated
-                }
+                ClientTier::Authenticated
             }
             ClientIdentifier::User(user_id) => {
                 if client_id_has_premium_env_override(user_id) {
                     return ClientTier::Premium;
                 }
-                if let Some(pool) = &self.db_pool {
-                    match self.get_subscription_tier_by_client_id(pool, user_id).await {
-                        Ok(tier) => tier,
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to fetch subscription tier for user {}: {}",
-                                user_id,
-                                e
-                            );
-                            ClientTier::Authenticated
-                        }
-                    }
-                } else {
-                    ClientTier::Authenticated
-                }
+                ClientTier::Authenticated
             }
             ClientIdentifier::IpAddress(_) => ClientTier::Anonymous,
-        }
-    }
-
-    /// Query database for subscription tier
-    async fn get_subscription_tier_by_client_id(
-        &self,
-        pool: &sqlx::SqlitePool,
-        client_id: &str,
-    ) -> Result<ClientTier, sqlx::Error> {
-        let record = sqlx::query_as::<_, UserSubscriptionRecord>(
-            "SELECT tier, expires_at FROM user_subscriptions 
-             WHERE (user_id = ? OR api_key_id = ?) 
-             AND (expires_at IS NULL OR expires_at > datetime('now'))
-             ORDER BY CASE WHEN tier = 'Premium' THEN 1 ELSE 2 END
-             LIMIT 1",
-        )
-        .bind(client_id)
-        .bind(client_id)
-        .fetch_optional(pool)
-        .await?;
-
-        match record {
-            Some(r) => {
-                if r.tier == "Premium" {
-                    Ok(ClientTier::Premium)
-                } else {
-                    Ok(ClientTier::Authenticated)
-                }
-            }
-            None => Ok(ClientTier::Authenticated),
         }
     }
 
@@ -455,13 +395,6 @@ impl RateLimiter {
             return DEFAULT_LIMIT;
         };
 
-        // A paid subscription in force takes precedence over any static
-        // per-key configuration.
-        match crate::billing::active_limit(pool, api_key_id).await {
-            Ok(Some(limit)) => return limit.max(1),
-            Ok(None) => {}
-            Err(e) => tracing::error!("Failed to load subscription for {}: {}", api_key_id, e),
-        }
 
         match sqlx::query_scalar::<_, i64>(
             "SELECT limit_per_minute FROM api_keys_rate_limit_config WHERE api_key_id = ?",
@@ -537,7 +470,7 @@ impl RateLimiter {
 
     /// Resolve an API key bearer token to its database id, if valid.
     pub async fn resolve_api_key_id(&self, bearer_token: &str) -> Option<String> {
-        if !bearer_token.starts_with("si_live_") && !bearer_token.starts_with("si_test_") {
+        if !bearer_token.starts_with("rw_live_") && !bearer_token.starts_with("rw_test_") {
             return None;
         }
 
@@ -637,13 +570,6 @@ pub struct RateLimitInfo {
     pub window_seconds: u32,
     pub is_whitelisted: bool,
     pub client_id: Option<String>,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct UserSubscriptionRecord {
-    pub tier: String,
-    #[allow(dead_code)]
-    pub expires_at: Option<String>,
 }
 
 /// Add rate limit headers to a response according to standards
@@ -755,25 +681,11 @@ pub async fn api_key_rate_limit_middleware(
     let limit = limiter.get_api_key_limit_per_minute(&api_key_id).await;
     let (allowed, info) = limiter.rate_limit_api_key(&api_key_id, limit).await;
 
-    // #2657 — hash the API key's DB id before it ever reaches a log line, so
-    // support can correlate "this caller" across requests (request_id +
-    // key_id) without the logs themselves leaking an identifier that could
-    // be used to look up or act on the live key. Carried via response
-    // extensions since the access-log middleware wrapping this one reads
-    // from the response, not the (already consumed) request.
-    let hashed_key_id = crate::logging::hash_key_id(&api_key_id);
-
     if !allowed {
-        let mut resp = RateLimitError { info }.into_response();
-        resp.extensions_mut()
-            .insert(crate::logging::ApiKeyLogId(hashed_key_id));
-        return resp;
+        return RateLimitError { info }.into_response();
     }
 
-    let mut response = next.run(req).await;
-    response
-        .extensions_mut()
-        .insert(crate::logging::ApiKeyLogId(hashed_key_id));
+    let response = next.run(req).await;
 
     match add_rate_limit_headers(response, &info) {
         Ok(res) => res,
@@ -801,10 +713,7 @@ pub async fn rate_limit_middleware(
         .and_then(|auth_str| auth_str.strip_prefix("Bearer "))
         .map(str::to_owned);
 
-    let auth_user_id = req
-        .extensions()
-        .get::<crate::auth_middleware::AuthUser>()
-        .map(|auth_user| auth_user.user_id.clone());
+    let auth_user_id: Option<String> = None;
 
     let ip = req
         .extensions()
@@ -847,58 +756,6 @@ pub async fn rate_limit_middleware(
 mod tests {
     use super::*;
 
-    async fn setup_test_db() -> sqlx::SqlitePool {
-        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
-            .await
-            .expect("in-memory sqlite pool should connect");
-
-        sqlx::query(
-            "CREATE TABLE user_subscriptions (
-                user_id TEXT,
-                api_key_id TEXT,
-                tier TEXT,
-                expires_at DATETIME
-            )",
-        )
-        .execute(&pool)
-        .await
-        .expect("user_subscriptions table creation should succeed");
-
-        pool
-    }
-
-    #[tokio::test]
-    async fn test_premium_user_tier() {
-        let db = setup_test_db().await;
-        let rate_limiter = RateLimiter::new_with_db(Some(db.clone()))
-            .await
-            .expect("rate limiter should initialize");
-
-        // Insert premium user correctly using SQLite datetime function
-        sqlx::query("INSERT INTO user_subscriptions (user_id, tier, expires_at) VALUES (?, ?, datetime('now', '+30 days'))")
-            .bind("user123")
-            .bind("Premium")
-            .execute(&db)
-            .await
-            .expect("premium user insert should succeed");
-
-        let client = ClientIdentifier::User("user123".to_string());
-        let tier = rate_limiter.get_client_tier(&client).await;
-        assert_eq!(tier, ClientTier::Premium);
-    }
-
-    #[tokio::test]
-    async fn test_free_user_tier() {
-        let db = setup_test_db().await;
-        let rate_limiter = RateLimiter::new_with_db(Some(db.clone()))
-            .await
-            .expect("rate limiter should initialize");
-
-        let client = ClientIdentifier::User("user456".to_string());
-        let tier = rate_limiter.get_client_tier(&client).await;
-        assert_eq!(tier, ClientTier::Authenticated);
-    }
-
     async fn setup_api_key_rate_limit_db() -> sqlx::SqlitePool {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:")
             .await
@@ -940,7 +797,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_api_key_rate_limit_is_independent_per_key() {
-        let _guard = crate::lock_env_test();
         let db = setup_api_key_rate_limit_db().await;
         let limiter = RateLimiter::new_with_db(Some(db))
             .await

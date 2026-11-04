@@ -240,7 +240,7 @@ impl ApiError {
     }
 
     /// Get the HTTP status code for this error
-    const fn status_code(&self) -> StatusCode {
+    pub const fn status_code(&self) -> StatusCode {
         match self {
             Self::NotFound { .. } => StatusCode::NOT_FOUND,
             Self::BadRequest { .. } => StatusCode::BAD_REQUEST,
@@ -375,7 +375,7 @@ pub fn error_response_with_request_id(error: ApiError, req: &Request) -> Respons
     let status = error.status_code();
     let request_id = req
         .extensions()
-        .get::<crate::request_id::RequestId>()
+        .get::<crate::api::middleware::request_id::RequestId>()
         .map(|id| id.0.clone());
     let error_response = error.to_error_response(request_id);
     (status, Json(error_response)).into_response()
@@ -421,7 +421,6 @@ impl From<sqlx::Error> for ApiError {
 
         if let Some(StatusCode::SERVICE_UNAVAILABLE) = status {
             tracing::error!("Database pool exhausted");
-            crate::observability::metrics::record_pool_error("exhausted");
             return Self::ServiceUnavailable {
                 code,
                 message,
@@ -432,18 +431,6 @@ impl From<sqlx::Error> for ApiError {
         Self::InternalError {
             code,
             message,
-            details: None,
-            source: Some(err.to_string()),
-        }
-    }
-}
-
-/// Convert RPC errors into API errors so handlers can use `?` consistently.
-impl From<crate::rpc::error::RpcError> for ApiError {
-    fn from(err: crate::rpc::error::RpcError) -> Self {
-        Self::InternalError {
-            code: "RPC_ERROR".to_string(),
-            message: "External service error".to_string(),
             details: None,
             source: Some(err.to_string()),
         }

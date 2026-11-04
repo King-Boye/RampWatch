@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use crate::models::api_key::{
+use crate::auth::api_key_model::{
     generate_api_key, ApiKey, ApiKeyInfo, CreateApiKeyRequest, CreateApiKeyResponse,
 };
 
@@ -24,10 +24,10 @@ impl ApiKeyDb {
     }
 
     /// Creates a new API key.
-    #[tracing::instrument(skip(self, req), fields(wallet_address = %wallet_address, key_name = %req.name))]
+    #[tracing::instrument(skip(self, req), fields(operator_id = %operator_id, key_name = %req.name))]
     pub async fn create_api_key(
         &self,
-        wallet_address: &str,
+        operator_id: &str,
         req: CreateApiKeyRequest,
     ) -> Result<CreateApiKeyResponse> {
         let id = Uuid::new_v4().to_string();
@@ -37,14 +37,14 @@ impl ApiKeyDb {
 
         let mut tx = self.pool.begin().await.with_context(|| {
             format!(
-                "Failed to begin transaction for create_api_key for wallet: {}",
-                wallet_address
+                "Failed to begin transaction for create_api_key for operator: {}",
+                operator_id
             )
         })?;
 
         sqlx::query(
             r"
-            INSERT INTO api_keys (id, name, key_prefix, key_hash, wallet_address, scopes, status, created_at, expires_at)
+            INSERT INTO api_keys (id, name, key_prefix, key_hash, operator_id, scopes, status, created_at, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8)
             ",
         )
@@ -52,7 +52,7 @@ impl ApiKeyDb {
         .bind(&req.name)
         .bind(&prefix)
         .bind(&key_hash)
-        .bind(wallet_address)
+        .bind(operator_id)
         .bind(&scopes)
         .bind(&now)
         .bind(&req.expires_at)
@@ -60,8 +60,8 @@ impl ApiKeyDb {
         .await
         .with_context(|| {
             format!(
-                "Failed to insert API key for wallet: {}, name: {}",
-                wallet_address, req.name
+                "Failed to insert API key for operator: {}, name: {}",
+                operator_id, req.name
             )
         })?;
 
@@ -85,8 +85,8 @@ impl ApiKeyDb {
 
         tx.commit().await.with_context(|| {
             format!(
-                "Failed to commit create_api_key transaction for wallet: {}",
-                wallet_address
+                "Failed to commit create_api_key transaction for operator: {}",
+                operator_id
             )
         })?;
 
@@ -96,62 +96,62 @@ impl ApiKeyDb {
         })
     }
 
-    /// Lists all API keys for a given wallet address.
-    #[tracing::instrument(skip(self), fields(wallet_address = %wallet_address))]
-    pub async fn list_api_keys(&self, wallet_address: &str) -> Result<Vec<ApiKeyInfo>> {
+    /// Lists all API keys for a given operator address.
+    #[tracing::instrument(skip(self), fields(operator_id = %operator_id))]
+    pub async fn list_api_keys(&self, operator_id: &str) -> Result<Vec<ApiKeyInfo>> {
         let keys = sqlx::query_as::<_, ApiKey>(&format!(
-            "{KEY_SELECT} WHERE k.wallet_address = $1 ORDER BY k.created_at DESC"
+            "{KEY_SELECT} WHERE k.operator_id = $1 ORDER BY k.created_at DESC"
         ))
-        .bind(wallet_address)
+        .bind(operator_id)
         .fetch_all(&self.pool)
         .await
-        .with_context(|| format!("Failed to list API keys for wallet: {}", wallet_address))?;
+        .with_context(|| format!("Failed to list API keys for operator: {}", operator_id))?;
         Ok(keys.into_iter().map(ApiKeyInfo::from).collect())
     }
 
-    /// Retrieves an API key by its ID for a specific wallet address.
-    #[tracing::instrument(skip(self), fields(key_id = %id, wallet_address = %wallet_address))]
+    /// Retrieves an API key by its ID for a specific operator address.
+    #[tracing::instrument(skip(self), fields(key_id = %id, operator_id = %operator_id))]
     pub async fn get_api_key_by_id(
         &self,
         id: &str,
-        wallet_address: &str,
+        operator_id: &str,
     ) -> Result<Option<ApiKeyInfo>> {
         let key = sqlx::query_as::<_, ApiKey>(&format!(
-            "{KEY_SELECT} WHERE k.id = $1 AND k.wallet_address = $2"
+            "{KEY_SELECT} WHERE k.id = $1 AND k.operator_id = $2"
         ))
         .bind(id)
-        .bind(wallet_address)
+        .bind(operator_id)
         .fetch_optional(&self.pool)
         .await
         .with_context(|| {
             format!(
-                "Failed to get API key id: {} for wallet: {}",
-                id, wallet_address
+                "Failed to get API key id: {} for operator: {}",
+                id, operator_id
             )
         })?;
         Ok(key.map(ApiKeyInfo::from))
     }
 
     /// Revokes an active API key.
-    #[tracing::instrument(skip(self), fields(key_id = %id, wallet_address = %wallet_address))]
-    pub async fn revoke_api_key(&self, id: &str, wallet_address: &str) -> Result<bool> {
+    #[tracing::instrument(skip(self), fields(key_id = %id, operator_id = %operator_id))]
+    pub async fn revoke_api_key(&self, id: &str, operator_id: &str) -> Result<bool> {
         let revoked_at = Utc::now().to_rfc3339();
         let result = sqlx::query(
             r"
                 UPDATE api_keys
                 SET status = 'revoked', revoked_at = $1
-                WHERE id = $2 AND wallet_address = $3 AND status = 'active'
+                WHERE id = $2 AND operator_id = $3 AND status = 'active'
                 ",
         )
         .bind(&revoked_at)
         .bind(id)
-        .bind(wallet_address)
+        .bind(operator_id)
         .execute(&self.pool)
         .await
         .with_context(|| {
             format!(
-                "Failed to revoke API key id: {} for wallet: {}",
-                id, wallet_address
+                "Failed to revoke API key id: {} for operator: {}",
+                id, operator_id
             )
         })?;
 
@@ -159,11 +159,11 @@ impl ApiKeyDb {
     }
 
     /// Rotates an API key: revokes the old one and creates a new one with the same settings.
-    #[tracing::instrument(skip(self), fields(key_id = %id, wallet_address = %wallet_address))]
+    #[tracing::instrument(skip(self), fields(key_id = %id, operator_id = %operator_id))]
     pub async fn rotate_api_key(
         &self,
         id: &str,
-        wallet_address: &str,
+        operator_id: &str,
     ) -> Result<Option<CreateApiKeyResponse>> {
         let mut tx = self.pool.begin().await.with_context(|| {
             format!(
@@ -173,16 +173,16 @@ impl ApiKeyDb {
         })?;
 
         let existing = sqlx::query_as::<_, ApiKey>(&format!(
-            "{KEY_SELECT} WHERE k.id = $1 AND k.wallet_address = $2 AND k.status = 'active'"
+            "{KEY_SELECT} WHERE k.id = $1 AND k.operator_id = $2 AND k.status = 'active'"
         ))
         .bind(id)
-        .bind(wallet_address)
+        .bind(operator_id)
         .fetch_optional(&mut *tx)
         .await
         .with_context(|| {
             format!(
-                "Failed to fetch API key id: {} for wallet: {} during rotation",
-                id, wallet_address
+                "Failed to fetch API key id: {} for operator: {} during rotation",
+                id, operator_id
             )
         })?;
 
@@ -216,7 +216,7 @@ impl ApiKeyDb {
         sqlx::query(
             r"
                 INSERT INTO api_keys (
-                    id, name, key_prefix, key_hash, wallet_address, scopes, status, created_at, expires_at
+                    id, name, key_prefix, key_hash, operator_id, scopes, status, created_at, expires_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8)
                 ",
@@ -225,7 +225,7 @@ impl ApiKeyDb {
         .bind(&existing.name)
         .bind(&prefix)
         .bind(&key_hash)
-        .bind(wallet_address)
+        .bind(operator_id)
         .bind(&existing.scopes)
         .bind(&now)
         .bind(&existing.expires_at)
@@ -233,8 +233,8 @@ impl ApiKeyDb {
         .await
         .with_context(|| {
             format!(
-                "Failed to insert rotated API key for wallet: {} from id: {}",
-                wallet_address, existing.id
+                "Failed to insert rotated API key for operator: {} from id: {}",
+                operator_id, existing.id
             )
         })?;
 
@@ -280,7 +280,7 @@ impl ApiKeyDb {
     /// keeping Argon2's brute-force resistance.
     #[tracing::instrument(skip(self, plain_key))]
     pub async fn validate_api_key(&self, plain_key: &str) -> Result<Option<ApiKey>> {
-        use crate::models::api_key::{extract_key_prefix, verify_api_key};
+        use crate::auth::api_key_model::{extract_key_prefix, verify_api_key};
 
         let prefix = extract_key_prefix(plain_key);
 

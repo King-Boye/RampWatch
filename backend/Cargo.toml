@@ -1,168 +1,49 @@
 [package]
-name = "payraider-backend"
+name = "rampwatch-backend"
 version = "0.1.0"
-edition = "2021"
-default-run = "payraider-backend"
+edition.workspace = true
+license.workspace = true
+default-run = "rampwatch"
 
-# Clippy linting configuration
+[[bin]]
+name = "rampwatch"
+path = "src/main.rs"
+
+[lib]
+name = "rampwatch"
+path = "src/lib.rs"
+
 [lints.clippy]
-# Enable baseline clippy warnings.
 all = { level = "warn", priority = -1 }
-# Keep stricter lint tiers opt-in for this legacy codebase.
-pedantic = { level = "allow", priority = -1 }
-nursery = { level = "allow", priority = -1 }
-
-# Allow some pedantic lints that are too strict for this codebase
-module_name_repetitions = "allow"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
-too_many_arguments = "allow"
-type_complexity = "allow"
-manual_clamp = "allow"
-should_implement_trait = "allow"
-derivable_impls = "allow"
-large_enum_variant = "allow"
-items_after_test_module = "allow"
-module_inception = "allow"
-
-# Panic prevention lints - enforce proper error handling
-unwrap_used = "allow"
-expect_used = "allow"
-panic = "allow"
-
-[features]
-sep-integration = []
-testnet-smoke = []
-# Optional Telegram/Slack notification bots (#2658). Not part of `default`,
-# so the default build excludes `telegram/` and `slack_bot.rs` entirely,
-# shrinking the binary and its attack surface. Enable explicitly with
-# `cargo build --features telegram-bot,slack-bot` (or either alone).
-telegram-bot = []
-slack-bot = []
-# GDPR export/erasure service (services::gdpr) and its integration test.
-gdpr = []
-# Non-product features kept out of the default build (#2686): the quests /
-# achievements API and governance. Off by default, matching the frontend's
-# NEXT_PUBLIC_ENABLE_NON_PRODUCT_FEATURES flag.
-quests = []
-governance = []
+unwrap_used = "warn"
+expect_used = "warn"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-axum = { version = "0.8", features = ["ws"] }
-http-body-util = "0.1"
-tower = { version = "0.4", features = ["util", "timeout"] }
-tower-http = { version = "0.7", features = ["cors", "compression-gzip", "compression-br", "decompression-gzip", "decompression-br", "trace", "timeout"] }
+axum = "0.8"
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.7", features = ["trace", "limit"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0", features = ["float_roundtrip"] }
+serde_json = "1.0"
 validator = { version = "0.20", features = ["derive"] }
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "macros"] }
-log = "0.4"
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.0", features = ["v4", "serde"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "macros", "migrate"] }
 reqwest = { version = "0.13", features = ["json"] }
 anyhow = "1.0"
-async-trait = "0.1"
 thiserror = "2.0"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-log = "0.2"
-tracing-appender = "0.2"
-opentelemetry = { version = "0.33", features = ["trace"] }
-opentelemetry_sdk = { version = "0.33", features = ["trace"] }
-opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "http-proto", "reqwest-client"] }
-tracing-opentelemetry = "0.34"
-dotenvy = "0.15"
-sha2 = "0.11"
-sha1 = "0.11"
-hex = "0.4"
-rand = "0.10"
 redis = { version = "1.3", features = ["aio", "tokio-comp", "connection-manager"] }
-async-lock = "3.3"
-futures = "0.3"
-dashmap = "6.2"
-# `base64` gates WriteXdr::to_xdr_base64, which services/contract.rs needs to
-# re-encode a signed transaction envelope.
-stellar-xdr = { version = "26.0.1", features = ["std", "curr", "base64"] }
-stellar-strkey = "1.0.0"
-ed25519-dalek = "3"
-base32 = "0.5"
-base64 = "0.22"
-jsonwebtoken = { version = "10.4", features = ["aws_lc_rs"] }
-utoipa = { version = "5.5", features = ["axum_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
-urlencoding = "2.1"
-toml = "1.0"
-prometheus = "0.14"
-rust_decimal = "1.40"
-ipnetwork = "0.21"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+dotenvy = "0.15"
 argon2 = "0.6.0"
-url = "2.5"
-aes-gcm = "0.11"
-lettre = "0.11"
+dashmap = "6.2"
 hmac = "0.13"
-data-encoding = "2.5"
-lazy_static = "1.4"
+sha2 = "0.11"
+hex = "0.4"
 csv = "1.4"
-rust_xlsxwriter = { version = "0.99", features = ["chrono", "serde"] }
-failsafe = { version = "1.3", features = ["futures-support"] }
-tokio-retry = "0.3"
-async-graphql = { version = "7.0", features = ["chrono", "uuid"] }
-async-graphql-axum = { version = "7.0" }
-async-stream = "0.3"
-
-
-
-
-# [dependencies.payraider-apm]
-# path = "apm"
-# optional = true
+url = "2.5"
 
 [dev-dependencies]
-# Only referenced by tests/testnet/smoke_test.rs. Declared here rather than in
-# [dependencies] so it is not compiled into release builds (Issue #2375).
-tokio-tungstenite = "0.30"
-urlencoding = "=2.1.3"
-tempfile = "=3.27.0"
-criterion = { version = "=0.8.2", features = ["async_tokio"] }
-tokio = { version = "=1.53.3", features = ["full", "test-util"] }
-wiremock = "0.6.5"
-# Property tests for preflight decision invariants (#2645).
-proptest = "=1.12.0"
-
-[[bench]]
-name = "corridor_benchmarks"
-harness = false
-
-[[bench]]
-name = "cache_benchmarks"
-harness = false
-
-[[bench]]
-name = "database_benchmarks"
-harness = false
-
-[[test]]
-name = "sep10_integration"
-path = "tests/sep/sep10_integration.rs"
-required-features = ["sep-integration"]
-
-[[test]]
-name = "sep24_integration"
-path = "tests/sep/sep24_integration.rs"
-required-features = ["sep-integration"]
-
-[[test]]
-name = "sep31_integration"
-path = "tests/sep/sep31_integration.rs"
-required-features = ["sep-integration"]
-
-[[test]]
-name = "gdpr_integration"
-path = "tests/gdpr_integration.rs"
-required-features = ["gdpr"]
-
-[[test]]
-name = "testnet_smoke"
-path = "tests/testnet/mod.rs"
-required-features = ["testnet-smoke"]
+tower = { version = "0.4", features = ["util"] }
+http-body-util = "0.1"

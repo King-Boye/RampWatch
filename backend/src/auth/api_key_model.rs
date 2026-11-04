@@ -28,7 +28,7 @@ pub struct ApiKey {
     pub name: String,
     pub key_prefix: String,
     pub key_hash: String,
-    pub wallet_address: String,
+    pub operator_id: String,
     pub scopes: String,
     pub rate_limit_per_minute: i64,
     pub status: String,
@@ -43,7 +43,7 @@ pub struct ApiKeyInfo {
     pub id: String,
     pub name: String,
     pub key_prefix: String,
-    pub wallet_address: String,
+    pub operator_id: String,
     pub scopes: String,
     pub rate_limit_per_minute: i64,
     pub status: String,
@@ -59,7 +59,7 @@ impl From<ApiKey> for ApiKeyInfo {
             id: key.id,
             name: key.name,
             key_prefix: key.key_prefix,
-            wallet_address: key.wallet_address,
+            operator_id: key.operator_id,
             scopes: key.scopes,
             rate_limit_per_minute: key.rate_limit_per_minute,
             status: key.status,
@@ -71,7 +71,7 @@ impl From<ApiKey> for ApiKeyInfo {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Validate, utoipa::ToSchema)]
+#[derive(Debug, Clone, Deserialize, Validate)]
 pub struct CreateApiKeyRequest {
     #[validate(length(
         min = 1,
@@ -148,7 +148,7 @@ pub fn effective_rate_limit(configured: i64) -> i64 {
 #[must_use]
 pub fn generate_api_key() -> (String, String, String) {
     let raw = Uuid::new_v4().to_string().replace('-', "");
-    let plain_key = format!("si_live_{raw}");
+    let plain_key = format!("rw_live_{raw}");
     let prefix = extract_key_prefix(&plain_key);
     let hash = hash_api_key(&plain_key);
     (plain_key, prefix, hash)
@@ -157,7 +157,7 @@ pub fn generate_api_key() -> (String, String, String) {
 /// Returns the stored prefix used for efficient DB lookup before Argon2 verify.
 #[must_use]
 pub fn extract_key_prefix(plain_key: &str) -> String {
-    // plain_key format: "si_live_<32-char uuid without hyphens>"
+    // plain_key format: "rw_live_<32-char uuid without hyphens>"
     // We store the first 16 chars + "..." as the prefix.
     let end = plain_key.len().min(16);
     format!("{}...", &plain_key[..end])
