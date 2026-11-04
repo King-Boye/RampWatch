@@ -166,6 +166,8 @@ pub fn extract_key_prefix(plain_key: &str) -> String {
 /// Hash an API key with Argon2id. The PHC-format hash embeds the salt so
 /// it can be verified later with `verify_api_key`.
 #[must_use]
+// Hashing only fails on invalid Argon2 parameters, and the defaults are valid.
+#[allow(clippy::expect_used)]
 pub fn hash_api_key(plain_key: &str) -> String {
     // argon2 0.6's hash_password generates its own random salt internally
     // (via the getrandom feature, on by default) -- password-hash 0.6

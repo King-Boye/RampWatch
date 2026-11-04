@@ -136,7 +136,8 @@ impl PayoutEventInput {
 pub fn is_stellar_account(s: &str) -> bool {
     s.len() == 56
         && s.starts_with('G')
-        && s.bytes().all(|b| b.is_ascii_uppercase() || (b'2'..=b'7').contains(&b))
+        && s.bytes()
+            .all(|b| b.is_ascii_uppercase() || (b'2'..=b'7').contains(&b))
 }
 
 #[cfg(test)]
@@ -185,8 +186,12 @@ mod tests {
 
     #[test]
     fn stellar_account_check() {
-        assert!(is_stellar_account("GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H"));
-        assert!(!is_stellar_account("SBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H"));
+        assert!(is_stellar_account(
+            "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H"
+        ));
+        assert!(!is_stellar_account(
+            "SBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H"
+        ));
         assert!(!is_stellar_account("GABC"));
     }
 }

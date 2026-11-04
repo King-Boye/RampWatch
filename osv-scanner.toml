@@ -1,0 +1,10 @@
+# OSV-Scanner config, used by .github/workflows/security.yml.
+# OSV reads Cargo.lock, so it sees sqlx's unused MySQL driver (see SECURITY.md).
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2023-0071"
+reason = "rsa is in Cargo.lock only via sqlx's unused MySQL driver and is never compiled (cargo tree -i rsa is empty)."
+
+[[IgnoredVulns]]
+id = "GHSA-c38w-74pg-36hr"
+reason = "Same rsa advisory under its GitHub id."

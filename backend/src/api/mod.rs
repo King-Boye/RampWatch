@@ -18,7 +18,9 @@ use crate::AppState;
 
 async fn health(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     sqlx::query("SELECT 1").execute(&state.pool).await?;
-    Ok(Json(json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") })))
+    Ok(Json(
+        json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") }),
+    ))
 }
 
 /// Build the HTTP router.
@@ -38,17 +40,26 @@ pub fn router(state: AppState) -> Router {
             state.config.webhook_timestamp_tolerance_secs,
             hmac_middleware,
         ))
-        .route_layer(from_fn_with_state(auth_state.clone(), operator_auth_middleware));
+        .route_layer(from_fn_with_state(
+            auth_state.clone(),
+            operator_auth_middleware,
+        ));
 
     let api_keys = crate::auth::api_key_routes::routes(Arc::new(
         crate::auth::api_key_db::ApiKeyDb::new(state.pool.clone()),
     ))
-    .route_layer(from_fn_with_state(auth_state.clone(), operator_auth_middleware));
+    .route_layer(from_fn_with_state(
+        auth_state.clone(),
+        operator_auth_middleware,
+    ));
 
     let admin_token: Option<Arc<str>> = state.config.admin_token.as_deref().map(Arc::from);
     let admin = Router::new()
         .route("/v1/admin/operators", post(admin::create_operator))
-        .route("/v1/admin/operators/{id}/rotate-secret", post(admin::rotate_secret))
+        .route(
+            "/v1/admin/operators/{id}/rotate-secret",
+            post(admin::rotate_secret),
+        )
         .route_layer(from_fn_with_state(admin_token, admin_auth_middleware));
 
     Router::new()

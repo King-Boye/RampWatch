@@ -153,6 +153,8 @@ impl ShutdownCoordinator {
 ///
 /// This function will block until either SIGTERM or SIGINT is received.
 /// On Windows, only Ctrl+C is supported.
+// Failing to install a signal handler at startup should stop the process.
+#[allow(clippy::expect_used)]
 pub async fn wait_for_signal() {
     #[cfg(unix)]
     {
@@ -273,8 +275,6 @@ pub async fn shutdown_database(pool: sqlx::SqlitePool, timeout_duration: Duratio
         )
     }
 }
-
-
 
 /// Log shutdown statistics and final state
 pub fn log_shutdown_summary(start_time: std::time::Instant) {

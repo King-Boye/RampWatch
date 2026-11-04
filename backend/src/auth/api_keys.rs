@@ -36,13 +36,20 @@ pub async fn operator_auth_middleware(
         .and_then(|h| h.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .map(str::trim)
-        .ok_or_else(|| ApiError::unauthorized("missing_api_key", "Authorization: Bearer <api_key> is required"))?;
+        .ok_or_else(|| {
+            ApiError::unauthorized(
+                "missing_api_key",
+                "Authorization: Bearer <api_key> is required",
+            )
+        })?;
 
     let key_id = state
         .limiter
         .resolve_api_key_id(token)
         .await
-        .ok_or_else(|| ApiError::unauthorized("invalid_api_key", "API key is invalid or revoked"))?;
+        .ok_or_else(|| {
+            ApiError::unauthorized("invalid_api_key", "API key is invalid or revoked")
+        })?;
 
     let operator = sqlx::query_as::<_, Operator>(
         "SELECT o.* FROM operators o JOIN api_keys k ON k.operator_id = o.id
@@ -64,7 +71,10 @@ pub async fn admin_auth_middleware(
     next: Next,
 ) -> Result<Response, ApiError> {
     let Some(expected) = admin_token else {
-        return Err(ApiError::forbidden("admin_disabled", "ADMIN_TOKEN is not configured"));
+        return Err(ApiError::forbidden(
+            "admin_disabled",
+            "ADMIN_TOKEN is not configured",
+        ));
     };
     let presented = req
         .headers()
@@ -75,7 +85,10 @@ pub async fn admin_auth_middleware(
         .unwrap_or_default();
 
     if !super::hmac::constant_time_eq(presented.as_bytes(), expected.as_bytes()) {
-        return Err(ApiError::unauthorized("invalid_admin_token", "Admin token is invalid"));
+        return Err(ApiError::unauthorized(
+            "invalid_admin_token",
+            "Admin token is invalid",
+        ));
     }
     Ok(next.run(req).await)
 }

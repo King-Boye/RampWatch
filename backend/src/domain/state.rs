@@ -167,7 +167,10 @@ mod tests {
     #[test]
     fn new_payout_starts_pending_or_processing() {
         assert_eq!(validate_transition(None, Pending), Ok(Transition::Changed));
-        assert_eq!(validate_transition(None, Processing), Ok(Transition::Changed));
+        assert_eq!(
+            validate_transition(None, Processing),
+            Ok(Transition::Changed)
+        );
         for to in [Completed, Failed, Disputed, Cancelled] {
             assert!(validate_transition(None, to).is_err(), "new payout in {to}");
         }
@@ -194,7 +197,10 @@ mod tests {
     #[test]
     fn completed_cannot_go_back() {
         let err = validate_transition(Some(Completed), Pending).unwrap_err();
-        assert_eq!(err.to_string(), "cannot move a payout from completed to pending");
+        assert_eq!(
+            err.to_string(),
+            "cannot move a payout from completed to pending"
+        );
     }
 
     #[test]

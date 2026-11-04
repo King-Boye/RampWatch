@@ -12,7 +12,10 @@ use std::path::{Path, PathBuf};
 const REQUIRED_VARS: &[&str] = &["DATABASE_URL"];
 
 /// Environment variables that should be validated if present
-const VALIDATED_VARS: &[(&str, fn(&str) -> bool)] = &[
+/// Checks one variable's value.
+type Validator = fn(&str) -> bool;
+
+const VALIDATED_VARS: &[(&str, Validator)] = &[
     ("SERVER_PORT", validate_port),
     ("DB_POOL_MAX_CONNECTIONS", validate_db_pool_max_connections),
     ("DB_POOL_MIN_CONNECTIONS", validate_db_pool_min_connections),
@@ -326,6 +329,7 @@ fn validate_port(value: &str) -> bool {
 }
 
 /// Validate positive number
+#[cfg(test)]
 fn validate_positive_number(value: &str) -> bool {
     value.parse::<u32>().map(|n| n > 0).unwrap_or(false)
 }
@@ -543,7 +547,8 @@ pub fn validate_encryption_key_strength(key: &str) -> std::result::Result<(), St
     }
 
     // Reject trivially weak keys: all characters identical (e.g. 64 zeros).
-    let first = key.chars().next().expect("length already checked to be 64");
+    // Length is already checked to be 64, so there is a first character.
+    let first = key.chars().next().unwrap_or_default();
     if key.chars().all(|c| c == first) {
         return Err(format!(
             "ENCRYPTION_KEY is trivially weak (all characters are identical). \

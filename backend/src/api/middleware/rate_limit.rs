@@ -231,7 +231,7 @@ impl RateLimiter {
             "SELECT k.*, COALESCE(c.limit_per_minute, 200) AS rate_limit_per_minute
              FROM api_keys k LEFT JOIN api_keys_rate_limit_config c ON c.api_key_id = k.id
              WHERE k.key_prefix = ? AND k.status = 'active'
-               AND (k.expires_at IS NULL OR k.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+               AND (k.expires_at IS NULL OR k.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
         )
         .bind(extract_key_prefix(plain_key))
         .fetch_all(pool)
@@ -394,7 +394,6 @@ impl RateLimiter {
         let Some(pool) = &self.db_pool else {
             return DEFAULT_LIMIT;
         };
-
 
         match sqlx::query_scalar::<_, i64>(
             "SELECT limit_per_minute FROM api_keys_rate_limit_config WHERE api_key_id = ?",

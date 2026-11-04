@@ -89,18 +89,16 @@ pub fn timestamp_is_fresh(raw: &str, tolerance_secs: i64, now: DateTime<Utc>) ->
 
 /// Check the presented signatures against every currently valid secret.
 #[must_use]
-pub fn verify(
-    secrets: &[&str],
-    timestamp: &str,
-    body: &[u8],
-    presented: &[&str],
-) -> bool {
+pub fn verify(secrets: &[&str], timestamp: &str, body: &[u8], presented: &[&str]) -> bool {
     let mut ok = false;
     // Check every pair, so timing doesn't reveal which secret matched.
     for secret in secrets {
         let expected = sign(secret, timestamp, body);
         for sig in presented {
-            ok |= constant_time_eq(expected.as_bytes(), sig.trim().to_ascii_lowercase().as_bytes());
+            ok |= constant_time_eq(
+                expected.as_bytes(),
+                sig.trim().to_ascii_lowercase().as_bytes(),
+            );
         }
     }
     ok
@@ -131,7 +129,8 @@ pub async fn hmac_middleware(
     req: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    let invalid = || ApiError::unauthorized("invalid_signature", "Missing or invalid request signature");
+    let invalid =
+        || ApiError::unauthorized("invalid_signature", "Missing or invalid request signature");
 
     let operator = req
         .extensions()
@@ -175,11 +174,18 @@ pub async fn hmac_middleware(
         .into_iter()
         .flatten()
         .collect();
-    if !verify(&valid_secrets(&operator, now), &timestamp, &bytes, &presented) {
+    if !verify(
+        &valid_secrets(&operator, now),
+        &timestamp,
+        &bytes,
+        &presented,
+    ) {
         return Err(invalid());
     }
 
-    Ok(next.run(Request::from_parts(parts, Body::from(bytes))).await)
+    Ok(next
+        .run(Request::from_parts(parts, Body::from(bytes)))
+        .await)
 }
 
 #[cfg(test)]
@@ -229,4 +235,3 @@ mod tests {
         assert!(!constant_time_eq(b"abc", b"abcd"));
     }
 }
-

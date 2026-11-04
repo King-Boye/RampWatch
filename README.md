@@ -1,5 +1,7 @@
 # RampWatch
 
+[![CI](https://github.com/King-Boye/RampWatch/actions/workflows/ci.yml/badge.svg)](https://github.com/King-Boye/RampWatch/actions/workflows/ci.yml) [![Security](https://github.com/King-Boye/RampWatch/actions/workflows/security.yml/badge.svg)](https://github.com/King-Boye/RampWatch/actions/workflows/security.yml) [![CodeQL](https://github.com/King-Boye/RampWatch/actions/workflows/codeql.yml/badge.svg)](https://github.com/King-Boye/RampWatch/actions/workflows/codeql.yml)
+
 Health monitoring for teams that run their own off-ramp or payout rails on Stellar. Operators send every cash-out state change; RampWatch checks it against the payout state machine and the Stellar ledger, flags stuck payouts and risky resends, scores each corridor, and anchors a weekly report hash on-chain.
 
 Workspace:
@@ -63,5 +65,7 @@ Illegal state changes get `409 invalid_transition` and open an `illegal_transiti
 ```bash
 cargo build && cargo test
 ```
+
+Every pull request must pass CI and the security scans (dependency audit, OSV, ClamAV malware scan, gitleaks, dependency review, CodeQL) before it can merge; see [SECURITY.md](SECURITY.md). Dependabot keeps crates and Actions up to date and auto-merges minor and patch updates once checks pass.
 
 See [SOURCES.md](SOURCES.md) for where each file came from.

@@ -49,7 +49,10 @@ pub async fn create_operator(
 ) -> Result<Response, ApiError> {
     let name = req.name.trim();
     if name.is_empty() || name.len() > 100 {
-        return Err(ApiError::bad_request("invalid_name", "name must be 1 to 100 characters"));
+        return Err(ApiError::bad_request(
+            "invalid_name",
+            "name must be 1 to 100 characters",
+        ));
     }
     if req.stellar_accounts.is_empty() {
         return Err(ApiError::bad_request(
@@ -95,7 +98,10 @@ pub async fn create_operator(
         rate_limit_per_minute: None,
         expires_at: None,
     };
-    let api_key = match ApiKeyDb::new(state.pool.clone()).create_api_key(&id, key_request).await {
+    let api_key = match ApiKeyDb::new(state.pool.clone())
+        .create_api_key(&id, key_request)
+        .await
+    {
         Ok(created) => created.plain_key,
         Err(e) => {
             // Don't leave an operator nobody can authenticate as.
@@ -138,7 +144,10 @@ pub async fn rotate_secret(
     .execute(&state.pool)
     .await?;
     if updated.rows_affected() == 0 {
-        return Err(ApiError::not_found("operator_not_found", "Operator not found"));
+        return Err(ApiError::not_found(
+            "operator_not_found",
+            "Operator not found",
+        ));
     }
     Ok(Json(json!({
         "id": id,

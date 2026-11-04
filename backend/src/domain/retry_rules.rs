@@ -45,7 +45,10 @@ mod tests {
 
     #[test]
     fn only_failed_parent_may_be_resent() {
-        assert_eq!(check_resend(PayoutState::Failed, 1, 2), ResendVerdict::Allowed);
+        assert_eq!(
+            check_resend(PayoutState::Failed, 1, 2),
+            ResendVerdict::Allowed
+        );
         for s in [
             PayoutState::Pending,
             PayoutState::Processing,

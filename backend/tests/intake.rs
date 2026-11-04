@@ -1,4 +1,5 @@
 //! Milestone 1 acceptance tests: intake, idempotency, state machine, auth.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use axum::{
     body::{to_bytes, Body},
@@ -89,12 +90,20 @@ impl Harness {
     }
 
     async fn send(&self, key: &str, body: &Value) -> (StatusCode, axum::http::HeaderMap, Value) {
-        let req = self.signed("/v1/payouts/events", body.to_string(), Some(key), &self.secret);
+        let req = self.signed(
+            "/v1/payouts/events",
+            body.to_string(),
+            Some(key),
+            &self.secret,
+        );
         call(&self.app, req).await
     }
 
     async fn count(&self, sql: &str) -> i64 {
-        sqlx::query_scalar(sql).fetch_one(&self.state.pool).await.unwrap()
+        sqlx::query_scalar(sql)
+            .fetch_one(&self.state.pool)
+            .await
+            .unwrap()
     }
 }
 
@@ -125,8 +134,14 @@ async fn replayed_event_is_ignored() {
 #[tokio::test]
 async fn illegal_transition_gets_409_and_an_incident() {
     let h = harness().await;
-    assert_eq!(h.send("a", &event("co_1", "processing", 40)).await.0, StatusCode::CREATED);
-    assert_eq!(h.send("b", &event("co_1", "completed", 45)).await.0, StatusCode::OK);
+    assert_eq!(
+        h.send("a", &event("co_1", "processing", 40)).await.0,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        h.send("b", &event("co_1", "completed", 45)).await.0,
+        StatusCode::OK
+    );
 
     let (status, _, body) = h.send("c", &event("co_1", "pending", 46)).await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
@@ -137,9 +152,13 @@ async fn illegal_transition_gets_409_and_an_incident() {
         .fetch_one(&h.state.pool)
         .await
         .unwrap();
-    assert_eq!(state, "completed", "the illegal event did not change the payout");
     assert_eq!(
-        h.count("SELECT COUNT(*) FROM incidents WHERE kind = 'illegal_transition'").await,
+        state, "completed",
+        "the illegal event did not change the payout"
+    );
+    assert_eq!(
+        h.count("SELECT COUNT(*) FROM incidents WHERE kind = 'illegal_transition'")
+            .await,
         1
     );
 
@@ -153,7 +172,8 @@ async fn illegal_transition_gets_409_and_an_incident() {
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(headers.get("X-Idempotent-Replayed").unwrap(), "true");
     assert_eq!(
-        h.count("SELECT COUNT(*) FROM incidents WHERE kind = 'illegal_transition'").await,
+        h.count("SELECT COUNT(*) FROM incidents WHERE kind = 'illegal_transition'")
+            .await,
         2
     );
 }
@@ -164,7 +184,12 @@ async fn bad_signature_gets_401() {
     let body = event("co_9", "pending", 40).to_string();
 
     // Wrong secret.
-    let req = h.signed("/v1/payouts/events", body.clone(), Some("k1"), "whsec_wrong");
+    let req = h.signed(
+        "/v1/payouts/events",
+        body.clone(),
+        Some("k1"),
+        "whsec_wrong",
+    );
     let (status, _, res) = call(&h.app, req).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(res["error"]["code"], "invalid_signature");
@@ -177,7 +202,10 @@ async fn bad_signature_gets_401() {
     // Missing signature.
     let req = Request::post("/v1/payouts/events")
         .header("authorization", format!("Bearer {}", h.api_key))
-        .header("X-RampWatch-Timestamp", chrono::Utc::now().timestamp().to_string())
+        .header(
+            "X-RampWatch-Timestamp",
+            chrono::Utc::now().timestamp().to_string(),
+        )
         .header("Idempotency-Key", "k3")
         .body(Body::from(body.clone()))
         .unwrap();
@@ -188,7 +216,10 @@ async fn bad_signature_gets_401() {
     let req = Request::post("/v1/payouts/events")
         .header("authorization", format!("Bearer {}", h.api_key))
         .header("X-RampWatch-Timestamp", &old)
-        .header("X-RampWatch-Signature", sign(&h.secret, &old, body.as_bytes()))
+        .header(
+            "X-RampWatch-Signature",
+            sign(&h.secret, &old, body.as_bytes()),
+        )
         .header("Idempotency-Key", "k4")
         .body(Body::from(body.clone()))
         .unwrap();
@@ -198,8 +229,12 @@ async fn bad_signature_gets_401() {
 
     // Bad API key.
     let mut req = h.signed("/v1/payouts/events", body, Some("k5"), &h.secret);
-    req.headers_mut()
-        .insert("authorization", "Bearer rw_live_00000000000000000000000000000000".parse().unwrap());
+    req.headers_mut().insert(
+        "authorization",
+        "Bearer rw_live_00000000000000000000000000000000"
+            .parse()
+            .unwrap(),
+    );
     assert_eq!(call(&h.app, req).await.0, StatusCode::UNAUTHORIZED);
 
     assert_eq!(h.count("SELECT COUNT(*) FROM payouts").await, 0);
@@ -208,7 +243,12 @@ async fn bad_signature_gets_401() {
 #[tokio::test]
 async fn missing_idempotency_key_is_rejected() {
     let h = harness().await;
-    let req = h.signed("/v1/payouts/events", event("co_3", "pending", 40).to_string(), None, &h.secret);
+    let req = h.signed(
+        "/v1/payouts/events",
+        event("co_3", "pending", 40).to_string(),
+        None,
+        &h.secret,
+    );
     let (status, _, body) = call(&h.app, req).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"]["code"], "missing_idempotency_key");
@@ -224,13 +264,21 @@ async fn batch_is_per_event_and_safe_to_resend() {
     ]})
     .to_string();
 
-    let (status, _, body) = call(&h.app, h.signed("/v1/payouts/events/batch", batch.clone(), None, &h.secret)).await;
+    let (status, _, body) = call(
+        &h.app,
+        h.signed("/v1/payouts/events/batch", batch.clone(), None, &h.secret),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["accepted"], 2);
     assert_eq!(body["rejected"], 1);
     assert_eq!(body["results"][2]["status"], 409);
 
-    let (_, _, again) = call(&h.app, h.signed("/v1/payouts/events/batch", batch, None, &h.secret)).await;
+    let (_, _, again) = call(
+        &h.app,
+        h.signed("/v1/payouts/events/batch", batch, None, &h.secret),
+    )
+    .await;
     assert_eq!(again["replayed"], 3);
     assert_eq!(h.count("SELECT COUNT(*) FROM payout_events").await, 2);
 }
@@ -255,7 +303,8 @@ async fn resend_links_to_its_parent() {
     assert_eq!(body["resend"], "parent_not_failed");
 
     assert_eq!(
-        h.count("SELECT COUNT(*) FROM payouts WHERE parent_payout_id IS NOT NULL").await,
+        h.count("SELECT COUNT(*) FROM payouts WHERE parent_payout_id IS NOT NULL")
+            .await,
         2
     );
 }
@@ -270,7 +319,8 @@ co_c1,1,,completed,,USDC->GHS,GH,150000,GHS,,co_c1,2026-11-04T19:44:12Z
 co_c2,1,,teleported,,USDC->GHS,GH,150000,GHS,,co_c2,2026-11-04T19:44:12Z
 ";
     let mut req = h.signed("/v1/payouts/import", csv.to_string(), None, &h.secret);
-    req.headers_mut().insert("content-type", "text/csv".parse().unwrap());
+    req.headers_mut()
+        .insert("content-type", "text/csv".parse().unwrap());
     let (status, _, body) = call(&h.app, req).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["accepted"], 2);
@@ -284,10 +334,13 @@ async fn old_secret_still_works_during_rotation() {
     let admin = h.state.config.admin_token.clone().unwrap();
     let (status, _, body) = call(
         &h.app,
-        Request::post(format!("/v1/admin/operators/{}/rotate-secret", h.operator_id))
-            .header("authorization", format!("Bearer {admin}"))
-            .body(Body::empty())
-            .unwrap(),
+        Request::post(format!(
+            "/v1/admin/operators/{}/rotate-secret",
+            h.operator_id
+        ))
+        .header("authorization", format!("Bearer {admin}"))
+        .body(Body::empty())
+        .unwrap(),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -300,13 +353,21 @@ async fn old_secret_still_works_during_rotation() {
         .header("authorization", format!("Bearer {}", h.api_key))
         .header("Idempotency-Key", "rot-1")
         .header("X-RampWatch-Timestamp", &ts)
-        .header("X-RampWatch-Signature-Secondary", sign(&h.secret, &ts, payload.as_bytes()))
+        .header(
+            "X-RampWatch-Signature-Secondary",
+            sign(&h.secret, &ts, payload.as_bytes()),
+        )
         .body(Body::from(payload))
         .unwrap();
     assert_eq!(call(&h.app, req).await.0, StatusCode::CREATED);
 
     // New secret in the primary header.
-    let req = h.signed("/v1/payouts/events", event("co_rot2", "pending", 41).to_string(), Some("rot-2"), &new_secret);
+    let req = h.signed(
+        "/v1/payouts/events",
+        event("co_rot2", "pending", 41).to_string(),
+        Some("rot-2"),
+        &new_secret,
+    );
     assert_eq!(call(&h.app, req).await.0, StatusCode::CREATED);
 }
 
@@ -316,12 +377,18 @@ async fn operator_can_rotate_its_api_key() {
     let auth = format!("Bearer {}", h.api_key);
     let (status, _, list) = call(
         &h.app,
-        Request::get("/v1/api-keys").header("authorization", &auth).body(Body::empty()).unwrap(),
+        Request::get("/v1/api-keys")
+            .header("authorization", &auth)
+            .body(Body::empty())
+            .unwrap(),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{list}");
     let key_id = list["keys"][0]["id"].as_str().unwrap().to_string();
-    assert!(list["keys"][0]["key_prefix"].as_str().unwrap().starts_with("rw_live_"));
+    assert!(list["keys"][0]["key_prefix"]
+        .as_str()
+        .unwrap()
+        .starts_with("rw_live_"));
 
     let (status, _, rotated) = call(
         &h.app,
@@ -353,7 +420,9 @@ async fn admin_routes_need_the_admin_token() {
         Request::post("/v1/admin/operators")
             .header("authorization", "Bearer nope")
             .header("content-type", "application/json")
-            .body(Body::from(json!({"name": "x", "stellar_accounts": [ACCOUNT]}).to_string()))
+            .body(Body::from(
+                json!({"name": "x", "stellar_accounts": [ACCOUNT]}).to_string(),
+            ))
             .unwrap(),
     )
     .await;

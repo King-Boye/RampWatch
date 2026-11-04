@@ -1,0 +1,45 @@
+# cargo-deny: run on every pull request and push by .github/workflows/security.yml
+# Locally: cargo deny check
+
+[graph]
+all-features = false
+
+[advisories]
+# Fail on any RustSec advisory: vulnerabilities, unsound code, and crates
+# flagged as malicious, unmaintained or yanked.
+version = 2
+yanked = "deny"
+unmaintained = "workspace"
+# RUSTSEC-2023-0071 (rsa) needs no ignore here: cargo-deny walks the real
+# build graph and rsa is not in it (it is only listed in Cargo.lock by sqlx).
+ignore = []
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "CDLA-Permissive-2.0",
+  "CC0-1.0",
+  "BSL-1.0",
+]
+
+[bans]
+# Wildcard version requirements let any future (possibly hijacked) release in.
+wildcards = "deny"
+multiple-versions = "warn"
+allow-wildcard-paths = true
+
+[sources]
+# Only crates.io. A dependency pulled from an unknown registry or git repo is a
+# common way to slip in malicious code, so anything else fails the check.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

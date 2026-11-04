@@ -90,15 +90,15 @@ impl Config {
             .parse::<u16>()
             .context("PORT must be a number between 1 and 65535")?;
 
-        let webhook_timestamp_tolerance_secs =
-            match optional("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS") {
-                Some(v) => v
-                    .parse::<i64>()
-                    .ok()
-                    .filter(|n| *n > 0)
-                    .context("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS must be a positive number")?,
-                None => 300,
-            };
+        let webhook_timestamp_tolerance_secs = match optional("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS")
+        {
+            Some(v) => v
+                .parse::<i64>()
+                .ok()
+                .filter(|n| *n > 0)
+                .context("WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS must be a positive number")?,
+            None => 300,
+        };
 
         let admin_token = optional("ADMIN_TOKEN");
         if let Some(token) = &admin_token {
@@ -149,8 +149,14 @@ mod tests {
 
     #[test]
     fn network_parsing() {
-        assert_eq!(StellarNetwork::parse("Testnet").ok(), Some(StellarNetwork::Testnet));
-        assert_eq!(StellarNetwork::parse("mainnet").ok(), Some(StellarNetwork::Mainnet));
+        assert_eq!(
+            StellarNetwork::parse("Testnet").ok(),
+            Some(StellarNetwork::Testnet)
+        );
+        assert_eq!(
+            StellarNetwork::parse("mainnet").ok(),
+            Some(StellarNetwork::Mainnet)
+        );
         assert!(StellarNetwork::parse("futurenet").is_err());
     }
 

@@ -64,7 +64,8 @@ pub async fn process_event(
         let mut details = std::collections::HashMap::new();
         details.insert("errors".to_string(), json!(errors));
         return Ok(EventOutcome::from_error(
-            &ApiError::bad_request("validation_failed", "The event is invalid").with_details(details),
+            &ApiError::bad_request("validation_failed", "The event is invalid")
+                .with_details(details),
         ));
     }
 
@@ -328,7 +329,11 @@ async fn apply(
     // detector follows up once ledger data is in.
 
     Ok(EventOutcome {
-        status: if created { StatusCode::CREATED } else { StatusCode::OK },
+        status: if created {
+            StatusCode::CREATED
+        } else {
+            StatusCode::OK
+        },
         body,
         replayed: false,
     })

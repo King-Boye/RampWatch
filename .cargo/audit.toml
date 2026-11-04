@@ -1,0 +1,5 @@
+# Local `cargo audit` settings. cargo audit reads Cargo.lock, which lists
+# sqlx's unused MySQL driver; cargo-deny (CI) reads the real build graph.
+[advisories]
+# rsa: in Cargo.lock only via sqlx's unused MySQL driver; never compiled.
+ignore = ["RUSTSEC-2023-0071"]

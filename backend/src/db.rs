@@ -39,8 +39,16 @@ pub async fn connect(database_url: &str) -> Result<SqlitePool> {
         .min_connections(1)
         .acquire_timeout(Duration::from_secs(10))
         // Keep the single in-memory connection alive for the whole test.
-        .idle_timeout(if in_memory { None } else { Some(Duration::from_secs(600)) })
-        .max_lifetime(if in_memory { None } else { Some(Duration::from_secs(1800)) })
+        .idle_timeout(if in_memory {
+            None
+        } else {
+            Some(Duration::from_secs(600))
+        })
+        .max_lifetime(if in_memory {
+            None
+        } else {
+            Some(Duration::from_secs(1800))
+        })
         .connect_with(connect_options(database_url)?)
         .await
         .context("Failed to create SQLite connection pool")?;

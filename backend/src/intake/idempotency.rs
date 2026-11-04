@@ -162,15 +162,29 @@ mod tests {
         let mut conn = pool.acquire().await.unwrap();
         let now = Utc::now();
 
-        assert_eq!(lookup(&mut conn, "op:k", "h1", now).await.unwrap(), Lookup::Miss);
-        store(&mut conn, "op:k", "op", "h1", 201, "{}", now).await.unwrap();
         assert_eq!(
             lookup(&mut conn, "op:k", "h1", now).await.unwrap(),
-            Lookup::Replay { code: 201, body: "{}".into() }
+            Lookup::Miss
         );
-        assert_eq!(lookup(&mut conn, "op:k", "h2", now).await.unwrap(), Lookup::Conflict);
+        store(&mut conn, "op:k", "op", "h1", 201, "{}", now)
+            .await
+            .unwrap();
+        assert_eq!(
+            lookup(&mut conn, "op:k", "h1", now).await.unwrap(),
+            Lookup::Replay {
+                code: 201,
+                body: "{}".into()
+            }
+        );
+        assert_eq!(
+            lookup(&mut conn, "op:k", "h2", now).await.unwrap(),
+            Lookup::Conflict
+        );
 
         let later = now + Duration::hours(IDEMPOTENCY_TTL_HOURS + 1);
-        assert_eq!(lookup(&mut conn, "op:k", "h1", later).await.unwrap(), Lookup::Miss);
+        assert_eq!(
+            lookup(&mut conn, "op:k", "h1", later).await.unwrap(),
+            Lookup::Miss
+        );
     }
 }

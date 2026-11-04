@@ -18,9 +18,9 @@ use std::sync::Arc;
 
 use crate::domain::models::{Operator, PayoutEventInput};
 use crate::error::ApiError;
+use crate::intake::csv_import;
 use crate::intake::events::{derived_key, process_event, EventOutcome};
 use crate::intake::idempotency::{IDEMPOTENCY_KEY_HEADER, REPLAYED_HEADER};
-use crate::intake::csv_import;
 use crate::AppState;
 
 pub const MAX_BATCH: usize = 500;
@@ -37,8 +37,9 @@ fn outcome_response(outcome: EventOutcome) -> Response {
 }
 
 fn parse_json<T: for<'de> Deserialize<'de>>(body: &[u8]) -> Result<T, ApiError> {
-    serde_json::from_slice(body)
-        .map_err(|e| ApiError::bad_request("invalid_json", format!("Request body is not valid: {e}")))
+    serde_json::from_slice(body).map_err(|e| {
+        ApiError::bad_request("invalid_json", format!("Request body is not valid: {e}"))
+    })
 }
 
 /// `POST /v1/payouts/events`
@@ -53,7 +54,10 @@ pub async fn ingest_event(
         .and_then(|v| v.to_str().ok())
         .map(str::to_string)
         .ok_or_else(|| {
-            ApiError::bad_request("missing_idempotency_key", "The Idempotency-Key header is required")
+            ApiError::bad_request(
+                "missing_idempotency_key",
+                "The Idempotency-Key header is required",
+            )
         })?;
     let event: PayoutEventInput = parse_json(&body)?;
     let outcome = process_event(&state.pool, &operator, &key, &event).await?;
@@ -80,7 +84,10 @@ async fn run_many(
     for (position, item) in items {
         let outcome = match item {
             Ok(event) => {
-                let key = event.idempotency_key.clone().unwrap_or_else(|| derived_key(&event));
+                let key = event
+                    .idempotency_key
+                    .clone()
+                    .unwrap_or_else(|| derived_key(&event));
                 process_event(&state.pool, operator, &key, &event).await?
             }
             Err(message) => EventOutcome {
@@ -124,7 +131,10 @@ pub async fn ingest_batch(
         BatchBody::Wrapped { events } | BatchBody::Bare(events) => events,
     };
     if events.is_empty() {
-        return Err(ApiError::bad_request("empty_batch", "The batch has no events"));
+        return Err(ApiError::bad_request(
+            "empty_batch",
+            "The batch has no events",
+        ));
     }
     if events.len() > MAX_BATCH {
         return Err(ApiError::bad_request(
