@@ -1,5 +1,0 @@
-# Ignore Logstash logs
-*.log
-
-# Ignore any local test files
-test_*.conf

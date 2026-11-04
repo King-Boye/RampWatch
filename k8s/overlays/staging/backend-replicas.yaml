@@ -1,7 +1,0 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: payraider-backend
-spec:
-  # Pinned to 1: SQLite single-writer, no shared storage across replicas.
-  replicas: 1

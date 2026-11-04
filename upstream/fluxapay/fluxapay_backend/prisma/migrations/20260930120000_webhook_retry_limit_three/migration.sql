@@ -1,1 +1,0 @@
-ALTER TABLE "WebhookLog" ALTER COLUMN "max_retries" SET DEFAULT 3;

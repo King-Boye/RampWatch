@@ -1,8 +1,0 @@
-# Rust's output directory
-target
-
-# Local Soroban settings
-.soroban
-
-# Auto-generated Soroban test snapshots (build artifacts)
-test_snapshots/
