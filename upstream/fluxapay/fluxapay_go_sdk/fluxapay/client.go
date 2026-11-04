@@ -1,0 +1,657 @@
+// Package fluxapay provides a Go client for the FluxaPay payment gateway API.
+//
+// Usage:
+//
+//	client := fluxapay.New("sk_live_...")
+//	payment, err := client.Payments.Create(ctx, fluxapay.CreatePaymentParams{
+//	    Amount:        49.99,
+//	    Currency:      "USD",
+//	    CustomerEmail: "buyer@example.com",
+//	})
+package fluxapay
+
+import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strconv"
+	"time"
+)
+
+const (
+	defaultBaseURL = "https://api.fluxapay.com"
+	apiVersion     = "v1"
+	Version        = "0.1.0"
+)
+
+// ── Models ────────────────────────────────────────────────────────────────────
+
+// Payment represents a FluxaPay payment object.
+type Payment struct {
+	ID             string                 `json:"id"`
+	Amount         float64                `json:"amount"`
+	Currency       string                 `json:"currency"`
+	Status         string                 `json:"status"`
+	CheckoutURL    string                 `json:"checkout_url"`
+	StellarAddress string                 `json:"stellar_address"`
+	CustomerEmail  string                 `json:"customer_email"`
+	OrderID        string                 `json:"order_id,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt      string                 `json:"created_at"`
+	ExpiresAt      string                 `json:"expires_at"`
+}
+
+// PaymentStatus is a lightweight status view of a payment.
+type PaymentStatus struct {
+	ID              string `json:"id"`
+	Status          string `json:"status"`
+	TransactionHash string `json:"transaction_hash,omitempty"`
+	ConfirmedAt     string `json:"confirmed_at,omitempty"`
+}
+
+// PaymentList is the response from listing payments.
+type PaymentList struct {
+	Payments []Payment `json:"payments"`
+	Total    int       `json:"total"`
+}
+
+// CreatePaymentParams holds parameters for creating a payment.
+type CreatePaymentParams struct {
+	Amount           float64                `json:"amount"`
+	Currency         string                 `json:"currency"`
+	CustomerEmail    string                 `json:"customer_email"`
+	IdempotencyKey   string                 `json:"-"`
+	OrderID          string                 `json:"order_id,omitempty"`
+	SuccessURL       string                 `json:"success_url,omitempty"`
+	CancelURL        string                 `json:"cancel_url,omitempty"`
+	Metadata         map[string]interface{} `json:"metadata,omitempty"`
+	ExpiresInMinutes int                    `json:"expires_in_minutes,omitempty"`
+}
+
+// ListPaymentsParams holds optional filters for listing payments.
+type ListPaymentsParams struct {
+	Page   int
+	Limit  int
+	Status string
+}
+
+// Settlement represents a FluxaPay settlement object.
+type Settlement struct {
+	ID        string  `json:"id"`
+	Amount    float64 `json:"amount"`
+	Currency  string  `json:"currency"`
+	Status    string  `json:"status"`
+	CreatedAt string  `json:"created_at"`
+}
+
+// SettlementList is the response from listing settlements.
+type SettlementList struct {
+	Settlements []Settlement `json:"settlements"`
+	Total       int          `json:"total"`
+}
+
+// ListSettlementsParams holds optional filters for listing settlements.
+type ListSettlementsParams struct {
+	Page     int
+	Limit    int
+	Status   string
+	Currency string
+	DateFrom string
+	DateTo   string
+}
+
+// Invoice represents a FluxaPay invoice object.
+type Invoice struct {
+	ID            string                   `json:"id"`
+	InvoiceNumber string                   `json:"invoice_number"`
+	Amount        float64                  `json:"amount"`
+	Subtotal      float64                  `json:"subtotal"`
+	TaxAmount     float64                  `json:"tax_amount"`
+	TaxRate       float64                  `json:"tax_rate"`
+	Currency      string                   `json:"currency"`
+	CustomerEmail string                   `json:"customer_email"`
+	CustomerName  string                   `json:"customer_name"`
+	LineItems     []map[string]interface{} `json:"line_items"`
+	Notes         string                   `json:"notes"`
+	Status        string                   `json:"status"`
+	DueDate       string                   `json:"due_date"`
+	CreatedAt     string                   `json:"created_at"`
+	UpdatedAt     string                   `json:"updated_at"`
+	PaymentID     string                   `json:"payment_id"`
+	PaymentLink   string                   `json:"payment_link"`
+	Metadata      map[string]interface{}   `json:"metadata"`
+}
+
+// CreateInvoiceParams holds parameters for creating an invoice.
+type CreateInvoiceParams struct {
+	Amount        float64                  `json:"amount,omitempty"`
+	Currency      string                   `json:"currency"`
+	CustomerEmail string                   `json:"customer_email"`
+	CustomerName  string                   `json:"customer_name,omitempty"`
+	LineItems     []map[string]interface{} `json:"line_items,omitempty"`
+	Notes         string                   `json:"notes,omitempty"`
+	Metadata      map[string]interface{}   `json:"metadata,omitempty"`
+	DueDate       string                   `json:"due_date,omitempty"`
+	TaxRate       float64                  `json:"tax_rate,omitempty"`
+}
+
+// InvoiceList is the response from listing invoices.
+type InvoiceList struct {
+	Invoices   []Invoice `json:"invoices"`
+	Page       int       `json:"page"`
+	Limit      int       `json:"limit"`
+	Total      int       `json:"total"`
+	TotalPages int       `json:"total_pages"`
+}
+
+// ListInvoicesParams holds optional filters for listing invoices.
+type ListInvoicesParams struct {
+	Page   int
+	Limit  int
+	Status string
+	Search string
+}
+
+// Refund represents a FluxaPay refund object.
+type Refund struct {
+	ID           string  `json:"id"`
+	PaymentID    string  `json:"paymentId"`
+	Amount       float64 `json:"amount"`
+	Currency     string  `json:"currency"`
+	Reason       string  `json:"reason"`
+	Status       string  `json:"status"`
+	FailedReason string  `json:"failed_reason"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at"`
+}
+
+// CreateRefundParams holds parameters for creating a refund.
+type CreateRefundParams struct {
+	PaymentID      string  `json:"payment_id"`
+	Amount         float64 `json:"amount"`
+	Reason         string  `json:"reason,omitempty"`
+	IdempotencyKey string  `json:"-"`
+}
+
+// RefundList is the response from listing refunds.
+type RefundList struct {
+	Refunds    []Refund `json:"refunds"`
+	Page       int      `json:"page"`
+	Limit      int      `json:"limit"`
+	Total      int      `json:"total"`
+	TotalPages int      `json:"total_pages"`
+}
+
+// ListRefundsParams holds optional filters for listing refunds.
+type ListRefundsParams struct {
+	Page      int
+	Limit     int
+	Status    string
+	PaymentID string
+}
+
+// WebhookEventBase contains the common fields for all webhook events.
+type WebhookEventBase struct {
+	Event      string                 `json:"event"`
+	PaymentID  string                 `json:"payment_id"`
+	MerchantID string                 `json:"merchant_id"`
+	Timestamp  string                 `json:"timestamp"`
+	Data       map[string]interface{} `json:"data"`
+}
+
+// PaymentCreatedEvent represents a payment.created webhook payload.
+type PaymentCreatedEvent struct{ WebhookEventBase }
+
+// PaymentPendingEvent represents a payment.pending webhook payload.
+type PaymentPendingEvent struct{ WebhookEventBase }
+
+// PaymentConfirmedEvent represents a payment.confirmed webhook payload.
+type PaymentConfirmedEvent struct{ WebhookEventBase }
+
+// PaymentFailedEvent represents a payment.failed webhook payload.
+type PaymentFailedEvent struct{ WebhookEventBase }
+
+// PaymentSettledEvent represents a payment.settled webhook payload.
+type PaymentSettledEvent struct{ WebhookEventBase }
+
+// RefundCompletedEvent represents a refund.completed webhook payload.
+type RefundCompletedEvent struct{ WebhookEventBase }
+
+// WebhookEvent is a parsed FluxaPay webhook payload.
+type WebhookEvent = WebhookEventBase
+
+// ── Client ────────────────────────────────────────────────────────────────────
+
+// Client is the FluxaPay API client.
+type Client struct {
+	apiKey     string
+	baseURL    string
+	httpClient *http.Client
+
+	Payments    *PaymentsResource
+	Settlements *SettlementsResource
+	Invoices    *InvoicesResource
+	Refunds     *RefundsResource
+	Webhooks    *WebhooksResource
+}
+
+// New creates a new FluxaPay client with the given API key.
+func New(apiKey string, opts ...Option) *Client {
+	c := &Client{
+		apiKey:     apiKey,
+		baseURL:    defaultBaseURL,
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+	}
+	for _, o := range opts {
+		o(c)
+	}
+	c.Payments = &PaymentsResource{client: c}
+	c.Settlements = &SettlementsResource{client: c}
+	c.Invoices = &InvoicesResource{client: c}
+	c.Refunds = &RefundsResource{client: c}
+	c.Webhooks = &WebhooksResource{}
+	return c
+}
+
+// Option is a functional option for configuring the Client.
+type Option func(*Client)
+
+// RequestOption configures an individual API request.
+type RequestOption func(*http.Request)
+
+// WithIdempotencyKey adds an Idempotency-Key header to a mutating request.
+func WithIdempotencyKey(key string) RequestOption {
+	return func(req *http.Request) {
+		if key != "" {
+			req.Header.Set("Idempotency-Key", key)
+		}
+	}
+}
+
+// WithBaseURL overrides the default API base URL.
+func WithBaseURL(u string) Option {
+	return func(c *Client) { c.baseURL = u }
+}
+
+// WithHTTPClient replaces the default http.Client.
+func WithHTTPClient(hc *http.Client) Option {
+	return func(c *Client) { c.httpClient = hc }
+}
+
+// WithTimeout sets a custom HTTP client timeout.
+func WithTimeout(d time.Duration) Option {
+	return func(c *Client) { c.httpClient.Timeout = d }
+}
+
+// ── Internal HTTP ─────────────────────────────────────────────────────────────
+
+func (c *Client) do(ctx context.Context, method, path string, body interface{}, out interface{}, opts ...RequestOption) error {
+	var bodyReader io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("fluxapay: marshal request: %w", err)
+		}
+		bodyReader = bytes.NewReader(b)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
+	if err != nil {
+		return fmt.Errorf("fluxapay: build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Version", apiVersion)
+	for _, opt := range opts {
+		if opt != nil {
+			opt(req)
+		}
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("fluxapay: http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("fluxapay: read body: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		apiErr := &APIError{StatusCode: resp.StatusCode, Raw: raw}
+		_ = json.Unmarshal(raw, apiErr)
+		apiErr.StatusCode = resp.StatusCode
+		if apiErr.Message == "" {
+			apiErr.Message = fmt.Sprintf("HTTP %d", resp.StatusCode)
+		}
+		reqID := resp.Header.Get("X-Request-ID")
+		if reqID == "" {
+			reqID = resp.Header.Get("x-request-id")
+		}
+		if reqID != "" {
+			apiErr.RequestID = reqID
+		}
+		apiErr.Code = apiErr.ErrorCode
+		apiErr.Retryable = resp.StatusCode == 429 || resp.StatusCode == 502 || resp.StatusCode == 503 || resp.StatusCode == 504
+
+		switch resp.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return &AuthenticationError{APIError: apiErr}
+		case http.StatusTooManyRequests:
+			return &RateLimitError{APIError: apiErr}
+		case http.StatusBadRequest, http.StatusUnprocessableEntity:
+			return &InvalidRequestError{APIError: apiErr}
+		default:
+			return apiErr
+		}
+	}
+
+	if out != nil {
+		if err := json.Unmarshal(raw, out); err != nil {
+			return fmt.Errorf("fluxapay: decode response: %w", err)
+		}
+	}
+	return nil
+}
+
+// ── Payments resource ─────────────────────────────────────────────────────────
+
+// PaymentsResource groups payment-related API calls.
+type PaymentsResource struct{ client *Client }
+
+// Create creates a new payment.
+func (r *PaymentsResource) Create(ctx context.Context, params CreatePaymentParams, opts ...RequestOption) (*Payment, error) {
+	var out Payment
+	if params.IdempotencyKey != "" {
+		opts = append([]RequestOption{WithIdempotencyKey(params.IdempotencyKey)}, opts...)
+	}
+	if err := r.client.do(ctx, http.MethodPost, "/api/payments", params, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Get retrieves a payment by ID.
+func (r *PaymentsResource) Get(ctx context.Context, paymentID string) (*Payment, error) {
+	var out Payment
+	if err := r.client.do(ctx, http.MethodGet, "/api/payments/"+paymentID, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetStatus returns the status of a payment.
+func (r *PaymentsResource) GetStatus(ctx context.Context, paymentID string) (*PaymentStatus, error) {
+	var out PaymentStatus
+	if err := r.client.do(ctx, http.MethodGet, "/api/payments/"+paymentID, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// List returns a paginated list of payments.
+func (r *PaymentsResource) List(ctx context.Context, params ListPaymentsParams) (*PaymentList, error) {
+	q := url.Values{}
+	if params.Page > 0 {
+		q.Set("page", strconv.Itoa(params.Page))
+	}
+	if params.Limit > 0 {
+		q.Set("limit", strconv.Itoa(params.Limit))
+	}
+	if params.Status != "" {
+		q.Set("status", params.Status)
+	}
+	path := "/api/payments"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out PaymentList
+	if err := r.client.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ── Settlements resource ──────────────────────────────────────────────────────
+
+// SettlementsResource groups settlement-related API calls.
+type SettlementsResource struct{ client *Client }
+
+// List returns a paginated list of settlements.
+func (r *SettlementsResource) List(ctx context.Context, params ListSettlementsParams) (*SettlementList, error) {
+	q := url.Values{}
+	if params.Page > 0 {
+		q.Set("page", strconv.Itoa(params.Page))
+	}
+	if params.Limit > 0 {
+		q.Set("limit", strconv.Itoa(params.Limit))
+	}
+	if params.Status != "" {
+		q.Set("status", params.Status)
+	}
+	if params.Currency != "" {
+		q.Set("currency", params.Currency)
+	}
+	if params.DateFrom != "" {
+		q.Set("date_from", params.DateFrom)
+	}
+	if params.DateTo != "" {
+		q.Set("date_to", params.DateTo)
+	}
+	path := "/api/settlements"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out SettlementList
+	if err := r.client.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Get retrieves a settlement by ID.
+func (r *SettlementsResource) Get(ctx context.Context, settlementID string) (*Settlement, error) {
+	var out Settlement
+	if err := r.client.do(ctx, http.MethodGet, "/api/settlements/"+settlementID, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Summary returns settlement summary statistics.
+func (r *SettlementsResource) Summary(ctx context.Context) (map[string]interface{}, error) {
+	var out map[string]interface{}
+	if err := r.client.do(ctx, http.MethodGet, "/api/settlements/summary", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ── Invoices resource ────────────────────────────────────────────────────────
+
+// InvoicesResource groups invoice-related API calls.
+type InvoicesResource struct{ client *Client }
+
+// Create creates a new invoice.
+func (r *InvoicesResource) Create(ctx context.Context, params CreateInvoiceParams, opts ...RequestOption) (*Invoice, error) {
+	var out struct {
+		Data Invoice `json:"data"`
+	}
+	if err := r.client.do(ctx, http.MethodPost, "/api/v1/invoices", params, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out.Data, nil
+}
+
+// Get retrieves an invoice by ID.
+func (r *InvoicesResource) Get(ctx context.Context, invoiceID string) (*Invoice, error) {
+	var out struct {
+		Data Invoice `json:"data"`
+	}
+	if err := r.client.do(ctx, http.MethodGet, "/api/v1/invoices/"+invoiceID, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out.Data, nil
+}
+
+// List returns a paginated list of invoices.
+func (r *InvoicesResource) List(ctx context.Context, params ListInvoicesParams) (*InvoiceList, error) {
+	q := url.Values{}
+	if params.Page > 0 {
+		q.Set("page", strconv.Itoa(params.Page))
+	}
+	if params.Limit > 0 {
+		q.Set("limit", strconv.Itoa(params.Limit))
+	}
+	if params.Status != "" {
+		q.Set("status", params.Status)
+	}
+	if params.Search != "" {
+		q.Set("search", params.Search)
+	}
+	path := "/api/v1/invoices"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out struct {
+		Data struct {
+			Invoices []Invoice `json:"invoices"`
+		} `json:"data"`
+		Meta struct {
+			Page       int `json:"page"`
+			Limit      int `json:"limit"`
+			Total      int `json:"total"`
+			TotalPages int `json:"total_pages"`
+		} `json:"meta"`
+	}
+	if err := r.client.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &InvoiceList{
+		Invoices:   out.Data.Invoices,
+		Page:       out.Meta.Page,
+		Limit:      out.Meta.Limit,
+		Total:      out.Meta.Total,
+		TotalPages: out.Meta.TotalPages,
+	}, nil
+}
+
+// ── Refunds resource ─────────────────────────────────────────────────────────
+
+// RefundsResource groups refund-related API calls.
+type RefundsResource struct{ client *Client }
+
+// Create creates a refund for a payment.
+func (r *RefundsResource) Create(ctx context.Context, params CreateRefundParams, opts ...RequestOption) (*Refund, error) {
+	var out struct {
+		Data Refund `json:"data"`
+	}
+	if params.IdempotencyKey != "" {
+		opts = append([]RequestOption{WithIdempotencyKey(params.IdempotencyKey)}, opts...)
+	}
+	if err := r.client.do(ctx, http.MethodPost, "/api/v1/refunds", params, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out.Data, nil
+}
+
+// Get retrieves a refund by ID.
+func (r *RefundsResource) Get(ctx context.Context, refundID string) (*Refund, error) {
+	var out struct {
+		Data Refund `json:"data"`
+	}
+	if err := r.client.do(ctx, http.MethodGet, "/api/v1/refunds/"+refundID, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out.Data, nil
+}
+
+// List returns a paginated list of refunds.
+func (r *RefundsResource) List(ctx context.Context, params ListRefundsParams) (*RefundList, error) {
+	q := url.Values{}
+	if params.Page > 0 {
+		q.Set("page", strconv.Itoa(params.Page))
+	}
+	if params.Limit > 0 {
+		q.Set("limit", strconv.Itoa(params.Limit))
+	}
+	if params.Status != "" {
+		q.Set("status", params.Status)
+	}
+	if params.PaymentID != "" {
+		q.Set("payment_id", params.PaymentID)
+	}
+	path := "/api/v1/refunds"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out struct {
+		Data struct {
+			Refunds    []Refund `json:"refunds"`
+			Pagination struct {
+				Page       int `json:"page"`
+				Limit      int `json:"limit"`
+				Total      int `json:"total"`
+				TotalPages int `json:"total_pages"`
+			} `json:"pagination"`
+		} `json:"data"`
+	}
+	if err := r.client.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &RefundList{
+		Refunds:    out.Data.Refunds,
+		Page:       out.Data.Pagination.Page,
+		Limit:      out.Data.Pagination.Limit,
+		Total:      out.Data.Pagination.Total,
+		TotalPages: out.Data.Pagination.TotalPages,
+	}, nil
+}
+
+// ── Webhooks resource ─────────────────────────────────────────────────────────
+
+// WebhooksResource groups webhook helpers.
+type WebhooksResource struct{}
+
+// Verify validates a FluxaPay webhook HMAC-SHA256 signature.
+// toleranceSeconds is the replay-protection window (default 300 if <= 0).
+func (r *WebhooksResource) Verify(rawBody, signature, timestamp, secret string, toleranceSeconds int) bool {
+	if rawBody == "" || signature == "" || timestamp == "" || secret == "" {
+		return false
+	}
+	if toleranceSeconds <= 0 {
+		toleranceSeconds = 300
+	}
+	ts, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		ts, err = time.Parse("2006-01-02T15:04:05Z", timestamp)
+		if err != nil {
+			return false
+		}
+	}
+	if time.Since(ts).Abs() > time.Duration(toleranceSeconds)*time.Second {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(timestamp + "." + rawBody))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(expected), []byte(signature))
+}
+
+// Parse decodes a raw webhook body into a WebhookEvent.
+func (r *WebhooksResource) Parse(rawBody string) (*WebhookEvent, error) {
+	var ev WebhookEvent
+	if err := json.Unmarshal([]byte(rawBody), &ev); err != nil {
+		return nil, fmt.Errorf("fluxapay: parse webhook: %w", err)
+	}
+	return &ev, nil
+}

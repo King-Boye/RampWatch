@@ -1,0 +1,213 @@
+import { z } from 'zod';
+import { countryMap } from '../utils/country-map.util';
+
+const allowedCountryCodes = countryMap.map(x => x.countryCode);
+const allowedCountryCurrencies = countryMap.map(x => x.currencyCode);
+export const signupSchema = z.object({
+  business_name: z.string().min(2, 'Business name is required'),
+  email: z.email('Invalid email address'),
+  phone_number: z.string().min(7, 'Phone number is required'),
+  country: z.string().min(2, 'Country is required').refine(val => allowedCountryCodes.includes(val), { message: 'Invalid country code' }),
+  settlement_currency: z.string().min(3, 'Settlement currency is required').refine(val => allowedCountryCurrencies.includes(val), { message: 'Invalid country currency' }),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  settlement_schedule: z.enum(['daily', 'weekly']).optional().default('daily'),
+  settlement_day: z
+    .number()
+    .int()
+    .min(0, 'settlement_day must be 0–6 (Sun–Sat)')
+    .max(6, 'settlement_day must be 0–6 (Sun–Sat)')
+    .optional(),
+  // Optional bank details during signup
+  account_name: z.string().min(2, 'Account name is required').optional(),
+  account_number: z.string().min(5, 'Account number is required').optional(),
+  bank_name: z.string().min(2, 'Bank name is required').optional(),
+  bank_code: z.string().optional(),
+})
+  .refine(
+    (data) =>
+      data.settlement_schedule !== 'weekly' || data.settlement_day !== undefined,
+    {
+      message: 'settlement_day is required when settlement_schedule is "weekly"',
+      path: ['settlement_day'],
+    },
+  );
+
+export const loginSchema = z.object({
+  email: z.email('Invalid email address'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+});
+
+export const verifyOtpSchema = z.object({
+  merchantId: z.string(),
+  channel: z.enum(['email', 'phone']),
+  otp: z.string().length(6, 'OTP must be 6 digits'),
+});
+
+export const resendOtpSchema = z.object({
+  merchantId: z.string(),
+  channel: z.enum(['email', 'phone']),
+});
+
+export const forgotPasswordSchema = z.object({
+  email: z.email('Invalid email address'),
+});
+
+export const validateResetTokenQuerySchema = z.object({
+  token: z.string().min(1, 'token is required'),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1, 'token is required'),
+  // Matches the frontend's ResetPasswordForm payload field name.
+  new_password: z.string().min(6, 'Password must be at least 6 characters'),
+});
+
+export const settlementScheduleSchema = z
+  .object({
+    settlement_schedule: z.enum(['daily', 'weekly']).optional().default('daily'),
+    /**
+     * Required when settlement_schedule === 'weekly'.
+     * 0 = Sunday … 6 = Saturday (matches JS Date.getDay()).
+     */
+    settlement_day: z
+      .number()
+      .int()
+      .min(0, 'settlement_day must be 0–6 (Sun–Sat)')
+      .max(6, 'settlement_day must be 0–6 (Sun–Sat)')
+      .optional(),
+  })
+  .refine(
+    (data) =>
+      data.settlement_schedule !== 'weekly' || data.settlement_day !== undefined,
+    {
+      message: 'settlement_day is required when settlement_schedule is "weekly"',
+      path: ['settlement_day'],
+    },
+  );
+
+export const updateSettlementScheduleSchema = settlementScheduleSchema.required({
+  settlement_schedule: true,
+});
+
+export const bankAccountSchema = z.object({
+  account_name: z.string().min(2, 'Account name is required'),
+  account_number: z.string().min(5, 'Account number is required'),
+  bank_name: z.string().min(2, 'Bank name is required'),
+  bank_code: z.string().optional(),
+  currency: z.string().min(3, 'Currency is required'),
+  country: z.string().min(2, 'Country is required'),
+});
+
+const bankAccountBaseFields = z.object({
+  account_name: z.string().min(2, 'Account name is required').optional(),
+  account_number: z.string().min(5, 'Account number is required').optional(),
+  bank_name: z.string().min(2, 'Bank name is required').optional(),
+  bank_code: z.string().optional(),
+  currency: z.string().min(3, 'Currency is required').optional(),
+  country: z.string().min(2, 'Country is required').optional().refine(
+    val => val === undefined || allowedCountryCodes.includes(val),
+    { message: 'Invalid country code' },
+  ),
+});
+
+export const updateBankAccountSchema = bankAccountBaseFields
+  .refine(data => Object.keys(data).some(k => (data as any)[k] !== undefined), {
+    message: 'At least one field must be provided',
+  })
+  .superRefine((data, ctx) => {
+    if (data.country && data.currency) {
+      const entry = countryMap.find(x => x.countryCode === data.country);
+      if (entry && entry.currencyCode !== data.currency) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Currency ${data.currency} is not valid for country ${data.country}. Expected ${entry.currencyCode}.`,
+          path: ['currency'],
+        });
+      }
+    }
+  });
+
+const checkoutLogoUrlField = z
+  .union([z.string().max(2048), z.literal(''), z.null()])
+  .optional()
+  .superRefine((val, ctx) => {
+    if (val == null || val === '') return;
+    try {
+      const u = new URL(val);
+      if (u.protocol !== 'https:') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Logo URL must use https://',
+        });
+      }
+    } catch {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Invalid logo URL',
+      });
+    }
+  });
+
+const checkoutAccentField = z
+  .union([z.string().max(16), z.literal(''), z.null()])
+  .optional()
+  .superRefine((val, ctx) => {
+    if (val == null || val === '') return;
+    if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(val.trim())) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Accent must be a hex color like #RRGGBB or #RGB',
+      });
+    }
+  });
+
+/**
+ * PATCH /merchants/me — validation middleware merges `params` and `query` into the payload.
+ */
+export const updateMerchantProfileSchema = z
+  .object({
+    business_name: z.string().min(1).optional(),
+    email: z.email().optional(),
+    checkout_logo_url: checkoutLogoUrlField,
+    checkout_accent_color: checkoutAccentField,
+    settlement_schedule: z.enum(['daily', 'weekly']).optional(),
+    settlement_day: z
+      .number()
+      .int()
+      .min(0, 'settlement_day must be 0–6 (Sun–Sat)')
+      .max(6, 'settlement_day must be 0–6 (Sun–Sat)')
+      .optional(),
+    params: z.any(),
+    query: z.any(),
+  })
+  .refine(
+    (data) =>
+      data.settlement_schedule !== 'weekly' ||
+      data.settlement_day !== undefined,
+    {
+      message: 'settlement_day is required when settlement_schedule is "weekly"',
+      path: ['settlement_day'],
+    },
+  );
+
+export const updateNotificationPreferencesSchema = z
+  .object({
+    payment_expiry_reminder: z.boolean().optional(),
+    reminder_minutes_before: z
+      .number()
+      .int("reminder_minutes_before must be an integer")
+      .min(1, "reminder_minutes_before must be at least 1")
+      .max(1440, "reminder_minutes_before must be at most 1440 (24 h)")
+      .optional(),
+    // Stored on Merchant rather than MerchantNotificationPreferences, but exposed
+    // through the same endpoint so merchants have one place to manage
+    // preferences (#1190).
+    notify_on_payment: z.boolean().optional(),
+  })
+  .refine(
+    (data) =>
+      data.payment_expiry_reminder !== undefined ||
+      data.reminder_minutes_before !== undefined ||
+      data.notify_on_payment !== undefined,
+    { message: "At least one preference field must be provided" },
+  );

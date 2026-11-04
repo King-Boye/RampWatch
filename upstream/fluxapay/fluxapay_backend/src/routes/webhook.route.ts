@@ -1,0 +1,918 @@
+import { Router } from "express";
+import { retryWebhookWithBackoff, getWebhookRetryConfig } from "../controllers/webhook.controller";
+import {
+  getWebhookLogs,
+  getWebhookLogDetails,
+  retryWebhook,
+  sendTestWebhook,
+  getDeadLetterQueue,
+  requeueWebhook,
+  exportWebhookLogs,
+  adminGetWebhookLogs,
+  adminRetryWebhook,
+  getWebhookAttempts,
+  initiateWebhookRotation,
+  promoteWebhookKey,
+  revokeWebhookKey,
+  getWebhookKeyStatus,
+} from "../controllers/webhook.controller";
+import { validate, validateQuery } from "../middleware/validation.middleware";
+import * as webhookSchema from "../schemas/webhook.schema";
+import { authenticateToken } from "../middleware/auth.middleware";
+import { merchantApiKeyRateLimit } from "../middleware/rateLimit.middleware";
+import { adminAuth } from "../middleware/adminAuth.middleware";
+
+const router = Router();
+
+/**
+ * @swagger
+ * /api/v1/webhooks/logs:
+ *   get:
+ *     summary: Get webhook logs list
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: event_type
+ *         schema:
+ *           type: string
+ *           enum: [payment.created, payment.pending, payment.confirmed, payment.failed, payment.settled, refund.created, refund.completed, refund.failed, subscription.created, subscription.cancelled, subscription.renewed]
+ *         description: Filter by event type
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [pending, delivered, failed, retrying]
+ *         description: Filter by webhook status
+ *       - in: query
+ *         name: date_from
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Filter logs from this date
+ *       - in: query
+ *         name: date_to
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Filter logs until this date
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by webhook_id or payment_id
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *           maximum: 100
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Webhook logs retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     logs:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                     pagination:
+ *                       type: object
+ *                       properties:
+ *                         page:
+ *                           type: integer
+ *                         limit:
+ *                           type: integer
+ *                         total:
+ *                           type: integer
+ *                         total_pages:
+ *                           type: integer
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/logs",
+  authenticateToken, merchantApiKeyRateLimit(),
+  validateQuery(webhookSchema.getWebhookLogsSchema),
+  getWebhookLogs
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/deliveries:
+ *   get:
+ *     summary: Get webhook delivery logs (alias for logs)
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: event_type
+ *         schema:
+ *           type: string
+ *         description: Filter by event type
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         description: Filter by webhook status
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         description: Number of items per page
+ *     responses:
+ *       200:
+ *         description: Webhook logs retrieved successfully
+ *       401:
+ *         description: Unauthorized
+ */
+// Alias /deliveries to /logs
+router.get(
+  "/deliveries",
+  authenticateToken, merchantApiKeyRateLimit(),
+  validateQuery(webhookSchema.getWebhookLogsSchema),
+  getWebhookLogs
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/logs/export:
+ *   get:
+ *     summary: Export webhook logs as CSV
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: event_type
+ *         schema:
+ *           type: string
+ *         description: Filter by event type
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         description: Filter by webhook status
+ *       - in: query
+ *         name: date_from
+ *         schema:
+ *           type: string
+ *         description: Filter logs from this date
+ *       - in: query
+ *         name: date_to
+ *         schema:
+ *           type: string
+ *         description: Filter logs until this date
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by webhook ID or payment ID
+ *     responses:
+ *       200:
+ *         description: CSV file download
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/logs/export",
+  authenticateToken, merchantApiKeyRateLimit(),
+  validateQuery(webhookSchema.getWebhookLogsSchema),
+  exportWebhookLogs,
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/deliveries/export:
+ *   get:
+ *     summary: Export webhook delivery logs as CSV (alias for logs/export)
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: event_type
+ *         schema:
+ *           type: string
+ *         description: Filter by event type
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         description: Filter by webhook status
+ *     responses:
+ *       200:
+ *         description: CSV file download
+ *       401:
+ *         description: Unauthorized
+ */
+// Alias /deliveries/export to /logs/export
+router.get(
+  "/deliveries/export",
+  authenticateToken, merchantApiKeyRateLimit(),
+  validateQuery(webhookSchema.getWebhookLogsSchema),
+  exportWebhookLogs,
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/logs/{log_id}:
+ *   get:
+ *     summary: Get webhook log details
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: log_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The webhook log ID
+ *     responses:
+ *       200:
+ *         description: Webhook log details retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     event_type:
+ *                       type: string
+ *                     endpoint_url:
+ *                       type: string
+ *                     request_payload:
+ *                       type: object
+ *                     response_body:
+ *                       type: string
+ *                     http_status:
+ *                       type: integer
+ *                     status:
+ *                       type: string
+ *                     retry_attempts:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *       404:
+ *         description: Webhook log not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/logs/:log_id", authenticateToken, merchantApiKeyRateLimit(), getWebhookLogDetails);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/deliveries/{log_id}:
+ *   get:
+ *     summary: Get webhook delivery details (alias for logs)
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: log_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The webhook log ID
+ *     responses:
+ *       200:
+ *         description: Webhook delivery details retrieved successfully
+ *       404:
+ *         description: Webhook log not found
+ *       401:
+ *         description: Unauthorized
+ */
+// Alias /deliveries/:log_id to /logs/:log_id
+router.get("/deliveries/:log_id", authenticateToken, merchantApiKeyRateLimit(), getWebhookLogDetails);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/logs/{log_id}/retry:
+ *   post:
+ *     summary: Retry a failed webhook
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: log_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The webhook log ID to retry
+ *     responses:
+ *       200:
+ *         description: Webhook retry initiated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     status:
+ *                       type: string
+ *                     http_status:
+ *                       type: integer
+ *                     retry_count:
+ *                       type: integer
+ *       400:
+ *         description: Webhook already delivered successfully
+ *       404:
+ *         description: Webhook log not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  "/logs/:log_id/retry",
+  authenticateToken, merchantApiKeyRateLimit(),
+  retryWebhook
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/deliveries/{log_id}/retry:
+ *   post:
+ *     summary: Retry a failed webhook delivery (alias for logs/retry)
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: log_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The webhook log ID to retry
+ *     responses:
+ *       200:
+ *         description: Webhook retry initiated
+ *       400:
+ *         description: Webhook already delivered successfully
+ *       404:
+ *         description: Webhook log not found
+ *       401:
+ *         description: Unauthorized
+ */
+// Alias /deliveries/:log_id/retry to /logs/:log_id/retry
+router.post(
+  "/deliveries/:log_id/retry",
+  authenticateToken, merchantApiKeyRateLimit(),
+  retryWebhook
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/test:
+ *   post:
+ *     summary: Send a test webhook
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - event_type
+ *               - endpoint_url
+ *             properties:
+ *               event_type:
+ *                 type: string
+ *                 enum: [payment.created, payment.pending, payment.confirmed, payment.failed, payment.settled, refund.created, refund.completed, refund.failed, subscription.created, subscription.cancelled, subscription.renewed]
+ *                 description: The type of webhook event to simulate
+ *               endpoint_url:
+ *                 type: string
+ *                 format: uri
+ *                 description: The URL to send the test webhook to
+ *               payload_override:
+ *                 type: object
+ *                 description: Optional custom payload data to override defaults
+ *     responses:
+ *       200:
+ *         description: Test webhook sent. The delivery includes
+ *           `X-FluxaPay-Signature` and `X-FluxaPay-Timestamp` headers signed
+ *           using the merchant's webhook secret; clients should verify the
+ *           signature by recomputing the HMAC over the timestamp and body.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     event_type:
+ *                       type: string
+ *                     endpoint_url:
+ *                       type: string
+ *                     request_payload:
+ *                       type: object
+ *                     response_body:
+ *                       type: string
+ *                     http_status:
+ *                       type: integer
+ *                     status:
+ *                       type: string
+ *       400:
+ *         description: Validation failed
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  "/test",
+  authenticateToken, merchantApiKeyRateLimit(),
+  validate(webhookSchema.sendTestWebhookSchema),
+  sendTestWebhook
+);
+
+/* ── Admin DLQ endpoints (protected by X-Admin-Secret) ─────────────────── */
+
+/**
+ * @swagger
+ * /api/v1/webhooks/admin/dead-letter-queue:
+ *   get:
+ *     summary: List permanently failed webhooks (DLQ)
+ *     tags: [Webhooks — Admin]
+ *     security:
+ *       - adminSecret: []
+ *     parameters:
+ *       - in: query
+ *         name: merchant_id
+ *         schema:
+ *           type: string
+ *         description: Filter by merchant ID
+ *       - in: query
+ *         name: date_from
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Filter from this date
+ *       - in: query
+ *         name: date_to
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Filter until this date
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *           maximum: 100
+ *         description: Items per page
+ *     responses:
+ *       200:
+ *         description: DLQ items retrieved successfully
+ *       401:
+ *         description: Unauthorized — missing or invalid X-Admin-Secret
+ */
+router.get(
+  "/admin/dead-letter-queue",
+  adminAuth,
+  validateQuery(webhookSchema.getDeadLetterQueueSchema),
+  getDeadLetterQueue
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/admin/dead-letter-queue/{log_id}/requeue:
+ *   post:
+ *     summary: Requeue a permanently failed webhook for redelivery
+ *     tags: [Webhooks — Admin]
+ *     security:
+ *       - adminSecret: []
+ *     parameters:
+ *       - in: path
+ *         name: log_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The webhook log ID to requeue
+ *     responses:
+ *       200:
+ *         description: Webhook requeued successfully
+ *       400:
+ *         description: Webhook is not in failed status
+ *       404:
+ *         description: Webhook log not found
+ *       401:
+ *         description: Unauthorized — missing or invalid X-Admin-Secret
+ */
+router.post(
+  "/admin/dead-letter-queue/:log_id/requeue",
+  adminAuth,
+  requeueWebhook
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/admin/logs:
+ *   get:
+ *     summary: Get webhook logs list across all merchants
+ *     tags: [Webhooks — Admin]
+ *     security:
+ *       - adminSecret: []
+ *     parameters:
+ *       - in: query
+ *         name: merchant_id
+ *         schema:
+ *           type: string
+ *         description: Filter by merchant ID
+ *       - in: query
+ *         name: event_type
+ *         schema:
+ *           type: string
+ *         description: Filter by event type
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         description: Filter by webhook status
+ *       - in: query
+ *         name: date_from
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - in: query
+ *         name: date_to
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *     responses:
+ *       200:
+ *         description: Webhook logs retrieved successfully
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/admin/logs",
+  adminAuth,
+  adminGetWebhookLogs
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/admin/logs/{log_id}/retry:
+ *   post:
+ *     summary: Retry a webhook across any merchant
+ *     tags: [Webhooks — Admin]
+ *     security:
+ *       - adminSecret: []
+ *     parameters:
+ *       - in: path
+ *         name: log_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The webhook log ID to retry
+ *     responses:
+ *       200:
+ *         description: Webhook retry initiated
+ *       404:
+ *         description: Webhook log not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  "/admin/logs/:log_id/retry",
+  adminAuth,
+  adminRetryWebhook
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/logs/{log_id}/attempts:
+ *   get:
+ *     summary: Get delivery attempt history for a webhook event
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: log_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The webhook log ID
+ *     responses:
+ *       200:
+ *         description: Delivery attempt history retrieved successfully
+ *       404:
+ *         description: Webhook log not found
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/logs/:log_id/attempts",
+  authenticateToken, merchantApiKeyRateLimit(),
+  getWebhookAttempts
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/deliveries/{log_id}/attempts:
+ *   get:
+ *     summary: Get delivery attempt history (alias for logs/attempts)
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: log_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The webhook log ID
+ *     responses:
+ *       200:
+ *         description: Delivery attempt history retrieved successfully
+ *       404:
+ *         description: Webhook log not found
+ *       401:
+ *         description: Unauthorized
+ */
+// Alias /deliveries/:log_id/attempts to /logs/:log_id/attempts
+router.get(
+  "/deliveries/:log_id/attempts",
+  authenticateToken, merchantApiKeyRateLimit(),
+  getWebhookAttempts
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/admin/retry-config:
+ *   get:
+ *     summary: Get webhook retry backoff configuration
+ *     tags: [Webhooks - Admin]
+ *     security:
+ *       - adminSecret: []
+ *     responses:
+ *       200:
+ *         description: Webhook retry configuration retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     maxRetries:
+ *                       type: integer
+ *                     backoffMultiplier:
+ *                       type: number
+ *                     initialDelayMs:
+ *                       type: integer
+ *       401:
+ *         description: Unauthorized
+ */
+// Expose retry backoff configuration (read-only, admin protected)
+router.get(
+  "/admin/retry-config",
+  adminAuth,
+  getWebhookRetryConfig
+);
+
+/* ── Webhook Key Rotation (/api/v1/webhooks/keys/...) ───────────────────── */
+
+/**
+ * @swagger
+ * /api/v1/webhooks/keys/status:
+ *   get:
+ *     summary: Get webhook signing key rotation status
+ *     description: |
+ *       Returns whether a rotation grace window is active and when the secondary
+ *       key was created. Secret values are never returned by this endpoint.
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Key status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     rotation_in_progress:
+ *                       type: boolean
+ *                       description: Whether a secondary key is pending promotion
+ *                     secondary_key_created_at:
+ *                       type: string
+ *                       format: date-time
+ *                       nullable: true
+ *                     primary_key_hint:
+ *                       type: string
+ *                       description: Last 4 chars of primary secret, masked
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/keys/status",
+  authenticateToken, merchantApiKeyRateLimit(),
+  getWebhookKeyStatus
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/keys/rotate:
+ *   post:
+ *     summary: Initiate webhook signing key rotation
+ *     description: |
+ *       Generates a new secondary webhook signing secret and begins the dual-signing
+ *       grace window. During this period every outgoing webhook is signed with both
+ *       the current primary key (`X-FluxaPay-Signature`) and the new secondary key
+ *       (`X-FluxaPay-Signature-Secondary`), so your handler can accept either.
+ *
+ *       The secondary secret is returned **only once** — store it securely before
+ *       calling promote.
+ *
+ *       Throws 409 if a rotation is already in progress.
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       201:
+ *         description: Rotation initiated. Secondary secret returned (shown once only).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     secondary_secret:
+ *                       type: string
+ *                       description: The new secondary signing secret (shown only once)
+ *                     secondary_created_at:
+ *                       type: string
+ *                       format: date-time
+ *                     instructions:
+ *                       type: string
+ *       409:
+ *         description: Rotation already in progress
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  "/keys/rotate",
+  authenticateToken, merchantApiKeyRateLimit(),
+  initiateWebhookRotation
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/keys/promote:
+ *   post:
+ *     summary: Promote secondary webhook key to primary
+ *     description: |
+ *       Promotes the pending secondary secret to primary and retires the old primary.
+ *       After this call only one key is active — dual-signing stops.
+ *
+ *       Call this after you have deployed your updated webhook handler that can
+ *       verify signatures from the new key.
+ *
+ *       Throws 400 if no rotation is in progress.
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Secondary key promoted to primary
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     promoted_at:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: No secondary key pending promotion
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  "/keys/promote",
+  authenticateToken, merchantApiKeyRateLimit(),
+  promoteWebhookKey
+);
+
+/**
+ * @swagger
+ * /api/v1/webhooks/keys/secondary:
+ *   delete:
+ *     summary: Revoke the secondary webhook key (cancel rotation)
+ *     description: |
+ *       Cancels an in-progress rotation by removing the secondary secret without
+ *       promoting it. The primary key continues to be the sole signing key.
+ *
+ *       Throws 400 if no rotation is in progress.
+ *     tags: [Webhooks]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Secondary key revoked
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     revoked_at:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: No secondary key to revoke
+ *       401:
+ *         description: Unauthorized
+ */
+router.delete(
+  "/keys/secondary",
+  authenticateToken, merchantApiKeyRateLimit(),
+  revokeWebhookKey
+);
+
+export default router;

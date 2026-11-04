@@ -1,0 +1,76 @@
+/**
+ * Logging and Observability Types
+ */
+
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export interface LogContext {
+  requestId?: string;
+  correlationId?: string;
+  method?: string;
+  path?: string;
+  statusCode?: number;
+  responseTime?: number;
+  userId?: string;
+  merchantId?: string;
+  paymentId?: string;
+  [key: string]: any;
+}
+
+export interface LogEntry {
+  level: LogLevel;
+  message: string;
+  timestamp: string;
+  requestId?: string;
+  correlationId?: string;
+  /**
+   * OpenTelemetry trace ID of the active span at log time (hex string, 32 chars).
+   * Injected automatically when OTEL_ENABLED=true and a span is active.
+   */
+  traceId?: string;
+  /**
+   * W3C traceparent header value derived from the active span context.
+   * Format: 00-<traceId>-<spanId>-<flags>
+   * Enables direct log-to-trace correlation in Grafana / Tempo / Jaeger.
+   */
+  traceparent?: string;
+  service: string;
+  version: string;
+  environment: string;
+  context?: LogContext;
+  error?: {
+    name: string;
+    message: string;
+    stack?: string;
+  };
+}
+
+export interface Logger {
+  debug(message: string, context?: LogContext): void;
+  info(message: string, context?: LogContext): void;
+  warn(message: string, context?: LogContext): void;
+  error(message: string, context?: LogContext): void;
+  child(context: LogContext): Logger;
+}
+
+export interface MetricsTags {
+  [key: string]: string | number;
+}
+
+export interface MetricEvent {
+  name: string;
+  value: number;
+  type: 'counter' | 'gauge' | 'histogram' | 'timer';
+  tags?: MetricsTags;
+  timestamp?: number;
+}
+
+export interface MetricsCollector {
+  increment(name: string, tags?: MetricsTags, value?: number): void;
+  gauge(name: string, value: number, tags?: MetricsTags): void;
+  histogram(name: string, value: number, tags?: MetricsTags): void;
+  timer(name: string, startTime: [number, number], tags?: MetricsTags): void;
+  getMetrics(): MetricEvent[];
+  getSummary(): Record<string, unknown>;
+  reset(): void;
+}

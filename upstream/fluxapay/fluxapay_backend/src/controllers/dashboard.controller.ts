@@ -1,0 +1,174 @@
+import { createController } from "../helpers/controller.helper";
+import { apiError, sendApiError } from "../helpers/apiError.helper";
+import { ErrorCode } from "../types/errors";
+import { subscribeToRefundUpdates } from "../services/refund.service";
+
+import * as dashboardService from "../services/dashboard.service";
+import { AuthRequest } from "../types/express";
+import { Response } from "express";
+import { queryAuditLogs } from "../services/audit.service";
+import { AuditActionType } from "../types/audit.types";
+import { getMerchantExpiringDocuments } from "../services/kycExpiry.service";
+
+export const overviewMetrics = createController(
+  dashboardService.getDashboardOverview,
+  200,
+);
+
+export const analytics = createController(
+  dashboardService.getDashboardAnalytics,
+  200,
+);
+
+export const dailyTransactionVolume = createController(
+  dashboardService.getDailyTransactionVolume,
+  201,
+);
+
+export const activity = createController(
+  dashboardService.getDashboardActivity,
+  200,
+);
+
+/**
+ * GET /api/v1/dashboard/refunds/stream
+ * Server-Sent Events stream that pushes refund status updates to the
+ * dashboard in real time so the UI no longer shows a stale 'pending' state.
+ */
+export async function streamRefundUpdates(req: AuthRequest, res: Response) {
+  const merchantId = req.merchantId;
+  if (!merchantId) {
+    return sendApiError(res, apiError(401, ErrorCode.UNAUTHORIZED, "Authentication required"));
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  const send = (payload: unknown) => {
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  send({ type: "connected", merchantId });
+
+  const unsubscribe = subscribeToRefundUpdates(merchantId, (update) => {
+    send({ type: "refund.updated", ...update });
+  });
+
+  const heartbeat = setInterval(() => {
+    res.write(": keep-alive\n\n");
+  }, 15000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+    res.end();
+  });
+}
+
+/**
+ * GET /api/v1/dashboard/audit-logs
+ * Read-only access to audit logs scoped to the authenticated merchant.
+ */
+export async function getMerchantAuditLogs(req: AuthRequest, res: Response) {
+  try {
+    const merchantId = req.merchantId;
+    if (!merchantId) {
+      return sendApiError(res, apiError(401, ErrorCode.UNAUTHORIZED, "Authentication required"));
+    }
+
+    const { date_from, date_to, action_type, page, limit } = req.query;
+
+    let dateFrom: Date | undefined;
+    let dateTo: Date | undefined;
+
+    if (date_from) {
+      dateFrom = new Date(date_from as string);
+      if (isNaN(dateFrom.getTime())) {
+        return sendApiError(res, apiError(400, ErrorCode.VALIDATION_ERROR, "Invalid date_from format"));
+      }
+    }
+
+    if (date_to) {
+      dateTo = new Date(date_to as string);
+      if (isNaN(dateTo.getTime())) {
+        return sendApiError(res, apiError(400, ErrorCode.VALIDATION_ERROR, "Invalid date_to format"));
+      }
+    }
+
+    const pageNum = page ? parseInt(page as string, 10) : 1;
+    const limitNum = limit ? Math.min(parseInt(limit as string, 10), 50) : 20;
+
+    // Validate action_type if provided
+    let actionType: AuditActionType | undefined;
+    if (action_type) {
+      if (!Object.values(AuditActionType).includes(action_type as AuditActionType)) {
+        return sendApiError(res, apiError(400, ErrorCode.VALIDATION_ERROR, "Invalid action_type"));
+      }
+      actionType = action_type as AuditActionType;
+    }
+
+    // Scope logs to this merchant only (admin_id = merchantId for merchant-initiated actions)
+    const result = await queryAuditLogs({
+      dateFrom,
+      dateTo,
+      adminId: merchantId,
+      actionType,
+      page: pageNum,
+      limit: limitNum,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: result.logs,
+      pagination: result.pagination,
+    });
+  } catch (error: any) {
+    console.error("Error fetching merchant audit logs:", error);
+    return sendApiError(res, apiError(500, ErrorCode.INTERNAL_ERROR,"Failed to fetch audit logs"));
+  }
+}
+
+/**
+ * GET /api/v1/dashboard/kyc-expiry-banner
+ * Returns a warning banner payload when the merchant has KYC documents
+ * approaching expiry (60/30/7 day thresholds) or already expired.
+ */
+export async function getKycExpiryBanner(req: AuthRequest, res: Response) {
+  try {
+    const merchantId = req.merchantId;
+    if (!merchantId) {
+      return sendApiError(res, apiError(401, ErrorCode.UNAUTHORIZED, "Authentication required"));
+    }
+
+    const documents = await getMerchantExpiringDocuments(merchantId);
+
+    if (documents.length === 0) {
+      return res.status(200).json({ success: true, data: null });
+    }
+
+    // Show the most urgent document in the banner message.
+    const mostUrgent = documents.reduce((a, b) =>
+      a.daysUntilExpiry <= b.daysUntilExpiry ? a : b,
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        severity: mostUrgent.daysUntilExpiry <= 7 ? "critical" : "warning",
+        message: `Your ${mostUrgent.documentType.replace(/_/g, " ")} expires in ${mostUrgent.daysUntilExpiry} days. Please upload a renewed copy.`,
+        documents: documents.map((d) => ({
+          id: d.id,
+          document_type: d.documentType,
+          document_expiry_date: d.documentExpiryDate.toISOString(),
+          days_until_expiry: d.daysUntilExpiry,
+          threshold: d.threshold,
+        })),
+      },
+    });
+  } catch (error: any) {
+    console.error("Error fetching KYC expiry banner:", error);
+    return sendApiError(res, apiError(500, ErrorCode.INTERNAL_ERROR,"Failed to fetch KYC expiry banner"));
+  }
+}

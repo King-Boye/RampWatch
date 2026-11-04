@@ -1,0 +1,47 @@
+/**
+ * Payment status enum values — aligned with backend Prisma PaymentStatus enum.
+ * Values: pending, partially_paid, confirmed, overpaid, expired, failed,
+ *         paid, completed, cancelled, refunded, partially_refunded
+ */
+export type PaymentStatus =
+  | 'pending'
+  | 'partially_paid'
+  | 'confirmed'
+  | 'overpaid'
+  | 'expired'
+  | 'failed'
+  | 'paid'
+  | 'completed'
+  | 'cancelled'
+  | 'refunded'
+  | 'partially_refunded';
+
+export interface Payment {
+  id: string;
+  amount: number;
+  currency: string;
+  address: string; // Stellar payment address
+  memoType?: 'text' | 'id' | 'hash' | 'return';
+  memo?: string;
+  memoRequired?: boolean;
+  expiresAt: Date;
+  status: PaymentStatus;
+  paidAmount?: number;
+  successUrl?: string;
+  merchantName?: string;
+  description?: string;
+  /** HTTPS logo URL for hosted checkout (merchant settings). */
+  checkoutLogoUrl?: string;
+  /** Normalized hex accent, e.g. #rrggbb */
+  checkoutAccentColor?: string;
+  /** Support link for the merchant or Fluxapay. */
+  supportUrl?: string;
+  /** Stellar transaction hash, present once the payment is confirmed on-chain. */
+  transactionHash?: string;
+}
+
+export interface PaymentStatusUpdate {
+  paymentId: string;
+  status: PaymentStatus;
+  timestamp: Date;
+}

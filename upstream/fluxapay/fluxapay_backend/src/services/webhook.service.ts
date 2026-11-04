@@ -1,0 +1,1463 @@
+import { apiError } from "../helpers/apiError.helper";
+import { ErrorCode } from "../types/errors";
+import { PrismaClient, WebhookEventType, WebhookStatus, WebhookLog, Payment, Merchant } from "../generated/client/client";
+import { prisma } from "../config/prisma";
+import crypto from "crypto";
+import { webhookEventTypes } from "../schemas/webhook.schema";
+import { normalizeEventName, toLegacyEventName } from "../utils/webhook-event-mapping.util";
+import { getCorrelationId } from "../utils/requestContext";
+import { trackWebhookDelivery } from "../middleware/metrics.middleware";
+import { getWebhookBackoffConfig, computeJitteredBackoffMs } from "../utils/webhookBackoff";
+
+const MAX_AUTOMATIC_WEBHOOK_RETRIES = getWebhookBackoffConfig().maxRetries;
+
+/** Get webhook timestamp tolerance from environment (in seconds, default 5 minutes) */
+function getWebhookTimestampToleranceSeconds(): number {
+  const raw = parseInt(process.env.WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS ?? "", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 300; // 300 seconds = 5 minutes
+}
+
+/** Prisma error code for a unique-constraint violation. */
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
+/**
+ * In-flight deliveries keyed by `event_id`. Without this, two concurrent
+ * producers (e.g. the oracle tick and a manual verify) can both read "not
+ * delivered", both insert, and only one survives the unique index — but both
+ * already hold a reference to a row and would deliver. Tracking the promise
+ * here lets the loser await the winner's result instead of sending again.
+ */
+const inFlightDeliveries = new Map<string, Promise<unknown>>();
+
+/**
+ * Run `fn` at most once per `key` while an identical delivery is in flight.
+ * Duplicate callers share the winner's result; they never re-send.
+ */
+async function withInFlightDelivery<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const existing = inFlightDeliveries.get(key) as Promise<T> | undefined;
+  if (existing) {
+    return existing;
+  }
+
+  const promise = fn().finally(() => {
+    inFlightDeliveries.delete(key);
+  });
+
+  inFlightDeliveries.set(key, promise);
+  return promise;
+}
+
+export class WebhookDispatcher {
+  private prisma: PrismaClient;
+
+  constructor(prismaClient: PrismaClient) {
+    this.prisma = prismaClient;
+  }
+
+  public async sendPaymentWebhook(
+    payment: Payment,
+    merchant: Merchant,
+    eventType: WebhookEventType | string = "payment_confirmed",
+  ): Promise<void> {
+    if (!merchant.webhook_url) {
+      console.log(`[WebhookDispatcher] No webhook_url configured for merchant ${merchant.id}. Skipping.`);
+      return;
+    }
+
+    if (!merchant.webhook_secret) {
+      console.error(`[WebhookDispatcher] No webhook_secret configured for merchant ${merchant.id}. Skipping.`);
+      return;
+    }
+
+    const canonicalEvent = normalizeEventName(eventType as any);
+    const timestamp = new Date().toISOString();
+    const payload = JSON.stringify({
+      event: canonicalEvent,
+      event_id: crypto.randomUUID(),
+      timestamp,
+      data: {
+        payment_id: payment.id,
+        amount: payment.amount.toString(),
+        currency: payment.currency,
+        status: payment.status,
+        transaction_hash: payment.transaction_hash,
+      }
+    });
+
+    // Sign the exact bytes we send so receivers can verify against the raw body.
+    const signature = generateWebhookSignature(payload, merchant.webhook_secret, timestamp);
+
+    // Build delivery headers; add secondary signature header during rotation grace window.
+    const deliveryHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-FluxaPay-Signature': signature,
+      'X-FluxaPay-Timestamp': timestamp,
+    };
+
+    if ((merchant as any).webhook_secret_secondary) {
+      deliveryHeaders['X-FluxaPay-Signature-Secondary'] = generateWebhookSignature(
+        payload,
+        (merchant as any).webhook_secret_secondary,
+        timestamp,
+      );
+    }
+
+    if (getCorrelationId()) {
+      deliveryHeaders['X-Correlation-ID'] = getCorrelationId() as string;
+    }
+
+    let deliveryStatus: 'SUCCESS' | 'FAILED' = 'FAILED';
+
+    try {
+      const response = await fetch(merchant.webhook_url, {
+        method: 'POST',
+        headers: deliveryHeaders,
+        body: payload,
+      });
+
+      if (response.ok) {
+        deliveryStatus = 'SUCCESS';
+        console.log(`[WebhookDispatcher] Webhook delivered successfully for payment ${payment.id}`);
+      } else {
+        console.error(`[WebhookDispatcher] Webhook failed with HTTP ${response.status} for payment ${payment.id}`);
+      }
+    } catch (error: any) {
+      console.error(`[WebhookDispatcher] Webhook delivery error for payment ${payment.id}:`, error.message);
+    } finally {
+      trackWebhookDelivery(deliveryStatus === 'SUCCESS' ? 'success' : 'fail');
+      await this.prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          webhook_status: deliveryStatus,
+          webhook_retries: { increment: 1 }
+        }
+      });
+    }
+  }
+}
+
+
+interface GetWebhookLogsParams {
+  merchantId: string;
+  event_type?: WebhookEventType;
+  status?: WebhookStatus;
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+  page: number;
+  limit: number;
+}
+
+interface WebhookLogDetailsParams {
+  merchantId: string;
+  log_id: string;
+}
+
+interface RetryWebhookParams {
+  merchantId: string;
+  log_id: string;
+}
+
+interface SendTestWebhookParams {
+  merchantId: string;
+  event_type: WebhookEventType;
+  endpoint_url: string;
+  payload_override?: Record<string, any>;
+}
+
+export async function getWebhookLogsService(params: GetWebhookLogsParams) {
+  const {
+    merchantId,
+    event_type,
+    status,
+    date_from,
+    date_to,
+    search,
+    page,
+    limit,
+  } = params;
+
+  const skip = (page - 1) * limit;
+
+  const where: any = {
+    merchantId,
+  };
+
+  if (event_type) {
+    where.event_type = event_type;
+  }
+
+  if (status) {
+    where.status = status;
+  }
+
+  if (date_from || date_to) {
+    where.created_at = {};
+    if (date_from) {
+      where.created_at.gte = new Date(date_from);
+    }
+    if (date_to) {
+      where.created_at.lte = new Date(date_to);
+    }
+  }
+
+  if (search) {
+    where.OR = [
+      { id: { contains: search, mode: "insensitive" } },
+      { payment_id: { contains: search, mode: "insensitive" } },
+    ];
+  }
+
+  const [logs, total] = await Promise.all([
+    prisma.webhookLog.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { created_at: "desc" },
+      select: {
+        id: true,
+        event_type: true,
+        endpoint_url: true,
+        http_status: true,
+        status: true,
+        event_id: true,
+        payment_id: true,
+        retry_count: true,
+        created_at: true,
+        updated_at: true,
+      },
+    }),
+    prisma.webhookLog.count({ where }),
+  ]);
+
+  return {
+    message: "Webhook logs retrieved successfully",
+    data: {
+      logs,
+      pagination: {
+        page,
+        limit,
+        total,
+        total_pages: Math.ceil(total / limit),
+      },
+    },
+  };
+}
+
+interface ExportWebhookLogsParams {
+  merchantId: string;
+  event_type?: WebhookEventType;
+  status?: WebhookStatus;
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+}
+
+export async function exportWebhookLogsService(params: ExportWebhookLogsParams) {
+  const { merchantId, event_type, status, date_from, date_to, search } = params;
+
+  const where: any = {
+    merchantId,
+  };
+
+  if (event_type) {
+    where.event_type = event_type;
+  }
+
+  if (status) {
+    where.status = status;
+  }
+
+  if (date_from || date_to) {
+    where.created_at = {};
+    if (date_from) {
+      where.created_at.gte = new Date(date_from);
+    }
+    if (date_to) {
+      where.created_at.lte = new Date(date_to);
+    }
+  }
+
+  if (search) {
+    where.OR = [
+      { id: { contains: search, mode: "insensitive" } },
+      { payment_id: { contains: search, mode: "insensitive" } },
+    ];
+  }
+
+  const logs = await prisma.webhookLog.findMany({
+    where,
+    orderBy: { created_at: "desc" },
+    select: {
+      id: true,
+      event_type: true,
+      status: true,
+      http_status: true,
+      payment_id: true,
+      endpoint_url: true,
+      event_id: true,
+      retry_count: true,
+      created_at: true,
+      updated_at: true,
+    },
+  });
+
+  const escapeCsv = (value: unknown) => {
+    const text = value == null ? "" : String(value);
+    return `"${text.replace(/"/g, '""')}"`;
+  };
+
+  const header = [
+    "ID",
+    "Event Type",
+    "Status",
+    "HTTP Status",
+    "Payment ID",
+    "Endpoint URL",
+    "Event ID",
+    "Retry Count",
+    "Created At",
+    "Updated At",
+  ];
+
+  const rows = logs.map((log) =>
+    [
+      escapeCsv(log.id),
+      escapeCsv(log.event_type),
+      escapeCsv(log.status),
+      escapeCsv(log.http_status),
+      escapeCsv(log.payment_id),
+      escapeCsv(log.endpoint_url),
+      escapeCsv(log.event_id),
+      escapeCsv(log.retry_count),
+      escapeCsv(log.created_at.toISOString()),
+      escapeCsv(log.updated_at.toISOString()),
+    ].join(","),
+  );
+
+  const filename = `webhook_logs_${date_from ?? "all"}_${date_to ?? "all"}.csv`;
+  const content = [header.join(","), ...rows].join("\n");
+
+  return {
+    filename,
+    content,
+    contentType: "text/csv",
+  };
+}
+
+export async function getWebhookLogDetailsService(params: WebhookLogDetailsParams) {
+  const { merchantId, log_id } = params;
+
+  const log = await prisma.webhookLog.findFirst({
+    where: {
+      id: log_id,
+      merchantId,
+    },
+    include: {
+      retryAttempts: {
+        orderBy: { attempt_number: "asc" },
+      },
+    },
+  });
+
+  if (!log) {
+    throw apiError(404, ErrorCode.WEBHOOK_LOG_NOT_FOUND, "Webhook log not found");
+  }
+
+  return {
+    message: "Webhook log details retrieved successfully",
+    data: {
+      id: log.id,
+      event_type: log.event_type,
+      endpoint_url: log.endpoint_url,
+      request_payload: log.request_payload,
+      response_body: log.response_body,
+      http_status: log.http_status,
+      status: log.status,
+      event_id: log.event_id,
+      payment_id: log.payment_id,
+      retry_count: log.retry_count,
+      max_retries: log.max_retries,
+      next_retry_at: log.next_retry_at,
+      created_at: log.created_at,
+      updated_at: log.updated_at,
+      retry_attempts: log.retryAttempts.map((attempt: any) => ({
+        attempt_number: attempt.attempt_number,
+        http_status: attempt.http_status,
+        response_body: attempt.response_body,
+        error_message: attempt.error_message,
+        timestamp: attempt.created_at,
+      })),
+    },
+  };
+}
+
+export async function retryWebhookService(params: RetryWebhookParams) {
+  const { merchantId, log_id } = params;
+
+  const log = await prisma.webhookLog.findFirst({
+    where: {
+      id: log_id,
+      merchantId,
+    },
+  });
+
+  if (!log) {
+    throw apiError(404, ErrorCode.WEBHOOK_LOG_NOT_FOUND, "Webhook log not found");
+  }
+
+  if (log.status === "delivered") {
+    throw apiError(400, ErrorCode.WEBHOOK_ALREADY_DELIVERED, "Webhook already delivered successfully");
+  }
+
+  // Attempt to deliver the webhook using the original stored payload
+  const merchant = await prisma.merchant.findUnique({ where: { id: merchantId } });
+  if (!merchant?.webhook_secret) {
+    throw apiError(400, ErrorCode.WEBHOOK_SECRET_NOT_CONFIGURED, "Merchant webhook secret not configured");
+  }
+  const result = await deliverWebhook(
+    log.endpoint_url,
+    log.request_payload as Record<string, any>,
+    merchant.webhook_secret,
+    (merchant as any).webhook_secret_secondary ?? undefined,
+  );
+
+  const newRetryCount = log.retry_count + 1;
+  const retryLimit = Math.min(log.max_retries, MAX_AUTOMATIC_WEBHOOK_RETRIES);
+  const isPermanentlyFailed = !result.success && newRetryCount >= retryLimit;
+  const newStatus: WebhookStatus = result.success ? "delivered" :
+    isPermanentlyFailed ? "failed" : "retrying";
+
+  // Create retry attempt record
+  await prisma.webhookRetryAttempt.create({
+    data: {
+      webhookLogId: log.id,
+      attempt_number: newRetryCount,
+      http_status: result.httpStatus,
+      response_body: result.responseBody,
+      error_message: result.error,
+    },
+  });
+
+  const delayMs = computeJitteredBackoffMs(newRetryCount);
+  if (newStatus === "retrying") {
+    console.log(
+      `[WebhookRetry] log=${log.id} attempt=${newRetryCount}/${retryLimit} next_backoff_ms=${delayMs}`,
+    );
+  }
+  const nextRetryAt = newStatus === "retrying"
+    ? new Date(Date.now() + delayMs)
+    : null;
+
+  // Update the webhook log — persist DLQ metadata on permanent failure
+  const updatedLog = await prisma.webhookLog.update({
+    where: { id: log.id },
+    data: {
+      status: newStatus,
+      retry_count: newRetryCount,
+      http_status: result.httpStatus,
+      response_body: result.responseBody,
+      next_retry_at: nextRetryAt,
+      ...(isPermanentlyFailed && {
+        failed_at: new Date(),
+        failure_reason: result.error || `HTTP ${result.httpStatus || 0}`,
+      }),
+    },
+  });
+
+  return {
+    message: result.success
+      ? "Webhook retry successful"
+      : `Webhook retry failed${newStatus === "retrying" ? ", will retry again" : ""}`,
+    data: {
+      id: updatedLog.id,
+      status: updatedLog.status,
+      http_status: updatedLog.http_status,
+      retry_count: updatedLog.retry_count,
+      next_retry_at: updatedLog.next_retry_at,
+      failed_at: updatedLog.failed_at,
+      failure_reason: updatedLog.failure_reason,
+    },
+  };
+}
+
+export async function processDueWebhookRetries(batchSize = 100) {
+  const dueLogs = await prisma.webhookLog.findMany({
+    where: {
+      status: "retrying",
+      next_retry_at: { lte: new Date() },
+    },
+    orderBy: { next_retry_at: "asc" },
+    take: batchSize,
+  });
+
+  let processed = 0;
+  for (const log of dueLogs) {
+    try {
+      await retryWebhookService({ merchantId: log.merchantId, log_id: log.id });
+      processed++;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[WebhookRetry] Failed to retry webhook ${log.id}: ${message}`);
+    }
+  }
+
+  return { processed, due: dueLogs.length };
+}
+
+interface GetDeadLetterQueueParams {
+  page: number;
+  limit: number;
+  date_from?: string;
+  date_to?: string;
+  merchant_id?: string;
+}
+
+interface RequeueWebhookParams {
+  log_id: string;
+}
+
+export async function getDeadLetterQueueService(params: GetDeadLetterQueueParams) {
+  const { page, limit, date_from, date_to, merchant_id } = params;
+  const skip = (page - 1) * limit;
+
+  const where: any = {
+    status: "failed",
+    failed_at: { not: null },
+  };
+
+  if (merchant_id) {
+    where.merchantId = merchant_id;
+  }
+
+  if (date_from || date_to) {
+    if (date_from) {
+      where.failed_at.gte = new Date(date_from);
+    }
+    if (date_to) {
+      where.failed_at.lte = new Date(date_to);
+    }
+  }
+
+  const [logs, total] = await Promise.all([
+    prisma.webhookLog.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { failed_at: "desc" },
+      include: {
+        merchant: {
+          select: {
+            business_name: true,
+            email: true,
+          },
+        },
+      },
+    }),
+    prisma.webhookLog.count({ where }),
+  ]);
+
+  return {
+    message: "Dead-letter queue retrieved successfully",
+    data: {
+      logs: logs.map((log: any) => ({
+        id: log.id,
+        merchant_id: log.merchantId,
+        merchant_name: log.merchant?.business_name,
+        merchant_email: log.merchant?.email,
+        event_type: log.event_type,
+        endpoint_url: log.endpoint_url,
+        http_status: log.http_status,
+        status: log.status,
+        event_id: log.event_id,
+        payment_id: log.payment_id,
+        retry_count: log.retry_count,
+        max_retries: log.max_retries,
+        failure_reason: log.failure_reason,
+        failed_at: log.failed_at,
+        request_payload: log.request_payload,
+        created_at: log.created_at,
+        updated_at: log.updated_at,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        total_pages: Math.ceil(total / limit),
+      },
+    },
+  };
+}
+
+export interface AdminGetWebhookLogsParams {
+  event_type?: WebhookEventType;
+  status?: WebhookStatus;
+  merchant_id?: string;
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+  page: number;
+  limit: number;
+}
+
+export async function adminGetWebhookLogsService(params: AdminGetWebhookLogsParams) {
+  const { event_type, status, merchant_id, date_from, date_to, search, page, limit } = params;
+  const skip = (page - 1) * limit;
+
+  const where: any = {};
+  if (merchant_id) where.merchantId = merchant_id;
+  if (event_type) where.event_type = event_type;
+  if (status) where.status = status;
+  if (date_from || date_to) {
+    where.created_at = {};
+    if (date_from) where.created_at.gte = new Date(date_from);
+    if (date_to) where.created_at.lte = new Date(date_to);
+  }
+  if (search) {
+    where.OR = [
+      { id: { contains: search, mode: "insensitive" } },
+      { payment_id: { contains: search, mode: "insensitive" } },
+    ];
+  }
+
+  const [logs, total] = await Promise.all([
+    prisma.webhookLog.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { created_at: "desc" },
+      include: {
+        merchant: {
+          select: {
+            business_name: true,
+            email: true,
+          }
+        }
+      }
+    }),
+    prisma.webhookLog.count({ where }),
+  ]);
+
+  return {
+    message: "Admin webhook logs retrieved successfully",
+    data: {
+      logs: logs.map(log => ({
+        id: log.id,
+        merchant_id: log.merchantId,
+        merchant_name: log.merchant?.business_name,
+        merchant_email: log.merchant?.email,
+        event_type: log.event_type,
+        endpoint_url: log.endpoint_url,
+        http_status: log.http_status,
+        status: log.status,
+        event_id: log.event_id,
+        payment_id: log.payment_id,
+        retry_count: log.retry_count,
+        created_at: log.created_at,
+        updated_at: log.updated_at,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        total_pages: Math.ceil(total / limit),
+      },
+    },
+  };
+}
+
+export async function adminRetryWebhookService(params: { log_id: string }) {
+  const { log_id } = params;
+
+  const log = await prisma.webhookLog.findUnique({
+    where: { id: log_id },
+  });
+
+  if (!log) {
+    throw apiError(404, ErrorCode.WEBHOOK_LOG_NOT_FOUND, "Webhook log not found");
+  }
+
+  return retryWebhookService({ merchantId: log.merchantId, log_id: log.id });
+}
+
+export async function requeueWebhookService(params: RequeueWebhookParams) {
+  const { log_id } = params;
+
+  const log = await prisma.webhookLog.findUnique({
+    where: { id: log_id },
+  });
+
+  if (!log) {
+    throw apiError(404, ErrorCode.WEBHOOK_LOG_NOT_FOUND, "Webhook log not found");
+  }
+
+  if (log.status !== "failed") {
+    throw apiError(400, ErrorCode.WEBHOOK_REQUEUE_FAILED, "Only failed webhooks can be requeued");
+  }
+
+  const updatedLog = await prisma.webhookLog.update({
+    where: { id: log.id },
+    data: {
+      status: "pending",
+      retry_count: 0,
+      max_retries: log.max_retries + 3,
+      failed_at: null,
+      failure_reason: null,
+      next_retry_at: new Date(),
+    },
+  });
+
+  return {
+    message: "Webhook requeued for delivery",
+    data: {
+      id: updatedLog.id,
+      status: updatedLog.status,
+      retry_count: updatedLog.retry_count,
+      max_retries: updatedLog.max_retries,
+      next_retry_at: updatedLog.next_retry_at,
+    },
+  };
+}
+
+export async function sendTestWebhookService(params: SendTestWebhookParams) {
+  const { merchantId, event_type, endpoint_url, payload_override } = params;
+
+  // Verify merchant exists
+  const merchant = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+  });
+
+  if (!merchant) {
+    throw apiError(404, ErrorCode.MERCHANT_NOT_FOUND, "Merchant not found");
+  }
+
+  // Generate test payload (event_id embedded so merchant can deduplicate test events too)
+  const eventId = crypto.randomUUID();
+  const testPayload = generateTestPayload(event_type, payload_override, eventId);
+  if (!merchant.webhook_secret) {
+    throw apiError(400, ErrorCode.WEBHOOK_SECRET_NOT_CONFIGURED, "Merchant webhook secret not configured");
+  }
+
+  // Create webhook log for the test
+  const webhookLog = await prisma.webhookLog.create({
+    data: {
+      merchantId,
+      event_type,
+      endpoint_url,
+      event_id: eventId,
+      request_payload: testPayload,
+      status: "pending",
+    },
+  });
+
+  // Attempt to deliver the webhook
+  const result = await deliverWebhook(endpoint_url, testPayload, merchant.webhook_secret as string);
+
+  const status: WebhookStatus = result.success ? "delivered" : "failed";
+
+  // Update the webhook log with the result
+  const updatedLog = await prisma.webhookLog.update({
+    where: { id: webhookLog.id },
+    data: {
+      status,
+      http_status: result.httpStatus,
+      response_body: result.responseBody,
+    },
+  });
+
+  return {
+    message: result.success
+      ? "Test webhook delivered successfully"
+      : "Test webhook delivery failed",
+    data: {
+      id: updatedLog.id,
+      event_type: updatedLog.event_type,
+      endpoint_url: updatedLog.endpoint_url,
+      request_payload: updatedLog.request_payload,
+      response_body: updatedLog.response_body,
+      http_status: updatedLog.http_status,
+      event_id: updatedLog.event_id,
+      status: updatedLog.status,
+      created_at: updatedLog.created_at,
+    },
+  };
+}
+
+// Helper function to deliver webhook
+export async function deliverWebhook(
+  endpointUrl: string,
+  payload: Record<string, any>,
+  merchantSecret: string,
+  /** Optional secondary secret — present during a rotation grace window.
+   *  When set, the response includes both X-FluxaPay-Signature (primary) and
+   *  X-FluxaPay-Signature-Secondary so merchants can verify with either key. */
+  secondarySecret?: string | null
+): Promise<{
+  success: boolean;
+  httpStatus?: number;
+  responseBody?: string;
+  error?: string;
+}> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    const timestamp = new Date().toISOString();
+    
+    // Verify timestamp before sending (ensures our timestamp is valid)
+    if (!verifyWebhookTimestamp(timestamp)) {
+      throw apiError(
+        400,
+        ErrorCode.INVALID_WEBHOOK_TIMESTAMP,
+        "Invalid or stale webhook timestamp"
+      );
+    }
+
+    // Serialize once and sign the exact body we send.
+    const body = JSON.stringify(payload);
+    const primarySignature = generateWebhookSignature(body, merchantSecret, timestamp);
+
+    // Build headers — add secondary signature header when rotation is in progress.
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-FluxaPay-Signature": primarySignature,
+      "X-FluxaPay-Timestamp": timestamp,
+    };
+
+    if (secondarySecret) {
+      headers["X-FluxaPay-Signature-Secondary"] = generateWebhookSignature(body, secondarySecret, timestamp);
+    }
+
+    if (getCorrelationId()) {
+      headers["X-Correlation-ID"] = getCorrelationId() as string;
+    }
+
+    const response = await fetch(endpointUrl, {
+      method: "POST",
+      headers,
+      body,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    const responseBody = await response.text();
+    const success = response.ok;
+    trackWebhookDelivery(success ? 'success' : 'fail');
+
+    return {
+      success,
+      httpStatus: response.status,
+      responseBody: responseBody.substring(0, 10000),
+    };
+  } catch (error: any) {
+    trackWebhookDelivery('fail');
+    return {
+      success: false,
+      error: error.message || "Unknown error occurred",
+    };
+  }
+}
+
+/**
+ * Signs a webhook with the per-merchant secret:
+ *   HMAC-SHA256(secret, `${timestamp}.${body}`)
+ *
+ * Binding the timestamp into the signed string lets receivers reject replayed
+ * deliveries: the `X-FluxaPay-Timestamp` header cannot be altered without
+ * invalidating `X-FluxaPay-Signature`.
+ *
+ * Pass the raw body string that is actually sent whenever possible; an object
+ * is serialized with JSON.stringify, which must match the sent body exactly.
+ */
+export function generateWebhookSignature(
+  payload: Record<string, unknown> | string,
+  merchantSecret: string,
+  timestamp: string
+): string {
+  const body = typeof payload === "string" ? payload : JSON.stringify(payload);
+  const signingString = `${timestamp}.${body}`;
+  return crypto.createHmac("sha256", merchantSecret).update(signingString).digest("hex");
+}
+
+/**
+ * Replay protection: returns true only if the webhook timestamp falls within
+ * the allowed window (configurable via WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS, default 5 minutes).
+ *
+ * This MUST be called before processing any incoming webhook to prevent replay attacks.
+ * Combine with event_id deduplication for full protection.
+ * 
+ * @param timestamp ISO 8601 timestamp string from webhook header
+ * @param toleranceSeconds Optional override for tolerance window (in seconds)
+ * @throws 400 if timestamp is invalid or outside tolerance window
+ */
+export function verifyWebhookTimestamp(
+  timestamp: string,
+  toleranceSeconds?: number,
+): boolean {
+  const rawTolerance = toleranceSeconds ?? getWebhookTimestampToleranceSeconds();
+  const windowMs = rawTolerance > 1000 ? rawTolerance : rawTolerance * 1000;
+
+  const webhookTime = new Date(timestamp).getTime();
+  if (isNaN(webhookTime)) {
+    return false;
+  }
+
+  const now = Date.now();
+  const diff = now - webhookTime;
+
+  // Reject any future timestamp and anything older than the tolerance window.
+  if (webhookTime > now || diff > windowMs) {
+    return false;
+  }
+
+  return true;
+}
+
+// Helper function to generate test payload based on event type
+function generateTestPayload(
+  eventType: WebhookEventType,
+  override?: Record<string, any>,
+  eventId?: string,
+): Record<string, any> {
+  const canonicalEventType = normalizeEventName(eventType as any);
+
+  const basePayload = {
+    event: canonicalEventType,
+    event_id: eventId ?? crypto.randomUUID(),
+    webhook_id: `test_${Date.now()}`,
+    event_type: canonicalEventType,
+    timestamp: new Date().toISOString(),
+    test_mode: true,
+  };
+
+  const eventPayloads: Record<string, Record<string, any>> = {
+    'payment.created': {
+      payment_id: `pay_test_${Date.now()}`,
+      amount: 100.00,
+      currency: "USD",
+      status: "created",
+      customer_email: "test@example.com",
+    },
+    'payment.pending': {
+      payment_id: `pay_test_${Date.now()}`,
+      amount: 100.00,
+      currency: "USD",
+      status: "pending",
+      customer_email: "test@example.com",
+    },
+    'payment.confirmed': {
+      payment_id: `pay_test_${Date.now()}`,
+      amount: 100.00,
+      currency: "USD",
+      status: "confirmed",
+      customer_email: "test@example.com",
+    },
+    'payment.failed': {
+      payment_id: `pay_test_${Date.now()}`,
+      amount: 100.00,
+      currency: "USD",
+      status: "failed",
+      failure_reason: "Insufficient funds",
+      customer_email: "test@example.com",
+    },
+    'payment.settled': {
+      payment_id: `pay_test_${Date.now()}`,
+      amount: 100.00,
+      currency: "USD",
+      status: "settled",
+      customer_email: "test@example.com",
+    },
+    'refund.created': {
+      refund_id: `ref_test_${Date.now()}`,
+      payment_id: `pay_test_${Date.now()}`,
+      amount: 50.00,
+      currency: "USD",
+      status: "created",
+    },
+    'refund.completed': {
+      refund_id: `ref_test_${Date.now()}`,
+      payment_id: `pay_test_${Date.now()}`,
+      amount: 50.00,
+      currency: "USD",
+      status: "completed",
+    },
+    'refund.failed': {
+      refund_id: `ref_test_${Date.now()}`,
+      payment_id: `pay_test_${Date.now()}`,
+      amount: 50.00,
+      currency: "USD",
+      status: "failed",
+      failure_reason: "Refund window expired",
+    },
+    'subscription.created': {
+      subscription_id: `sub_test_${Date.now()}`,
+      plan_id: "plan_test",
+      customer_email: "test@example.com",
+      status: "active",
+      billing_cycle: "monthly",
+    },
+    'subscription.cancelled': {
+      subscription_id: `sub_test_${Date.now()}`,
+      plan_id: "plan_test",
+      customer_email: "test@example.com",
+      status: "cancelled",
+      cancelled_at: new Date().toISOString(),
+    },
+    'subscription.renewed': {
+      subscription_id: `sub_test_${Date.now()}`,
+      plan_id: "plan_test",
+      customer_email: "test@example.com",
+      status: "active",
+      renewed_at: new Date().toISOString(),
+      next_billing_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    'invoice.paid': {
+      invoice_id: `inv_test_${Date.now()}`,
+      invoice_number: `INV-TEST-001`,
+      status: "paid",
+    },
+    'invoice.overdue': {
+      invoice_id: `inv_test_${Date.now()}`,
+      invoice_number: `INV-TEST-001`,
+      status: "overdue",
+    },
+    // Legacy event names (for backward compatibility)
+    'payment_completed': {
+      payment_id: `pay_test_${Date.now()}`,
+      amount: 100.00,
+      currency: "USD",
+      status: "completed",
+      customer_email: "test@example.com",
+    },
+    'payment_failed': {
+      payment_id: `pay_test_${Date.now()}`,
+      amount: 100.00,
+      currency: "USD",
+      status: "failed",
+      failure_reason: "Insufficient funds",
+      customer_email: "test@example.com",
+    },
+    'payment_pending': {
+      payment_id: `pay_test_${Date.now()}`,
+      amount: 100.00,
+      currency: "USD",
+      status: "pending",
+      customer_email: "test@example.com",
+    },
+    'payment_confirmed': {
+      payment_id: `pay_test_${Date.now()}`,
+      amount: 100.00,
+      currency: "USD",
+      status: "confirmed",
+      customer_email: "test@example.com",
+    },
+    'refund_completed': {
+      refund_id: `ref_test_${Date.now()}`,
+      payment_id: `pay_test_${Date.now()}`,
+      amount: 50.00,
+      currency: "USD",
+      status: "completed",
+    },
+    'refund_failed': {
+      refund_id: `ref_test_${Date.now()}`,
+      payment_id: `pay_test_${Date.now()}`,
+      amount: 50.00,
+      currency: "USD",
+      status: "failed",
+      failure_reason: "Refund window expired",
+    },
+    'subscription_created': {
+      subscription_id: `sub_test_${Date.now()}`,
+      plan_id: "plan_test",
+      customer_email: "test@example.com",
+      status: "active",
+      billing_cycle: "monthly",
+    },
+    'subscription_cancelled': {
+      subscription_id: `sub_test_${Date.now()}`,
+      plan_id: "plan_test",
+      customer_email: "test@example.com",
+      status: "cancelled",
+      cancelled_at: new Date().toISOString(),
+    },
+    'subscription_renewed': {
+      subscription_id: `sub_test_${Date.now()}`,
+      plan_id: "plan_test",
+      customer_email: "test@example.com",
+      status: "active",
+      renewed_at: new Date().toISOString(),
+      next_billing_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    'invoice_paid': {
+      invoice_id: `inv_test_${Date.now()}`,
+      invoice_number: `INV-TEST-001`,
+      status: "paid",
+    },
+    'invoice_overdue': {
+      invoice_id: `inv_test_${Date.now()}`,
+      invoice_number: `INV-TEST-001`,
+      status: "overdue",
+    },
+  };
+
+  return {
+    ...basePayload,
+    data: {
+      ...eventPayloads[canonicalEventType],
+      ...override,
+    },
+  };
+}
+
+// Export for use in other services (e.g., payment service to trigger webhooks)
+export async function createAndDeliverWebhook(
+  merchantId: string,
+  eventType: WebhookEventType,
+  payload: Record<string, any>,
+  paymentId?: string,
+  /** When set (e.g. payment metadata override), deliver to this URL instead of the merchant profile URL. */
+  endpointOverride?: string,
+  /** Stable event_id for deduplication. If omitted a new UUID is generated. */
+  eventId?: string,
+) {
+  const deliveryKey = eventId
+    ? `${merchantId}:${eventType}:${eventId}`
+    : null;
+
+  const deliver = async (): Promise<WebhookLog> => {
+    return deliverWebhookEvent(
+      merchantId,
+      eventType,
+      payload,
+      paymentId,
+      endpointOverride,
+      eventId,
+    );
+  };
+
+  if (!deliveryKey) {
+    return deliver();
+  }
+  return withInFlightDelivery(deliveryKey, deliver);
+}
+
+async function deliverWebhookEvent(
+  merchantId: string,
+  eventType: WebhookEventType,
+  payload: Record<string, any>,
+  paymentId?: string,
+  endpointOverride?: string,
+  eventId?: string,
+): Promise<WebhookLog> {
+  const merchant = await prisma.merchant.findUnique({ where: { id: merchantId } });
+
+  if (!merchant?.webhook_secret) {
+    throw new Error(`Merchant ${merchantId} has no webhook_secret configured`);
+  }
+
+  const endpointUrl = endpointOverride ?? merchant.webhook_url;
+  if (!endpointUrl) {
+    throw new Error(`Merchant ${merchantId} has no webhook_url configured`);
+  }
+
+  const resolvedEventId = eventId ?? crypto.randomUUID();
+
+  // Deduplication: if a log with this event_id was already delivered, skip re-delivery.
+  // Fast path avoids an INSERT for the common duplicate case.
+  const existing = await prisma.webhookLog.findUnique({
+    where: { event_id: resolvedEventId },
+  });
+  if (existing?.status === "delivered") {
+    return existing;
+  }
+
+  // Embed event_id and timestamp in the outgoing payload so merchants can
+  // deduplicate and apply replay-protection on their side.
+  const deliveryTimestamp = new Date().toISOString();
+  const enrichedPayload = {
+    event: payload.event ?? normalizeEventName(eventType as any),
+    event_id: resolvedEventId,
+    timestamp: deliveryTimestamp,
+    ...payload,
+  };
+
+  // Atomic claim: the unique index on event_id is the source of truth for
+  // deduplication. A concurrent worker may have inserted the same event between
+  // the read above and this write; P2002 means "someone else owns this event",
+  // so we drop this attempt instead of double-sending it.
+  let webhookLog: WebhookLog;
+  try {
+    webhookLog = await prisma.webhookLog.create({
+      data: {
+        merchantId,
+        event_type: eventType,
+        endpoint_url: endpointUrl,
+        event_id: resolvedEventId,
+        request_payload: enrichedPayload,
+        payment_id: paymentId,
+        status: "pending",
+      },
+    });
+  } catch (error) {
+    if (isUniqueConstraintViolation(error)) {
+      const claimed = await prisma.webhookLog.findUnique({
+        where: { event_id: resolvedEventId },
+      });
+      if (claimed) {
+        return claimed;
+      }
+    }
+    throw error;
+  }
+
+  // Pass secondary secret if rotation is in progress — deliverWebhook will add
+  // the X-FluxaPay-Signature-Secondary header so merchants can verify with either key.
+  const result = await deliverWebhook(
+    endpointUrl,
+    enrichedPayload,
+    merchant.webhook_secret,
+    merchant.webhook_secret_secondary ?? undefined,
+  );
+  const status: WebhookStatus = result.success ? "delivered" : "retrying";
+
+  const nextRetryAt = status === "retrying"
+    ? new Date(Date.now() + getWebhookBackoffConfig().baseDelayMs)
+    : null;
+
+  const retryCount = 0;
+
+  await prisma.webhookRetryAttempt.create({
+    data: {
+      webhookLogId: webhookLog.id,
+      attempt_number: 1,
+      http_status: result.httpStatus,
+      response_body: result.responseBody,
+      error_message: result.error,
+    },
+  });
+
+  await prisma.webhookLog.update({
+    where: { id: webhookLog.id },
+    data: {
+      status,
+      http_status: result.httpStatus,
+      response_body: result.responseBody,
+      retry_count: retryCount,
+      next_retry_at: nextRetryAt,
+    },
+  });
+
+  return webhookLog;
+}
+
+// ─── Webhook Key Rotation ─────────────────────────────────────────────────────
+
+/**
+ * Initiates a webhook secret rotation for a merchant.
+ *
+ * Generates a new random secret and stores it as `webhook_secret_secondary`.
+ * The existing `webhook_secret` remains the primary; both are used to sign
+ * outgoing webhooks during the grace window so merchants can verify with
+ * either key before promoting the new one.
+ *
+ * Throws 409 if a rotation is already in progress.
+ */
+export async function initiateWebhookKeyRotation(merchantId: string) {
+  const merchant = await prisma.merchant.findUnique({ where: { id: merchantId } });
+
+  if (!merchant) {
+    throw apiError(404, ErrorCode.MERCHANT_NOT_FOUND, "Merchant not found");
+  }
+
+  if ((merchant as any).webhook_secret_secondary) {
+    throw apiError(
+      409,
+      ErrorCode.WEBHOOK_ROTATION_IN_PROGRESS,
+      "A webhook key rotation is already in progress. Promote or revoke the existing secondary key first.",
+    );
+  }
+
+  const newSecret = `whsec_${crypto.randomBytes(32).toString("hex")}`;
+
+  const updated = await (prisma.merchant as any).update({
+    where: { id: merchantId },
+    data: {
+      webhook_secret_secondary: newSecret,
+      webhook_secret_secondary_created_at: new Date(),
+    },
+    select: {
+      id: true,
+      webhook_secret_secondary: true,
+      webhook_secret_secondary_created_at: true,
+    },
+  });
+
+  return {
+    message: "Webhook key rotation initiated. Both keys will be used to sign webhooks during the grace window.",
+    data: {
+      secondary_secret: updated.webhook_secret_secondary as string,
+      secondary_created_at: updated.webhook_secret_secondary_created_at as Date,
+      instructions: "Update your webhook handler to accept signatures from either key, then call POST /api/v1/webhooks/keys/promote to make the new key primary.",
+    },
+  };
+}
+
+/**
+ * Promotes the secondary webhook secret to primary, retiring the old primary.
+ *
+ * After promotion the old primary is discarded; only the (now-primary) new
+ * secret is used to sign webhooks.
+ *
+ * Throws 400 if no rotation is in progress.
+ */
+export async function promoteSecondaryWebhookKey(merchantId: string) {
+  const merchant = await prisma.merchant.findUnique({ where: { id: merchantId } });
+
+  if (!merchant) {
+    throw apiError(404, ErrorCode.MERCHANT_NOT_FOUND, "Merchant not found");
+  }
+
+  const secondarySecret = (merchant as any).webhook_secret_secondary as string | null;
+
+  if (!secondarySecret) {
+    throw apiError(
+      400,
+      ErrorCode.WEBHOOK_NO_SECONDARY_KEY,
+      "No secondary webhook key is pending promotion. Initiate a rotation first.",
+    );
+  }
+
+  await (prisma.merchant as any).update({
+    where: { id: merchantId },
+    data: {
+      webhook_secret: secondarySecret,
+      webhook_secret_secondary: null,
+      webhook_secret_secondary_created_at: null,
+    },
+  });
+
+  return {
+    message: "Secondary webhook key promoted to primary. The old primary has been retired.",
+    data: {
+      promoted_at: new Date().toISOString(),
+    },
+  };
+}
+
+/**
+ * Revokes the secondary webhook secret without promoting it.
+ *
+ * Use this to cancel an in-progress rotation and revert to the original
+ * primary key exclusively.
+ *
+ * Throws 400 if no rotation is in progress.
+ */
+export async function revokeSecondaryWebhookKey(merchantId: string) {
+  const merchant = await prisma.merchant.findUnique({ where: { id: merchantId } });
+
+  if (!merchant) {
+    throw apiError(404, ErrorCode.MERCHANT_NOT_FOUND, "Merchant not found");
+  }
+
+  if (!(merchant as any).webhook_secret_secondary) {
+    throw apiError(
+      400,
+      ErrorCode.WEBHOOK_ROTATION_NOT_IN_PROGRESS,
+      "No secondary webhook key exists. Nothing to revoke.",
+    );
+  }
+
+  await (prisma.merchant as any).update({
+    where: { id: merchantId },
+    data: {
+      webhook_secret_secondary: null,
+      webhook_secret_secondary_created_at: null,
+    },
+  });
+
+  return {
+    message: "Secondary webhook key revoked. The primary key is now the only active signing key.",
+    data: {
+      revoked_at: new Date().toISOString(),
+    },
+  };
+}
+
+/**
+ * Returns the current webhook key rotation status for a merchant.
+ *
+ * Does NOT expose the secret values — only whether a rotation is in progress
+ * and when it was started.
+ */
+export async function getWebhookKeyStatusService(merchantId: string) {
+  const merchant = await prisma.merchant.findUnique({ where: { id: merchantId } });
+
+  if (!merchant) {
+    throw apiError(404, ErrorCode.MERCHANT_NOT_FOUND, "Merchant not found");
+  }
+
+  const secondaryCreatedAt = (merchant as any).webhook_secret_secondary_created_at as Date | null;
+  const rotationInProgress = !!(merchant as any).webhook_secret_secondary;
+
+  return {
+    message: "Webhook key status retrieved successfully",
+    data: {
+      rotation_in_progress: rotationInProgress,
+      secondary_key_created_at: secondaryCreatedAt ?? null,
+      primary_key_hint: merchant.webhook_secret.slice(-4).padStart(8, "*"),
+    },
+  };
+}
+
+export async function getWebhookRetryConfigService() {
+  const config = getWebhookBackoffConfig();
+  return {
+    message: "Webhook retry configuration retrieved successfully",
+    data: {
+      maxRetries: config.maxRetries,
+      baseDelayMs: config.baseDelayMs,
+      maxDelayMs: config.maxDelayMs,
+    },
+  };
+}
+
+export async function getWebhookDeliveryAttemptsService(params: { merchantId: string; log_id: string }) {
+  const { merchantId, log_id } = params;
+
+  const log = await prisma.webhookLog.findFirst({
+    where: { id: log_id, merchantId },
+    include: {
+      retryAttempts: {
+        orderBy: { attempt_number: "asc" },
+      },
+    },
+  });
+
+  if (!log) {
+    throw apiError(404, ErrorCode.WEBHOOK_LOG_NOT_FOUND, "Webhook log not found");
+  }
+
+  return {
+    message: "Webhook delivery attempts retrieved successfully",
+    data: {
+      log_id: log.id,
+      event_type: log.event_type,
+      status: log.status,
+      retry_count: log.retry_count,
+      attempts: log.retryAttempts.map((a: any) => ({
+        attempt_number: a.attempt_number,
+        http_status: a.http_status,
+        response_body: a.response_body,
+        error_message: a.error_message,
+        timestamp: a.created_at,
+      })),
+    },
+  };
+}

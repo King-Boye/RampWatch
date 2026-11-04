@@ -1,0 +1,500 @@
+/**
+ * paymentSettlement.service.ts
+ *
+ * Per-payment fiat settlement pipeline.
+ *
+ * Triggers when a payment is confirmed (PAYMENT_CONFIRMED event).
+ * Handles USDC → fiat conversion, fee deduction, payout initiation,
+ * retry logic, and webhook emission.
+ *
+ * Flow:
+ *  1. Listen for PAYMENT_CONFIRMED event
+ *  2. Fetch merchant + bank account
+ *  3. Get FX rate from exchange partner
+ *  4. Calculate fees (merchant-specific %)
+ *  5. Create settlement record
+ *  6. Initiate payout via exchange partner
+ *  7. Update payment status to settled
+ *  8. Emit payment.settled webhook
+ *  9. Retry failed settlements (3x, 5-min intervals)
+ */
+
+import { PrismaClient } from "../generated/client/client";
+import { prisma } from "../config/prisma";
+import { Decimal } from "@prisma/client/runtime/library";
+import { getExchangePartner, ExchangeQuoteResult, PayoutResult } from "./exchange.service";
+import { createAndDeliverWebhook } from "./webhook.service";
+import { eventBus, AppEvents } from "./EventService";
+import { sendSettlementFailureAlert } from "./settlementAlert.service";
+import { getLogger } from "../utils/logger";
+import { trackPaymentFailed, trackPaymentStageDuration } from "../middleware/metrics.middleware";
+
+const logger = getLogger();
+
+/** Maximum retry attempts for failed settlements */
+const MAX_RETRY_ATTEMPTS = 3;
+
+/** Retry interval in milliseconds (5 minutes) */
+const RETRY_INTERVAL_MS = 5 * 60 * 1000;
+
+/** Default fee percentage if merchant config is missing */
+const DEFAULT_FEE_PERCENT = 1.5;
+
+function getPaymentFailureCode(error: unknown): string {
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string" && /^[A-Za-z0-9_]{1,64}$/.test(code)) {
+      return code;
+    }
+  }
+  return error instanceof Error ? error.name : "unknown";
+}
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface SettlementResult {
+  success: boolean;
+  settlementId?: string;
+  paymentId: string;
+  merchantId: string;
+  error?: string;
+  retryCount?: number;
+}
+
+interface SettlementDetails {
+  gross_usdc: number;
+  fee_usdc: number;
+  net_usdc: number;
+  fx_rate: number;
+  net_fiat: number;
+  currency: string;
+  payout_channel: string;
+  exchange_ref?: string;
+  transfer_ref?: string;
+  [key: string]: number | string | undefined;
+}
+
+// ─── Settlement Service ───────────────────────────────────────────────────────
+
+export class PaymentSettlementService {
+  private isProcessing = new Map<string, boolean>();
+
+  constructor() {
+    // Subscribe to PAYMENT_CONFIRMED events
+    eventBus.on(AppEvents.PAYMENT_CONFIRMED, this.handlePaymentConfirmed.bind(this));
+  }
+
+  /**
+   * Handle PAYMENT_CONFIRMED event - trigger settlement for the payment.
+   */
+  private async handlePaymentConfirmed(payment: any): Promise<void> {
+    const paymentId = payment.id;
+
+    // Prevent duplicate processing
+    if (this.isProcessing.get(paymentId)) {
+      console.log(`[PaymentSettlement] Payment ${paymentId} is already being processed, skipping.`);
+      return;
+    }
+
+    this.isProcessing.set(paymentId, true);
+
+    try {
+      console.log(`[PaymentSettlement] Processing settlement for payment ${paymentId}`);
+
+      const result = await this.settlePayment(paymentId);
+
+      if (result.success) {
+        console.log(`[PaymentSettlement] ✅ Settlement succeeded for payment ${paymentId}`);
+        // Clear any pending retry record
+        await prisma.settlementRetry.deleteMany({ where: { paymentId, status: { in: ['pending', 'processing'] } } }).catch(() => {});
+      } else {
+        console.error(`[PaymentSettlement] ❌ Settlement failed for payment ${paymentId}: ${result.error}`);
+        
+        // Schedule retry if not exhausted
+        if ((result.retryCount || 0) < MAX_RETRY_ATTEMPTS) {
+          const nextRetryCount = (result.retryCount || 0) + 1;
+          const retryDelay = RETRY_INTERVAL_MS * Math.pow(2, result.retryCount || 0);
+          const nextRetryAt = new Date(Date.now() + retryDelay);
+          logger.info('Scheduling persistent settlement retry', { paymentId, retryCount: nextRetryCount, nextRetryAt });
+          await prisma.settlementRetry.upsert({
+            where: { paymentId },
+            update: { retryCount: nextRetryCount, nextRetryAt, lastError: result.error, status: 'pending' },
+            create: { paymentId, retryCount: nextRetryCount, nextRetryAt, lastError: result.error },
+          }).catch((err) => {
+            logger.error('Failed to persist settlement retry', { paymentId, error: err });
+          });
+        } else {
+          console.error(`[PaymentSettlement] Max retries exceeded for payment ${paymentId}, alerting required`);
+          // Mark retry record as exhausted
+          await prisma.settlementRetry.updateMany({
+            where: { paymentId, status: 'pending' },
+            data: { status: 'exhausted' },
+          }).catch(() => {});
+          sendSettlementFailureAlert({
+            merchantId: result.merchantId || payment.merchantId,
+            settlementId: result.settlementId,
+            paymentId,
+            amount: payment.amount,
+            currency: payment.currency,
+            error: result.error || "Unknown settlement error",
+            retryCount: result.retryCount,
+          }).catch((err) => {
+            console.error(`[PaymentSettlement] Failed to send settlement alert for payment ${paymentId}:`, err);
+          });
+        }
+      }
+    } catch (error) {
+      console.error(`[PaymentSettlement] Unexpected error processing payment ${paymentId}:`, error);
+    } finally {
+      this.isProcessing.delete(paymentId);
+    }
+  }
+
+  /**
+   * Settle a single payment - convert USDC to fiat and initiate payout.
+   */
+  public async settlePayment(paymentId: string, retryCount = 0): Promise<SettlementResult> {
+    let paymentCurrency = "unknown";
+    try {
+      // 1. Fetch payment with merchant and bank account
+      const payment = await prisma.payment.findUnique({
+        where: { id: paymentId },
+        include: {
+          merchant: {
+            include: { bankAccount: true },
+          },
+        },
+      });
+
+      if (!payment) {
+        return {
+          success: false,
+          paymentId,
+          merchantId: "",
+          error: "Payment not found",
+          retryCount,
+        };
+      }
+      paymentCurrency = payment.currency;
+
+      const merchantId = payment.merchantId;
+
+      // 2. Check if already settled
+      if (payment.settled) {
+        return {
+          success: true,
+          paymentId,
+          merchantId,
+          settlementId: payment.settlementId || undefined,
+          retryCount,
+        };
+      }
+
+      // 3. Guard: bank account must exist
+      if (!payment.merchant.bankAccount) {
+        return {
+          success: false,
+          paymentId,
+          merchantId,
+          error: "No bank account on file",
+          retryCount,
+        };
+      }
+
+      // 4. Get merchant-specific fee percentage
+      const feePercent = (payment.merchant as any).settlement_fee_percent
+        ? Number((payment.merchant as any).settlement_fee_percent)
+        : DEFAULT_FEE_PERCENT;
+
+      // 5. Fetch FX rate from exchange partner
+      const partner = getExchangePartner();
+      const usdcAmount = Number(payment.amount);
+      const targetCurrency = payment.merchant.settlement_currency;
+
+      const quote: ExchangeQuoteResult = await partner.getQuote(usdcAmount, targetCurrency);
+
+      // 6. Calculate settlement details
+      const fiatGross = quote.fiat_gross;
+      const feeAmount = (fiatGross * feePercent) / 100;
+      const netFiat = fiatGross - feeAmount;
+
+      const settlementDetails: SettlementDetails = {
+        gross_usdc: usdcAmount,
+        fee_usdc: (usdcAmount * feePercent) / 100,
+        net_usdc: usdcAmount - (usdcAmount * feePercent) / 100,
+        fx_rate: quote.exchange_rate,
+        net_fiat: netFiat,
+        currency: targetCurrency,
+        payout_channel: process.env.EXCHANGE_PARTNER || "mock",
+        exchange_ref: quote.quote_ref,
+      };
+
+      // 7. Create settlement record
+      const settlement = await prisma.settlement.create({
+        data: {
+          merchantId,
+          usdc_amount: new Decimal(settlementDetails.gross_usdc),
+          amount: new Decimal(fiatGross),
+          currency: targetCurrency,
+          fees: new Decimal(feeAmount),
+          net_amount: new Decimal(netFiat),
+          exchange_partner: settlementDetails.payout_channel,
+          exchange_rate: new Decimal(settlementDetails.fx_rate),
+          exchange_ref: settlementDetails.exchange_ref,
+          payment_ids: [paymentId],
+          status: "processing",
+          scheduled_date: new Date(),
+          breakdown: settlementDetails,
+        },
+      });
+
+      // 8. Initiate payout via exchange partner
+      const payout: PayoutResult = await partner.convertAndPayout(
+        usdcAmount,
+        targetCurrency,
+        {
+          account_name: payment.merchant.bankAccount.account_name,
+          account_number: payment.merchant.bankAccount.account_number,
+          bank_name: payment.merchant.bankAccount.bank_name,
+          bank_code: payment.merchant.bankAccount.bank_code || undefined,
+          currency: payment.merchant.bankAccount.currency,
+          country: payment.merchant.bankAccount.country,
+        },
+        `PAYSETTLE_${paymentId.slice(-8).toUpperCase()}`,
+      );
+
+      // 9. Update settlement with payout details
+      await prisma.settlement.update({
+        where: { id: settlement.id },
+        data: {
+          bank_transfer_id: payout.transfer_ref,
+          exchange_ref: payout.exchange_ref,
+          payout_partner_payload: payout.raw_partner_payload || null,
+          status: "completed",
+          processed_date: new Date(),
+        },
+      });
+
+      // 10. Update payment to settled
+      const settledAt = new Date();
+      await prisma.payment.update({
+        where: { id: paymentId },
+        data: {
+          settled: true,
+          settled_at: settledAt,
+          settlement_ref: payout.transfer_ref,
+          settlement_fiat_amount: new Decimal(netFiat),
+          settlement_fiat_currency: targetCurrency,
+          settlementId: settlement.id,
+        },
+      });
+
+      if (!payment.settled && payment.confirmed_at instanceof Date) {
+        trackPaymentStageDuration(
+          "off_ramp_settlement",
+          (settledAt.getTime() - payment.confirmed_at.getTime()) / 1000,
+        );
+      }
+
+      // 11. Emit payment.settled webhook
+      if (payment.merchant.webhook_url) {
+        const webhookPayload = {
+          event: "payment.settled",
+          payment_id: paymentId,
+          merchant_id: merchantId,
+          settlement_id: settlement.id,
+          settlement: settlementDetails,
+          settled_at: new Date().toISOString(),
+        };
+
+        // Stable id: `settlePayment` is re-driven by the settlement retry cron
+        // and on boot, so without a deterministic id every retry re-sent
+        // payment.settled to the merchant (#1205).
+        createAndDeliverWebhook(
+          merchantId,
+          "payment_settled" as any,
+          webhookPayload,
+          paymentId,
+          undefined,
+          `${paymentId}:settled`,
+        ).catch((err) => {
+          console.error(`[PaymentSettlement] Webhook delivery failed for payment ${paymentId}:`, err);
+        });
+      }
+
+      return {
+        success: true,
+        paymentId,
+        merchantId,
+        settlementId: settlement.id,
+        retryCount,
+      };
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      trackPaymentFailed(getPaymentFailureCode(error), paymentCurrency);
+
+      // Record failed settlement
+      try {
+        const payment = await prisma.payment.findUnique({
+          where: { id: paymentId },
+          include: { merchant: true },
+        });
+
+        if (payment) {
+          await prisma.settlement.create({
+            data: {
+              merchantId: payment.merchantId,
+              usdc_amount: new Decimal(Number(payment.amount)),
+              amount: new Decimal(0),
+              currency: payment.merchant.settlement_currency,
+              fees: new Decimal(0),
+              net_amount: new Decimal(0),
+              payment_ids: [paymentId],
+              status: "failed",
+              scheduled_date: new Date(),
+              failure_reason: errMsg,
+            },
+          });
+
+          // Update payment to settlement_failed
+          await prisma.payment.update({
+            where: { id: paymentId },
+            data: {
+              settled: false,
+              settlement_fiat_amount: null,
+              settlement_fiat_currency: null,
+            },
+          });
+        }
+      } catch (recordErr) {
+        console.error(`[PaymentSettlement] Could not record failure for payment ${paymentId}:`, recordErr);
+      }
+
+      return {
+        success: false,
+        paymentId,
+        merchantId: "",
+        error: errMsg,
+        retryCount,
+      };
+    }
+  }
+
+  /**
+   * Pick up pending settlement retries whose nextRetryAt has passed.
+   * Called by cron job and on startup.
+   */
+  public async processPendingSettlementRetries(): Promise<{ processed: number; succeeded: number; failed: number }> {
+    const now = new Date();
+    const pendingRetries = await prisma.settlementRetry.findMany({
+      where: { status: 'pending', nextRetryAt: { lte: now } },
+      orderBy: { nextRetryAt: 'asc' },
+    });
+
+    if (pendingRetries.length === 0) {
+      return { processed: 0, succeeded: 0, failed: 0 };
+    }
+
+    logger.info('Processing pending settlement retries', { count: pendingRetries.length });
+
+    let succeeded = 0;
+    let failed = 0;
+
+    for (const retry of pendingRetries) {
+      // Mark as processing to prevent concurrent pickup
+      await prisma.settlementRetry.update({
+        where: { id: retry.id },
+        data: { status: 'processing' },
+      }).catch(() => {});
+
+      try {
+        const result = await this.settlePayment(retry.paymentId, retry.retryCount);
+
+        if (result.success) {
+          succeeded++;
+          await prisma.settlementRetry.delete({ where: { id: retry.id } }).catch(() => {});
+          logger.info('Settlement retry succeeded', { paymentId: retry.paymentId, retryCount: retry.retryCount });
+        } else {
+          // Retry failed again — reschedule if under limit
+          if (retry.retryCount < MAX_RETRY_ATTEMPTS) {
+            const retryDelay = RETRY_INTERVAL_MS * Math.pow(2, retry.retryCount);
+            await prisma.settlementRetry.update({
+              where: { id: retry.id },
+              data: {
+                status: 'pending',
+                retryCount: retry.retryCount + 1,
+                nextRetryAt: new Date(Date.now() + retryDelay),
+                lastError: result.error,
+              },
+            });
+            logger.info('Settlement retry rescheduled', { paymentId: retry.paymentId, nextRetryCount: retry.retryCount + 1 });
+          } else {
+            failed++;
+            await prisma.settlementRetry.update({
+              where: { id: retry.id },
+              data: { status: 'exhausted', lastError: result.error },
+            });
+            logger.warn('Settlement retry exhausted', { paymentId: retry.paymentId });
+          }
+        }
+      } catch (err) {
+        failed++;
+        await prisma.settlementRetry.update({
+          where: { id: retry.id },
+          data: { status: 'pending', lastError: err instanceof Error ? err.message : String(err) },
+        }).catch(() => {});
+        logger.error('Settlement retry error', { paymentId: retry.paymentId, error: err });
+      }
+    }
+
+    return { processed: pendingRetries.length, succeeded, failed };
+  }
+
+  /**
+   * Get settlement details for a specific payment.
+   */
+  public async getPaymentSettlement(paymentId: string, merchantId: string) {
+    const payment = await prisma.payment.findUnique({
+      where: { id: paymentId, merchantId },
+      include: {
+        settlement: true,
+      },
+    });
+
+    if (!payment) {
+      throw new Error("Payment not found");
+    }
+
+    if (!payment.settlement) {
+      return {
+        payment_id: paymentId,
+        settled: payment.settled,
+        settlement: null,
+      };
+    }
+
+    return {
+      payment_id: paymentId,
+      settled: payment.settled,
+      settlement: {
+        id: payment.settlement.id,
+        gross_usdc: Number(payment.settlement.usdc_amount),
+        fee_usdc: Number(payment.settlement.fees),
+        net_usdc: Number(payment.settlement.usdc_amount) - Number(payment.settlement.fees),
+        fx_rate: Number(payment.settlement.exchange_rate),
+        net_fiat: Number(payment.settlement.net_amount),
+        currency: payment.settlement.currency,
+        payout_channel: payment.settlement.exchange_partner,
+        exchange_ref: payment.settlement.exchange_ref,
+        transfer_ref: payment.settlement.bank_transfer_id,
+        status: payment.settlement.status,
+        created_at: payment.settlement.created_at,
+        processed_date: payment.settlement.processed_date,
+        breakdown: payment.settlement.breakdown,
+      },
+    };
+  }
+}
+
+// Export singleton instance
+export const paymentSettlementService = new PaymentSettlementService();

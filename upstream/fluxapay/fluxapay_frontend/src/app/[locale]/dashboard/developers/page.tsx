@@ -1,0 +1,1737 @@
+"use client";
+
+import React, { useState, useEffect, useRef } from "react";
+import {
+  Copy,
+  Check,
+  Code,
+  FileJson,
+  Eye,
+  EyeOff,
+  ToggleLeft,
+  ToggleRight,
+  Terminal,
+  Braces,
+  Shield,
+  RefreshCw,
+  AlertTriangle,
+  X,
+} from "lucide-react";
+import { api } from "@/lib/api";
+import { DOCS_URLS } from "@/lib/docs";
+import { CopyButton } from "@/components/CopyButton";
+import { parseCidrAllowlist } from "@/utils/ipCidr";
+import {
+  API_KEY_PERMISSION_OPTIONS,
+  FULL_ACCESS_API_KEY_PERMISSIONS,
+  READ_ONLY_API_KEY_PERMISSIONS,
+  type ApiKeyPermission,
+} from "@/utils/apiKeyPermissions";
+
+type Lang = "curl" | "js" | "python";
+type Endpoint = "create" | "fetch" | "list" | "webhook";
+
+const TABS = [
+  { id: "curl" as Lang, label: "cURL", Icon: Terminal },
+  { id: "js" as Lang, label: "JavaScript", Icon: Braces },
+  { id: "python" as Lang, label: "Python", Icon: Code },
+];
+
+const ENDPOINTS: { id: Endpoint; label: string }[] = [
+  { id: "create", label: "Create Payment" },
+  { id: "fetch", label: "Fetch Payment" },
+  { id: "list", label: "List Payments" },
+  { id: "webhook", label: "Webhook Verification" },
+];
+
+type ApiKeyRecord = {
+  id: string;
+  name: string;
+  last_four: string;
+  prefix: "sk" | "fpk";
+  environment: "live" | "test";
+  status: "active" | "revoked";
+  created_at: string;
+  expires_at: string | null;
+  permissions: ApiKeyPermission[];
+  ip_allowlist: string[];
+};
+
+type ApiKeyEntry = ApiKeyRecord & { masked: string };
+
+function mapApiKeyRecords(records: ApiKeyRecord[]): ApiKeyEntry[] {
+  return records.map((record) => ({
+    ...record,
+    permissions: record.permissions ?? READ_ONLY_API_KEY_PERMISSIONS,
+    ip_allowlist: record.ip_allowlist ?? [],
+    masked: `${record.prefix}_${record.environment}_****${record.last_four}`,
+  }));
+}
+
+function formatRemainingTime(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${hours}h ${minutes}m ${seconds}s`;
+}
+
+// ─── Code block with copy button ────────────────────────────────────────────
+function CodeBlock({
+  code,
+  id,
+  copied,
+  onCopy,
+}: {
+  code: string;
+  id: string;
+  copied: string | null;
+  onCopy: (text: string, id: string) => void;
+}) {
+  return (
+    <div style={{ position: "relative" }}>
+      <div
+        style={{
+          backgroundColor: "#1a1a3e",
+          borderColor: "#3d3d6b",
+          borderWidth: "1px",
+          borderRadius: "0.5rem",
+          padding: "1rem",
+          overflowX: "auto",
+        }}
+      >
+        <pre
+          style={{
+            color: "#e0e0ff",
+            fontFamily: "monospace",
+            fontSize: "0.8125rem",
+            lineHeight: "1.6",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            margin: 0,
+          }}
+        >
+          {code}
+        </pre>
+      </div>
+      <button
+        onClick={() => onCopy(code, id)}
+        aria-label="Copy code"
+        style={{
+          marginTop: "0.5rem",
+          padding: "0.375rem 0.875rem",
+          borderRadius: "0.375rem",
+          backgroundColor: "#fbbf24",
+          color: "#1a1a3e",
+          border: "none",
+          cursor: "pointer",
+          fontSize: "0.8125rem",
+          fontWeight: "600",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "0.375rem",
+          transition: "background-color 0.15s",
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#f59e0b";
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#fbbf24";
+        }}
+      >
+        {copied === id ? (
+          <><Check size={14} /> Copied!</>
+        ) : (
+          <><Copy size={14} /> Copy</>
+        )}
+      </button>
+    </div>
+  );
+}
+
+// ─── Code generators ─────────────────────────────────────────────────────────
+function getCreatePayment(lang: Lang, baseUrl: string, apiKey: string): string {
+  const body = {
+    amount: 100,
+    currency: "USDC",
+    customer_email: "customer@example.com",
+    success_url: "https://yoursite.com/success",
+    cancel_url: "https://yoursite.com/cancel",
+    metadata: { order_id: "order_123", cart_id: "987" },
+  };
+
+  if (lang === "curl") {
+    return `curl -X POST ${baseUrl}/api/v1/payments \\
+  -H "Authorization: Bearer ${apiKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '${JSON.stringify(body, null, 2)}'`;
+  }
+  if (lang === "js") {
+    return `const response = await fetch('${baseUrl}/api/v1/payments', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer ${apiKey}',
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify(${JSON.stringify(body, null, 2)}),
+});
+
+const payment = await response.json();
+console.log(payment.id); // pay_abc123...`;
+  }
+  return `import requests
+
+response = requests.post(
+    "${baseUrl}/api/v1/payments",
+    headers={
+        "Authorization": "Bearer ${apiKey}",
+        "Content-Type": "application/json",
+    },
+    json=${JSON.stringify(body, null, 4).replace(/"/g, '"')},
+)
+
+payment = response.json()
+print(payment["id"])  # pay_abc123...`;
+}
+
+function getCreatePaymentResponse(): string {
+  return `{
+  "id": "pay_abc123def456",
+  "amount": 100,
+  "currency": "USDC",
+  "status": "pending",
+  "checkout_url": "https://pay.fluxapay.com/pay_abc123def456",
+  "stellar_address": "GCKFBEIYV2U22IO2BJ4KVJOIP7XPWQGQFKKWXR6DUIISGASGESG6DKFS",
+  "customer_email": "customer@example.com",
+  "metadata": {
+    "order_id": "order_123",
+    "cart_id": "987"
+  },
+  "expires_at": "2026-03-27T15:00:00.000Z",
+  "created_at": "2026-03-27T14:45:00.000Z"
+}`;
+}
+
+function getFetchPayment(lang: Lang, baseUrl: string, apiKey: string): string {
+  const url = `${baseUrl}/api/v1/payments/pay_abc123def456`;
+  if (lang === "curl") {
+    return `curl -X GET ${url} \\
+  -H "Authorization: Bearer ${apiKey}"`;
+  }
+  if (lang === "js") {
+    return `const response = await fetch('${url}', {
+  headers: {
+    'Authorization': 'Bearer ${apiKey}',
+  },
+});
+
+const payment = await response.json();
+console.log(payment.status); // "paid"`;
+  }
+  return `import requests
+
+response = requests.get(
+    "${url}",
+    headers={"Authorization": "Bearer ${apiKey}"},
+)
+
+payment = response.json()
+print(payment["status"])  # "paid"`;
+}
+
+function getFetchPaymentResponse(): string {
+  return `{
+  "id": "pay_abc123def456",
+  "amount": 100,
+  "currency": "USDC",
+  "status": "paid",
+  "checkout_url": "https://pay.fluxapay.com/pay_abc123def456",
+  "stellar_address": "GCKFBEIYV2U22IO2BJ4KVJOIP7XPWQGQFKKWXR6DUIISGASGESG6DKFS",
+  "transaction_hash": "a1b2c3d4e5f6...",
+  "customer_email": "customer@example.com",
+  "metadata": { "order_id": "order_123" },
+  "confirmed_at": "2026-03-27T14:47:12.000Z",
+  "created_at": "2026-03-27T14:45:00.000Z"
+}`;
+}
+
+function getListPayments(lang: Lang, baseUrl: string, apiKey: string): string {
+  const url = `${baseUrl}/api/v1/payments?page=1&limit=10&status=paid&currency=USDC`;
+  if (lang === "curl") {
+    return `curl -X GET "${url}" \\
+  -H "Authorization: Bearer ${apiKey}"`;
+  }
+  if (lang === "js") {
+    return `const params = new URLSearchParams({
+  page: '1',
+  limit: '10',
+  status: 'paid',
+  currency: 'USDC',
+});
+
+const response = await fetch(
+  \`${baseUrl}/api/v1/payments?\${params}\`,
+  {
+    headers: { 'Authorization': 'Bearer ${apiKey}' },
+  }
+);
+
+const { data } = await response.json();
+console.log(data.payments);      // array of payments
+console.log(data.pagination);    // { page, limit, total, total_pages }`;
+  }
+  return `import requests
+
+response = requests.get(
+    "${baseUrl}/api/v1/payments",
+    headers={"Authorization": "Bearer ${apiKey}"},
+    params={"page": 1, "limit": 10, "status": "paid", "currency": "USDC"},
+)
+
+result = response.json()
+print(result["data"]["payments"])    # list of payments
+print(result["data"]["pagination"])  # page info`;
+}
+
+function getListPaymentsResponse(): string {
+  return `{
+  "data": {
+    "payments": [
+      {
+        "id": "pay_abc123def456",
+        "amount": 100,
+        "currency": "USDC",
+        "status": "paid",
+        "customer_email": "customer@example.com",
+        "created_at": "2026-03-27T14:45:00.000Z"
+      },
+      {
+        "id": "pay_xyz789ghi012",
+        "amount": 250,
+        "currency": "USDC",
+        "status": "paid",
+        "customer_email": "buyer2@example.com",
+        "created_at": "2026-03-26T10:20:00.000Z"
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 10,
+      "total": 42,
+      "total_pages": 5
+    }
+  }
+}`;
+}
+
+function getWebhookVerification(lang: Lang): string {
+  if (lang === "curl") {
+    return `# FluxaPay signs every webhook with HMAC-SHA256.
+# Headers sent with each delivery:
+#   X-FluxaPay-Signature  — hex-encoded HMAC-SHA256
+#   X-FluxaPay-Timestamp  — ISO 8601 timestamp
+#
+# Signing string: "\${timestamp}.\${raw_json_body}"
+#
+# Verify with openssl (for testing):
+TIMESTAMP="2026-03-27T14:47:00.000Z"
+PAYLOAD='{"event":"payment_confirmed","data":{"payment_id":"pay_abc123def456","amount":100}}'
+SECRET="whsec_your_webhook_secret"
+
+EXPECTED=$(echo -n "\${TIMESTAMP}.\${PAYLOAD}" \\
+  | openssl dgst -sha256 -hmac "\${SECRET}" -hex | cut -d' ' -f2)
+
+echo "Expected signature: \${EXPECTED}"`;
+  }
+  if (lang === "js") {
+    return `import crypto from 'crypto';
+import express from 'express';
+
+const app = express();
+
+// IMPORTANT: use raw body — do NOT parse JSON before verifying
+app.post(
+  '/webhooks/fluxapay',
+  express.raw({ type: 'application/json' }),
+  (req, res) => {
+    const signature = req.headers['x-fluxapay-signature'];
+    const timestamp  = req.headers['x-fluxapay-timestamp'];
+    const secret     = process.env.FLUXAPAY_WEBHOOK_SECRET;
+
+    if (!signature || !timestamp || !secret) {
+      return res.status(401).json({ error: 'Missing headers' });
+    }
+
+    // Reject webhooks older than 5 minutes (replay protection)
+    const ageSec = (Date.now() - new Date(timestamp).getTime()) / 1000;
+    if (ageSec > 300) return res.status(401).json({ error: 'Stale webhook' });
+
+    // Recompute HMAC-SHA256 over "\${timestamp}.\${rawBody}"
+    const signingString = \`\${timestamp}.\${req.body.toString()}\`;
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(signingString)
+      .digest('hex');
+
+    // Constant-time comparison prevents timing attacks
+    const valid = crypto.timingSafeEqual(
+      Buffer.from(signature as string),
+      Buffer.from(expected),
+    );
+    if (!valid) return res.status(401).json({ error: 'Invalid signature' });
+
+    const event = JSON.parse(req.body.toString());
+    console.log('Verified event:', event.event, event.data.payment_id);
+
+    res.json({ received: true });
+  }
+);`;
+  }
+  return `import hashlib
+import hmac
+import json
+from datetime import datetime, timezone
+from flask import Flask, request, abort
+
+app = Flask(__name__)
+
+WEBHOOK_SECRET = "whsec_your_webhook_secret"
+REPLAY_WINDOW_SECONDS = 300
+
+@app.post("/webhooks/fluxapay")
+def handle_webhook():
+    signature = request.headers.get("X-FluxaPay-Signature", "")
+    timestamp  = request.headers.get("X-FluxaPay-Timestamp", "")
+    raw_body   = request.get_data()  # raw bytes — do NOT use request.json
+
+    # Replay protection
+    webhook_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    age = (datetime.now(timezone.utc) - webhook_time).total_seconds()
+    if age > REPLAY_WINDOW_SECONDS:
+        abort(401, "Stale webhook")
+
+    # Recompute HMAC-SHA256 over "\${timestamp}.\${raw_body}"
+    signing_string = f"{timestamp}.{raw_body.decode()}"
+    expected = hmac.new(
+        WEBHOOK_SECRET.encode(),
+        signing_string.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+    # Constant-time comparison
+    if not hmac.compare_digest(signature, expected):
+        abort(401, "Invalid signature")
+
+    event = json.loads(raw_body)
+    print(f"Verified event: {event['event']} — {event['data']['payment_id']}")
+
+    return {"received": True}`;
+}
+
+function getWebhookPayload(): string {
+  return `// Webhook payload delivered to your endpoint
+{
+  "event": "payment_confirmed",
+  "data": {
+    "payment_id": "pay_abc123def456",
+    "amount": 100,
+    "currency": "USDC",
+    "status": "paid",
+    "customer_email": "customer@example.com",
+    "transaction_hash": "a1b2c3d4e5f6...",
+    "confirmed_at": "2026-03-27T14:47:12.000Z"
+  }
+}
+
+// Other event types:
+// "payment_failed"   — payment expired or rejected
+// "payment_pending"  — awaiting on-chain confirmation
+// "refund_completed" — refund processed successfully
+// "refund_failed"    — refund could not be processed`;
+}
+
+// ─── Create API Key Modal ────────────────────────────────────────────────────
+function CreateApiKeyModal({
+  isOpen,
+  onClose,
+  onCreateSuccess,
+  existingNames,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onCreateSuccess: (key: {
+    id: string;
+    name: string;
+    masked: string;
+    secret: string;
+    environment: "live" | "test";
+    permissions: ApiKeyPermission[];
+    ip_allowlist: string[];
+  }) => void;
+  existingNames: Set<string>;
+}) {
+  const [name, setName] = useState("");
+  const [environment, setEnvironment] = useState<"live" | "test">("test");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [createdSecret, setCreatedSecret] = useState<string | null>(null);
+  const [accessPreset, setAccessPreset] = useState<"read-only" | "full-access" | "custom">("read-only");
+  const [permissions, setPermissions] = useState<ApiKeyPermission[]>(READ_ONLY_API_KEY_PERMISSIONS);
+  const [ipAllowlistText, setIpAllowlistText] = useState("");
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (isOpen) {
+      setName("");
+      setEnvironment("test");
+      setError(null);
+      setCreatedSecret(null);
+      setAccessPreset("read-only");
+      setPermissions(READ_ONLY_API_KEY_PERMISSIONS);
+      setIpAllowlistText("");
+    }
+  }, [isOpen]);
+
+  let ipAllowlist: string[] | null;
+  try {
+    ipAllowlist = parseCidrAllowlist(ipAllowlistText);
+  } catch {
+    ipAllowlist = null;
+  }
+  const cidrError = ipAllowlist === null
+    ? "Enter valid IPv4 or IPv6 CIDR blocks, separated by commas or new lines."
+    : null;
+
+  const applyPreset = (preset: "read-only" | "full-access") => {
+    setAccessPreset(preset);
+    setPermissions(preset === "read-only" ? READ_ONLY_API_KEY_PERMISSIONS : FULL_ACCESS_API_KEY_PERMISSIONS);
+  };
+
+  useEffect(() => {
+    if (!isOpen || !dialogRef.current) return;
+
+    const dialog = dialogRef.current;
+    const opener = document.activeElement as HTMLElement | null;
+    const focusable = () =>
+      Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.offsetParent !== null || element.getClientRects().length > 0);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const elements = focusable();
+      if (elements.length === 0) {
+        event.preventDefault();
+        return;
+      }
+
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    dialog.addEventListener("keydown", handleKeyDown);
+    const focusId = requestAnimationFrame(() => focusable()[0]?.focus());
+
+    return () => {
+      cancelAnimationFrame(focusId);
+      dialog.removeEventListener("keydown", handleKeyDown);
+      if (opener?.isConnected) opener.focus();
+    };
+  }, [isOpen]);
+
+  const validateName = (value: string): string | null => {
+    if (!value.trim()) return "Key name is required";
+    if (value.length > 50) return "Key name must be 50 characters or less";
+    if (existingNames.has(value.toLowerCase())) return "Key name already exists";
+    return null;
+  };
+
+  const handleCreateKey = async () => {
+    const nameError = validateName(name);
+    if (nameError) {
+      setError(nameError);
+      return;
+    }
+    if (permissions.length === 0) {
+      setError("Select at least one permission.");
+      return;
+    }
+    if (cidrError) {
+      setError(cidrError);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await api.keys.createKey({
+        name: name.trim(),
+        environment,
+        permissions,
+        ip_allowlist: ipAllowlist ?? [],
+      });
+      if ('error' in result) {
+        setError(result.error.message);
+        return;
+      }
+      const res = result.data as Record<string, unknown>;
+      const secret = (res.key as string) || (res.secret as string) || (res.apiKey as string);
+      if (!secret) throw new Error("The API did not return the new key secret.");
+      setCreatedSecret(secret);
+      onCreateSuccess({
+        id: res.id as string,
+        name: name.trim(),
+        masked: `fpk_${environment}_****${(res.last_four as string) || secret.slice(-4)}`,
+        secret,
+        environment,
+        permissions,
+        ip_allowlist: ipAllowlist ?? [],
+      });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to create API key");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: "rgba(0, 0, 0, 0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-api-key-modal-title"
+        style={{
+          backgroundColor: "#ffffff",
+          borderRadius: "0.75rem",
+          padding: "2rem",
+          maxWidth: "500px",
+          width: "90%",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          boxShadow: "0 20px 25px rgba(0, 0, 0, 0.15)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+          <h2 id="create-api-key-modal-title" style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#1a1a3e", margin: 0 }}>
+            Create API Key
+          </h2>
+          <button
+            onClick={onClose}
+            aria-label="Close Create API Key dialog"
+            style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280" }}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {createdSecret ? (
+          <div>
+            <div style={{ backgroundColor: "#f0fdf4", border: "1px solid #86efac", borderRadius: "0.5rem", padding: "1rem", marginBottom: "1rem" }}>
+              <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#166534", margin: 0, marginBottom: "0.5rem" }}>
+                ✓ API key created successfully!
+              </p>
+              <p style={{ fontSize: "0.75rem", color: "#16a34a", margin: 0 }}>
+                Copy your secret key now — it won&apos;t be shown again.
+              </p>
+            </div>
+
+            <label style={{ display: "block", fontSize: "0.875rem", fontWeight: 500, color: "#1a1a3e", marginBottom: "0.5rem" }}>
+              Your Secret Key
+            </label>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "1rem" }}>
+              <input
+                type="text"
+                value={createdSecret}
+                readOnly
+                style={{
+                  flex: 1,
+                  backgroundColor: "#dcfce7",
+                  border: "1px solid #86efac",
+                  borderRadius: "0.375rem",
+                  padding: "0.625rem 0.75rem",
+                  color: "#166534",
+                  fontFamily: "monospace",
+                  fontSize: "0.8125rem",
+                  outline: "none",
+                }}
+              />
+              <CopyButton
+                value={createdSecret}
+                label="API key"
+                ariaLabel="Copy new API key"
+                style={{
+                  padding: "0.625rem",
+                  backgroundColor: "#16a34a",
+                  border: "none",
+                  borderRadius: "0.375rem",
+                  cursor: "pointer",
+                  color: "#fff",
+                }}
+              />
+            </div>
+
+            <button
+              onClick={onClose}
+              style={{
+                width: "100%",
+                padding: "0.625rem",
+                backgroundColor: "#16a34a",
+                color: "#fff",
+                border: "none",
+                borderRadius: "0.375rem",
+                cursor: "pointer",
+                fontWeight: 600,
+                fontSize: "0.875rem",
+              }}
+            >
+              Done
+            </button>
+          </div>
+        ) : (
+          <div>
+            <label htmlFor="developer-api-key-name" style={{ display: "block", fontSize: "0.875rem", fontWeight: 500, color: "#1a1a3e", marginBottom: "0.5rem" }}>
+              Key Name
+            </label>
+            <input
+              id="developer-api-key-name"
+              type="text"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setError(null);
+              }}
+              placeholder="e.g., Production, Integration Test"
+              style={{
+                width: "100%",
+                padding: "0.75rem",
+                border: "1px solid #d1d5db",
+                borderRadius: "0.375rem",
+                fontSize: "0.875rem",
+                marginBottom: "0.5rem",
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+              onBlur={() => {
+                const nameError = validateName(name);
+                if (nameError) setError(nameError);
+              }}
+            />
+            <label htmlFor="api-key-environment" style={{ display: "block", fontSize: "0.875rem", fontWeight: 500, color: "#1a1a3e", margin: "0.75rem 0 0.5rem" }}>
+              Environment
+            </label>
+            <select
+              id="api-key-environment"
+              value={environment}
+              onChange={(event) => setEnvironment(event.target.value as "live" | "test")}
+              style={{ width: "100%", padding: "0.75rem", border: "1px solid #d1d5db", borderRadius: "0.375rem", marginBottom: "0.5rem" }}
+            >
+              <option value="test">Test</option>
+              <option value="live">Live</option>
+            </select>
+            <fieldset style={{ border: 0, padding: 0, margin: "1rem 0" }}>
+              <legend style={{ fontSize: "0.875rem", fontWeight: 600, marginBottom: "0.5rem" }}>Access level</legend>
+              <div role="radiogroup" aria-label="Access level" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "0.5rem" }}>
+                {(["read-only", "full-access", "custom"] as const).map((preset) => (
+                  <label key={preset} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.625rem", border: `1px solid ${accessPreset === preset ? "#f59e0b" : "#d1d5db"}`, borderRadius: "0.375rem", cursor: "pointer", fontSize: "0.8125rem" }}>
+                    <input
+                      type="radio"
+                      name="developer-api-key-access"
+                      checked={accessPreset === preset}
+                      onChange={() => {
+                        if (preset === "custom") setAccessPreset("custom");
+                        else applyPreset(preset);
+                      }}
+                    />
+                    {preset === "read-only" ? "Read-only" : preset === "full-access" ? "Full access" : "Custom"}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <fieldset style={{ border: 0, padding: 0, margin: "1rem 0" }}>
+              <legend style={{ fontSize: "0.875rem", fontWeight: 600, marginBottom: "0.5rem" }}>Permissions</legend>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "0.375rem" }}>
+                {API_KEY_PERMISSION_OPTIONS.map((option) => (
+                  <label key={option.value} style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem", border: "1px solid #e5e7eb", borderRadius: "0.375rem", fontSize: "0.75rem" }}>
+                    <input
+                      type="checkbox"
+                      checked={permissions.includes(option.value)}
+                      onChange={(event) => {
+                        const checked = event.currentTarget.checked;
+                        setAccessPreset("custom");
+                        setPermissions((current) => checked
+                          ? [...current, option.value]
+                          : current.filter((permission) => permission !== option.value));
+                      }}
+                    />
+                    {option.label}
+                    <span className="sr-only">({option.value})</span>
+                  </label>
+                ))}
+              </div>
+              {permissions.length === 0 && <p role="alert" style={{ color: "#b91c1c", fontSize: "0.75rem" }}>Select at least one permission.</p>}
+            </fieldset>
+
+            <label htmlFor="developer-api-key-ip-allowlist" style={{ display: "block", fontSize: "0.875rem", fontWeight: 600, marginBottom: "0.375rem" }}>
+              IP allowlist (optional)
+            </label>
+            <textarea
+              id="developer-api-key-ip-allowlist"
+              value={ipAllowlistText}
+              onChange={(event) => setIpAllowlistText(event.target.value)}
+              placeholder={"192.0.2.0/24\n2001:db8::/32"}
+              aria-invalid={Boolean(cidrError)}
+              aria-describedby="developer-api-key-ip-help developer-api-key-ip-error"
+              style={{ width: "100%", minHeight: "4.5rem", padding: "0.625rem", border: `1px solid ${cidrError ? "#dc2626" : "#d1d5db"}`, borderRadius: "0.375rem", fontFamily: "monospace", fontSize: "0.8125rem", boxSizing: "border-box" }}
+            />
+            <p id="developer-api-key-ip-help" style={{ fontSize: "0.7rem", color: "#6b7280", margin: "0.25rem 0 0.75rem" }}>Separate IPv4 or IPv6 CIDR blocks with commas or new lines. Blank allows any IP.</p>
+            {cidrError && <p id="developer-api-key-ip-error" role="alert" style={{ fontSize: "0.75rem", color: "#dc2626" }}>{cidrError}</p>}
+
+            {error && (
+              <p role="alert" style={{ fontSize: "0.75rem", color: "#dc2626", marginBottom: "1rem", margin: 0 }}>
+                {error}
+              </p>
+            )}
+
+            <div role="alert" style={{ backgroundColor: "#fef3c7", border: "1px solid #fcd34d", borderRadius: "0.375rem", padding: "0.75rem", marginBottom: "1.5rem" }}>
+              <p style={{ fontSize: "0.75rem", color: "#92400e", margin: 0, lineHeight: 1.4 }}>
+                You will only see the full secret key once. Copy and store it securely before closing.
+              </p>
+            </div>
+
+            <div style={{ display: "flex", gap: "0.75rem" }}>
+              <button
+                onClick={() => {
+                  handleCreateKey();
+                }}
+                disabled={loading || !name.trim() || permissions.length === 0 || Boolean(cidrError)}
+                style={{
+                  flex: 1,
+                  padding: "0.75rem",
+                  backgroundColor: loading || !name.trim() || permissions.length === 0 || Boolean(cidrError) ? "#d1d5db" : "#fbbf24",
+                  color: "#1a1a3e",
+                  border: "none",
+                  borderRadius: "0.375rem",
+                  cursor: loading || !name.trim() || permissions.length === 0 || Boolean(cidrError) ? "not-allowed" : "pointer",
+                  fontWeight: 600,
+                  fontSize: "0.875rem",
+                  opacity: loading ? 0.7 : 1,
+                }}
+              >
+                {loading ? "Creating..." : "Create Key"}
+              </button>
+              <button
+                onClick={onClose}
+                disabled={loading}
+                style={{
+                  flex: 1,
+                  padding: "0.75rem",
+                  backgroundColor: "#f3f4f6",
+                  color: "#1a1a3e",
+                  border: "1px solid #d1d5db",
+                  borderRadius: "0.375rem",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                  fontSize: "0.875rem",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+export default function DevelopersPage() {
+  const [copied, setCopied] = useState<string | null>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [testMode, setTestMode] = useState(true);
+  const [activeTab, setActiveTab] = useState<Lang>("curl");
+  const [activeEndpoint, setActiveEndpoint] = useState<Endpoint>("create");
+  const [apiKey, setApiKey] = useState("Loading...");
+  /**
+   * The API secret is only ever returned in plaintext at creation/rotation time —
+   * every later read returns a masked value like `sk_live_****1234`. Copying a
+   * masked value is useless, so the last plaintext we were handed is kept so the
+   * copy button always puts a working key on the clipboard (#1206).
+   */
+  const [apiKeySecret, setApiKeySecret] = useState<string | null>(null);
+  const [showCreateKeyModal, setShowCreateKeyModal] = useState(false);
+  const [apiKeys, setApiKeys] = useState<ApiKeyEntry[]>([]);
+  /**
+   * Plaintext secrets keyed by API key id, populated when a key is created.
+   * Only the creating response ever contains the secret, so entries are absent
+   * for keys generated in an earlier session (#1206).
+   */
+  const [apiKeySecrets, setApiKeySecrets] = useState<Record<string, string>>({});
+
+  // Rotation state
+  const [rotatingApiKey, setRotatingApiKey] = useState(false);
+  const [rotatingWebhook, setRotatingWebhook] = useState(false);
+  const [newApiKey, setNewApiKey] = useState<string | null>(null);
+  const [newWebhookSecret, setNewWebhookSecret] = useState<string | null>(null);
+  const [showNewApiKey, setShowNewApiKey] = useState(false);
+  const [showNewWebhookSecret, setShowNewWebhookSecret] = useState(false);
+  const [confirmRotateApiKey, setConfirmRotateApiKey] = useState(false);
+  const [confirmRotateWebhook, setConfirmRotateWebhook] = useState(false);
+  const [rotateError, setRotateError] = useState<string | null>(null);
+  const [rotationGracePeriodHours, setRotationGracePeriodHours] = useState(24);
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.keys.listApiKeys().then((result) => {
+      if (cancelled || "error" in result) return;
+      const response = result.data as { data?: ApiKeyRecord[] };
+      setApiKeys(mapApiKeyRecords(response.data ?? []));
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    api.merchant
+      .getMe()
+      .then((result) => {
+        if ('error' in result) {
+          setApiKey("Failed to load API key");
+        } else {
+          const r = result.data as Record<string, unknown>;
+          const merchant = r.merchant as Record<string, unknown>;
+          setApiKey(
+            (merchant.api_key_masked as string) || "No API key generated",
+          );
+        }
+      })
+      .catch(() => setApiKey("Failed to load API key"));
+  }, []);
+
+  const handleRotateApiKey = async () => {
+    setRotatingApiKey(true);
+    setRotateError(null);
+    try {
+      const result = await api.keys.rotateApiKey(rotationGracePeriodHours);
+      if ('error' in result) {
+        setRotateError(result.error.message);
+        return;
+      }
+      const res = result.data as Record<string, unknown>;
+      const rotated = res.apiKey as string;
+      setNewApiKey(rotated);
+      setApiKeySecret(rotated);
+      setShowNewApiKey(false);
+      // Update masked display with last four from new key
+      const lastFour = rotated.slice(-4);
+      setApiKey(`sk_live_****${lastFour}`);
+      const keysResult = await api.keys.listApiKeys();
+      if (!("error" in keysResult)) {
+        const response = keysResult.data as { data?: ApiKeyRecord[] };
+        setApiKeys(mapApiKeyRecords(response.data ?? []));
+      }
+    } catch (e: unknown) {
+      setRotateError(e instanceof Error ? e.message : "Failed to rotate API key");
+    } finally {
+      setRotatingApiKey(false);
+      setConfirmRotateApiKey(false);
+    }
+  };
+
+  const handleRotateWebhookSecret = async () => {
+    setRotatingWebhook(true);
+    setRotateError(null);
+    try {
+      const result = await api.keys.rotateWebhookSecret();
+      if ('error' in result) {
+        setRotateError(result.error.message);
+        return;
+      }
+      const res = result.data as Record<string, unknown>;
+      setNewWebhookSecret(res.webhookSecret as string);
+      setShowNewWebhookSecret(false);
+    } catch (e: unknown) {
+      setRotateError(
+        e instanceof Error ? e.message : "Failed to rotate webhook secret",
+      );
+    } finally {
+      setRotatingWebhook(false);
+      setConfirmRotateWebhook(false);
+    }
+  };
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(id);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  const baseUrl = testMode
+    ? "https://sandbox-api.fluxapay.com"
+    : "https://api.fluxapay.com";
+
+  // Derive request / response for the active endpoint + language
+  const requestCode = (() => {
+    switch (activeEndpoint) {
+      case "create":  return getCreatePayment(activeTab, baseUrl, apiKey);
+      case "fetch":   return getFetchPayment(activeTab, baseUrl, apiKey);
+      case "list":    return getListPayments(activeTab, baseUrl, apiKey);
+      case "webhook": return getWebhookVerification(activeTab);
+      default:        return "";
+    }
+  })();
+
+  const responseCode = (() => {
+    switch (activeEndpoint) {
+      case "create":  return getCreatePaymentResponse();
+      case "fetch":   return getFetchPaymentResponse();
+      case "list":    return getListPaymentsResponse();
+      case "webhook": return getWebhookPayload();
+      default:        return "";
+    }
+  })();
+
+  // ── Shared style tokens ──────────────────────────────────────────────────
+  const card: React.CSSProperties = {
+    borderColor: "#3d3d6b",
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderRadius: "0.5rem",
+    backgroundColor: "#ffffff",
+    padding: "1.5rem",
+  };
+
+  return (
+    <div style={{ backgroundColor: "#ffffff", color: "#1a1a3e" }} className="min-h-screen">
+      {/* ── Header ── */}
+      <header
+        style={{
+          backgroundImage: "linear-gradient(to right, #ffffff, #f9fafb)",
+          borderBottom: "1px solid #e5e7eb",
+          position: "sticky",
+          top: 0,
+          zIndex: 50,
+        }}
+      >
+        <div style={{ maxWidth: "80rem", margin: "0 auto", padding: "1.5rem 1rem" }}>
+          <h1
+            style={{
+              fontSize: "clamp(1.875rem, 5vw, 2.25rem)",
+              fontWeight: "bold",
+              background: "linear-gradient(to right, #fbbf24, #f59e0b)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              marginBottom: "0.5rem",
+            }}
+          >
+            Developer Portal
+          </h1>
+          <p style={{ color: "#6b7280", fontSize: "1.125rem" }}>
+            Integrate with our API in minutes. Get started with comprehensive documentation and examples.
+          </p>
+        </div>
+      </header>
+
+      {/* ── Main ── */}
+      <main style={{ maxWidth: "80rem", margin: "0 auto", padding: "3rem 1rem" }}>
+        {/* Top 3-col grid */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+            gap: "2rem",
+          }}
+        >
+          {/* API Key */}
+          <section style={card}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.5rem" }}>
+              <Code style={{ width: "2rem", height: "2rem", color: "#fbbf24" }} />
+              <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#1a1a3e" }}>API Key</h2>
+            </div>
+
+            <label style={{ display: "block", marginBottom: "0.5rem", color: "#1a1a3e", fontWeight: 500, fontSize: "0.875rem" }}>
+              Your {testMode ? "Sandbox" : "Live"} API Key
+            </label>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "1rem" }}>
+              <input
+                type={showApiKey ? "text" : "password"}
+                value={apiKeySecret ?? apiKey}
+                readOnly
+                aria-label="API key"
+                style={{
+                  flex: 1,
+                  backgroundColor: "#f3f4f6",
+                  border: "1px solid #d1d5db",
+                  borderRadius: "0.5rem",
+                  padding: "0.75rem 1rem",
+                  color: "#1a1a3e",
+                  fontFamily: "monospace",
+                  fontSize: "0.875rem",
+                  outline: "none",
+                }}
+              />
+              <button
+                onClick={() => setShowApiKey(!showApiKey)}
+                aria-label={showApiKey ? "Hide API key" : "Show API key"}
+                style={{ padding: "0.75rem", backgroundColor: "#e5e7eb", border: "1px solid #d1d5db", borderRadius: "0.5rem", cursor: "pointer" }}
+              >
+                {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+              <CopyButton
+                value={apiKeySecret ?? ""}
+                label="API key"
+                disabled={!apiKeySecret}
+                disabledMessage="Rotate your API key to get a new secret you can copy."
+                style={{
+                  padding: "0.75rem",
+                  backgroundColor: apiKeySecret ? "#fbbf24" : "#e5e7eb",
+                  border: "none",
+                  borderRadius: "0.5rem",
+                  cursor: apiKeySecret ? "pointer" : "not-allowed",
+                  color: apiKeySecret ? undefined : "#9ca3af",
+                }}
+              />
+            </div>
+
+            {!apiKeySecret && (
+              <p style={{ fontSize: "0.75rem", color: "#6b7280", margin: "0 0 1rem" }}>
+                For your security we only show the last four characters. Rotate the key
+                below to reveal a full secret you can copy.
+              </p>
+            )}
+
+            <div style={{ backgroundColor: "#fef3c7", border: "1px solid #fcd34d", borderRadius: "0.5rem", padding: "0.875rem", marginBottom: "1rem" }}>
+              <p style={{ fontSize: "0.875rem", color: "#92400e", lineHeight: 1.5 }}>
+                ⚠️ Keep your API key secret. Never share it publicly or commit it to version control.
+              </p>
+            </div>
+
+            {/* Rotate API Key */}
+            {!confirmRotateApiKey ? (
+              <button
+                onClick={() => { setConfirmRotateApiKey(true); setNewApiKey(null); setRotateError(null); }}
+                style={{
+                  display: "flex", alignItems: "center", gap: "0.5rem",
+                  padding: "0.625rem 1rem", marginBottom: "1rem",
+                  border: "1px solid #fca5a5", borderRadius: "0.5rem",
+                  backgroundColor: "#fff1f2", color: "#b91c1c",
+                  cursor: "pointer", fontSize: "0.875rem", fontWeight: 600,
+                }}
+              >
+                <RefreshCw size={14} /> Rotate API Key
+              </button>
+            ) : (
+              <div style={{ backgroundColor: "#fff1f2", border: "1px solid #fca5a5", borderRadius: "0.5rem", padding: "1rem", marginBottom: "1rem" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                  <AlertTriangle size={16} style={{ color: "#b91c1c", flexShrink: 0, marginTop: "0.125rem" }} />
+                  <p style={{ fontSize: "0.875rem", color: "#b91c1c", lineHeight: 1.5, margin: 0 }}>
+                    The new key works immediately. Your current key remains active for the grace period, then expires automatically.
+                  </p>
+                </div>
+                <label style={{ display: "block", fontSize: "0.8125rem", color: "#7f1d1d", marginBottom: "0.75rem" }}>
+                  Grace period (hours)
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={rotationGracePeriodHours}
+                    onChange={(event) => setRotationGracePeriodHours(Math.max(1, Number(event.target.value) || 1))}
+                    style={{ display: "block", width: "8rem", marginTop: "0.25rem", padding: "0.4rem", border: "1px solid #d1d5db", borderRadius: "0.375rem" }}
+                  />
+                </label>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button
+                    onClick={handleRotateApiKey}
+                    disabled={rotatingApiKey}
+                    style={{
+                      padding: "0.5rem 1rem", borderRadius: "0.375rem",
+                      backgroundColor: "#b91c1c", color: "#fff",
+                      border: "none", cursor: rotatingApiKey ? "not-allowed" : "pointer",
+                      fontSize: "0.8125rem", fontWeight: 600, opacity: rotatingApiKey ? 0.7 : 1,
+                    }}
+                  >
+                    {rotatingApiKey ? "Rotating..." : "Rotate key"}
+                  </button>
+                  <button
+                    onClick={() => setConfirmRotateApiKey(false)}
+                    style={{
+                      padding: "0.5rem 1rem", borderRadius: "0.375rem",
+                      backgroundColor: "#f3f4f6", color: "#1a1a3e",
+                      border: "1px solid #d1d5db", cursor: "pointer",
+                      fontSize: "0.8125rem", fontWeight: 600,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* One-time new API key display */}
+            {newApiKey && (
+              <div style={{ backgroundColor: "#f0fdf4", border: "1px solid #86efac", borderRadius: "0.5rem", padding: "1rem", marginBottom: "1rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                  <p style={{ fontSize: "0.8125rem", fontWeight: 600, color: "#166534", margin: 0 }}>
+                    New API key — copy it now, it won&apos;t be shown again.
+                  </p>
+                  <button onClick={() => setNewApiKey(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#166534" }}>
+                    <X size={14} />
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                  <input
+                    type={showNewApiKey ? "text" : "password"}
+                    value={newApiKey}
+                    readOnly
+                    style={{
+                      flex: 1, backgroundColor: "#dcfce7", border: "1px solid #86efac",
+                      borderRadius: "0.375rem", padding: "0.625rem 0.75rem",
+                      color: "#166534", fontFamily: "monospace", fontSize: "0.8125rem", outline: "none",
+                    }}
+                  />
+                  <button
+                    onClick={() => setShowNewApiKey(!showNewApiKey)}
+                    aria-label={showNewApiKey ? "Hide new key" : "Show new key"}
+                    style={{ padding: "0.625rem", backgroundColor: "#dcfce7", border: "1px solid #86efac", borderRadius: "0.375rem", cursor: "pointer" }}
+                  >
+                    {showNewApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                  <CopyButton
+                    value={newApiKey}
+                    label="API key"
+                    ariaLabel="Copy new API key"
+                    style={{ padding: "0.625rem", backgroundColor: "#16a34a", border: "none", borderRadius: "0.375rem", cursor: "pointer", color: "#fff" }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {rotateError && (
+              <p style={{ fontSize: "0.8125rem", color: "#b91c1c", marginBottom: "1rem" }}>{rotateError}</p>
+            )}
+
+            {/* Sandbox / Live toggle */}
+            <button
+              onClick={() => setTestMode(!testMode)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "1rem",
+                padding: "0.75rem",
+                border: "1px solid #d1d5db",
+                borderRadius: "0.5rem",
+                backgroundColor: "#f9fafb",
+                cursor: "pointer",
+                width: "100%",
+                textAlign: "left",
+              }}
+            >
+              {testMode ? (
+                <ToggleRight style={{ width: "1.5rem", height: "1.5rem", color: "#fbbf24", flexShrink: 0 }} />
+              ) : (
+                <ToggleLeft style={{ width: "1.5rem", height: "1.5rem", color: "#9ca3af", flexShrink: 0 }} />
+              )}
+              <div>
+                <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "#1a1a3e" }}>
+                  {testMode ? "Sandbox Mode" : "Live Mode"}
+                </div>
+                <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
+                  {testMode ? `Using ${baseUrl}` : `Using ${baseUrl}`}
+                </div>
+              </div>
+            </button>
+          </section>
+
+          {/* Documentation */}
+          <section style={card}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.5rem" }}>
+              <FileJson style={{ width: "2rem", height: "2rem", color: "#fbbf24" }} />
+              <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#1a1a3e" }}>Documentation</h2>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {[
+                { href: DOCS_URLS.API_REFERENCE, icon: "📚", title: "API Reference", desc: "Complete endpoint documentation" },
+                { href: DOCS_URLS.GETTING_STARTED, icon: "🚀", title: "Getting Started", desc: "Setup guide and best practices" },
+                { href: DOCS_URLS.AUTHENTICATION, icon: "🔒", title: "Authentication", desc: "API key security and bearer tokens" },
+                { href: DOCS_URLS.RATE_LIMITS, icon: "⚡", title: "Rate Limits", desc: "Throttling and resilient client design" },
+              ].map(({ href, icon, title, desc }) => (
+                <a
+                  key={href}
+                  href={href}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.75rem",
+                    padding: "0.875rem",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "0.5rem",
+                    backgroundColor: "#f9fafb",
+                    color: "#1a1a3e",
+                    textDecoration: "none",
+                  }}
+                >
+                  <span style={{ fontSize: "1.25rem" }}>{icon}</span>
+                  <div>
+                    <div style={{ fontSize: "0.875rem", fontWeight: 600 }}>{title}</div>
+                    <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>{desc}</div>
+                  </div>
+                </a>
+              ))}
+            </div>
+          </section>
+
+          {/* Webhook Secret */}
+          <section style={card}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.5rem" }}>
+              <Shield style={{ width: "2rem", height: "2rem", color: "#fbbf24" }} />
+              <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#1a1a3e" }}>Webhook Secret</h2>
+            </div>
+
+            <p style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "1rem", lineHeight: 1.5 }}>
+              Used to verify webhook signatures. Rotate it if you suspect it has been compromised.
+            </p>
+
+            <div style={{ backgroundColor: "#fef3c7", border: "1px solid #fcd34d", borderRadius: "0.5rem", padding: "0.875rem", marginBottom: "1rem" }}>
+              <p style={{ fontSize: "0.875rem", color: "#92400e", lineHeight: 1.5, margin: 0 }}>
+                ⚠️ Rotating invalidates the current secret immediately. Update your server before rotating.
+              </p>
+            </div>
+
+            {!confirmRotateWebhook ? (
+              <button
+                onClick={() => { setConfirmRotateWebhook(true); setNewWebhookSecret(null); setRotateError(null); }}
+                style={{
+                  display: "flex", alignItems: "center", gap: "0.5rem",
+                  padding: "0.625rem 1rem", marginBottom: "1rem",
+                  border: "1px solid #fca5a5", borderRadius: "0.5rem",
+                  backgroundColor: "#fff1f2", color: "#b91c1c",
+                  cursor: "pointer", fontSize: "0.875rem", fontWeight: 600,
+                }}
+              >
+                <RefreshCw size={14} /> Rotate Webhook Secret
+              </button>
+            ) : (
+              <div style={{ backgroundColor: "#fff1f2", border: "1px solid #fca5a5", borderRadius: "0.5rem", padding: "1rem", marginBottom: "1rem" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                  <AlertTriangle size={16} style={{ color: "#b91c1c", flexShrink: 0, marginTop: "0.125rem" }} />
+                  <p style={{ fontSize: "0.875rem", color: "#b91c1c", lineHeight: 1.5, margin: 0 }}>
+                    All webhook deliveries will use the new secret. Existing signatures will be invalid.
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button
+                    onClick={handleRotateWebhookSecret}
+                    disabled={rotatingWebhook}
+                    style={{
+                      padding: "0.5rem 1rem", borderRadius: "0.375rem",
+                      backgroundColor: "#b91c1c", color: "#fff",
+                      border: "none", cursor: rotatingWebhook ? "not-allowed" : "pointer",
+                      fontSize: "0.8125rem", fontWeight: 600, opacity: rotatingWebhook ? 0.7 : 1,
+                    }}
+                  >
+                    {rotatingWebhook ? "Rotating..." : "Yes, rotate it"}
+                  </button>
+                  <button
+                    onClick={() => setConfirmRotateWebhook(false)}
+                    style={{
+                      padding: "0.5rem 1rem", borderRadius: "0.375rem",
+                      backgroundColor: "#f3f4f6", color: "#1a1a3e",
+                      border: "1px solid #d1d5db", cursor: "pointer",
+                      fontSize: "0.8125rem", fontWeight: 600,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* One-time new webhook secret display */}
+            {newWebhookSecret && (
+              <div style={{ backgroundColor: "#f0fdf4", border: "1px solid #86efac", borderRadius: "0.5rem", padding: "1rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                  <p style={{ fontSize: "0.8125rem", fontWeight: 600, color: "#166534", margin: 0 }}>
+                    New webhook secret — copy it now, it won&apos;t be shown again.
+                  </p>
+                  <button onClick={() => setNewWebhookSecret(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#166534" }}>
+                    <X size={14} />
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                  <input
+                    type={showNewWebhookSecret ? "text" : "password"}
+                    value={newWebhookSecret}
+                    readOnly
+                    style={{
+                      flex: 1, backgroundColor: "#dcfce7", border: "1px solid #86efac",
+                      borderRadius: "0.375rem", padding: "0.625rem 0.75rem",
+                      color: "#166534", fontFamily: "monospace", fontSize: "0.8125rem", outline: "none",
+                    }}
+                  />
+                  <button
+                    onClick={() => setShowNewWebhookSecret(!showNewWebhookSecret)}
+                    aria-label={showNewWebhookSecret ? "Hide secret" : "Show secret"}
+                    style={{ padding: "0.625rem", backgroundColor: "#dcfce7", border: "1px solid #86efac", borderRadius: "0.375rem", cursor: "pointer" }}
+                  >
+                    {showNewWebhookSecret ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                  <CopyButton
+                    value={newWebhookSecret}
+                    label="webhook secret"
+                    ariaLabel="Copy new webhook secret"
+                    style={{ padding: "0.625rem", backgroundColor: "#16a34a", border: "none", borderRadius: "0.375rem", cursor: "pointer", color: "#fff" }}
+                  />
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* API Status — sandbox / example values */}
+          <section style={card}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}>
+              <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#1a1a3e" }}>API Status</h2>
+              <a
+                href={DOCS_URLS.STATUS}
+                target={DOCS_URLS.STATUS.startsWith("http") ? "_blank" : undefined}
+                rel={DOCS_URLS.STATUS.startsWith("http") ? "noopener noreferrer" : undefined}
+                style={{ fontSize: "0.75rem", color: "#fbbf24", fontWeight: 600, textDecoration: "none" }}
+              >
+                Full status page →
+              </a>
+            </div>
+            <div style={{ backgroundColor: "#fef3c7", border: "1px solid #fcd34d", borderRadius: "0.5rem", padding: "0.625rem 0.875rem", marginBottom: "0.75rem" }}>
+              <p style={{ fontSize: "0.75rem", color: "#92400e", margin: 0, lineHeight: 1.4 }}>
+                ⚠️ The values below are sandbox examples. Live metrics are available on the full status page.
+              </p>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {(
+                [
+                  { label: "Status", value: "● Operational", valueStyle: { backgroundColor: "#d1fae5", color: "#065f46", border: "1px solid #a7f3d0", padding: "0.2rem 0.6rem", borderRadius: "9999px", fontSize: "0.75rem", fontWeight: 600 } as React.CSSProperties },
+                  { label: "Uptime (example)", value: "99.99%", valueStyle: { color: "#fbbf24", fontWeight: 600 } as React.CSSProperties },
+                  { label: "Response Time (example)", value: "145ms avg", valueStyle: { color: "#fbbf24", fontWeight: 600 } as React.CSSProperties },
+                  { label: "Rate Limit (sandbox)", value: "5 req/min", valueStyle: { color: "#fbbf24", fontWeight: 600 } as React.CSSProperties },
+                ] as { label: string; value: string; valueStyle: React.CSSProperties }[]
+              ).map(({ label, value, valueStyle }) => (
+                <div key={label} style={{ backgroundColor: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: "0.5rem", padding: "0.875rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: "0.875rem", color: "#1a1a3e" }}>{label}</span>
+                  <span style={valueStyle}>{value}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        {/* ── Sample Requests & Responses ── */}
+        <section style={{ ...card, marginTop: "3rem" }}>
+          <h2 style={{ fontSize: "1.875rem", fontWeight: "bold", color: "#1a1a3e", marginBottom: "1.5rem" }}>
+            Sample Requests &amp; Responses
+          </h2>
+
+          {/* Endpoint selector */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1.5rem" }}>
+            {ENDPOINTS.map(({ id, label }) => (
+              <button
+                key={id}
+                onClick={() => setActiveEndpoint(id)}
+                style={{
+                  padding: "0.5rem 1.125rem",
+                  borderRadius: "0.5rem",
+                  fontWeight: 600,
+                  fontSize: "0.875rem",
+                  backgroundColor: activeEndpoint === id ? "#fbbf24" : "#f3f4f6",
+                  color: "#1a1a3e",
+                  border: "none",
+                  cursor: "pointer",
+                  transition: "background-color 0.15s",
+                }}
+              >
+                {id === "webhook" && <Shield size={13} style={{ display: "inline", marginRight: "0.3rem", verticalAlign: "middle" }} />}
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Endpoint meta */}
+          <div style={{ marginBottom: "1.25rem", padding: "0.75rem 1rem", backgroundColor: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: "0.5rem", fontSize: "0.8125rem", color: "#6b7280", fontFamily: "monospace" }}>
+            {activeEndpoint === "create"  && <><span style={{ color: "#16a34a", fontWeight: 700 }}>POST</span>{"  "}{baseUrl}/api/v1/payments</>}
+            {activeEndpoint === "fetch"   && <><span style={{ color: "#2563eb", fontWeight: 700 }}>GET</span>{"   "}{baseUrl}/api/v1/payments/:id</>}
+            {activeEndpoint === "list"    && <><span style={{ color: "#2563eb", fontWeight: 700 }}>GET</span>{"   "}{baseUrl}/api/v1/payments</>}
+            {activeEndpoint === "webhook" && <><span style={{ color: "#7c3aed", fontWeight: 700 }}>POST</span>{"  "}https://yoursite.com/webhooks/fluxapay</>}
+          </div>
+
+          {/* Language tabs */}
+          <div style={{ display: "flex", gap: "0", marginBottom: "1.25rem", borderBottom: "1px solid #e5e7eb" }}>
+            {TABS.map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                style={{
+                  padding: "0.5rem 1rem",
+                  fontWeight: 500,
+                  fontSize: "0.875rem",
+                  borderTop: "none",
+                  borderLeft: "none",
+                  borderRight: "none",
+                  borderBottom: `2px solid ${activeTab === id ? "#fbbf24" : "transparent"}`,
+                  color: activeTab === id ? "#fbbf24" : "#9ca3af",
+                  backgroundColor: "transparent",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.3rem",
+                }}
+              >
+                <Icon size={14} />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Request / Response side by side */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "2rem" }}>
+            <div>
+              <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "#1a1a3e", marginBottom: "0.75rem" }}>
+                {activeEndpoint === "webhook" ? "Verification Handler" : "Request"}
+              </h3>
+              <CodeBlock
+                code={requestCode}
+                id={`req-${activeEndpoint}-${activeTab}`}
+                copied={copied}
+                onCopy={copyToClipboard}
+              />
+            </div>
+            <div>
+              <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "#1a1a3e", marginBottom: "0.75rem" }}>
+                {activeEndpoint === "webhook" ? "Webhook Payload" : "Response"}
+              </h3>
+              <CodeBlock
+                code={responseCode}
+                id={`res-${activeEndpoint}`}
+                copied={copied}
+                onCopy={copyToClipboard}
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* ── API Keys Management ── */}
+        <section style={{ ...card, marginTop: "3rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+            <h2 style={{ fontSize: "1.875rem", fontWeight: "bold", color: "#1a1a3e", margin: 0 }}>
+              API Keys
+            </h2>
+            <button
+              onClick={() => setShowCreateKeyModal(true)}
+              style={{
+                padding: "0.625rem 1rem",
+                backgroundColor: "#fbbf24",
+                color: "#1a1a3e",
+                border: "none",
+                borderRadius: "0.375rem",
+                cursor: "pointer",
+                fontWeight: 600,
+                fontSize: "0.875rem",
+              }}
+            >
+              + Create Key
+            </button>
+          </div>
+
+          {apiKeys.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "2rem", backgroundColor: "#f9fafb", borderRadius: "0.5rem", border: "1px solid #e5e7eb" }}>
+              <p style={{ fontSize: "0.875rem", color: "#6b7280", margin: 0 }}>
+                No API keys yet. Create your first key to get started.
+              </p>
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ borderBottom: "2px solid #e5e7eb", backgroundColor: "#f9fafb" }}>
+                    <th style={{ textAlign: "left", padding: "0.75rem", fontSize: "0.875rem", fontWeight: 600, color: "#1a1a3e" }}>Name</th>
+                    <th style={{ textAlign: "left", padding: "0.75rem", fontSize: "0.875rem", fontWeight: 600, color: "#1a1a3e" }}>Key</th>
+                    <th style={{ textAlign: "left", padding: "0.75rem", fontSize: "0.875rem", fontWeight: 600, color: "#1a1a3e" }}>Permissions</th>
+                    <th style={{ textAlign: "left", padding: "0.75rem", fontSize: "0.875rem", fontWeight: 600, color: "#1a1a3e" }}>IP allowlist</th>
+                    <th style={{ textAlign: "left", padding: "0.75rem", fontSize: "0.875rem", fontWeight: 600, color: "#1a1a3e" }}>Created</th>
+                    <th style={{ textAlign: "left", padding: "0.75rem", fontSize: "0.875rem", fontWeight: 600, color: "#1a1a3e" }}>Status</th>
+                    <th style={{ textAlign: "center", padding: "0.75rem", fontSize: "0.875rem", fontWeight: 600, color: "#1a1a3e" }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {apiKeys.map((key) => {
+                    const expiryTime = key.expires_at ? Date.parse(key.expires_at) : null;
+                    const remainingTime = expiryTime === null ? null : expiryTime - currentTime;
+                    const status = key.status === "revoked"
+                      ? "Revoked"
+                      : remainingTime === null
+                        ? "Active"
+                        : remainingTime > 0
+                          ? `Expires in ${formatRemainingTime(remainingTime)}`
+                          : "Expired";
+                    const statusColor = key.status === "revoked" || (remainingTime !== null && remainingTime <= 0)
+                      ? "#6b7280"
+                      : remainingTime !== null
+                        ? "#b45309"
+                        : "#166534";
+
+                    return (
+                    <tr key={key.id} style={{ borderBottom: "1px solid #e5e7eb" }}>
+                      <td style={{ padding: "0.75rem", fontSize: "0.875rem", color: "#1a1a3e" }}>{key.name}</td>
+                      <td style={{ padding: "0.75rem", fontSize: "0.875rem", color: "#1a1a3e", fontFamily: "monospace" }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+                          {key.masked}
+                          <CopyButton
+                            value={apiKeySecrets[key.id] ?? ""}
+                            label={`${key.name} API key`}
+                            ariaLabel={`Copy ${key.name} API key`}
+                            disabled={!apiKeySecrets[key.id]}
+                            disabledMessage="This key's secret was never revealed in this session. Create or rotate it to copy a working key."
+                            style={{
+                              padding: "0.25rem",
+                              backgroundColor: apiKeySecrets[key.id] ? "#fbbf24" : "#e5e7eb",
+                              border: "none",
+                              borderRadius: "0.25rem",
+                              cursor: apiKeySecrets[key.id] ? "pointer" : "not-allowed",
+                              display: "inline-flex",
+                              alignItems: "center",
+                            }}
+                          />
+                        </span>
+                      </td>
+                      <td style={{ padding: "0.75rem", fontSize: "0.75rem", color: "#1a1a3e", minWidth: "220px" }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
+                          {key.permissions.map((permission) => (
+                            <span key={permission} style={{ border: "1px solid #d1d5db", borderRadius: "9999px", padding: "0.125rem 0.5rem", whiteSpace: "nowrap" }}>
+                              {permission}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td style={{ padding: "0.75rem", fontSize: "0.75rem", color: "#6b7280", minWidth: "130px" }}>
+                        {key.ip_allowlist.length ? key.ip_allowlist.join(", ") : "Any IP"}
+                      </td>
+                      <td style={{ padding: "0.75rem", fontSize: "0.875rem", color: "#6b7280" }}>{new Date(key.created_at).toLocaleDateString()}</td>
+                      <td style={{ padding: "0.75rem", fontSize: "0.8125rem", color: statusColor }}>{status}</td>
+                      <td style={{ padding: "0.75rem", textAlign: "center" }}>
+                        <button
+                          style={{
+                            padding: "0.375rem 0.75rem",
+                            backgroundColor: "#fee2e2",
+                            color: "#b91c1c",
+                            border: "none",
+                            borderRadius: "0.375rem",
+                            cursor: "pointer",
+                            fontSize: "0.75rem",
+                            fontWeight: 600,
+                          }}
+                        >
+                          Revoke
+                        </button>
+                      </td>
+                    </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* ── Need Help ── */}
+        <section style={{ ...card, marginTop: "3rem" }}>
+          <h2 style={{ fontSize: "1.875rem", fontWeight: "bold", color: "#1a1a3e", marginBottom: "1.5rem" }}>Need Help?</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "1.5rem" }}>
+            {[
+              { icon: "📖", title: "Full Documentation", desc: "Comprehensive API docs with detailed examples and use cases.", href: DOCS_URLS.FULL_DOCS, cta: "Read docs →", external: false },
+              { icon: "💬", title: "Community Support", desc: "Join our community forums and chat with other developers.", href: DOCS_URLS.COMMUNITY, cta: "Join community →", external: false },
+              { icon: "⚙️", title: "Status & Support", desc: "Check system status and get technical support from our team.", href: DOCS_URLS.STATUS, cta: "Get help →", external: DOCS_URLS.STATUS.startsWith("http") },
+            ].map(({ icon, title, desc, href, cta, external }) => (
+              <div key={title} style={{ backgroundColor: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: "0.5rem", padding: "1.5rem" }}>
+                <div style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}>{icon}</div>
+                <h3 style={{ fontSize: "1.125rem", fontWeight: 600, color: "#1a1a3e", marginBottom: "0.5rem" }}>{title}</h3>
+                <p style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "1rem", lineHeight: 1.5 }}>{desc}</p>
+                <a
+                  href={href}
+                  target={external ? "_blank" : undefined}
+                  rel={external ? "noopener noreferrer" : undefined}
+                  style={{ color: "#fbbf24", textDecoration: "none", fontSize: "0.875rem", fontWeight: 600 }}
+                >
+                  {cta}
+                </a>
+              </div>
+            ))}
+          </div>
+        </section>
+      </main>
+
+      <CreateApiKeyModal
+        isOpen={showCreateKeyModal}
+        onClose={() => setShowCreateKeyModal(false)}
+        existingNames={new Set(apiKeys.map((k) => k.name.toLowerCase()))}
+        onCreateSuccess={(key) => {
+          setApiKeys([...apiKeys, {
+            id: key.id,
+            name: key.name,
+            masked: key.masked,
+            prefix: "fpk",
+            environment: key.environment,
+            status: "active",
+            last_four: key.secret.slice(-4),
+            created_at: new Date().toISOString(),
+            expires_at: null,
+            permissions: key.permissions,
+            ip_allowlist: key.ip_allowlist,
+          }]);
+          // Hold on to the only plaintext copy of the secret so the row's copy
+          // button can hand the developer a working key (#1206).
+          setApiKeySecrets((prev) => ({ ...prev, [key.id]: key.secret }));
+          setApiKeySecret(key.secret);
+          setShowCreateKeyModal(false);
+        }}
+      />
+    </div>
+  );
+}

@@ -1,0 +1,430 @@
+# FluxaPay SDK
+
+Official JavaScript/TypeScript SDK for FluxaPay payment integration.
+
+## Installation
+
+```bash
+npm install @fluxapay/sdk
+```
+
+## Quick Start
+
+```typescript
+import { FluxaPay } from '@fluxapay/sdk';
+
+const client = new FluxaPay({
+  apiKey: 'sk_live_your_api_key',
+  // baseUrl: 'https://api.fluxapay.com' // Optional, defaults to production
+});
+
+// Create a payment
+const payment = await client.payments.create({
+  amount: 99.99,
+  currency: 'USD',
+  customer_email: 'customer@example.com',
+  order_id: 'order_123',
+  success_url: 'https://yoursite.com/success',
+  cancel_url: 'https://yoursite.com/cancel',
+});
+
+console.log('Payment URL:', payment.checkout_url);
+```
+
+## API Reference
+
+### Testing
+
+Use the in-memory mock client to test SDK integrations without making network requests. Fixture factories accept partial overrides, and handlers can override a route with a `Response` or throw to simulate a network failure.
+
+```typescript
+import {
+  createMockCustomer,
+  createMockFluxaPayClient,
+  createMockPayment,
+} from '@fluxapay/sdk';
+
+const client = createMockFluxaPayClient({
+  fixtures: {
+    payments: [createMockPayment({ id: 'pay_test_1' })],
+    customers: [createMockCustomer({ id: 'cus_test_1' })],
+  },
+  handlers: {
+    'GET /api/payments/pay_failure': () => {
+      throw new TypeError('simulated network failure');
+    },
+  },
+});
+
+const payment = await client.payments.get('pay_test_1');
+```
+
+Available factories are `createMockPayment`, `createMockPaymentLink`, and `createMockCustomer`. Default mock routes cover payment creation/list/retrieval, payment-link creation/list/retrieval, and customer create/list/retrieve/update/delete. Use `mockJsonResponse(body, status)` to supply a mocked HTTP response from an override handler.
+
+### Configuration
+
+```typescript
+const client = new FluxaPay({
+  apiKey: string;      // Required: Your FluxaPay API key
+  baseUrl?: string;    // Optional: API base URL (defaults to production)
+});
+```
+
+### Payments
+
+#### Create Payment
+
+```typescript
+const payment = await client.payments.create({
+  amount: number;                  // Required: Amount in specified currency
+  currency: string;                // Required: ISO 4217 currency code (e.g., 'USD', 'NGN')
+  customer_email: string;          // Required: Customer email
+  order_id?: string;               // Optional: Your internal order ID
+  success_url?: string;            // Optional: Redirect URL after success
+  cancel_url?: string;             // Optional: Redirect URL after cancellation
+  metadata?: Record<string, any>;  // Optional: Custom metadata
+  expires_in_seconds?: number;     // Optional: Expiration time in seconds
+});
+```
+
+**Canonical Route:** `POST /api/payments`
+
+#### Get Payment
+
+```typescript
+const payment = await client.payments.get(paymentId);
+```
+
+**Canonical Route:** `GET /api/payments/:payment_id`
+
+#### Get Payment Status
+
+```typescript
+const status = await client.payments.getStatus(paymentId);
+```
+
+**Canonical Route:** `GET /api/payments/:payment_id`
+
+#### List Payments
+
+```typescript
+// Iterate every payment, fetching the next page as needed.
+for await (const payment of client.payments.list({ limit: 50 })) {
+  console.log(payment.id);
+}
+
+// Or process each payment with an async callback.
+await client.payments.list({ status: 'confirmed' }).autoPagingEach(async (payment) => {
+  await processPayment(payment);
+});
+
+// Awaiting list() still returns the first page response.
+const firstPage = await client.payments.list({ limit: 50 });
+```
+
+The iterator follows the endpoint's page or cursor metadata and applies the SDK's configured retry and `Retry-After` backoff behavior to each request.
+
+**Canonical Route:** `GET /api/payments`
+
+### Customers
+
+#### Create Customer
+
+```typescript
+const customer = await client.customers.create({
+  email: 'customer@example.com',
+  name: 'Customer Name',
+  phone: '+15555550123',
+  stellar_address: 'G...',
+  metadata: { source: 'checkout' },
+});
+```
+
+**Canonical Route:** `POST /api/v1/customers`
+
+#### Get, Update, Delete, and List Customers
+
+```typescript
+const customer = await client.customers.get(customerId);
+await client.customers.update(customerId, { phone: '+15555550123' });
+await client.customers.delete(customerId);
+
+const result = await client.customers.list({
+  page: 1,
+  limit: 20,
+  search: 'customer@example.com',
+  created_after: '2026-01-01T00:00:00.000Z',
+  created_before: '2026-12-31T23:59:59.000Z',
+});
+```
+
+**Canonical Routes:** `GET`, `PATCH`, and `DELETE /api/v1/customers/:id`; `GET /api/v1/customers`
+
+### Refunds
+
+#### Create Refund
+
+```typescript
+const refund = await client.refunds.create({
+  payment_id: 'pay_123',
+  amount: 25.00,
+  reason: 'Duplicate payment',
+  idempotency_key: 'refund-order-123',
+});
+```
+
+**Canonical Route:** `POST /api/v1/refunds`
+
+#### Get and List Refunds
+
+```typescript
+const refund = await client.refunds.get(refundId);
+const result = await client.refunds.list({
+  page: 1,
+  limit: 10,
+  status: 'completed',
+  payment_id: 'pay_123',
+});
+```
+
+**Canonical Routes:** `GET /api/v1/refunds/:refund_id`; `GET /api/v1/refunds`
+
+### Settlements
+
+#### List Settlements
+
+```typescript
+const result = await client.settlements.list({
+  page?: number;
+  limit?: number;
+  status?: string;
+  currency?: string;
+  date_from?: string;  // ISO 8601 date
+  date_to?: string;    // ISO 8601 date
+});
+```
+
+**Canonical Route:** `GET /api/settlements`
+
+#### Get Settlement Summary
+
+```typescript
+const summary = await client.settlements.summary();
+```
+
+**Canonical Route:** `GET /api/settlements/summary`
+
+#### Get Settlement
+
+```typescript
+const settlement = await client.settlements.get(settlementId);
+```
+
+**Canonical Route:** `GET /api/settlements/:settlement_id`
+
+#### Export Settlement
+
+```typescript
+const blob = await client.settlements.export(settlementId, 'pdf'); // or 'csv'
+```
+
+**Canonical Route:** `GET /api/settlements/:settlement_id/export`
+
+### Merchant
+
+#### Get Profile
+
+```typescript
+const profile = await client.merchant.getProfile();
+```
+
+**Canonical Route:** `GET /api/merchants/me`
+
+#### Update Profile
+
+```typescript
+await client.merchant.updateProfile({
+  business_name?: string;
+  email?: string;
+  settlement_schedule?: 'daily' | 'weekly';
+  settlement_day?: number;
+});
+```
+
+**Canonical Route:** `PATCH /api/merchants/me`
+
+#### Update Webhook URL
+
+```typescript
+await client.merchant.updateWebhook('https://yoursite.com/webhook');
+```
+
+**Canonical Route:** `PATCH /api/merchants/me/webhook`
+
+#### Update Settlement Schedule
+
+```typescript
+await client.merchant.updateSettlementSchedule({
+  settlement_schedule: 'weekly',
+  settlement_day: 5, // Friday
+});
+```
+
+**Canonical Route:** `PATCH /api/merchants/me/settlement-schedule`
+
+#### Add Bank Account
+
+```typescript
+await client.merchant.addBankAccount({
+  account_number: '1234567890',
+  bank_name: 'Example Bank',
+  bank_code: 'EXB',
+  account_name: 'Business Name',
+});
+```
+
+**Canonical Route:** `POST /api/merchants/me/bank-account`
+
+### Webhooks
+
+#### Verify Webhook Signature
+
+```typescript
+const isValid = client.webhooks.verify(
+  rawBody,           // Raw request body as string
+  signature,         // X-FluxaPay-Signature header
+  webhookSecret,     // Your webhook secret
+  timestamp          // X-FluxaPay-Timestamp header (optional)
+);
+
+if (!isValid) {
+  throw new Error('Invalid webhook signature');
+}
+```
+
+#### Parse Webhook Event
+
+```typescript
+const event = client.webhooks.parse(rawBody);
+
+console.log(event.event);        // e.g., 'payment.completed'
+console.log(event.payment_id);   // Payment ID
+console.log(event.data);         // Event data
+```
+
+## Error Handling
+
+The SDK throws `FluxaPayError` for API errors:
+
+```typescript
+import { FluxaPayError } from '@fluxapay/sdk';
+
+try {
+  const payment = await client.payments.get('invalid_id');
+} catch (error) {
+  if (error instanceof FluxaPayError) {
+    console.error('Status:', error.statusCode);
+    console.error('Message:', error.message);
+    console.error('Raw:', error.raw);
+  }
+}
+```
+
+## Canonical API Routes
+
+All SDK methods use the canonical `/api/*` routes:
+
+| Resource | Method | Route |
+|----------|--------|-------|
+| Payments | POST | `/api/payments` |
+| Payments | GET | `/api/payments/:id` |
+| Payments | GET | `/api/payments` |
+| Settlements | GET | `/api/settlements` |
+| Settlements | GET | `/api/settlements/summary` |
+| Settlements | GET | `/api/settlements/:id` |
+| Settlements | GET | `/api/settlements/:id/export` |
+| Merchant | GET | `/api/merchants/me` |
+| Merchant | PATCH | `/api/merchants/me` |
+| Merchant | PATCH | `/api/merchants/me/webhook` |
+| Merchant | PATCH | `/api/merchants/me/settlement-schedule` |
+| Merchant | POST | `/api/merchants/me/bank-account` |
+
+## Testing
+
+### Unit Tests
+
+```bash
+npm test
+```
+
+### Integration Tests
+
+## Usage Examples
+
+Additional runnable examples are available in:
+
+- `examples/basic-usage.ts`
+- `examples/webhook-verification.ts`
+
+## Publishing and Versioning
+
+The SDK follows semantic versioning (`MAJOR.MINOR.PATCH`) and publishes from git tags.
+
+Release flow:
+
+1. Bump `version` in `package.json`.
+2. Commit and push to main.
+3. Create and push a matching tag in this format:
+
+```bash
+git tag sdk-v0.1.0
+git push origin sdk-v0.1.0
+```
+
+The GitHub workflow `.github/workflows/sdk-release.yml` validates tag/package version parity, runs tests/build, and publishes `@fluxapay/sdk` to npm.
+
+Integration tests require a running backend instance:
+
+```bash
+# 1. Start the backend
+cd fluxapay_backend && npm run dev
+
+# 2. Set your test API key
+export TEST_API_KEY=your_test_api_key
+
+# 3. Run integration tests
+cd fluxapay_sdk
+npm test -- integration.test.ts
+```
+
+## Development
+
+```bash
+# Build the SDK
+npm run build
+
+# Run tests
+npm test
+
+# Publish (requires build first)
+npm publish
+```
+
+## TypeScript Support
+
+The SDK is written in TypeScript and includes full type definitions.
+
+```typescript
+import { FluxaPay, Payment, PaymentStatus, FluxaPayError } from '@fluxapay/sdk';
+```
+
+## License
+
+ISC
+
+## Support
+
+For issues and questions:
+- GitHub: https://github.com/fluxapay/fluxapay
+- Email: support@fluxapay.com
+- Docs: https://docs.fluxapay.com

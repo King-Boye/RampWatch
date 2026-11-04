@@ -1,0 +1,1660 @@
+import { handleSessionExpired } from "./session";
+import { ApiError } from "./errors";
+import {
+  getToken,
+  storeToken,
+  clearToken,
+  getRefreshToken,
+  storeRefreshToken,
+  clearRefreshToken,
+  isAdmin,
+  setAdminStatus,
+  clearAuth,
+} from "./auth";
+import type { KycSubmitPayload } from "../services/kyc";
+
+function getApiBaseUrl(): string {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+
+  if (!apiUrl) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "NEXT_PUBLIC_API_URL environment variable is not set. " +
+        "This is a configuration error — the API URL must be explicitly configured in production. " +
+        "Set NEXT_PUBLIC_API_URL to the correct backend API endpoint (e.g., https://api.example.com)."
+      );
+    }
+
+    if (typeof console !== "undefined" && console.warn) {
+      console.warn(
+        "NEXT_PUBLIC_API_URL is not set; falling back to http://localhost:3001. " +
+        "Set NEXT_PUBLIC_API_URL in your .env.local or environment to use a different API endpoint."
+      );
+    }
+    return "http://localhost:3001";
+  }
+
+  return apiUrl;
+}
+
+const API_BASE_URL = getApiBaseUrl();
+
+/**
+ * Standard result type for all API methods.
+ * Ensures consistent error handling across the client:
+ * - Successful calls return { data: T }
+ * - Failed calls return { error: ApiError }
+ * No method throws or returns null.
+ */
+export type Result<T> = { data: T } | { error: ApiError };
+
+/** Result of a streamed transaction-history CSV download. */
+export interface PaymentCsvExportResult {
+  blob: Blob;
+  /** Filename parsed from Content-Disposition, with a sensible fallback. */
+  filename: string;
+  /** Rows the server matched, or null when the header was not present. */
+  rowCount: number | null;
+  /** True when the server stopped at its per-export row cap. */
+  truncated: boolean;
+}
+
+/**
+ * Extract the filename from a `Content-Disposition: attachment` header.
+ * Both `filename="x.csv"` and RFC 5987 `filename*=UTF-8''x.csv` are handled.
+ */
+function parseFilenameHeader(
+  disposition: string | null,
+  fallback = "transactions.csv",
+): string {
+  if (!disposition) return fallback;
+
+  const extended = disposition.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
+  if (extended?.[1]) {
+    try {
+      return decodeURIComponent(extended[1].trim());
+    } catch {
+      // Malformed percent-encoding: fall through to the plain filename.
+    }
+  }
+
+  const plain = disposition.match(/filename="?([^";]+)"?/i);
+  return plain?.[1]?.trim() || fallback;
+}
+
+// Re-export auth functions for backward compatibility
+
+export interface AuthSignupRequest {
+  business_name: string;
+  email: string;
+  password: string;
+  phone_number: string;
+  country: string;
+  settlement_currency: string;
+  // Optional bank details during signup
+  account_name?: string;
+  account_number?: string;
+  bank_name?: string;
+  bank_code?: string;
+}
+
+export interface AuthLoginRequest {
+  email: string;
+  password: string;
+}
+
+export type RefundReason =
+  | "customer_request"
+  | "duplicate_payment"
+  | "failed_delivery"
+  | "merchant_request"
+  | "dispute_resolution";
+
+export interface InitiateRefundRequest {
+  paymentId: string;
+  merchantId: string;
+  amount: number;
+  currency: "USDC" | "XLM";
+  customerAddress: string;
+  reason: RefundReason;
+  reasonNote?: string;
+}
+
+export type RefundStatus = "pending" | "processing" | "completed" | "failed";
+
+export interface ListRefundsParams {
+  paymentId?: string;
+  merchantId?: string;
+  status?: RefundStatus;
+  page?: number;
+  limit?: number;
+  signal?: AbortSignal;
+}
+
+export type MerchantExportResource = "payments" | "settlements" | "webhooks";
+export type MerchantExportFormat = "csv" | "pdf";
+
+export interface MerchantExportRequest {
+  resource: MerchantExportResource;
+  format: MerchantExportFormat;
+  filters?: Record<string, unknown>;
+  page?: number;
+  limit?: number;
+}
+
+export interface MerchantExportJobStatus {
+  jobId: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  expires_at?: string;
+  error?: string;
+}
+
+// Token functions are now imported from auth.ts for single source of truth
+
+export interface RefreshedSession {
+  accessToken: string;
+  /** Seconds until the new access token expires, when the server reports it. */
+  expiresIn?: number;
+}
+
+/**
+ * Exchange the stored refresh token for a fresh access token.
+ *
+ * Returns null when there is nothing to exchange — the merchant login endpoint
+ * does not currently hand out a refresh token, so most sessions land here. In
+ * that case the caller should treat imminent expiry as expiry and end the
+ * session cleanly, which is still a large improvement on leaving the user on a
+ * dashboard whose every request 401s.
+ *
+ * Throws {@link ApiError} when the server rejects the refresh token, since that
+ * is a real failure the caller must react to.
+ */
+export async function refreshAccessToken(): Promise<RefreshedSession | null> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return null;
+
+  const keepLoggedIn = localStorage.getItem(REFRESH_TOKEN_KEY) !== null;
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+
+  if (!response.ok) {
+    const body = await response
+      .json()
+      .catch(() => ({ message: "Token refresh failed" }));
+    throw new ApiError(
+      response.status,
+      (body as { message?: string }).message || "Token refresh failed",
+    );
+  }
+
+  const data = (await response.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+  };
+
+  if (!data.access_token) {
+    throw new ApiError(500, "Refresh response did not include an access token");
+  }
+
+  storeToken(data.access_token, keepLoggedIn);
+  if (data.refresh_token) {
+    // The backend rotates refresh tokens, so the old one is now dead.
+    storeRefreshToken(data.refresh_token, keepLoggedIn);
+  }
+
+  return { accessToken: data.access_token, expiresIn: data.expires_in };
+}
+
+/**
+ * Determines if a given HTTP status code is retryable.
+ * Retryable errors: 429 (too many requests), 502/503/504 (server errors).
+ * Non-retryable: 4xx errors except 429, 5xx except 502/503/504.
+ */
+function isRetryableStatus(status: number): boolean {
+  // Explicitly retryable: rate limit + gateway/service unavailable errors
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+/**
+ * Calculate delay for exponential backoff with optional jitter.
+ * Base delay = 2^(attempt) * 100ms, capped at 32s.
+ */
+function calculateBackoffMs(attempt: number): number {
+  const baseDelay = Math.pow(2, attempt) * 100;
+  const cappedDelay = Math.min(baseDelay, 32000);
+  // Add jitter: ±10%
+  const jitter = cappedDelay * 0.1 * (Math.random() * 2 - 1);
+  return Math.max(100, cappedDelay + jitter);
+}
+
+async function fetchWithAuth<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  maxRetries: number = 3,
+): Promise<Result<T>> {
+  // We use getToken() to automatically handle missing token redirects
+  let token;
+  try {
+    token = getToken();
+  } catch (err) {
+    // getToken handles the redirect, return the error wrapped in Result
+    return { error: err as ApiError };
+  }
+
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+  const headers: Record<string, string> = isFormData ? {} : { "Content-Type": "application/json" };
+
+  if (options.headers) {
+    Object.assign(headers, options.headers);
+  }
+
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  let lastError: ApiError | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        headers,
+      });
+
+      if (!response.ok) {
+        // A 401 from any authenticated call means the token is dead — expired,
+        // revoked, or invalidated server-side. Ending the session here is what
+        // stops a user sitting on a dashboard where every request silently fails.
+        if (response.status === 401) {
+          handleSessionExpired();
+          // Don't retry on 401, it's terminal
+          const error = await response
+            .json()
+            .catch(() => ({ message: "An error occurred" }));
+          const body = error as {
+            message?: string;
+            code?: string;
+            retry_after?: number;
+          };
+          return {
+            error: new ApiError(
+              response.status,
+              body.message || "Request failed",
+              body.code,
+              body.retry_after,
+            ),
+          };
+        }
+
+        // Check if retryable
+        if (isRetryableStatus(response.status) && attempt < maxRetries) {
+          const error = await response
+            .json()
+            .catch(() => ({ message: "An error occurred" }));
+          const body = error as {
+            message?: string;
+            code?: string;
+            retry_after?: number;
+          };
+
+          lastError = new ApiError(
+            response.status,
+            body.message || "Request failed",
+            body.code,
+            body.retry_after,
+          );
+
+          // Determine wait time: use Retry-After header if provided (for 429s),
+          // otherwise use exponential backoff
+          let waitMs: number;
+          if (response.status === 429 && body.retry_after) {
+            // retry_after is in seconds
+            waitMs = body.retry_after * 1000;
+          } else {
+            waitMs = calculateBackoffMs(attempt);
+          }
+
+          // Wait before retry
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+          continue; // Proceed to next retry
+        }
+
+        // Non-retryable error
+        const error = await response
+          .json()
+          .catch(() => ({ message: "An error occurred" }));
+        const body = error as {
+          message?: string;
+          code?: string;
+          retry_after?: number;
+        };
+        return {
+          error: new ApiError(
+            response.status,
+            body.message || "Request failed",
+            body.code,
+            body.retry_after,
+          ),
+        };
+      }
+
+      // Success
+      try {
+        const data = (await response.json()) as T;
+        return { data };
+      } catch (err) {
+        return {
+          error: new ApiError(
+            500,
+            "Failed to parse response",
+            undefined,
+            undefined,
+          ),
+        };
+      }
+    } catch (err) {
+      // Network error or other fetch-level error — retryable
+      if (attempt < maxRetries) {
+        lastError = new ApiError(
+          0,
+          err instanceof Error ? err.message : "Network error",
+        );
+        const waitMs = calculateBackoffMs(attempt);
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+        continue;
+      } else {
+        // Exhausted retries, return the last error
+        return {
+          error:
+            lastError ||
+            new ApiError(
+              0,
+              err instanceof Error
+                ? err.message
+                : "Request failed after retries",
+            ),
+        };
+      }
+    }
+  }
+
+  // This should not be reached, but return last error if it somehow is
+  return {
+    error:
+      lastError ||
+      new ApiError(0, "Request failed after exhausting all retries"),
+  };
+}
+
+
+export const api = {
+  // Authentication — routes match backend /api/v1/merchants/*
+  auth: {
+    signup: async (data: AuthSignupRequest): Promise<Result<Record<string, unknown>>> => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/merchants/signup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({ message: "Signup failed" }));
+          return {
+            error: new ApiError(
+              res.status,
+              (error as { message?: string }).message || "Signup failed",
+            ),
+          };
+        }
+        const jsonData = await res.json();
+        return { data: jsonData };
+      } catch (err) {
+        return {
+          error: new ApiError(500, err instanceof Error ? err.message : "Signup failed"),
+        };
+      }
+    },
+    login: async (data: AuthLoginRequest): Promise<Result<Record<string, unknown>>> => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/merchants/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({ message: "Login failed" }));
+          return {
+            error: new ApiError(
+              res.status,
+              (error as { message?: string }).message || "Login failed",
+            ),
+          };
+        }
+        const jsonData = await res.json();
+        return { data: jsonData };
+      } catch (err) {
+        return {
+          error: new ApiError(500, err instanceof Error ? err.message : "Login failed"),
+        };
+      }
+    },
+    verifyOtp: async (data: {
+      merchantId: string;
+      channel: "email" | "phone";
+      otp: string;
+    }): Promise<Result<Record<string, unknown>>> => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/merchants/verify-otp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+          return {
+            error: new ApiError(res.status, "OTP verification failed"),
+          };
+        }
+        const jsonData = await res.json();
+        return { data: jsonData };
+      } catch (err) {
+        return {
+          error: new ApiError(500, "OTP verification failed"),
+        };
+      }
+    },
+    resendOtp: async (data: {
+      merchantId: string;
+      channel: "email" | "phone";
+    }): Promise<Result<Record<string, unknown>>> => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/merchants/resend-otp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+          return {
+            error: new ApiError(res.status, "Failed to resend OTP"),
+          };
+        }
+        const jsonData = await res.json();
+        return { data: jsonData };
+      } catch (err) {
+        return {
+          error: new ApiError(500, "Failed to resend OTP"),
+        };
+      }
+    },
+    forgotPassword: async (data: {
+      email: string;
+    }): Promise<Result<Record<string, unknown>>> => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/merchants/forgot-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+          const err = await res
+            .json()
+            .catch(() => ({ message: "Request failed" }));
+          return {
+            error: new ApiError(
+              res.status,
+              (err as { message?: string }).message ||
+                "Failed to request password reset",
+            ),
+          };
+        }
+        const jsonData = await res.json();
+        return { data: jsonData };
+      } catch (err) {
+        return {
+          error: new ApiError(
+            500,
+            "Failed to request password reset",
+          ),
+        };
+      }
+    },
+    validateResetToken: async (
+      token: string,
+    ): Promise<Result<Record<string, unknown>>> => {
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/api/merchants/validate-reset-token?token=${encodeURIComponent(
+            token,
+          )}`,
+        );
+        if (!res.ok) {
+          const err = await res
+            .json()
+            .catch(() => ({ message: "Invalid or expired token" }));
+          return {
+            error: new ApiError(
+              res.status,
+              (err as { message?: string }).message ||
+                "Invalid or expired token",
+            ),
+          };
+        }
+        const jsonData = await res.json();
+        return { data: jsonData };
+      } catch (err) {
+        return {
+          error: new ApiError(500, "Invalid or expired token"),
+        };
+      }
+    },
+    resetPassword: async (data: {
+      token: string;
+      new_password: string;
+    }): Promise<Result<Record<string, unknown>>> => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/merchants/reset-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+          const err = await res
+            .json()
+            .catch(() => ({ message: "Reset failed" }));
+          return {
+            error: new ApiError(
+              res.status,
+              (err as { message?: string }).message ||
+                "Failed to reset password",
+            ),
+          };
+        }
+        const jsonData = await res.json();
+        return { data: jsonData };
+      } catch (err) {
+        return {
+          error: new ApiError(500, "Failed to reset password"),
+        };
+      }
+    },
+    logoutAllSessions: () =>
+      fetchWithAuth<Record<string, unknown>>("/api/v1/auth/logout-all", {
+        method: "POST",
+      }),
+  },
+
+  // Merchant endpoints
+  merchant: {
+    getMe: () =>
+      fetchWithAuth<Record<string, unknown>>("/api/v1/merchants/me"),
+
+    updateProfile: (data: {
+      business_name?: string;
+      email?: string;
+      settlement_schedule?: "daily" | "weekly";
+      settlement_day?: number;
+      checkout_logo_url?: string | null;
+      checkout_accent_color?: string | null;
+    }) =>
+      fetchWithAuth<Record<string, unknown>>("/api/v1/merchants/me", {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+
+    updateWebhook: (webhook_url: string) =>
+      fetchWithAuth<Record<string, unknown>>("/api/v1/merchants/me/webhook", {
+        method: "PATCH",
+        body: JSON.stringify({ webhook_url }),
+      }),
+
+    addBankAccount: (data: {
+      account_name: string;
+      account_number: string;
+      bank_name: string;
+      bank_code?: string;
+      currency: string;
+      country: string;
+    }) =>
+      fetchWithAuth<Record<string, unknown>>("/api/v1/merchants/me/bank-account", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    requestDeletion: () =>
+      fetchWithAuth<Record<string, unknown>>(
+        "/api/v1/merchants/me/deletion-request",
+        {
+          method: "POST",
+        },
+      ),
+  },
+
+  merchantExports: {
+    request: (data: MerchantExportRequest) =>
+      fetchWithAuth<MerchantExportJobStatus>("/api/v1/merchants/export", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    status: (jobId: string) =>
+      fetchWithAuth<MerchantExportJobStatus>(
+        `/api/v1/merchants/export/${encodeURIComponent(jobId)}`,
+      ),
+    download: (jobId: string) =>
+      fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/merchants/export/${encodeURIComponent(jobId)}/download`,
+      ),
+  },
+
+  // API Keys endpoints
+  keys: {
+    regenerate: () =>
+      fetchWithAuth<Record<string, unknown>>("/api/v1/keys/regenerate", {
+        method: "POST",
+      }),
+    createKey: (data: {
+      name: string;
+      environment: "live" | "test";
+      permissions: string[];
+      ip_allowlist: string[];
+    }) =>
+      fetchWithAuth<Record<string, unknown>>("/api/v1/api-keys", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    listApiKeys: () =>
+      fetchWithAuth<Record<string, unknown>>("/api/v1/api-keys"),
+    rotateApiKey: (gracePeriodHours = 24) =>
+      fetchWithAuth<Record<string, unknown>>(
+        "/api/v1/merchants/keys/rotate-api-key",
+        {
+          method: "POST",
+          body: JSON.stringify({ gracePeriodHours }),
+        },
+      ),
+    rotateWebhookSecret: () =>
+      fetchWithAuth<Record<string, unknown>>(
+        "/api/v1/merchants/keys/rotate-webhook-secret",
+        {
+          method: "POST",
+        },
+      ),
+  },
+
+  // Admin sweep endpoints go through the Next.js proxy so the server secret stays private.
+  sweep: {
+    getStatus: () =>
+      fetchWithAuth("/api/admin/sweep/status"),
+
+    /** Manually trigger a full accounts sweep (settlement batch) */
+    runSweep: (dryRun?: boolean) =>
+      fetchWithAuth("/api/admin/sweep/run", {
+        method: "POST",
+        body: JSON.stringify({ dry_run: dryRun || false }),
+      }),
+
+    /** Preview eligible payments before running a sweep */
+    previewSweep: () =>
+      fetchWithAuth("/api/admin/sweep/preview"),
+  },
+
+
+  // Admin KYC management
+  adminKyc: {
+    list: (params?: { status?: string; page?: number; limit?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.status) qs.set("status", params.status);
+      if (params?.page) qs.set("page", String(params.page));
+      if (params?.limit) qs.set("limit", String(params.limit));
+      return fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/merchants/kyc/admin/submissions?${qs.toString()}`,
+      );
+    },
+    getByMerchant: (merchantId: string) =>
+      fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/merchants/kyc/admin/${merchantId}`,
+      ),
+    updateStatus: (
+      merchantId: string,
+      body: { kyc_status: string; rejection_reason?: string },
+    ) =>
+      fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/merchants/kyc/admin/${merchantId}/status`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        },
+      ),
+  },
+
+  // Health / readiness
+  health: {
+    check: async (): Promise<Result<Record<string, unknown>>> => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/health`);
+        if (!res.ok) {
+          return {
+            error: new ApiError(res.status, "Health check failed"),
+          };
+        }
+        const data = await res.json();
+        return { data };
+      } catch (err) {
+        return {
+          error: new ApiError(
+            500,
+            err instanceof Error ? err.message : "Health check failed",
+          ),
+        };
+      }
+    },
+    ready: async (): Promise<Result<Record<string, unknown>>> => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/ready`);
+        if (!res.ok) {
+          return {
+            error: new ApiError(res.status, "Readiness check failed"),
+          };
+        }
+        const data = await res.json();
+        return { data };
+      } catch (err) {
+        return {
+          error: new ApiError(
+            500,
+            err instanceof Error ? err.message : "Readiness check failed",
+          ),
+        };
+      }
+    },
+  },
+
+  // Settlements (merchant-scoped)
+  settlements: {
+    list: (params?: {
+      page?: number;
+      limit?: number;
+      status?: string;
+      currency?: string;
+      date_from?: string;
+      date_to?: string;
+    }) => {
+      const sp = new URLSearchParams();
+      if (params?.page != null) sp.set("page", String(params.page));
+      if (params?.limit != null) sp.set("limit", String(params.limit));
+      if (params?.status) sp.set("status", params.status);
+      if (params?.currency) sp.set("currency", params.currency);
+      if (params?.date_from) sp.set("date_from", params.date_from);
+      if (params?.date_to) sp.set("date_to", params.date_to);
+      return fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/settlements?${sp.toString()}`,
+      );
+    },
+    summary: () =>
+      fetchWithAuth<Record<string, unknown>>("/api/v1/settlements/summary"),
+    getById: (id: string) =>
+      fetchWithAuth<Record<string, unknown>>(`/api/v1/settlements/${id}`),
+    export: (settlementId: string, format: "pdf" | "csv" = "pdf") =>
+      fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/settlements/${settlementId}/export?format=${format}`,
+      ),
+    exportRange: async (params: {
+      date_from?: string;
+      date_to?: string;
+      currency?: string;
+      asset?: string;
+      min_discrepancy?: number;
+      format?: "pdf" | "csv";
+    }): Promise<Result<Blob | Record<string, unknown>>> => {
+      try {
+        const sp = new URLSearchParams();
+        if (params.date_from) sp.set("date_from", params.date_from);
+        if (params.date_to) sp.set("date_to", params.date_to);
+        if (params.currency) sp.set("currency", params.currency);
+        if (params.asset) sp.set("asset", params.asset);
+        if (params.min_discrepancy != null)
+          sp.set("min_discrepancy", String(params.min_discrepancy));
+        sp.set("format", params.format || "csv");
+        const response = await fetch(
+          `${API_BASE_URL}/api/v1/settlements/export?${sp.toString()}`,
+          { headers: { Authorization: `Bearer ${getToken()}` } },
+        );
+        if (!response.ok) {
+          return {
+            error: new ApiError(
+              response.status,
+              `Failed to export settlements: ${response.statusText}`,
+            ),
+          };
+        }
+        if (params.format === "pdf") {
+          const data = await response.json();
+          return { data };
+        }
+        const data = await response.blob();
+        return { data };
+      } catch (err) {
+        return {
+          error: new ApiError(
+            500,
+            err instanceof Error ? err.message : "Failed to export settlements",
+          ),
+        };
+      }
+    },
+  },
+
+  /** Reconciliation (JWT; backend mounts under /api/v1/admin/reconciliation) */
+  reconciliation: {
+    summary: (params: {
+      merchant_id?: string;
+      period_start: string;
+      period_end: string;
+    }) => {
+      const sp = new URLSearchParams();
+      sp.set("period_start", params.period_start);
+      sp.set("period_end", params.period_end);
+      if (params.merchant_id) sp.set("merchant_id", params.merchant_id);
+      return fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/admin/reconciliation/summary?${sp.toString()}`,
+      );
+    },
+    listAlerts: (params?: {
+      merchant_id?: string;
+      is_resolved?: boolean;
+      page?: number;
+      limit?: number;
+    }) => {
+      const sp = new URLSearchParams();
+      if (params?.merchant_id) sp.set("merchant_id", params.merchant_id);
+      if (params?.is_resolved !== undefined) {
+        sp.set("is_resolved", String(params.is_resolved));
+      }
+      if (params?.page != null) sp.set("page", String(params.page));
+      if (params?.limit != null) sp.set("limit", String(params.limit));
+      return fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/admin/reconciliation/alerts?${sp.toString()}`,
+      );
+    },
+    resolveAlert: (alertId: string, is_resolved: boolean) =>
+      fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/admin/reconciliation/alerts/${encodeURIComponent(
+          alertId,
+        )}/resolve`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ is_resolved }),
+        },
+      ),
+  },
+
+  // KYC admin
+  kyc: {
+    submit: (data: KycSubmitPayload) =>
+      fetchWithAuth<Record<string, unknown>>("/api/v1/merchants/kyc", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    getStatus: () =>
+      fetchWithAuth<Record<string, unknown>>("/api/v1/merchants/kyc/status"),
+    uploadDocument: (file: File, documentType: "government_id" | "proof_of_business_registration" | "proof_of_address") => {
+      const form = new FormData();
+      form.set("document_type", documentType);
+      form.set("file", file);
+      return fetchWithAuth<Record<string, unknown>>("/api/v1/merchants/kyc/documents", {
+        method: "POST",
+        body: form,
+      });
+    },
+    admin: {
+      getSubmissions: (params?: {
+        status?: string;
+        page?: number;
+        limit?: number;
+      }) => {
+        const sp = new URLSearchParams();
+        if (params?.status) sp.set("status", params.status);
+        if (params?.page != null) sp.set("page", String(params.page));
+        if (params?.limit != null) sp.set("limit", String(params.limit));
+        return fetchWithAuth<Record<string, unknown>>(
+          `/api/v1/merchants/kyc/admin/submissions?${sp.toString()}`,
+        );
+      },
+      getByMerchantId: (merchantId: string) =>
+        fetchWithAuth<Record<string, unknown>>(
+          `/api/v1/merchants/kyc/admin/${merchantId}`,
+        ),
+      updateStatus: (
+        merchantId: string,
+        body: { status: string; rejection_reason?: string },
+      ) =>
+        fetchWithAuth<Record<string, unknown>>(
+          `/api/v1/merchants/kyc/admin/${merchantId}/status`,
+          {
+            method: "PATCH",
+            body: JSON.stringify(body),
+          },
+        ),
+      bulkReject: (merchantIds: string[], reason: string, notes?: string) =>
+        fetchWithAuth<Record<string, unknown>>(
+          "/api/v1/merchants/kyc/admin/bulk-reject",
+          {
+            method: "POST",
+            body: JSON.stringify({ merchantIds, reason, notes }),
+          },
+        ),
+      bulkRequestInfo: (merchantIds: string[], message: string) =>
+        fetchWithAuth<Record<string, unknown>>(
+          "/api/v1/merchants/kyc/admin/bulk-request-info",
+          {
+            method: "POST",
+            body: JSON.stringify({ merchantIds, message }),
+          },
+        ),
+    },
+  },
+
+  // Refunds (server-side routes with admin secret)
+  refunds: {
+    initiate: (data: InitiateRefundRequest) =>
+      fetchWithAuth("/api/admin/refunds/initiate", {
+        method: "POST",
+        body: JSON.stringify({
+          payment_id: data.paymentId,
+          amount: data.amount,
+          reason: data.reason,
+        }),
+      }),
+    list: (params?: ListRefundsParams) => {
+      const sp = new URLSearchParams();
+      if (params?.paymentId) sp.set("payment_id", params.paymentId);
+      if (params?.status) sp.set("status", params.status);
+      if (params?.page != null) sp.set("page", String(params.page));
+      if (params?.limit != null) sp.set("limit", String(params.limit));
+      const query = sp.toString();
+      return fetchWithAuth(`/api/admin/refunds/list${query ? `?${query}` : ""}`, {
+        signal: params?.signal,
+      });
+    },
+    getById: (refundId: string) =>
+      fetchWithAuth(`/api/admin/refunds/${encodeURIComponent(refundId)}`),
+  },
+
+  // Payments (merchant-scoped) — backend mounts at /api/v1/payments
+  payments: {
+    create: (data: {
+      amount: number;
+      currency: string;
+      customer_email: string;
+      order_id?: string;
+      description?: string;
+      success_url?: string;
+      cancel_url?: string;
+    }) =>
+      fetchWithAuth<Record<string, unknown>>("/api/v1/payments", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    list: (
+      params?: {
+        page?: number;
+        limit?: number;
+        cursor?: string;
+        status?: string;
+        currency?: string;
+        search?: string;
+        date_from?: string;
+        date_to?: string;
+      },
+      init?: RequestInit,
+    ) => {
+      const sp = new URLSearchParams();
+      if (params?.page != null) sp.set("page", String(params.page));
+      if (params?.limit != null) sp.set("limit", String(params.limit));
+      if (params?.cursor) sp.set("cursor", params.cursor);
+      if (params?.status && params.status !== "all")
+        sp.set("status", params.status);
+      if (params?.currency && params.currency !== "all")
+        sp.set("currency", params.currency);
+      if (params?.search) sp.set("search", params.search);
+      if (params?.date_from) sp.set("date_from", params.date_from);
+      if (params?.date_to) sp.set("date_to", params.date_to);
+      return fetchWithAuth<{
+        data: Array<Record<string, unknown>>;
+        nextCursor?: string | null;
+        meta?: {
+          total: number;
+          page?: number;
+          limit?: number;
+          totalPages?: number;
+          hasNextPage?: boolean;
+          hasPreviousPage?: boolean;
+          nextCursor?: string | null;
+        };
+      }>(
+        `/api/v1/payments?${sp.toString()}`,
+        init,
+      );
+    },
+
+    getById: (paymentId: string) =>
+      fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/payments/${encodeURIComponent(paymentId)}`,
+      ),
+
+    /**
+     * Stream the transaction history as CSV. Unlike the other methods this
+     * returns a Blob plus the server-supplied filename and row count, because
+     * the response is a file download rather than JSON.
+     */
+    export: async (
+      params?: {
+        status?: string;
+        currency?: string;
+        search?: string;
+        date_from?: string;
+        date_to?: string;
+        amount_min?: string | number;
+        amount_max?: string | number;
+      },
+      init?: RequestInit,
+    ): Promise<Result<PaymentCsvExportResult>> => {
+      try {
+        const sp = new URLSearchParams();
+        if (params?.status && params.status !== "all")
+          sp.set("status", params.status);
+        if (params?.currency && params.currency !== "all")
+          sp.set("currency", params.currency);
+        if (params?.search) sp.set("search", params.search);
+        if (params?.date_from) sp.set("date_from", params.date_from);
+        if (params?.date_to) sp.set("date_to", params.date_to);
+        // `0` is a meaningful amount bound, so test for nullishness not truthiness.
+        if (params?.amount_min !== undefined && params.amount_min !== "")
+          sp.set("amount_min", String(params.amount_min));
+        if (params?.amount_max !== undefined && params.amount_max !== "")
+          sp.set("amount_max", String(params.amount_max));
+
+        const response = await fetch(
+          `${API_BASE_URL}/api/v1/payments/export?${sp.toString()}`,
+          {
+            ...init,
+            headers: {
+              Authorization: `Bearer ${getToken()}`,
+              ...(init?.headers ?? {}),
+            },
+          },
+        );
+
+        if (!response.ok) {
+          // Surface the API's structured message (e.g. an invalid date range)
+          // instead of a bare status code.
+          let message = "Export failed";
+          try {
+            const body = await response.json();
+            if (body?.message) message = String(body.message);
+          } catch {
+            // Response was not JSON; keep the default message.
+          }
+          return { error: new ApiError(response.status, message) };
+        }
+
+        const rowCountHeader = response.headers.get("X-Export-Row-Count");
+        const parsedRowCount = rowCountHeader ? Number(rowCountHeader) : NaN;
+
+        return {
+          data: {
+            blob: await response.blob(),
+            filename: parseFilenameHeader(response.headers.get("Content-Disposition")),
+            rowCount: Number.isFinite(parsedRowCount) ? parsedRowCount : null,
+            truncated: response.headers.get("X-Export-Truncated") === "true",
+          },
+        };
+      } catch (err) {
+        return {
+          error: new ApiError(
+            500,
+            err instanceof Error ? err.message : "Export failed",
+          ),
+        };
+      }
+    },
+  },
+
+  // Invoices (merchant-scoped)
+  invoices: {
+    create: (data: {
+      customer_name: string;
+      customer_email: string;
+      line_items: Array<{
+        description: string;
+        quantity: number;
+        unit_price: number;
+      }>;
+      total_amount?: number;
+      currency: string;
+      due_date: string;
+      notes?: string;
+    }) =>
+      fetchWithAuth<Record<string, unknown>>("/api/v1/invoices", {
+        method: "POST",
+        body: JSON.stringify({
+          ...data,
+          amount: data.total_amount,
+        }),
+      }),
+
+    list: async (params?: {
+      page?: number;
+      limit?: number;
+      status?: string;
+      search?: string;
+      signal?: AbortSignal;
+    }): Promise<Result<Record<string, unknown>>> => {
+      try {
+        const sp = new URLSearchParams();
+        if (params?.page != null) sp.set("page", String(params.page));
+        if (params?.limit != null) sp.set("limit", String(params.limit));
+        if (params?.status && params.status !== "all")
+          sp.set("status", params.status);
+        if (params?.search?.trim()) sp.set("search", params.search.trim());
+        const result = await fetchWithAuth<{
+          data?: { invoices?: unknown[] };
+          meta?: {
+            page: number;
+            limit: number;
+            total: number;
+            total_pages?: number;
+          };
+        }>(`/api/v1/invoices?${sp.toString()}`, { signal: params?.signal });
+        if ("error" in result) return result;
+        const raw = result.data;
+        return {
+          data: {
+            invoices: raw.data?.invoices ?? [],
+            meta: raw.meta ?? {
+              page: params?.page ?? 1,
+              limit: params?.limit ?? 10,
+              total: 0,
+            },
+          },
+        };
+      } catch (err) {
+        return {
+          error: new ApiError(500, "Failed to fetch invoices"),
+        };
+      }
+    },
+
+    getById: async (invoiceId: string): Promise<Result<Record<string, unknown>>> => {
+      try {
+        const result = await fetchWithAuth<Record<string, unknown>>(
+          `/api/v1/invoices/${invoiceId}`,
+        );
+        if ("error" in result) return result;
+        const inv = result.data;
+        return {
+          data: {
+            ...inv,
+            total_amount: Number((inv as Record<string, unknown>).amount),
+            customer_name:
+              (inv as Record<string, unknown>).metadata &&
+              typeof (inv as Record<string, unknown>).metadata === 'object'
+                ? ((inv as Record<string, unknown>).metadata as Record<string, unknown>)
+                    .customer_name
+                : undefined,
+            line_items:
+              (inv as Record<string, unknown>).metadata &&
+              typeof (inv as Record<string, unknown>).metadata === 'object'
+                ? ((inv as Record<string, unknown>).metadata as Record<string, unknown>)
+                    .line_items || []
+                : [],
+            notes:
+              (inv as Record<string, unknown>).metadata &&
+              typeof (inv as Record<string, unknown>).metadata === 'object'
+                ? ((inv as Record<string, unknown>).metadata as Record<string, unknown>)
+                    .notes
+                : undefined,
+          },
+        };
+      } catch (err) {
+        return {
+          error: new ApiError(500, "Failed to fetch invoice"),
+        };
+      }
+    },
+
+    updateStatus: (invoiceId: string, status: string) =>
+      fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/invoices/${invoiceId}/status`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ status }),
+        },
+      ),
+
+    export: async (invoiceId: string): Promise<Result<Blob>> => {
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/v1/invoices/${invoiceId}/export?format=pdf`,
+          { headers: { Authorization: `Bearer ${getToken()}` } },
+        );
+        if (!response.ok)
+          return { error: new ApiError(response.status, "Export failed") };
+        const body = (await response.json()) as Record<string, unknown>;
+        if (body.status === "accepted" && body.jobId) {
+          const { jobId } = body;
+          const pollUrl = `${API_BASE_URL}/api/v1/invoices/${invoiceId}/export/${jobId}/status`;
+          for (let i = 0; i < 30; i++) {
+            await new Promise((r) => setTimeout(r, 1000));
+            const pollRes = await fetch(pollUrl, {
+              headers: { Authorization: `Bearer ${getToken()}` },
+            });
+            if (!pollRes.ok)
+              return {
+                error: new ApiError(pollRes.status, "Export polling failed"),
+              };
+            const pollBody = (await pollRes.json()) as Record<string, unknown>;
+            if (pollBody.status === "completed" && pollBody.downloadUrl) {
+              const dlRes = await fetch(
+                `${API_BASE_URL}${pollBody.downloadUrl as string}`,
+                { headers: { Authorization: `Bearer ${getToken()}` } },
+              );
+              if (!dlRes.ok)
+                return { error: new ApiError(dlRes.status, "Download failed") };
+              const data = await dlRes.blob();
+              return { data };
+            }
+            if (pollBody.status === "failed") {
+              return {
+                error: new ApiError(
+                  500,
+                  (pollBody.error as string) || "PDF generation failed",
+                ),
+              };
+            }
+          }
+          return {
+            error: new ApiError(408, "PDF generation timed out"),
+          };
+        }
+        return {
+          error: new ApiError(500, "Unexpected export response"),
+        };
+      } catch (err) {
+        return {
+          error: new ApiError(
+            500,
+            err instanceof Error ? err.message : "Export failed",
+          ),
+        };
+      }
+    },
+  },
+
+  // Webhooks (merchant-scoped webhook delivery logs)
+  webhooks: {
+    logs: (params?: {
+      event_type?: string;
+      status?: string;
+      date_from?: string;
+      date_to?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    }) => {
+      const sp = new URLSearchParams();
+      if (params?.event_type && params.event_type !== "all")
+        sp.set("event_type", params.event_type);
+      if (params?.status && params.status !== "all")
+        sp.set("status", params.status);
+      if (params?.date_from) sp.set("date_from", params.date_from);
+      if (params?.date_to) sp.set("date_to", params.date_to);
+      if (params?.search) sp.set("search", params.search);
+      if (params?.page != null) sp.set("page", String(params.page));
+      if (params?.limit != null) sp.set("limit", String(params.limit));
+      return fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/webhooks/logs?${sp.toString()}`,
+      );
+    },
+    logDetails: (logId: string) =>
+      fetchWithAuth<Record<string, unknown>>(`/api/v1/webhooks/logs/${logId}`),
+    export: async (params?: {
+      event_type?: string;
+      status?: string;
+      date_from?: string;
+      date_to?: string;
+      search?: string;
+    }): Promise<Result<Blob>> => {
+      try {
+        const sp = new URLSearchParams();
+        if (params?.event_type && params.event_type !== "all")
+          sp.set("event_type", params.event_type);
+        if (params?.status && params.status !== "all")
+          sp.set("status", params.status);
+        if (params?.date_from) sp.set("date_from", params.date_from);
+        if (params?.date_to) sp.set("date_to", params.date_to);
+        if (params?.search) sp.set("search", params.search);
+        const response = await fetch(
+          `${API_BASE_URL}/api/v1/webhooks/logs/export?${sp.toString()}`,
+          { headers: { Authorization: `Bearer ${getToken()}` } },
+        );
+        if (!response.ok)
+          return {
+            error: new ApiError(
+              response.status,
+              "Failed to export webhook logs",
+            ),
+          };
+        const data = await response.blob();
+        return { data };
+      } catch (err) {
+        return {
+          error: new ApiError(
+            500,
+            err instanceof Error ? err.message : "Failed to export webhook logs",
+          ),
+        };
+      }
+    },
+    retry: (logId: string) =>
+      fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/webhooks/logs/${logId}/retry`,
+        { method: "POST" },
+      ),
+    sendTest: (data: {
+      event_type: string;
+      endpoint_url: string;
+      payload_override?: Record<string, unknown>;
+    }) =>
+      fetchWithAuth<Record<string, unknown>>("/api/v1/webhooks/test", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+  },
+
+  // Dashboard overview
+  dashboard: {
+    overviewMetrics: (params?: { from?: string; to?: string }) => {
+      const sp = new URLSearchParams();
+      if (params?.from) sp.set("from", params.from);
+      if (params?.to) sp.set("to", params.to);
+      const q = sp.toString();
+      return fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/dashboard/overview/metrics${q ? `?${q}` : ""}`,
+      );
+    },
+    charts: (params?: { from?: string; to?: string }) => {
+      const sp = new URLSearchParams();
+      if (params?.from) sp.set("from", params.from);
+      if (params?.to) sp.set("to", params.to);
+      const q = sp.toString();
+      return fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/dashboard/overview/charts${q ? `?${q}` : ""}`,
+      );
+    },
+    activity: (params?: { from?: string; to?: string }) => {
+      const sp = new URLSearchParams();
+      if (params?.from) sp.set("from", params.from);
+      if (params?.to) sp.set("to", params.to);
+      const q = sp.toString();
+      return fetchWithAuth<Record<string, unknown>>(
+        `/api/v1/dashboard/overview/activity${q ? `?${q}` : ""}`,
+      );
+    },
+  },
+
+  // FX Rates — public, no auth required
+  fx: {
+    /**
+     * Fetch the live USDC exchange rate for a given fiat currency.
+     * Returns { data: rate } on success, { error: ApiError } on failure.
+     *
+     * Example: getRate("USD") → { data: { base_currency: "USD", target_currency: "USDC", rate: 1.0002 } }
+     */
+    getRate: async (
+      currency: string,
+    ): Promise<
+      Result<{ base_currency: string; target_currency: string; rate: number }>
+    > => {
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/api/v1/fx-rates?currency=${encodeURIComponent(
+            currency.toUpperCase(),
+          )}`,
+          { headers: { "Content-Type": "application/json" } },
+        );
+        if (!res.ok) {
+          return {
+            error: new ApiError(res.status, "Failed to fetch exchange rate"),
+          };
+        }
+        const json = (await res.json()) as {
+          data?: { base_currency: string; target_currency: string; rate: number };
+        };
+        if (!json.data) {
+          return {
+            error: new ApiError(500, "No exchange rate data in response"),
+          };
+        }
+        return { data: json.data };
+      } catch (err) {
+        return {
+          error: new ApiError(
+            500,
+            err instanceof Error ? err.message : "Failed to fetch exchange rate",
+          ),
+        };
+      }
+    },
+  },
+
+  // Admin: merchants & settlements
+  admin: {
+    merchants: {
+      list: (params?: {
+        page?: number;
+        limit?: number;
+        kycStatus?: string;
+        accountStatus?: string;
+      }) => {
+        const sp = new URLSearchParams();
+        if (params?.page != null) sp.set("page", String(params.page));
+        if (params?.limit != null) sp.set("limit", String(params.limit));
+        if (params?.kycStatus) sp.set("kycStatus", params.kycStatus);
+        if (params?.accountStatus)
+          sp.set("accountStatus", params.accountStatus);
+        return fetchWithAuth<Record<string, unknown>>(
+          `/api/v1/merchants/admin/list?${sp.toString()}`,
+        );
+      },
+      updateStatus: (
+        merchantId: string,
+        status: "active" | "suspended",
+      ) =>
+        fetchWithAuth<Record<string, unknown>>(
+          `/api/v1/merchants/admin/${merchantId}/status`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ status }),
+          },
+        ),
+      bulkUpdateStatus: (
+        merchantIds: string[],
+        status: "active" | "suspended",
+        reason: string,
+      ) =>
+        fetchWithAuth<Record<string, unknown>>(
+          "/api/v1/merchants/admin/bulk-status",
+          {
+            method: "POST",
+            body: JSON.stringify({ merchantIds, status, reason }),
+          },
+        ),
+      disableWebhook: (merchantId: string) =>
+        fetchWithAuth<Record<string, unknown>>(
+          `/api/v1/merchants/admin/${encodeURIComponent(merchantId)}/webhook`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ webhook_url: "" }),
+          },
+        ),
+    },
+    users: {
+      list: (params?: {
+        page?: number;
+        limit?: number;
+        search?: string;
+        role?: string;
+        is_active?: string;
+      }) => {
+        const sp = new URLSearchParams();
+        if (params?.page != null) sp.set("page", String(params.page));
+        if (params?.limit != null) sp.set("limit", String(params.limit));
+        if (params?.search?.trim()) sp.set("search", params.search.trim());
+        if (params?.role && params.role !== "all") sp.set("role", params.role);
+        if (params?.is_active && params.is_active !== "all")
+          sp.set("is_active", params.is_active);
+        return fetchWithAuth<Record<string, unknown>>(
+          `/api/v1/admin/users?${sp.toString()}`,
+        );
+      },
+    },
+    settlements: {
+      list: (params?: {
+        page?: number;
+        limit?: number;
+        status?: string;
+      }) => {
+        const sp = new URLSearchParams();
+        if (params?.page != null) sp.set("page", String(params.page));
+        if (params?.limit != null) sp.set("limit", String(params.limit));
+        if (params?.status) sp.set("status", params.status);
+        return fetchWithAuth<Record<string, unknown>>(
+          `/api/v1/admin/settlements?${sp.toString()}`,
+        );
+      },
+    },
+    auditLogs: {
+      list: (params?: {
+        page?: number;
+        limit?: number;
+        admin_id?: string;
+        action_type?: string;
+        date_from?: string;
+        date_to?: string;
+      }) => {
+        const sp = new URLSearchParams();
+        if (params?.page != null) sp.set("page", String(params.page));
+        if (params?.limit != null) sp.set("limit", String(params.limit));
+        if (params?.admin_id) sp.set("admin_id", params.admin_id);
+        if (params?.action_type && params.action_type !== "all")
+          sp.set("action_type", params.action_type);
+        if (params?.date_from) sp.set("date_from", params.date_from);
+        if (params?.date_to) sp.set("date_to", params.date_to);
+        return fetchWithAuth<Record<string, unknown>>(
+          `/api/v1/admin/audit-logs?${sp.toString()}`,
+        );
+      },
+      getById: (id: string) =>
+        fetchWithAuth<Record<string, unknown>>(`/api/v1/admin/audit-logs/${id}`),
+    },
+    payments: {
+      list: (params?: {
+        page?: number;
+        limit?: number;
+        status?: string;
+        currency?: string;
+        search?: string;
+        date_from?: string;
+        date_to?: string;
+      }) => {
+        const sp = new URLSearchParams();
+        if (params?.page != null) sp.set("page", String(params.page));
+        if (params?.limit != null) sp.set("limit", String(params.limit));
+        if (params?.status && params.status !== "all")
+          sp.set("status", params.status);
+        if (params?.currency) sp.set("currency", params.currency);
+        if (params?.search?.trim()) sp.set("search", params.search.trim());
+        if (params?.date_from) sp.set("date_from", params.date_from);
+        if (params?.date_to) sp.set("date_to", params.date_to);
+        return fetchWithAuth<Record<string, unknown>>(
+          `/api/v1/admin/payments?${sp.toString()}`,
+        );
+      },
+      verify: (paymentId: string) =>
+        fetchWithAuth<Record<string, unknown>>(
+          `/api/v1/admin/payments/${encodeURIComponent(
+            paymentId,
+          )}/verify`,
+          {
+            method: "POST",
+          },
+        ),
+    },
+    addressPool: {
+      stats: () =>
+        fetchWithAuth<Record<string, unknown>>(
+          "/api/v1/admin/address-pool/stats",
+        ),
+    },
+    webhooks: {
+      logs: async (params?: {
+        merchant_id?: string;
+        event_type?: string;
+        status?: string;
+        date_from?: string;
+        date_to?: string;
+        search?: string;
+        page?: number;
+        limit?: number;
+      }) => {
+        const sp = new URLSearchParams();
+        if (params?.merchant_id) sp.set("merchant_id", params.merchant_id);
+        if (params?.event_type && params.event_type !== "all") sp.set("event_type", params.event_type);
+        if (params?.status && params.status !== "all") sp.set("status", params.status);
+        if (params?.date_from) sp.set("date_from", params.date_from);
+        if (params?.date_to) sp.set("date_to", params.date_to);
+        if (params?.search) sp.set("search", params.search);
+        if (params?.page != null) sp.set("page", String(params.page));
+        if (params?.limit != null) sp.set("limit", String(params.limit));
+        return fetchWithAuth(`/api/admin/webhooks/logs?${sp.toString()}`);
+      },
+      retry: (logId: string) =>
+        fetchWithAuth(`/api/admin/webhooks/${encodeURIComponent(logId)}/retry`, { method: "POST" }),
+    },
+  },
+};
+
+// Public pricing config endpoint (no auth required)
+export const fetchPricingConfig = async (): Promise<
+  Result<Record<string, unknown>>
+> => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/public/pricing-config`, {
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+};
+
+// Re-export auth functions for backwards compatibility with existing imports
+export {
+  getToken,
+  storeToken,
+  clearToken,
+  getRefreshToken,
+  storeRefreshToken,
+  clearRefreshToken,
+  isAdmin,
+  setAdminStatus,
+  clearAuth,
+} from "./auth";
+
+export { ApiError } from "./errors";

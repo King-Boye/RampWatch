@@ -1,0 +1,347 @@
+import request from "supertest";
+import express from "express";
+import { rpc } from "@stellar/stellar-sdk";
+import { PrismaClient } from "../generated/client/client";
+import { createHealthRouter } from "../routes/health.route";
+import {
+  checkDatabase,
+  checkHorizon,
+  checkRedis,
+  checkSorobanRpc,
+  DEPENDENCY_TIMEOUT_MS,
+  getReadiness,
+  getUptimeSeconds,
+} from "../services/health.service";
+import {
+  getRedisClient,
+  resetRedisClientForTests,
+  setRedisClientForTests,
+} from "../sms/otpSmsRateLimiter";
+import { resetFxCircuitBreakerForTests } from "../services/fx.service";
+import { resetPoolSaturationWarningsForTests } from "../utils/prismaPoolMetrics";
+
+const originalSorobanVerification = process.env.ENABLE_SOROBAN_VERIFICATION;
+const originalDatabaseUrl = process.env.DATABASE_URL;
+
+function restoreSorobanVerificationSetting(): void {
+  if (originalSorobanVerification === undefined) {
+    delete process.env.ENABLE_SOROBAN_VERIFICATION;
+  } else {
+    process.env.ENABLE_SOROBAN_VERIFICATION = originalSorobanVerification;
+  }
+}
+
+jest.mock("../generated/client/client", () => ({
+  PrismaClient: jest.fn().mockImplementation(() => ({
+    $queryRaw: jest.fn(),
+  })),
+}));
+
+function buildHealthApp(prisma: PrismaClient) {
+  const app = express();
+  app.use("/health", createHealthRouter(prisma));
+  return app;
+}
+
+describe("health.service", () => {
+  const prisma = new PrismaClient();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    delete (prisma as unknown as { $metrics?: unknown }).$metrics;
+    process.env.ENABLE_SOROBAN_VERIFICATION = "false";
+    resetRedisClientForTests();
+    resetFxCircuitBreakerForTests();
+    resetPoolSaturationWarningsForTests();
+    global.fetch = jest.fn();
+  });
+
+  afterEach(() => {
+    restoreSorobanVerificationSetting();
+    if (originalDatabaseUrl === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = originalDatabaseUrl;
+    }
+    resetRedisClientForTests();
+    resetFxCircuitBreakerForTests();
+    resetPoolSaturationWarningsForTests();
+    jest.restoreAllMocks();
+  });
+
+  describe("getUptimeSeconds", () => {
+    it("returns a non-negative integer", () => {
+      expect(getUptimeSeconds()).toBeGreaterThanOrEqual(0);
+      expect(Number.isInteger(getUptimeSeconds())).toBe(true);
+    });
+  });
+
+  describe("checkDatabase", () => {
+    it("reports up when SELECT 1 succeeds", async () => {
+      (prisma.$queryRaw as jest.Mock).mockResolvedValue([{ "?column?": 1 }]);
+
+      const result = await checkDatabase(prisma);
+
+      expect(result.status).toBe("up");
+      expect(result.latencyMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it("reports down when the query fails", async () => {
+      (prisma.$queryRaw as jest.Mock).mockRejectedValue(new Error("db down"));
+
+      const result = await checkDatabase(prisma);
+
+      expect(result.status).toBe("down");
+    });
+  });
+
+  describe("checkRedis", () => {
+    it("reports up when ping returns PONG", async () => {
+      setRedisClientForTests({
+        ping: jest.fn().mockResolvedValue("PONG"),
+      } as unknown as ReturnType<typeof getRedisClient>);
+
+      const result = await checkRedis();
+
+      expect(result.status).toBe("up");
+    });
+
+    it("reports down when ping fails", async () => {
+      setRedisClientForTests({
+        ping: jest.fn().mockRejectedValue(new Error("redis down")),
+      } as unknown as ReturnType<typeof getRedisClient>);
+
+      const result = await checkRedis();
+
+      expect(result.status).toBe("down");
+    });
+  });
+
+  describe("checkHorizon", () => {
+    it("reports up when Horizon responds with 200", async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 200 });
+
+      const result = await checkHorizon();
+
+      expect(result.status).toBe("up");
+      expect(global.fetch).toHaveBeenCalled();
+    });
+
+    it("reports down when Horizon responds with an error status", async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 503 });
+
+      const result = await checkHorizon();
+
+      expect(result.status).toBe("down");
+    });
+
+    it("reports down when the request times out", async () => {
+      (global.fetch as jest.Mock).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(() => resolve({ ok: true, status: 200 }), DEPENDENCY_TIMEOUT_MS + 50);
+          }),
+      );
+
+      const result = await checkHorizon();
+
+      expect(result.status).toBe("down");
+      expect(result.latencyMs).toBeLessThanOrEqual(DEPENDENCY_TIMEOUT_MS + 50);
+    });
+  });
+
+  describe("checkSorobanRpc", () => {
+    beforeEach(() => {
+      process.env.ENABLE_SOROBAN_VERIFICATION = "true";
+    });
+
+    it("reports down when the RPC health check rejects", async () => {
+      jest
+        .spyOn((rpc.Server as any).prototype, "getHealth")
+        .mockRejectedValue(new Error("Soroban RPC unavailable"));
+
+      const result = await checkSorobanRpc();
+
+      expect(result.status).toBe("down");
+      expect(result.latencyMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it("reports down when the RPC health check times out", async () => {
+      jest
+        .spyOn((rpc.Server as any).prototype, "getHealth")
+        .mockImplementation(() => new Promise(() => {}));
+
+      const result = await checkSorobanRpc();
+
+      expect(result.status).toBe("down");
+      expect(result.latencyMs).toBeGreaterThanOrEqual(DEPENDENCY_TIMEOUT_MS);
+    });
+  });
+
+  describe("getReadiness", () => {
+    it("returns ok when all dependencies are up", async () => {
+      process.env.ENABLE_SOROBAN_VERIFICATION = "true";
+      (prisma.$queryRaw as jest.Mock).mockResolvedValue([{ "?column?": 1 }]);
+      setRedisClientForTests({
+        ping: jest.fn().mockResolvedValue("PONG"),
+      } as unknown as ReturnType<typeof getRedisClient>);
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 200 });
+      jest
+        .spyOn((rpc.Server as any).prototype, "getHealth")
+        .mockResolvedValue({ status: "healthy" });
+
+      const result = await getReadiness(prisma);
+
+      expect(result.status).toBe("ok");
+      expect(result.dependencies.database.status).toBe("up");
+      expect(result.dependencies.redis.status).toBe("up");
+      expect(result.dependencies.horizon.status).toBe("up");
+      expect(result.dependencies.soroban.status).toBe("up");
+    });
+
+    it("returns degraded when any dependency is down", async () => {
+      (prisma.$queryRaw as jest.Mock).mockRejectedValue(new Error("db down"));
+      setRedisClientForTests({
+        ping: jest.fn().mockResolvedValue("PONG"),
+      } as unknown as ReturnType<typeof getRedisClient>);
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 200 });
+
+      const result = await getReadiness(prisma);
+
+      expect(result.status).toBe("degraded");
+      expect(result.dependencies.database.status).toBe("down");
+      expect(result.dependencies.redis.status).toBe("up");
+      expect(result.dependencies.horizon.status).toBe("up");
+      expect(result.dependencies.soroban.status).toBe("disabled");
+    });
+
+    it("degrades readiness and warns when the Prisma pool exceeds 80% utilization", async () => {
+      process.env.DATABASE_URL = "postgresql://localhost/fluxapay?connection_limit=10";
+      (prisma.$queryRaw as jest.Mock).mockResolvedValue([{ "?column?": 1 }]);
+      (prisma as unknown as { $metrics: { json: jest.Mock } }).$metrics = {
+        json: jest.fn().mockResolvedValue({
+          gauges: [
+            { key: "prisma_pool_connections_busy", value: 9 },
+            { key: "prisma_pool_connections_idle", value: 1 },
+          ],
+          histograms: [
+            {
+              key: "prisma_pool_connections_wait_histogram_ms",
+              value: { count: 4, sum: 20 },
+            },
+          ],
+        }),
+      };
+      setRedisClientForTests({
+        ping: jest.fn().mockResolvedValue("PONG"),
+      } as unknown as ReturnType<typeof getRedisClient>);
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 200 });
+      const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+
+      const result = await getReadiness(prisma);
+
+      expect(result.status).toBe("degraded");
+      expect(result.dependencies.database.pool).toEqual(expect.objectContaining({
+        activeConnections: 9,
+        idleConnections: 1,
+        utilization: 0.9,
+        queueWaitDurationMs: 5,
+        status: "degraded",
+      }));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("above 80%"));
+    });
+  });
+});
+
+describe("health routes", () => {
+  const prisma = new PrismaClient();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.ENABLE_SOROBAN_VERIFICATION = "false";
+    resetRedisClientForTests();
+    resetFxCircuitBreakerForTests();
+    global.fetch = jest.fn();
+  });
+
+  afterEach(() => {
+    restoreSorobanVerificationSetting();
+    resetRedisClientForTests();
+    resetFxCircuitBreakerForTests();
+    jest.restoreAllMocks();
+  });
+
+  it("GET /health returns status ok and uptime without auth", async () => {
+    const app = buildHealthApp(prisma);
+
+    const response = await request(app).get("/health");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      status: "ok",
+      uptime: expect.any(Number),
+      fx_circuit_breaker: {
+        state: "closed",
+        consecutiveFailures: 0,
+        openedAt: null,
+        lastError: null,
+      },
+    });
+  });
+
+  it("GET /health/ready returns 200 when all dependencies are up", async () => {
+    (prisma.$queryRaw as jest.Mock).mockResolvedValue([{ "?column?": 1 }]);
+    setRedisClientForTests({
+      ping: jest.fn().mockResolvedValue("PONG"),
+    } as unknown as ReturnType<typeof getRedisClient>);
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 200 });
+
+    const app = buildHealthApp(prisma);
+    const response = await request(app).get("/health/ready");
+
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe("ok");
+    expect(response.body.dependencies).toMatchObject({
+      database: { status: "up", latencyMs: expect.any(Number) },
+      redis: { status: "up", latencyMs: expect.any(Number) },
+      horizon: { status: "up", latencyMs: expect.any(Number) },
+      soroban: { status: "disabled", latencyMs: 0 },
+    });
+  });
+
+  it("GET /health/ready returns 503 when a dependency is down", async () => {
+    (prisma.$queryRaw as jest.Mock).mockRejectedValue(new Error("db down"));
+    setRedisClientForTests({
+      ping: jest.fn().mockResolvedValue("PONG"),
+    } as unknown as ReturnType<typeof getRedisClient>);
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 200 });
+
+    const app = buildHealthApp(prisma);
+    const response = await request(app).get("/health/ready");
+
+    expect(response.status).toBe(503);
+    expect(response.body.status).toBe("degraded");
+    expect(response.body.dependencies.database.status).toBe("down");
+  });
+
+  it("GET /health/ready returns 503 when enabled Soroban RPC is down", async () => {
+    process.env.ENABLE_SOROBAN_VERIFICATION = "true";
+    (prisma.$queryRaw as jest.Mock).mockResolvedValue([{ "?column?": 1 }]);
+    setRedisClientForTests({
+      ping: jest.fn().mockResolvedValue("PONG"),
+    } as unknown as ReturnType<typeof getRedisClient>);
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 200 });
+    jest
+      .spyOn((rpc.Server as any).prototype, "getHealth")
+      .mockRejectedValue(new Error("Soroban RPC unavailable"));
+
+    const app = buildHealthApp(prisma);
+    const response = await request(app).get("/health/ready");
+
+    expect(response.status).toBe(503);
+    expect(response.body.dependencies.soroban).toMatchObject({
+      status: "down",
+      latencyMs: expect.any(Number),
+    });
+  });
+});

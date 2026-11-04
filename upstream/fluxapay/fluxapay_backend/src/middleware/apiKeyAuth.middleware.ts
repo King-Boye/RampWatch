@@ -1,0 +1,167 @@
+import { ErrorCode } from "../types/errors";
+import { apiError, sendApiError } from "../helpers/apiError.helper";
+import { Response, NextFunction } from "express";
+import { AuthRequest } from "../types/express";
+import { PrismaClient } from "../generated/client/client";
+import { prisma } from "../config/prisma";
+import { compareKeys } from "../helpers/crypto.helper";
+import { apiKeyService } from "../services/apiKey.service";
+import jwt, { JwtPayload } from "jsonwebtoken";
+import { getEnvConfig } from "../config/env.config";
+import { getCachedApiKeyLookup, setCachedApiKeyLookup } from "../utils/apiKeyCache.util";
+
+
+/**
+ * Middleware to authenticate requests using an API key or JWT.
+ * Supports:
+ * - Authorization: Bearer <sk_live_...>    (production API key)
+ * - Authorization: Bearer <sk_test_...>     (Stripe-style test mode key, isolated data)
+ * - Authorization: Bearer <fpk_live_...>    (managed live API key)
+ * - Authorization: Bearer <fpk_test_...>    (managed test API key)
+ * - x-api-key: any supported API key prefix
+ * - Authorization: Bearer <jwt_token>       (dashboard / internal)
+ */
+
+/**
+ * True when a raw API key is a test-mode key (sk_test_ / fpk_test_).
+ * Stripe-style test keys map to the isolated test-mode data partition.
+ */
+export function isTestApiKey(key: string): boolean {
+  return key.startsWith("sk_test_") || key.startsWith("fpk_test_");
+}
+
+/**
+ * True when a raw API key is a production key.
+ * Production keys map to the live data partition.
+ */
+export function isLiveApiKey(key: string): boolean {
+    return key.startsWith("sk_live_") || key.startsWith("fpk_live_");
+}
+
+export async function authenticateApiKey(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction,
+) {
+    const authReq = req as any; // Cast to avoid lint errors when types are unstable
+    const authHeader = req.headers["authorization"];
+    const xApiKey = req.headers["x-api-key"];
+
+    let key: string | undefined;
+
+    // 1. Check for x-api-key header
+    if (xApiKey && typeof xApiKey === "string") {
+        key = xApiKey;
+    }
+    // 2. Check for Authorization header
+    else if (authHeader?.toLowerCase()?.startsWith("bearer ")) {
+        key = authHeader.split(" ")[1];
+    }
+
+    if (!key) {
+        return sendApiError(res, apiError(401, ErrorCode.AUTHENTICATION_REQUIRED, "Authentication required"));
+    }
+
+    // 3. Try interpreting as API Key first.
+    //    FluxaPay keys use the format <prefix>_<32 hex chars>.
+    //    Supported prefixes: sk_live_/sk_test_ and fpk_live_/fpk_test_.
+    //    The real validation is the bcrypt hash comparison — the prefix is only
+    //    used to distinguish API keys from JWT tokens and to select the data partition.
+    const isApiKey =
+        key.startsWith("sk_live_") || key.startsWith("sk_test_") ||
+        key.startsWith("fpk_live_") || key.startsWith("fpk_test_");
+    if (isApiKey) {
+        try {
+            const cachedLookup = await getCachedApiKeyLookup(key);
+            if (cachedLookup) {
+                authReq.merchantId = cachedLookup.merchantId;
+                authReq.isTestMode = cachedLookup.isTestMode;
+                return next();
+            }
+
+            const lastFour = key.slice(-4);
+
+            // Find merchants with matching last four to narrow down search
+            const merchants = await prisma.merchant.findMany({
+                where: { api_key_last_four: lastFour, status: "active" },
+                select: { id: true, api_key_hashed: true }
+            });
+
+            for (const merchant of merchants) {
+                if (merchant.api_key_hashed && await compareKeys(key, merchant.api_key_hashed)) {
+                    authReq.merchantId = merchant.id;
+                    authReq.isTestMode = isTestApiKey(key);
+                    await setCachedApiKeyLookup(key, merchant.id, authReq.isTestMode);
+                    return next();
+                }
+            }
+
+            const storedKey = await apiKeyService.validateRawApiKey(key);
+            if (storedKey.expired && storedKey.merchantId) {
+                return sendApiError(res, apiError(401, ErrorCode.API_KEY_EXPIRED, "API key expired"));
+            }
+            if (storedKey.valid && storedKey.merchantId) {
+                const ipAllowlist = storedKey.ip_allowlist ?? [];
+                if (!isIpAllowed(req.ip, ipAllowlist)) {
+                    return sendApiError(
+                        res,
+                        apiError(403, ErrorCode.FORBIDDEN, "API key is not allowed from this IP address"),
+                    );
+                }
+                const permission = requiredApiKeyPermission(
+                    req.method,
+                    req.originalUrl || req.path,
+                );
+                const permissions = storedKey.permissions ?? ["payments:read"];
+                if (!permissions.includes(permission)) {
+                    return sendApiError(
+                        res,
+                        apiError(403, ErrorCode.FORBIDDEN, `API key requires the '${permission}' permission`),
+                    );
+                }
+                authReq.merchantId = storedKey.merchantId;
+                authReq.isTestMode = isTestApiKey(key);
+                await setCachedApiKeyLookup(key, storedKey.merchantId, authReq.isTestMode);
+                return next();
+            }
+
+            // Support key rotation: a key may be in a grace period after rotation.
+            // The previous key remains valid until its grace period expires.
+            const rotatedKey = await apiKeyService.validateRotatedApiKey(key);
+            if (rotatedKey.expired && rotatedKey.merchantId) {
+                return sendApiError(res, apiError(401, ErrorCode.API_KEY_EXPIRED, "API key expired"));
+            }
+            if (rotatedKey.valid && rotatedKey.merchantId) {
+                authReq.merchantId = rotatedKey.merchantId;
+                authReq.isTestMode = isTestApiKey(key);
+                await setCachedApiKeyLookup(key, rotatedKey.merchantId, authReq.isTestMode);
+                return next();
+            }
+
+            return sendApiError(res, apiError(401, ErrorCode.INVALID_API_KEY, "Invalid API key"));
+        } catch (error) {
+            console.error("API Key Auth Error:", error);
+            return sendApiError(res, apiError(500, ErrorCode.AUTHENTICATION_ERROR, "Authentication error"));
+        }
+    }
+
+    // 4. Try interpreting as JWT (for dashboard/internal use)
+    try {
+        const JWT_SECRET = getEnvConfig().JWT_SECRET;
+        const payload = jwt.verify(key, JWT_SECRET) as JwtPayload & { id?: unknown; email?: unknown };
+        const merchantId = typeof payload?.id === "string" && payload.id.trim().length > 0 ? payload.id.trim() : undefined;
+        if (merchantId) {
+            authReq.merchantId = merchantId;
+            authReq.user = {
+                id: merchantId,
+                ...(typeof payload.email === "string" ? { email: payload.email } : {}),
+            };
+            return next();
+        }
+    } catch (err) {
+        // If it's not a valid JWT either, then fail
+        return sendApiError(res, apiError(401, ErrorCode.INVALID_AUTH_CREDENTIALS, "Invalid authentication credentials"));
+    }
+
+    return sendApiError(res, apiError(401, ErrorCode.AUTHENTICATION_FAILED, "Authentication failed"));
+}

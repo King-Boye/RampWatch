@@ -1,0 +1,277 @@
+import { Keypair } from "@stellar/stellar-sdk";
+import { PrismaClient, DepositAddressStatus } from "../generated/client/client";
+import { KMSFactory } from "./kms";
+import * as crypto from "crypto";
+import { eventBus, AppEvents } from "./EventService";
+import { ErrorCode } from "../types/errors";
+import { sendDepositPoolAlert } from "./settlementAlert.service";
+
+import { prisma } from "../config/prisma";
+
+export class PoolExhaustedError extends Error {
+  public readonly status = 503;
+  public readonly code = ErrorCode.POOL_EXHAUSTED;
+  public readonly retryAfterSeconds: number;
+
+  constructor(
+    message = "Deposit address pool is exhausted. Please try again later.",
+    retryAfterSeconds = 30,
+  ) {
+    super(message);
+    this.name = "PoolExhaustedError";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+export class DepositAddressService {
+  /**
+   * Pre-generates Stellar keypairs and stores them in the DepositAddress pool.
+   * @param count Number of addresses to generate
+   * @param seedVersion Epoch of master seed (default: 1)
+   */
+  static async generatePoolAddresses(count: number, seedVersion: number = 1): Promise<number> {
+    const kmsProvider = KMSFactory.getProvider();
+    let generated = 0;
+
+    for (let i = 0; i < count; i++) {
+      const keypair = Keypair.random();
+      const publicKey = keypair.publicKey();
+      const secretKey = keypair.secret();
+
+      // Encrypt the secret key for at-rest storage
+      let encryptedSecret: string;
+      if (kmsProvider.encrypt) {
+        encryptedSecret = await kmsProvider.encrypt(secretKey);
+      } else {
+        // Fallback local encryption if KMS provider lacks encrypt method
+        encryptedSecret = this._localEncrypt(secretKey);
+      }
+
+      await prisma.depositAddress.create({
+        data: {
+          public_key: publicKey,
+          secret_key: encryptedSecret,
+          derivation_path: "random", // We use random generation, no BIP44 path needed
+          seedVersion,
+          status: "available",
+        },
+      });
+      generated++;
+    }
+
+    return generated;
+  }
+
+  /**
+   * Allocates an available address from the pool for a payment.
+   * @param paymentId The payment ID
+   */
+  static async allocateAddress(paymentId: string, merchantId?: string): Promise<string | null> {
+    const stats = await this.getPoolStats();
+
+    // Fires the ops alert with current pool size, merchant ID, and timestamp.
+    // Awaited (not fire-and-forget) so it is guaranteed to have been sent
+    // before any PoolExhaustedError is thrown below.
+    const fireExhaustionAlert = async () => {
+      await sendDepositPoolAlert({
+        ...stats,
+        merchantId,
+        timestamp: new Date().toISOString(),
+      }).catch((err) => {
+        console.error("Failed to send deposit pool alert:", err);
+      });
+    };
+
+    if (stats.totalCount > 0) {
+      // Alert when utilization >= 80% (0.8)
+      if (stats.utilizationPct >= 0.8) {
+        await fireExhaustionAlert();
+      }
+
+      // Graceful 503 typed error when utilization >= 95% (0.95)
+      if (stats.utilizationPct >= 0.95) {
+        throw new PoolExhaustedError();
+      }
+    }
+
+    return await prisma.$transaction(async (tx) => {
+      // Find an available address and lock it for update
+      const address = await tx.$queryRaw<any[]>`
+        SELECT * FROM "DepositAddress"
+        WHERE status = 'available'
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED;
+      `;
+
+      if (!address || address.length === 0) {
+        if (stats.totalCount > 0) {
+          // The stats snapshot above indicated capacity, but a concurrent
+          // allocation exhausted the pool before this query ran. Ensure an
+          // ops alert is always fired immediately before surfacing the 503,
+          // even if the pre-check above didn't already send one.
+          if (stats.utilizationPct < 0.8) {
+            await fireExhaustionAlert();
+          }
+          throw new PoolExhaustedError();
+        }
+        return null; // Pool is empty
+      }
+
+      const selected = address[0];
+
+      // Mark it as assigned
+      const updated = await tx.depositAddress.update({
+        where: { id: selected.id },
+        data: {
+          status: "assigned",
+          assigned_payment_id: paymentId,
+        },
+      });
+
+      return updated.public_key;
+    });
+  }
+
+  /**
+   * Releases an assigned address to the cooldown state.
+   * @param paymentId The payment ID
+   */
+  static async releaseAddress(paymentId: string): Promise<void> {
+    const address = await prisma.depositAddress.findUnique({
+      where: { assigned_payment_id: paymentId },
+    });
+
+    if (!address) {
+      return;
+    }
+
+    // Cooldown for 24 hours
+    const cooldownUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await prisma.depositAddress.update({
+      where: { id: address.id },
+      data: {
+        status: "cooldown",
+        assigned_payment_id: null,
+        cooldown_until: cooldownUntil,
+      },
+    });
+  }
+
+  /**
+   * Retrieves pool stats for the admin dashboard and monitoring.
+   */
+  static async getPoolStats() {
+    const stats = await prisma.depositAddress.groupBy({
+      by: ["status"],
+      _count: {
+        status: true,
+      },
+    });
+
+    const result = {
+      available: 0,
+      assigned: 0,
+      cooldown: 0,
+      retiring: 0,
+      total: 0,
+    };
+
+    for (const stat of stats) {
+      if (stat.status === "available") result.available = stat._count.status;
+      if (stat.status === "assigned") result.assigned = stat._count.status;
+      if (stat.status === "cooldown") result.cooldown = stat._count.status;
+      if (stat.status === "retiring") result.retiring = stat._count.status;
+      result.total += stat._count.status;
+    }
+
+    const availableCount = result.available;
+    const allocatedCount = result.assigned;
+    const totalCount = result.total;
+    const nonAvailableCount = totalCount - availableCount;
+    const utilizationPct =
+      totalCount > 0
+        ? Number((nonAvailableCount / totalCount).toFixed(4))
+        : 0;
+
+    return {
+      ...result,
+      availableCount,
+      allocatedCount,
+      totalCount,
+      utilizationPct,
+    };
+  }
+
+  /**
+   * Recycles addresses that have completed their cooldown period.
+   * To be called by a cron job.
+   */
+  static async recycleAddresses(): Promise<number> {
+    const result = await prisma.depositAddress.updateMany({
+      where: {
+        status: "cooldown",
+        cooldown_until: {
+          lte: new Date(),
+        },
+      },
+      data: {
+        status: "available",
+        cooldown_until: null,
+      },
+    });
+
+    return result.count;
+  }
+
+  /**
+   * Local AES-256-GCM encrypt (used when no KMS encrypt available)
+   * Requires HD_WALLET_SEED to be set — fails loudly if missing.
+   */
+  private static _localEncrypt(plaintext: string): string {
+    const seed = process.env.HD_WALLET_SEED;
+    if (!seed) {
+      throw new Error(
+        "HD_WALLET_SEED is required for local encryption. " +
+        "Set it in production or configure a KMS provider with an encrypt() method.",
+      );
+    }
+    const key = crypto
+      .createHash("sha256")
+      .update(seed + ":hd-key-data")
+      .digest();
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+    let enc = cipher.update(plaintext, "utf8", "hex");
+    enc += cipher.final("hex");
+    const tag = cipher.getAuthTag();
+    return `${iv.toString("hex")}:${tag.toString("hex")}:${enc}`;
+  }
+
+  /**
+   * Initializes event listeners for address pool management.
+   */
+  static initializeListeners() {
+    eventBus.on(AppEvents.PAYMENT_EXPIRED, async (payment) => {
+      if (payment && payment.id) {
+        try {
+          await this.releaseAddress(payment.id);
+        } catch (error) {
+          console.error(`Failed to release address for expired payment ${payment.id}:`, error);
+        }
+      }
+    });
+
+    eventBus.on(AppEvents.PAYMENT_CONFIRMED, async (payment) => {
+      // Payment confirmed means we've swept the funds or it's settled.
+      // We can release the address for cooldown.
+      if (payment && payment.id) {
+        try {
+          await this.releaseAddress(payment.id);
+        } catch (error) {
+          console.error(`Failed to release address for confirmed payment ${payment.id}:`, error);
+        }
+      }
+    });
+  }
+}
