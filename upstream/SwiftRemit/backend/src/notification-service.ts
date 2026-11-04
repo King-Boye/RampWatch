@@ -1,0 +1,214 @@
+/**
+ * Notification Service — Issue #852, #950
+ *
+ * Sends email (SendGrid) and SMS (Twilio) notifications when remittance
+ * status changes to completed or failed. Respects per-user opt-out preferences
+ * and preferred_language for localised message templates.
+ */
+
+import axios from 'axios';
+import { Pool } from 'pg';
+import { buildLocalizedMessage, TemplateKey } from './notification-templates';
+import { createLogger, getCorrelationId } from './correlation-id';
+
+const logger = createLogger('notification-service');
+
+export type NotificationChannel = 'email' | 'sms';
+export type RemittanceNotificationStatus = 'completed' | 'failed' | 'created';
+export type KycNotificationEvent = 'kyc_approved' | 'kyc_expired';
+
+export interface NotificationPreferences {
+  user_id: string;
+  email?: string;
+  phone?: string;
+  email_opt_in: boolean;
+  sms_opt_in: boolean;
+  preferred_language?: string;
+}
+
+export interface RemittanceNotificationPayload {
+  remittanceId: string;
+  status: RemittanceNotificationStatus;
+  amount: number;
+  currency: string;
+  senderUserId: string;
+}
+
+export interface KycNotificationPayload {
+  event: KycNotificationEvent;
+  userId: string;
+}
+
+// ─── Provider abstractions ────────────────────────────────────────────────────
+
+async function sendEmail(to: string, subject: string, text: string): Promise<void> {
+  const apiKey = process.env.SENDGRID_API_KEY;
+  const from = process.env.SENDGRID_FROM_EMAIL ?? 'noreply@swiftremit.io';
+  if (!apiKey) {
+    logger.warn('[notification] SENDGRID_API_KEY not set — skipping email', { correlationId: getCorrelationId() });
+    return;
+  }
+  await axios.post(
+    'https://api.sendgrid.com/v3/mail/send',
+    { personalizations: [{ to: [{ email: to }] }], from: { email: from }, subject, content: [{ type: 'text/plain', value: text }] },
+    { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } },
+  );
+}
+
+async function sendSms(to: string, body: string): Promise<void> {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_FROM_NUMBER;
+  if (!accountSid || !authToken || !from) {
+    logger.warn('[notification] Twilio credentials not set — skipping SMS', { correlationId: getCorrelationId() });
+    return;
+  }
+  const params = new URLSearchParams({ To: to, From: from, Body: body });
+  await axios.post(
+    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+    params.toString(),
+    { auth: { username: accountSid, password: authToken }, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+  );
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function remittanceStatusToTemplateKey(status: RemittanceNotificationStatus): TemplateKey {
+  switch (status) {
+    case 'completed': return 'remittance_completed';
+    case 'failed':    return 'remittance_failed';
+    case 'created':   return 'remittance_created';
+  }
+}
+
+async function dispatch(
+  prefs: NotificationPreferences,
+  subject: string,
+  text: string,
+  userId: string,
+): Promise<void> {
+  const correlationId = getCorrelationId();
+  const tasks: Promise<void>[] = [];
+
+  if (prefs.email_opt_in && prefs.email) {
+    logger.info('Dispatching email notification', { userId, correlationId });
+    tasks.push(
+      sendEmail(prefs.email, subject, text).catch(err =>
+        logger.error(`Email failed for ${userId}`, err instanceof Error ? err : new Error(String(err)), { correlationId }),
+      ),
+    );
+  }
+
+  if (prefs.sms_opt_in && prefs.phone) {
+    logger.info('Dispatching SMS notification', { userId, correlationId });
+    tasks.push(
+      sendSms(prefs.phone, text).catch(err =>
+        logger.error(`SMS failed for ${userId}`, err instanceof Error ? err : new Error(String(err)), { correlationId }),
+      ),
+    );
+  }
+
+  await Promise.all(tasks);
+}
+
+// ─── Main service ─────────────────────────────────────────────────────────────
+
+export class NotificationService {
+  constructor(private readonly pool: Pool) {}
+
+  /**
+   * Fetch notification preferences for a user from the DB.
+   * Returns null if no preferences row exists.
+   */
+  async getPreferences(userId: string): Promise<NotificationPreferences | null> {
+    const result = await this.pool.query<NotificationPreferences>(
+      `SELECT user_id, email, phone, email_opt_in, sms_opt_in, preferred_language
+       FROM notification_preferences WHERE user_id = $1`,
+      [userId],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  /**
+   * Upsert notification preferences for a user.
+   */
+  async setPreferences(prefs: NotificationPreferences): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO notification_preferences (user_id, email, phone, email_opt_in, sms_opt_in, preferred_language)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (user_id) DO UPDATE SET
+         email = EXCLUDED.email,
+         phone = EXCLUDED.phone,
+         email_opt_in = EXCLUDED.email_opt_in,
+         sms_opt_in = EXCLUDED.sms_opt_in,
+         preferred_language = EXCLUDED.preferred_language,
+         updated_at = NOW()`,
+      [
+        prefs.user_id,
+        prefs.email ?? null,
+        prefs.phone ?? null,
+        prefs.email_opt_in,
+        prefs.sms_opt_in,
+        prefs.preferred_language ?? 'en',
+      ],
+    );
+  }
+
+  /**
+   * Send notifications for a remittance status change.
+   * Messages are localised to the user's preferred_language; falls back through
+   * base-language → 'en' (see notification-templates/index.ts).
+   */
+  async notifyRemittanceStatus(payload: RemittanceNotificationPayload): Promise<void> {
+    const { remittanceId, status, amount, currency, senderUserId } = payload;
+    const correlationId = getCorrelationId();
+    const prefs = await this.getPreferences(senderUserId);
+    if (!prefs) {
+      logger.debug('No notification preferences for user — skipping', { userId: senderUserId, correlationId });
+      return;
+    }
+
+    const key = remittanceStatusToTemplateKey(status);
+    const { subject, text } = buildLocalizedMessage(prefs.preferred_language, key, {
+      remittanceId,
+      amount,
+      currency,
+    });
+
+    logger.info('Sending remittance notification', {
+      remittanceId,
+      status,
+      userId: senderUserId,
+      locale: prefs.preferred_language ?? 'en',
+      correlationId,
+    });
+
+    await dispatch(prefs, subject, text, senderUserId);
+  }
+
+  /**
+   * Send a KYC event notification (approved / expired).
+   * Messages are localised to the user's preferred_language; falls back through
+   * base-language → 'en'.
+   */
+  async notifyKycEvent(payload: KycNotificationPayload): Promise<void> {
+    const { event, userId } = payload;
+    const correlationId = getCorrelationId();
+    const prefs = await this.getPreferences(userId);
+    if (!prefs) {
+      logger.debug('No notification preferences for user — skipping', { userId, correlationId });
+      return;
+    }
+
+    const { subject, text } = buildLocalizedMessage(prefs.preferred_language, event, {});
+
+    logger.info('Sending KYC notification', {
+      event,
+      userId,
+      locale: prefs.preferred_language ?? 'en',
+      correlationId,
+    });
+
+    await dispatch(prefs, subject, text, userId);
+  }
+}

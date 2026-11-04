@@ -1,0 +1,313 @@
+# Default values for swiftremit.
+# Override per environment with values.dev.yaml / values.staging.yaml / values.production.yaml
+
+global:
+  imageRegistry: ""      # e.g. ghcr.io/your-org — prepended to all image names
+  imagePullSecrets: []
+  nodeEnv: production
+
+# ─── Security defaults (SR-103) ────────────────────────────────────────────────
+# Applied to every component unless a component overrides them with its own
+# `podSecurityContext` / `containerSecurityContext` block.
+#
+# The containers run non-root on a read-only root filesystem, so each one gets a
+# writable emptyDir at /tmp (see `writableVolumes` per component).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  privileged: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 10001
+  capabilities:
+    drop:
+      - ALL
+
+# ─── Pod disruption budgets (SR-103) ───────────────────────────────────────────
+# Keeps at least one replica serving during voluntary disruptions (node drains,
+# cluster upgrades). Disabled in dev where a single replica runs.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ─── PostgreSQL (managed externally; supply DATABASE_URL via secret) ───────────
+postgresql:
+  # Set to true to spin up an in-cluster postgres (dev only)
+  enabled: false
+  auth:
+    username: swiftremit
+    password: swiftremit
+    database: swiftremit
+
+# ─── API service ───────────────────────────────────────────────────────────────
+api:
+  replicaCount: 2
+
+  image:
+    repository: swiftremit-api
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+  config:
+    PORT: "3000"
+    NODE_ENV: production
+    RATE_LIMIT_WINDOW_MS: "900000"
+    RATE_LIMIT_MAX_REQUESTS: "100"
+    CURRENCY_CONFIG_PATH: "./config/currencies.json"
+    SECRETS_MANAGER_ENABLED: "true"
+    AWS_REGION: "us-east-1"
+    # Database pool configuration
+    DB_POOL_MAX: "10"
+    DB_POOL_IDLE_TIMEOUT_MS: "30000"
+    DB_POOL_CONNECTION_TIMEOUT_MS: "5000"
+    # Pool saturation thresholds for readiness probe
+    POOL_SATURATION_WAITING_THRESHOLD: "3"
+    POOL_SATURATION_DURATION_MS: "5000"
+
+  # Secrets should be injected via AWS Secrets Manager or External Secrets Operator.
+  # Do NOT put real credentials here — use external secret management.
+  # See CONFIGURATION.md for AWS Secrets Manager setup.
+  # Example with External Secrets:
+  #   The secret values are populated by ExternalSecret resources referencing
+  #   AWS Secrets Manager paths like swiftremit/DATABASE_URL
+  secret:
+    DATABASE_URL: ""
+    CONTRACT_RPC_URL: ""
+    ANCHORS_ADMIN_API_KEY: ""
+    JWT_SECRET: ""
+
+  # emptyDir mounts that keep the container writable where it has to be, so the
+  # root filesystem can stay read-only.
+  writableVolumes:
+    - name: tmp
+      mountPath: /tmp
+
+  # Probes hit the /health endpoint added in SR-064, which reports database and
+  # contract reachability and returns a non-200 when either is down.
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    successThreshold: 1
+    failureThreshold: 3
+
+# ─── Backend service ───────────────────────────────────────────────────────────
+backend:
+  replicaCount: 2
+
+  image:
+    repository: swiftremit-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 3001
+    targetPort: 3001
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+  config:
+    PORT: "3001"
+    NODE_ENV: production
+    STELLAR_NETWORK: mainnet
+    HORIZON_URL: "https://horizon.stellar.org"
+    SOROBAN_RPC_URL: "https://soroban-rpc.stellar.org"
+    NETWORK_PASSPHRASE: "Public Global Stellar Network ; September 2015"
+    VERIFICATION_INTERVAL_HOURS: "24"
+    ANCHOR_TIMEOUT_HOURS: "24"
+    RATE_LIMIT_WINDOW_MS: "900000"
+    RATE_LIMIT_MAX_REQUESTS: "100"
+    API_KEY_RATE_LIMIT_WINDOW_MS: "60000"
+    API_KEY_RATE_LIMIT_MAX: "200"
+    WEBHOOK_RETRY_BASE_MS: "1000"
+    WEBHOOK_RETRY_MAX_MS: "300000"
+    WEBHOOK_RETRY_JITTER_PERCENT: "20"
+    SECRETS_MANAGER_ENABLED: "true"
+    AWS_REGION: "us-east-1"
+
+  # Secrets should be injected via AWS Secrets Manager or External Secrets Operator.
+  # Do NOT put real credentials here — use external secret management.
+  # See CONFIGURATION.md for AWS Secrets Manager setup.
+  secret:
+    DATABASE_URL: ""
+    CONTRACT_ID: ""
+    ADMIN_SECRET_KEY: ""
+
+  writableVolumes:
+    - name: tmp
+      mountPath: /tmp
+
+  # /health and /health/db come from SR-064. /health returns 503 when Postgres is
+  # unreachable, so it doubles as the readiness signal.
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 3001
+    initialDelaySeconds: 30
+    periodSeconds: 20
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 3001
+    initialDelaySeconds: 10
+    periodSeconds: 10
+
+# ─── Frontend service ──────────────────────────────────────────────────────────
+frontend:
+  replicaCount: 2
+
+  image:
+    repository: swiftremit-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 5173
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Frontend does not autoscale by default (static assets; CDN preferred in prod)
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+
+  config:
+    VITE_NETWORK: mainnet
+    VITE_HORIZON_URL: "https://horizon.stellar.org"
+    VITE_SOROBAN_RPC_URL: "https://soroban-rpc.stellar.org"
+    VITE_CONTRACT_ID: ""
+    VITE_USDC_ISSUER: ""
+    VITE_EURC_ISSUER: ""
+    VITE_USDC_TOKEN_ID: ""
+
+  secret: {}
+
+  writableVolumes:
+    - name: tmp
+      mountPath: /tmp
+    - name: vite-cache
+      mountPath: /app/node_modules/.vite
+
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 5173
+    initialDelaySeconds: 10
+    periodSeconds: 20
+
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 5173
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+# ─── Alertmanager (SR-214) ────────────────────────────────────────────────────
+# Routes firing Prometheus alerts (keyed on the `team:` label) to on-call. The
+# routing config is charts/swiftremit/files/alertmanager.yml, kept byte-identical
+# to monitoring/alertmanager.yml (CI diffs them).
+#
+# Disabled by default — see docs/DEPLOYMENT.md for which deployment mechanism is
+# authoritative today. Enable per environment in values.<env>.yaml.
+alertmanager:
+  enabled: false
+
+  image:
+    repository: prom/alertmanager
+    tag: v0.27.0
+    pullPolicy: IfNotPresent
+
+  service:
+    port: 9093
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+  # Point at an existing Secret with keys `slack_api_url` /
+  # `pagerduty_routing_key`, or leave blank and let the chart create one from
+  # the values below. The volume mount is `optional`, so unset keys just leave
+  # the matching notifier inert.
+  secretName: ""
+  secrets: {}
+    # slackApiUrl: "https://hooks.slack.com/services/…"
+    # pagerdutyRoutingKey: "…"
+
+# ─── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  hosts:
+    - host: swiftremit.example.com
+      paths:
+        - path: /api
+          pathType: Prefix
+          service: api
+        - path: /backend
+          pathType: Prefix
+          service: backend
+        - path: /
+          pathType: Prefix
+          service: frontend
+  tls: []

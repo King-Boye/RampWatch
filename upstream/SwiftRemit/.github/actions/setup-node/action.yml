@@ -1,0 +1,36 @@
+name: Setup Node.js
+description: Configure Node.js with npm caching
+
+inputs:
+  node-version:
+    description: Node.js version to install
+    required: false
+    default: '20'
+  cache-dependency-path:
+    description: Path to package-lock.json or equivalent
+    required: false
+    default: ''
+  working-directory:
+    description: |
+      Deprecated and unused. This repo is a single npm workspaces project with one
+      root lockfile, so dependencies are always installed at the repository root.
+      Kept for backward compatibility with existing callers.
+    required: false
+    default: '.'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+    # npm workspaces: the only lockfile lives at the repository root, so the
+    # install must happen there. It installs every workspace in one pass.
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: npm ci

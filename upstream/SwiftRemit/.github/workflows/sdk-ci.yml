@@ -1,0 +1,140 @@
+name: SDK CI
+
+on:
+  push:
+    paths:
+      - "sdk/**"
+  pull_request:
+    paths:
+      - "sdk/**"
+
+jobs:
+  # ── Build + unit tests ─────────────────────────────────────────────────────
+  sdk-test:
+    name: SDK — build & test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: .
+
+      - name: Type-check
+        run: npm run lint
+
+      - name: Run unit tests (including browser smoke test)
+        run: npm test
+
+      - name: Build all bundles
+        run: npm run build
+
+  # ── Bundle size budget ─────────────────────────────────────────────────────
+  sdk-bundle-size:
+    name: SDK — browser bundle size budget
+    runs-on: ubuntu-latest
+    needs: sdk-test
+    defaults:
+      run:
+        working-directory: sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: .
+
+      - name: Build bundles
+        run: npm run build
+
+      - name: Run size-limit budget check
+        run: npx size-limit --json
+        # The budgets are declared in package.json "size-limit" field:
+        #   - dist/browser/index.global.js  ≤ 120 kB gzipped
+        #   - dist/browser/index.esm.mjs    ≤ 120 kB gzipped
+        #   - dist/index.js                 ≤ 150 kB gzipped
+        # The job fails if any artifact exceeds its budget.
+
+      - name: Upload browser bundle as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-browser-bundle
+          path: |
+            sdk/dist/browser/index.global.js
+            sdk/dist/browser/index.global.js.map
+            sdk/dist/browser/index.esm.mjs
+          retention-days: 14
+
+  # ── Changeset required for SDK source changes ──────────────────────────────
+  sdk-changeset:
+    name: SDK — changeset required
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need the base branch to diff against.
+          fetch-depth: 0
+
+      - name: Require a changeset for SDK source changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+
+          source_changed="$(echo "$changed" \
+            | grep -E '^sdk/(src|react-native/src)/' \
+            | grep -vE '\.test\.ts$' || true)"
+
+          if [ -z "$source_changed" ]; then
+            echo "No SDK source changes — changeset not required."
+            exit 0
+          fi
+
+          echo "SDK source files changed in this PR:"
+          echo "$source_changed"
+
+          # A changeset is any new .md file under sdk/.changeset/ other than the
+          # directory's own README.
+          changeset_added="$(echo "$changed" \
+            | grep -E '^sdk/\.changeset/.+\.md$' \
+            | grep -v '^sdk/.changeset/README.md$' || true)"
+
+          if [ -n "$changeset_added" ]; then
+            echo "Changeset found:"
+            echo "$changeset_added"
+            exit 0
+          fi
+
+          # A release PR consumes its changesets and bumps the version instead,
+          # so it legitimately carries no pending changeset file.
+          base_version="$(git show "$BASE_SHA:sdk/package.json" | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")"
+          head_version="$(git show "$HEAD_SHA:sdk/package.json" | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")"
+
+          if [ "$base_version" != "$head_version" ]; then
+            echo "Release PR: @swiftremit/sdk $base_version -> $head_version. Changeset not required."
+            exit 0
+          fi
+
+          echo "::error::This PR changes SDK source but adds no changeset."
+          echo "Run 'npm run changeset' in sdk/ and commit the generated file."
+          echo "Consumers cannot tell which published version carries these changes without one."
+          exit 1

@@ -1,0 +1,604 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import './SendMoneyFlow.css';
+import * as StellarSdk from '@stellar/stellar-sdk';
+import { signTransaction } from '@stellar/freighter-api';
+import { useTranslation } from 'react-i18next';
+import type { DailyLimitStatus } from '../../../sdk/src/types.js';
+import { useIdempotency } from '../utils/useIdempotency';
+import { useTxPolling } from '../utils/useTxPolling';
+import { usePolling } from '../utils/usePolling';
+import type { PollResult } from '../utils/useTxPolling';
+import { parseAmount, stroopsToAmount } from '../utils/amount';
+
+type FlowStep = 1 | 2 | 3 | 4 | 5;
+
+interface ConfirmPayload {
+  amount: number;
+  asset: string;
+  recipient: string;
+  memo?: string;
+}
+
+/** Represents an optimistic pending row to show in TransactionHistory. */
+export interface OptimisticEntry {
+  idempotencyKey: string;
+  amount: number;
+  asset: string;
+  recipient: string;
+  memo?: string;
+  submittedAt: string;
+}
+
+interface SendMoneyFlowProps {
+  assets?: string[];
+  /** Stellar public key of the sender (for wallet-based submission) */
+  senderAddress?: string;
+  /** Stellar public key used for on-chain tx submission (same as senderAddress) */
+  senderPublicKey?: string;
+  /** Network to use for on-chain tx submission */
+  network?: 'TESTNET' | 'PUBLIC';
+  onConfirm?: (payload: ConfirmPayload, idempotencyKey: string) => Promise<void>;
+  /** Optional: fetch daily limit status for the sender/currency/country corridor */
+  getDailyLimitStatus?: (currency: string, country: string) => Promise<DailyLimitStatus>;
+  /** ISO 3166-1 alpha-2 destination country (e.g. "NG") */
+  destinationCountry?: string;
+  /**
+   * Called right after the optimistic row is inserted.  Parent can push the
+   * entry into its transactions list to show an unconfirmed row immediately.
+   */
+  onOptimisticAdd?: (entry: OptimisticEntry) => void;
+  /**
+   * Called when the optimistic entry should be rolled back (on failure).
+   * Receives the idempotencyKey that was passed to onOptimisticAdd.
+   */
+  onOptimisticRollback?: (idempotencyKey: string) => void;
+  /**
+   * Optional polling function; if provided it will be called after submission
+   * to resolve the final status instead of showing an error on timeout.
+   */
+  pollTxStatus?: (txId: string) => Promise<PollResult>;
+}
+
+const STEP_SEQUENCE: FlowStep[] = [1, 2, 3, 4, 5];
+
+const DEFAULT_ASSETS = ['XLM', 'USDC', 'EURC'];
+const FX_TTL_MS = 30_000;
+
+const HORIZON_URLS: Record<string, string> = {
+  TESTNET: 'https://horizon-testnet.stellar.org',
+  PUBLIC: 'https://horizon.stellar.org',
+};
+
+const STELLAR_EXPERT_BASE: Record<string, string> = {
+  TESTNET: 'https://stellar.expert/explorer/testnet/tx',
+  PUBLIC: 'https://stellar.expert/explorer/public/tx',
+};
+
+const ASSET_ISSUERS: Partial<Record<string, string>> = {
+  USDC: import.meta.env.VITE_USDC_ISSUER,
+  EURC: import.meta.env.VITE_EURC_ISSUER,
+};
+
+/** Threshold at which we show the "approaching limit" warning (90%) — kept for future use */
+// const APPROACHING_THRESHOLD = 0.9;
+
+function isValidRecipient(input: string, senderAddress?: string): boolean {
+  const trimmed = input.trim();
+  if (!/^G[A-Z2-7]{55}$/.test(trimmed)) return false;
+  if (senderAddress && trimmed === senderAddress.trim()) return false;
+  return true;
+}
+
+function resolveAsset(assetCode: string): StellarSdk.Asset {
+  if (assetCode === 'XLM') {
+    return StellarSdk.Asset.native();
+  }
+
+  const issuer = ASSET_ISSUERS[assetCode];
+  if (!issuer) {
+    throw new Error(`Issuer not configured for asset ${assetCode}`);
+  }
+
+  return new StellarSdk.Asset(assetCode, issuer);
+}
+
+async function buildAndSubmitTransaction(
+  payload: ConfirmPayload,
+  senderPublicKey: string,
+  network: 'TESTNET' | 'PUBLIC',
+  /** Exact decimal string derived from stroops; avoids "1e-7" from String(number). */
+  amountString: string = String(payload.amount)
+): Promise<string> {
+  const horizonUrl = HORIZON_URLS[network];
+  const server = new StellarSdk.Horizon.Server(horizonUrl);
+  const networkPassphrase =
+    network === 'PUBLIC'
+      ? StellarSdk.Networks.PUBLIC
+      : StellarSdk.Networks.TESTNET;
+
+  const account = await server.loadAccount(senderPublicKey);
+
+  const asset = resolveAsset(payload.asset);
+
+  const txBuilder = new StellarSdk.TransactionBuilder(account, {
+    fee: StellarSdk.BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(
+      StellarSdk.Operation.payment({
+        destination: payload.recipient,
+        asset,
+        amount: amountString,
+      })
+    )
+    .setTimeout(30);
+
+  if (payload.memo) {
+    txBuilder.addMemo(StellarSdk.Memo.text(payload.memo));
+  }
+
+  const tx = txBuilder.build();
+  const xdr = tx.toXDR();
+
+  const signResult = await signTransaction(xdr, { networkPassphrase });
+  if ('error' in signResult && signResult.error) {
+    throw new Error(signResult.error.message || 'User rejected the transaction');
+  }
+
+  const signedXdr = 'signedTxXdr' in signResult ? signResult.signedTxXdr : (signResult as any);
+  const signedTx = StellarSdk.TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+  const result = await server.submitTransaction(signedTx);
+  return result.hash;
+}
+
+const STEPS: Record<FlowStep, string> = {
+  1: 'Amount',
+  2: 'Asset',
+  3: 'Recipient',
+  4: 'Review',
+  5: 'Confirm',
+};
+
+export const SendMoneyFlow: React.FC<SendMoneyFlowProps> = ({
+  assets = DEFAULT_ASSETS,
+  senderAddress,
+  senderPublicKey,
+  network = 'TESTNET',
+  onConfirm,
+  getDailyLimitStatus,
+  destinationCountry = 'NG',
+  onOptimisticAdd,
+  onOptimisticRollback,
+  pollTxStatus,
+}) => {
+  const { t } = useTranslation();
+  const [step, setStep] = useState<FlowStep>(1);
+  const [amount, setAmount] = useState('');
+  const [asset, setAsset] = useState('');
+  const [recipient, setRecipient] = useState('');
+  const [memo, setMemo] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isComplete, setIsComplete] = useState(false);
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [limitStatus, setLimitStatus] = useState<DailyLimitStatus | null>(null);
+  const [fxFetchedAt, setFxFetchedAt] = useState<number | null>(null);
+  const [fxSecondsLeft, setFxSecondsLeft] = useState<number | null>(null);
+  const [fxExpired, setFxExpired] = useState(false);
+  /** Status message shown during post-submission polling. */
+  const [pollingStatus, setPollingStatus] = useState<string | null>(null);
+
+  // Idempotency key for the current pending submission
+  const currentIdempotencyKey = useRef<string | null>(null);
+  const { nextKey, isDuplicate, markSubmitted, clearKey } = useIdempotency();
+
+  const { startPolling, stopPolling } = useTxPolling({
+    initialDelayMs: 2_000,
+    backoffFactor: 2,
+    maxAttempts: 8,
+    onUpdate: (result) => {
+      if (result.status === 'confirmed') {
+        setPollingStatus(null);
+        setIsComplete(true);
+        setIsSubmitting(false);
+        if (result.txHash) setTxHash(result.txHash);
+      } else if (result.status === 'failed' || result.status === 'cancelled') {
+        setPollingStatus(null);
+        setIsSubmitting(false);
+        // Rollback optimistic entry
+        if (currentIdempotencyKey.current) {
+          onOptimisticRollback?.(currentIdempotencyKey.current);
+          clearKey(currentIdempotencyKey.current);
+          currentIdempotencyKey.current = null;
+        }
+        setError(t('sendMoney.errors.failed'));
+      }
+    },
+    onTimeout: () => {
+      // Never show a false failure for a pending tx – just inform the user.
+      setPollingStatus(t('sendMoney.polling.stillPending'));
+      setIsSubmitting(false);
+    },
+  });
+
+  // Strict parse: plain decimal, max 7 places, converted to stroops via BigInt.
+  const amountResult = useMemo(() => parseAmount(amount), [amount]);
+  const canonicalAmount = amountResult.ok ? stroopsToAmount(amountResult.stroops) : '';
+  const parsedAmount = amountResult.ok ? Number(canonicalAmount) : NaN;
+
+  // Fetch daily limit status when asset is selected
+  useEffect(() => {
+    if (!asset || !getDailyLimitStatus || !senderAddress) return;
+    let cancelled = false;
+    getDailyLimitStatus(asset, destinationCountry)
+      .then((status) => { if (!cancelled) setLimitStatus(status); })
+      .catch(() => { /* non-critical — silently ignore */ });
+    return () => { cancelled = true; };
+  }, [asset, destinationCountry, getDailyLimitStatus, senderAddress]);
+
+  // Record when the FX rate was fetched (entering review step)
+  useEffect(() => {
+    if (step === 4 || step === 5) {
+      setFxFetchedAt(Date.now());
+      setFxExpired(false);
+    }
+  }, [step]);
+
+  // Countdown timer for FX rate expiry on review step. Derived from
+  // Date.now(), so pausing while hidden is safe: it catches up on return.
+  usePolling(
+    () => {
+      if (fxFetchedAt === null) return;
+      const elapsed = Date.now() - fxFetchedAt;
+      const remaining = Math.max(0, Math.ceil((FX_TTL_MS - elapsed) / 1000));
+      setFxSecondsLeft(remaining);
+      if (remaining === 0) setFxExpired(true);
+    },
+    { intervalMs: 1000, enabled: (step === 4 || step === 5) && fxFetchedAt !== null, backoffFactor: 1 },
+  );
+
+  const validateCurrentStep = (): string | null => {
+    if (step === 1) {
+      if (!amountResult.ok) {
+        switch (amountResult.error) {
+          case 'required':
+            return t('sendMoney.errors.amountRequired');
+          case 'format':
+            return t('sendMoney.errors.amountFormat');
+          case 'tooLarge':
+            return t('sendMoney.errors.amountTooLarge');
+          default:
+            return t('sendMoney.errors.amountInvalid');
+        }
+      }
+    }
+
+    if (step === 2 && !asset) {
+      return t('sendMoney.errors.assetRequired');
+    }
+
+    if (step === 3 && !isValidRecipient(recipient, senderAddress)) {
+      return senderAddress && recipient.trim() === senderAddress.trim()
+        ? 'Recipient cannot be your own address.'
+        : 'Recipient must be a valid Stellar public key.';
+    }
+
+    return null;
+  };
+
+  const nextStep = () => {
+    const validation = validateCurrentStep();
+    if (validation) {
+      setError(validation);
+      return;
+    }
+
+    setError(null);
+    setStep((previous) => Math.min(previous + 1, 5) as FlowStep);
+  };
+
+  const previousStep = () => {
+    setError(null);
+    setStep((previous) => Math.max(previous - 1, 1) as FlowStep);
+  };
+
+  const confirmTransfer = async () => {
+    if (!amountResult.ok || !asset || !recipient) {
+      setError(t('sendMoney.errors.incomplete'));
+      return;
+    }
+
+    // ── Idempotency dedup ───────────────────────────────────────────────────
+    // If a key is already in-flight (e.g. double-click), bail out silently.
+    if (currentIdempotencyKey.current && isDuplicate(currentIdempotencyKey.current)) {
+      return;
+    }
+
+    const idempotencyKey = nextKey();
+    currentIdempotencyKey.current = idempotencyKey;
+    markSubmitted(idempotencyKey);
+
+    setError(null);
+    setPollingStatus(null);
+    setIsSubmitting(true);
+
+    const payload: ConfirmPayload = {
+      amount: parsedAmount,
+      asset,
+      recipient: recipient.trim(),
+      ...(memo.trim() ? { memo: memo.trim() } : {}),
+    };
+
+    // ── Optimistic pending row ──────────────────────────────────────────────
+    const optimisticEntry: OptimisticEntry = {
+      idempotencyKey,
+      amount: parsedAmount,
+      asset,
+      recipient: recipient.trim(),
+      ...(memo.trim() ? { memo: memo.trim() } : {}),
+      submittedAt: new Date().toISOString(),
+    };
+    onOptimisticAdd?.(optimisticEntry);
+
+    try {
+      let resolvedTxHash: string | null = null;
+
+      if (onConfirm) {
+        await onConfirm(payload, idempotencyKey);
+        setIsComplete(true);
+        clearKey(idempotencyKey);
+      } else if (senderPublicKey) {
+        resolvedTxHash = await buildAndSubmitTransaction(payload, senderPublicKey, network, canonicalAmount);
+        setTxHash(resolvedTxHash);
+        setIsComplete(true);
+        clearKey(idempotencyKey);
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        setIsComplete(true);
+        clearKey(idempotencyKey);
+      }
+
+      // ── Kick off polling if pollTxStatus is provided ────────────────────
+      if (pollTxStatus && resolvedTxHash) {
+        setIsComplete(false); // wait for poll to confirm
+        setPollingStatus(t('sendMoney.polling.checking'));
+        startPolling(resolvedTxHash, pollTxStatus);
+        return; // polling callbacks handle setIsSubmitting(false)
+      }
+    } catch (confirmError) {
+      // ── Rollback optimistic entry ─────────────────────────────────────────
+      onOptimisticRollback?.(idempotencyKey);
+      clearKey(idempotencyKey);
+      currentIdempotencyKey.current = null;
+      stopPolling();
+
+      const msg = confirmError instanceof Error ? confirmError.message : '';
+      if (msg.toLowerCase().includes('issuer not configured')) {
+        setError(t('sendMoney.errors.assetIssuerNotConfigured', { asset }));
+      } else if (
+        msg.toLowerCase().includes('rejected') ||
+        msg.toLowerCase().includes('denied') ||
+        msg.toLowerCase().includes('user rejected')
+      ) {
+        setError(t('sendMoney.errors.rejected'));
+      } else if (msg.toLowerCase().includes('not installed')) {
+        setError(t('sendMoney.errors.freighterNotInstalled'));
+      } else {
+        setError(t('sendMoney.errors.failed'));
+      }
+      console.error(confirmError);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const renderStepContent = () => {
+    if (step === 1) {
+      return (
+        <>
+          <label className="flow-field" htmlFor="amount">
+            <span>{t('sendMoney.amount')}</span>
+            <input
+              id="amount"
+              type="number"
+              min="0"
+              step="0.000001"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              placeholder="0.00"
+            />
+          </label>
+        </>
+      );
+    }
+
+    if (step === 2) {
+      return (
+        <>
+          <label className="flow-field" htmlFor="asset">
+            <span>Asset</span>
+            <select
+              id="asset"
+              value={asset}
+              onChange={(event) => setAsset(event.target.value)}
+            >
+              <option value="">Choose an asset</option>
+              {assets.map((assetCode) => (
+                <option key={assetCode} value={assetCode}>
+                  {assetCode}
+                </option>
+              ))}
+            </select>
+          </label>
+          {limitStatus && limitStatus.limit > 0n && (
+            <p className="flow-limit-status" aria-live="polite">
+              Daily limit: {(Number(limitStatus.remaining) / 1e7).toFixed(2)} {asset} remaining
+              {' '}(resets {limitStatus.resetsAt.toLocaleTimeString()})
+            </p>
+          )}
+        </>
+      );
+    }
+
+    if (step === 3) {
+      return (
+        <>
+          <label className="flow-field" htmlFor="recipient">
+            <span>{t('sendMoney.recipient')}</span>
+            <input
+              id="recipient"
+              type="text"
+              value={recipient}
+              onChange={(event) => setRecipient(event.target.value)}
+              placeholder="G..."
+            />
+          </label>
+          <label className="flow-field" htmlFor="memo">
+            <span>
+              {t('sendMoney.memo')}{' '}
+              <span className="flow-field-optional">{t('sendMoney.memoOptional')}</span>
+            </span>
+            <input
+              id="memo"
+              type="text"
+              value={memo}
+              onChange={(event) => setMemo(event.target.value.slice(0, 28))}
+              placeholder={t('sendMoney.memoPlaceholder')}
+              maxLength={28}
+              aria-describedby="memo-count"
+            />
+            <span id="memo-count" className="flow-char-count" aria-live="polite">
+              {memo.length}/28
+            </span>
+          </label>
+        </>
+      );
+    }
+
+    if (step === 4 || step === 5) {
+      return (
+        <>
+          <dl className="flow-review">
+            <div>
+              <dt>{t('sendMoney.review.amount')}</dt>
+              <dd>{amount || '-'}</dd>
+            </div>
+            <div>
+              <dt>{t('sendMoney.review.asset')}</dt>
+              <dd>{asset || '-'}</dd>
+            </div>
+            <div>
+              <dt>{t('sendMoney.review.recipient')}</dt>
+              <dd>{recipient || '-'}</dd>
+            </div>
+            {memo.trim() && (
+              <div>
+                <dt>{t('sendMoney.review.memo')}</dt>
+                <dd>{memo.trim()}</dd>
+              </div>
+            )}
+          </dl>
+          {fxExpired ? (
+            <p className="flow-fx-expired" role="alert">
+              Rate expired — please go back and refresh.
+            </p>
+          ) : fxSecondsLeft !== null && (
+            <p className="flow-fx-countdown" aria-live="polite">
+              Rate refreshes in {fxSecondsLeft}s
+            </p>
+          )}
+        </>
+      );
+    }
+
+    return null;
+  };
+
+  const stellarExpertUrl = txHash
+    ? `${STELLAR_EXPERT_BASE[network]}/${txHash}`
+    : null;
+
+  return (
+    <section className="send-flow-card" aria-label={t('sendMoney.title')}>
+      <div className="send-flow-header">
+        <h2>{t('sendMoney.title')}</h2>
+        <p>{t('sendMoney.stepLabel', { step, name: STEPS[step] })}</p>
+      </div>
+
+      <ol className="send-step-indicator" aria-label="Progress">
+        {STEP_SEQUENCE.map((stepKey) => (
+          <li key={stepKey} className={stepKey <= step ? 'active' : ''}>
+            {stepKey}
+          </li>
+        ))}
+      </ol>
+
+      {isComplete ? (
+        <div className="flow-success" role="status">
+          <p>{t('sendMoney.success')}</p>
+          {txHash && (
+            <>
+              <p className="flow-tx-hash">
+                {t('sendMoney.txHash')} <code>{txHash}</code>
+              </p>
+              {stellarExpertUrl && (
+                <a
+                  href={stellarExpertUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flow-expert-link"
+                >
+                  {t('sendMoney.viewOnExpert')}
+                </a>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="send-flow-body">{renderStepContent()}</div>
+
+          {error && <p className="flow-error" role="alert">{error}</p>}
+          {pollingStatus && (
+            <p className="flow-polling-status" role="status" aria-live="polite">
+              {pollingStatus}
+            </p>
+          )}
+
+          <div className="send-flow-actions">
+            <button
+              type="button"
+              className="flow-button muted"
+              onClick={previousStep}
+              disabled={step === 1 || isSubmitting}
+              aria-label={`Go back to step ${Math.max(1, step - 1)} of 5`}
+            >
+              {t('sendMoney.back')}
+            </button>
+
+            {step < 5 ? (
+              <button
+                type="button"
+                className="flow-button primary"
+                onClick={nextStep}
+                disabled={isSubmitting}
+                aria-label={`Continue to step ${step + 1} of 5`}
+              >
+                {t('sendMoney.continue')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="flow-button primary"
+                onClick={confirmTransfer}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? t('sendMoney.confirming') : t('sendMoney.confirm')}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+};

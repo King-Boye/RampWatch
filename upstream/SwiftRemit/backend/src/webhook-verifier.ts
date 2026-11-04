@@ -1,0 +1,118 @@
+import crypto from 'crypto';
+import { Keypair } from '@stellar/stellar-sdk';
+import { createLogger } from '../../shared/src/logger';
+
+const logger = createLogger('WebhookVerifier');
+
+export interface WebhookPayload {
+  transaction_id: string;
+  status: string;
+  timestamp: string;
+  [key: string]: any;
+}
+
+/**
+ * Shared nonce store used for replay protection.
+ *
+ * Implementations must atomically consume a nonce (e.g. Redis `SET NX` with a
+ * TTL, or a Postgres unique insert) so that replay protection works across
+ * multiple replicas and survives process restarts.
+ */
+export interface NonceStore {
+  /**
+   * Atomically record `nonce` for `ttlSeconds`.
+   * @returns `true` if the nonce was newly recorded, `false` if it was already seen.
+   */
+  consume(nonce: string, ttlSeconds: number): Promise<boolean>;
+}
+
+/**
+ * Verifies webhook signatures, timestamps and replay protection.
+ *
+ * Replay protection is delegated to a shared {@link NonceStore} so that nonces
+ * are enforced across replicas and survive restarts (see issue #1703).
+ */
+export class WebhookVerifier {
+  private readonly replayWindow: number;
+  /** Secondary sanity-check window (10 minutes) to account for clock skew. */
+  private readonly timestampWindow: number = 10 * 60 * 1000;
+  private readonly nonceStore: NonceStore;
+
+  constructor(nonceStore: NonceStore, replayWindowSeconds: number = 300) {
+    this.replayWindow = replayWindowSeconds * 1000;
+    this.nonceStore = nonceStore;
+  }
+
+  /**
+   * Verify webhook signature using anchor's public key
+   */
+  verifySignature(
+    payload: string,
+    signature: string,
+    anchorPublicKey: string
+  ): boolean {
+    try {
+      const keypair = Keypair.fromPublicKey(anchorPublicKey);
+      const payloadBuffer = Buffer.from(payload, 'utf8');
+      const signatureBuffer = Buffer.from(signature, 'base64');
+      
+      return keypair.verify(payloadBuffer, signatureBuffer);
+    } catch (error) {
+      logger.error('Signature verification failed', error, { anchorPublicKey });
+      return false;
+    }
+  }
+
+  /**
+   * Verify HMAC signature (alternative method)
+   */
+  verifyHMAC(
+    payload: string,
+    signature: string,
+    secret: string
+  ): boolean {
+    try {
+      const expectedSignature = crypto
+        .createHmac('sha256', secret)
+        .update(payload)
+        .digest('hex');
+      
+      // Ensure both signatures are the same length before comparison
+      if (signature.length !== expectedSignature.length) {
+        return false;
+      }
+      
+      return crypto.timingSafeEqual(
+        Buffer.from(signature),
+        Buffer.from(expectedSignature)
+      );
+    } catch (error) {
+      logger.error('HMAC verification failed', error);
+      return false;
+    }
+  }
+
+  /**
+   * Secondary sanity-check: reject timestamps outside a generous 10-minute
+   * window to catch obviously stale or future-dated webhooks.
+   * Primary replay protection is nonce-based (validateNonce).
+   */
+  validateTimestamp(timestamp: string): boolean {
+    const webhookTime = new Date(timestamp).getTime();
+    if (isNaN(webhookTime)) {
+      return false;
+    }
+    return Math.abs(Date.now() - webhookTime) <= this.timestampWindow;
+  }
+
+  /**
+   * Check and record nonce to prevent replay attacks.
+   *
+   * Delegates to the shared nonce store, which atomically consumes the nonce
+   * with a TTL derived from the replay window.
+   */
+  async validateNonce(nonce: string): Promise<boolean> {
+    const ttlSeconds = Math.max(1, Math.ceil(this.replayWindow / 1000));
+    return this.nonceStore.consume(nonce, ttlSeconds);
+  }
+}

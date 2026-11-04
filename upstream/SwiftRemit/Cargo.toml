@@ -1,0 +1,72 @@
+[workspace]
+members = ["."]
+exclude = ["fuzz"]
+
+[package]
+name = "swiftremit"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+
+[features]
+default = []
+debug-log = []
+benchmarks = []
+legacy-tests = []
+testnet-integration = []
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = "26.1.0"
+
+[dev-dependencies]
+soroban-sdk = { version = "26.1.0", features = ["testutils"] }
+proptest = "1.4"
+criterion = "0.8"
+# Used only by the testnet-integration test suite (gated by feature flag).
+reqwest = { version = "0.12.5", features = ["json", "blocking", "rustls-tls"], default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["rt", "macros", "time"] }
+dotenvy = "0.15"
+
+[[bench]]
+name = "settlement_storage"
+harness = false
+required-features = ["benchmarks"]
+
+[[bench]]
+name = "fee_calculation"
+harness = false
+required-features = ["benchmarks"]
+
+[[bench]]
+name = "batch_expiry"
+harness = false
+required-features = ["benchmarks"]
+
+[[bench]]
+name = "abuse_protection"
+harness = false
+required-features = ["benchmarks"]
+
+[[bench]]
+name = "core_flow"
+harness = false
+required-features = ["benchmarks"]
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
+
+[profile.release-with-logs]
+inherits = "release"
+debug-assertions = true

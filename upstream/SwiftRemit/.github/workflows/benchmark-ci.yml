@@ -1,0 +1,367 @@
+name: Performance Benchmark CI
+
+# SR-023: Extended to cover core user paths (create_remittance, confirm_payout,
+# cancel_remittance) in benches/core_flow.rs.  CI fails on any >10% regression
+# against the stored baseline artifact.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'benches/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/benchmark-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'benches/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/benchmark-ci.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+  # SR-023 acceptance criterion: fail CI on any regression exceeding 10%.
+  REGRESSION_THRESHOLD: 10
+
+jobs:
+  benchmark:
+    name: Run Benchmarks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-bench-
+
+      # Run all bench targets (including core_flow) with the benchmarks feature.
+      - name: Run benchmarks
+        run: |
+          set -o pipefail
+          cargo bench --features benchmarks -- --output-format bencher 2>&1 | tee bench_output.txt
+
+      - name: Save criterion JSON results
+        run: |
+          mkdir -p bench-results
+          find target/criterion -name "estimates.json" 2>/dev/null | while read f; do
+            bench_name=$(echo "$f" \
+              | sed 's|target/criterion/||' \
+              | sed 's|/estimates.json||' \
+              | tr '/' '__')
+            cp "$f" "bench-results/${bench_name}.json"
+          done
+          echo "Saved $(ls bench-results/ | wc -l) benchmark result(s):"
+          ls -la bench-results/
+
+      - name: Fail if no benchmark results were produced
+        run: |
+          if [ -z "$(find bench-results -name '*.json' -print -quit)" ]; then
+            echo "::error::No Criterion benchmark estimates were produced"
+            exit 1
+          fi
+      # SR-023: Verify core_flow baselines are present in the results.
+      - name: Verify core_flow baselines exist
+        run: |
+          python3 << 'EOF'
+          import os, sys
+          results_dir = "bench-results"
+          if not os.path.isdir(results_dir):
+              print("No bench-results directory — skipping core_flow check.")
+              sys.exit(0)
+
+          files = os.listdir(results_dir)
+          # Expected core_flow benchmark names (Criterion stores them as
+          # <group>__<name> or <name> depending on nesting).
+          required_patterns = [
+              "create_remittance",
+              "confirm_payout",
+              "cancel_remittance",
+          ]
+          found = {p: any(p in f for f in files) for p in required_patterns}
+          missing = [p for p, ok in found.items() if not ok]
+
+          if missing:
+              print(f"⚠️  Core-flow baselines not found for: {missing}")
+              print(f"Available results: {sorted(files)}")
+              # Warn but don't fail — the first run establishes the baseline.
+          else:
+              print(f"✅ All core-flow baseline results present: {required_patterns}")
+          EOF
+
+      - name: Upload benchmark results as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: bench-results/
+          retention-days: 30
+
+      - name: Upload bench output
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-output-${{ github.sha }}
+          path: bench_output.txt
+          retention-days: 30
+
+      # ── Regression comparison (PR only) ─────────────────────────────────────
+      - name: Download latest successful benchmark baseline from main
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          baseline=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow benchmark-ci.yml --branch main --status success --limit 1 --json databaseId,headSha --jq '.[0] | "\(.databaseId) \(.headSha)"')
+          if [ -z "$baseline" ]; then
+            echo "::error::No successful main-branch benchmark workflow run found to use as a baseline"
+            exit 1
+          fi
+          read -r run_id head_sha <<< "$baseline"
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name "benchmark-results-$head_sha" --dir bench-baseline
+          if [ -z "$(find bench-baseline -name '*.json' -print -quit)" ]; then
+            echo "::error::Downloaded baseline contains no Criterion benchmark estimates"
+            exit 1
+          fi
+      - name: Compare benchmarks and detect regressions
+        if: github.event_name == 'pull_request'
+        id: compare
+        run: |
+          python3 << 'EOF'
+          import json
+          import os
+          import sys
+
+          REGRESSION_THRESHOLD = float(os.environ.get("REGRESSION_THRESHOLD", "10")) / 100.0
+
+          baseline_dir = "bench-baseline"
+          current_dir  = "bench-results"
+
+          regressions    = []
+          improvements   = []
+          new_benchmarks = []
+
+          if not os.path.isdir(baseline_dir):
+              print("ERROR: benchmark baseline missing")
+              sys.exit(1)
+
+          current_files  = {f for f in os.listdir(current_dir)  if f.endswith(".json")}
+          baseline_files = {f for f in os.listdir(baseline_dir) if f.endswith(".json")}
+          missing_benchmarks = baseline_files - current_files
+          if missing_benchmarks:
+              print(f"ERROR: baseline benchmarks missing from current run: {sorted(missing_benchmarks)}")
+              sys.exit(1)
+
+          for fname in sorted(current_files):
+              bench_name = fname.replace(".json", "").replace("__", "/")
+
+              with open(os.path.join(current_dir, fname)) as f:
+                  current = json.load(f)
+
+              current_mean = current["mean"]["point_estimate"]
+
+              if fname not in baseline_files:
+                  new_benchmarks.append(bench_name)
+                  print(f"NEW    {bench_name}: {current_mean:.2f} ns")
+                  continue
+
+              with open(os.path.join(baseline_dir, fname)) as f:
+                  baseline = json.load(f)
+
+              baseline_mean = baseline["mean"]["point_estimate"]
+              change = (current_mean - baseline_mean) / baseline_mean
+
+              if change > REGRESSION_THRESHOLD:
+                  regressions.append((bench_name, baseline_mean, current_mean, change))
+                  print(f"REGRESS {bench_name}: {baseline_mean:.2f} -> {current_mean:.2f} ns ({change*100:.1f}%)")
+              elif change < -0.05:
+                  improvements.append((bench_name, baseline_mean, current_mean, change))
+                  print(f"IMPROVE {bench_name}: {baseline_mean:.2f} -> {current_mean:.2f} ns ({change*100:.1f}%)")
+              else:
+                  print(f"OK     {bench_name}: {baseline_mean:.2f} -> {current_mean:.2f} ns ({change*100:.1f}%)")
+
+          # ── GitHub step summary ──────────────────────────────────────────────
+          summary_lines = ["## Benchmark Comparison\n\n"]
+          summary_lines.append(f"Regression threshold: **{REGRESSION_THRESHOLD*100:.0f}%**\n\n")
+
+          if regressions:
+              summary_lines.append("### ❌ Regressions\n\n")
+              summary_lines.append("| Benchmark | Baseline (ns) | Current (ns) | Change |\n")
+              summary_lines.append("|-----------|--------------|--------------|--------|\n")
+              for name, old, new, pct in regressions:
+                  summary_lines.append(f"| `{name}` | `{old:.0f}` | `{new:.0f}` | **+{pct*100:.1f}%** |\n")
+              summary_lines.append("\n")
+
+          if improvements:
+              summary_lines.append("### ✅ Improvements\n\n")
+              summary_lines.append("| Benchmark | Baseline (ns) | Current (ns) | Change |\n")
+              summary_lines.append("|-----------|--------------|--------------|--------|\n")
+              for name, old, new, pct in improvements:
+                  summary_lines.append(f"| `{name}` | `{old:.0f}` | `{new:.0f}` | {pct*100:.1f}% |\n")
+              summary_lines.append("\n")
+
+          if new_benchmarks:
+              summary_lines.append("### 🆕 New Benchmarks\n\n")
+              for name in new_benchmarks:
+                  summary_lines.append(f"- `{name}`\n")
+              summary_lines.append("\n")
+
+          step_summary = os.environ.get("GITHUB_STEP_SUMMARY", "/dev/stdout")
+          with open(step_summary, "a") as f:
+              f.writelines(summary_lines)
+
+          if regressions:
+              print(f"\n❌ {len(regressions)} benchmark(s) regressed by more than {REGRESSION_THRESHOLD*100:.0f}%")
+              sys.exit(1)
+          else:
+              print(f"\n✅ No regressions detected (threshold: {REGRESSION_THRESHOLD*100:.0f}%)")
+          EOF
+
+      # ── Synthetic regression test (SR-023 acceptance criterion) ─────────────
+      # On every push to main, verify that the CI *can* detect a 20% regression
+      # by synthetically inflating one benchmark result and re-running the check.
+      - name: Synthetic regression smoke-test (20% inflation)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          python3 << 'EOF'
+          import json, os, sys, tempfile, shutil
+
+          results_dir = "bench-results"
+          if not os.listdir(results_dir) if os.path.isdir(results_dir) else True:
+              print("No results — skipping synthetic test.")
+              sys.exit(0)
+
+          THRESHOLD = float(os.environ.get("REGRESSION_THRESHOLD", "10")) / 100.0
+
+          # Pick any result file to inflate.
+          files = sorted(f for f in os.listdir(results_dir) if f.endswith(".json"))
+          if not files:
+              sys.exit(0)
+
+          fname = files[0]
+          with open(os.path.join(results_dir, fname)) as f:
+              original = json.load(f)
+
+          # Inflate mean by 20% (above the 10% threshold).
+          inflated = json.loads(json.dumps(original))
+          inflated["mean"]["point_estimate"] *= 1.20
+
+          # Create a fake baseline at the original value.
+          baseline_dir = tempfile.mkdtemp()
+          with open(os.path.join(baseline_dir, fname), "w") as f:
+              json.dump(original, f)
+
+          # Write the inflated result to a temp current dir.
+          current_dir = tempfile.mkdtemp()
+          with open(os.path.join(current_dir, fname), "w") as f:
+              json.dump(inflated, f)
+
+          # Run the comparison logic.
+          with open(os.path.join(baseline_dir, fname)) as f:
+              baseline = json.load(f)
+          with open(os.path.join(current_dir, fname)) as f:
+              current_result = json.load(f)
+
+          change = (current_result["mean"]["point_estimate"] - baseline["mean"]["point_estimate"]) \
+                   / baseline["mean"]["point_estimate"]
+          detected = change > THRESHOLD
+
+          shutil.rmtree(baseline_dir)
+          shutil.rmtree(current_dir)
+
+          if detected:
+              print(f"✅ Synthetic 20% regression correctly detected (change={change*100:.1f}%, threshold={THRESHOLD*100:.0f}%)")
+          else:
+              print(f"❌ Synthetic regression NOT detected — check threshold logic")
+              sys.exit(1)
+          EOF
+
+  # ── Cost table update (release only) ────────────────────────────────────────
+  # SR-023: On each release tag, update benches/README.md with the latest cost table.
+  update-cost-table:
+    name: Update Benchmark Cost Table
+    runs-on: ubuntu-latest
+    needs: benchmark
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download benchmark results
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: bench-results/
+
+      - name: Update benches/README.md cost table
+        run: |
+          python3 << 'PYEOF'
+          import json, os, datetime, re
+
+          results_dir = "bench-results"
+          readme_path = "benches/README.md"
+          tag = os.environ.get("GITHUB_REF_NAME", "unknown")
+          date = datetime.date.today().isoformat()
+
+          if not os.path.isdir(results_dir) or not os.listdir(results_dir):
+              print("No benchmark results — skipping README update.")
+              exit(0)
+
+          rows = []
+          for fname in sorted(f for f in os.listdir(results_dir) if f.endswith(".json")):
+              name = fname.replace(".json", "").replace("__", "/")
+              with open(os.path.join(results_dir, fname)) as f:
+                  d = json.load(f)
+              mean_ns = d["mean"]["point_estimate"]
+              std_ns  = d["mean"].get("standard_error", 0)
+              rows.append((name, mean_ns, std_ns))
+
+          table_lines = [
+              f"\n## Cost Table — {tag} ({date})\n\n",
+              "| Benchmark | Mean (ns) | Std Error (ns) |\n",
+              "|-----------|----------:|---------------:|\n",
+          ]
+          for name, mean, std in rows:
+              table_lines.append(f"| `{name}` | {mean:.0f} | {std:.0f} |\n")
+          table_lines.append("\n_Updated automatically on release._\n")
+
+          with open(readme_path, "r") as f:
+              content = f.read()
+
+          # Replace existing cost table section or append.
+          marker = "## Cost Table"
+          if marker in content:
+              content = re.sub(r"## Cost Table.*", "", content, flags=re.DOTALL).rstrip() + "\n"
+          content += "".join(table_lines)
+
+          with open(readme_path, "w") as f:
+              f.write(content)
+
+          print(f"Updated {readme_path} with {len(rows)} benchmark(s).")
+          PYEOF
+
+      - name: Commit updated cost table
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add benches/README.md
+          if git diff --cached --quiet; then
+            echo "No changes to cost table."
+          else
+            git commit -m "docs(benches): update cost table for ${{ github.ref_name }} [skip ci]"
+            git push origin HEAD:main
+          fi

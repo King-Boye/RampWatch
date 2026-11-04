@@ -1,0 +1,55 @@
+version: 2
+updates:
+  # The repo is a single npm workspace tree with one lockfile at the root, so
+  # Dependabot resolves every workspace manifest from this one entry. Per-package
+  # entries (/backend, /frontend, /api, /examples) stopped working when the
+  # per-package lockfiles were removed.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - security
+    groups:
+      non-critical:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - security
+    groups:
+      non-critical:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - ci
+
+  - package-ecosystem: rust-toolchain
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"

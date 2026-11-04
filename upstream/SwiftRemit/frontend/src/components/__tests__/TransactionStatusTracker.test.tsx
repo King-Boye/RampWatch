@@ -1,0 +1,1036 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { axe, toHaveNoViolations } from 'jest-axe';
+import { TransactionStatusTracker } from '../TransactionStatusTracker';
+
+expect.extend(toHaveNoViolations);
+
+describe('TransactionStatusTracker', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    global.fetch = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  describe('Basic Rendering', () => {
+    it('renders with default title', () => {
+      render(<TransactionStatusTracker currentStatus="initiated" enablePolling={false} />);
+      expect(screen.getByText('Transaction Status')).toBeInTheDocument();
+    });
+
+    it('renders with custom title', () => {
+      render(
+        <TransactionStatusTracker
+          currentStatus="initiated"
+          title="Payment Progress"
+          enablePolling={false}
+        />
+      );
+      expect(screen.getByText('Payment Progress')).toBeInTheDocument();
+    });
+
+    it('renders all status steps', () => {
+      render(<TransactionStatusTracker currentStatus="initiated" enablePolling={false} />);
+      expect(screen.getByText('Initiated')).toBeInTheDocument();
+      expect(screen.getByText('Submitted')).toBeInTheDocument();
+      expect(screen.getByText('Processing')).toBeInTheDocument();
+      expect(screen.getByText('Completed')).toBeInTheDocument();
+      // Failed and Cancelled are only shown when they're the current status
+      expect(screen.queryByText('Failed')).not.toBeInTheDocument();
+      expect(screen.queryByText('Cancelled')).not.toBeInTheDocument();
+    });
+
+    it('shows cancelled status when current status is cancelled', () => {
+      render(<TransactionStatusTracker currentStatus="cancelled" enablePolling={false} />);
+      expect(screen.getByText('Cancelled')).toBeInTheDocument();
+    });
+
+    it('does not show cancelled status for other statuses', () => {
+      render(<TransactionStatusTracker currentStatus="processing" enablePolling={false} />);
+      expect(screen.queryByText('Cancelled')).not.toBeInTheDocument();
+    });
+
+    it('includes aria-live region for status announcements', () => {
+      render(<TransactionStatusTracker currentStatus="initiated" enablePolling={false} />);
+      const liveRegion = document.querySelector('[aria-live="polite"]');
+      expect(liveRegion).toBeInTheDocument();
+      expect(liveRegion).toHaveAttribute('aria-atomic', 'true');
+    });
+  });
+
+  describe('Status Display', () => {
+    it('highlights current status as active', () => {
+      const { container } = render(
+        <TransactionStatusTracker currentStatus="processing" enablePolling={false} />
+      );
+      const processingStep = container.querySelector('.transaction-tracker-step.active');
+      expect(processingStep?.textContent).toBe('Processing');
+    });
+
+    it('marks previous steps as done', () => {
+      const { container } = render(
+        <TransactionStatusTracker currentStatus="processing" enablePolling={false} />
+      );
+      const doneSteps = container.querySelectorAll('.transaction-tracker-step.done');
+      expect(doneSteps.length).toBe(2); // initiated and submitted
+    });
+
+    it('marks future steps appropriately', () => {
+      const { container } = render(
+        <TransactionStatusTracker currentStatus="submitted" enablePolling={false} />
+      );
+      const futureSteps = container.querySelectorAll('.transaction-tracker-step.future');
+      expect(futureSteps.length).toBeGreaterThan(0);
+    });
+
+    it('applies failed styling when status is failed', () => {
+      const { container } = render(
+        <TransactionStatusTracker currentStatus="failed" enablePolling={false} />
+      );
+      // Failed step should be visible and have failed styling
+      expect(screen.getByText('Failed')).toBeInTheDocument();
+      const failedStep = container.querySelector('.transaction-tracker-step.failed');
+      expect(failedStep).not.toBeNull();
+      expect(failedStep?.textContent).toBe('Failed');
+    });
+
+    it('adds role="status" to the active step', () => {
+      const { container } = render(
+        <TransactionStatusTracker currentStatus="processing" enablePolling={false} />
+      );
+      const activeStep = container.querySelector('.transaction-tracker-step.active');
+      expect(activeStep).toHaveAttribute('role', 'status');
+    });
+
+    it('does not add role="status" to non-active steps', () => {
+      const { container } = render(
+        <TransactionStatusTracker currentStatus="processing" enablePolling={false} />
+      );
+      const doneSteps = container.querySelectorAll('.transaction-tracker-step.done');
+      doneSteps.forEach(step => {
+        expect(step).not.toHaveAttribute('role', 'status');
+      });
+    });
+  });
+
+  describe('Accessibility', () => {
+    it('announces status changes to screen readers', () => {
+      const { rerender } = render(
+        <TransactionStatusTracker currentStatus="initiated" enablePolling={false} />
+      );
+      const liveRegion = document.querySelector('[aria-live="polite"]');
+      // Initially has the initiated status announcement
+      expect(liveRegion?.textContent).toContain('Transaction initiated');
+
+      rerender(
+        <TransactionStatusTracker currentStatus="processing" enablePolling={false} />
+      );
+      expect(liveRegion?.textContent).toContain('Transaction is being processed');
+    });
+
+    it('has role="status" on aria-live region', () => {
+      render(<TransactionStatusTracker currentStatus="initiated" enablePolling={false} />);
+      const liveRegion = document.querySelector('[aria-live="polite"]');
+      expect(liveRegion).toHaveAttribute('role', 'status');
+    });
+
+    it('announces completed status to screen readers', () => {
+      const { rerender } = render(
+        <TransactionStatusTracker currentStatus="processing" enablePolling={false} />
+      );
+      const liveRegion = document.querySelector('[aria-live="polite"]');
+      
+      rerender(
+        <TransactionStatusTracker currentStatus="completed" enablePolling={false} />
+      );
+      expect(liveRegion?.textContent).toContain('Transaction completed successfully');
+    });
+
+    it('announces failed status to screen readers', () => {
+      const { rerender } = render(
+        <TransactionStatusTracker currentStatus="processing" enablePolling={false} />
+      );
+      const liveRegion = document.querySelector('[aria-live="polite"]');
+      
+      rerender(
+        <TransactionStatusTracker currentStatus="failed" enablePolling={false} />
+      );
+      expect(liveRegion?.textContent).toContain('Transaction failed');
+    });
+  });
+    it('calls onRefresh when refresh button is clicked', async () => {
+      const user = userEvent.setup({ delay: null });
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={false}
+        />
+      );
+
+      const refreshButton = screen.getByRole('button', { name: /refresh/i });
+      await user.click(refreshButton);
+
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows refreshing state during refresh', async () => {
+      const user = userEvent.setup({ delay: null });
+      const onRefresh = vi.fn((): Promise<void> => new Promise((resolve) => setTimeout(resolve, 100)));
+
+      render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={false}
+        />
+      );
+
+      const refreshButton = screen.getByRole('button', { name: /refresh/i });
+      await user.click(refreshButton);
+
+      expect(screen.getByText('Refreshing...')).toBeInTheDocument();
+    });
+
+    it('updates last refresh timestamp after refresh', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={false}
+        />
+      );
+
+      const refreshButton = screen.getByRole('button', { name: /refresh/i });
+      await user.click(refreshButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Last refresh:/)).toBeInTheDocument();
+      }, { timeout: 3000 });
+      
+      vi.useFakeTimers();
+    });
+  });
+
+  describe('Polling Functionality', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    it('starts polling when enablePolling is true', () => {
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={5000}
+        />
+      );
+
+      expect(onRefresh).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(5000);
+
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('polls at the specified interval', async () => {
+      // usePolling awaits each refresh before scheduling the next, so flush promises too.
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={3000}
+        />
+      );
+
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(onRefresh).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(onRefresh).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not poll when enablePolling is false', () => {
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={false}
+          pollingInterval={5000}
+        />
+      );
+
+      vi.advanceTimersByTime(10000);
+
+      expect(onRefresh).not.toHaveBeenCalled();
+    });
+
+    it('stops polling when status reaches completed', () => {
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      const { rerender } = render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={5000}
+        />
+      );
+
+      vi.advanceTimersByTime(5000);
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+
+      // Update to completed status
+      rerender(
+        <TransactionStatusTracker
+          currentStatus="completed"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={5000}
+        />
+      );
+
+      // Advance time and verify no more polling
+      vi.advanceTimersByTime(10000);
+      expect(onRefresh).toHaveBeenCalledTimes(1); // Still only 1 call
+    });
+
+    it('stops polling when status reaches failed', () => {
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      const { rerender } = render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={5000}
+        />
+      );
+
+      vi.advanceTimersByTime(5000);
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+
+      // Update to failed status
+      rerender(
+        <TransactionStatusTracker
+          currentStatus="failed"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={5000}
+        />
+      );
+
+      // Advance time and verify no more polling
+      vi.advanceTimersByTime(10000);
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops polling when status reaches cancelled', () => {
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      const { rerender } = render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={5000}
+        />
+      );
+
+      vi.advanceTimersByTime(5000);
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+
+      // Update to cancelled status
+      rerender(
+        <TransactionStatusTracker
+          currentStatus="cancelled"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={5000}
+        />
+      );
+
+      // Advance time and verify no more polling
+      vi.advanceTimersByTime(10000);
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not start polling if initial status is terminal', () => {
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <TransactionStatusTracker
+          currentStatus="completed"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={5000}
+        />
+      );
+
+      vi.advanceTimersByTime(10000);
+
+      expect(onRefresh).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('API Polling', () => {
+    it('fetches status from API when transactionId is provided', async () => {
+      vi.useRealTimers();
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: 'completed' }),
+      });
+      global.fetch = mockFetch;
+
+      render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          enablePolling={true}
+          pollingInterval={100}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith('/api/remittance/tx_123');
+      }, { timeout: 3000 });
+      
+      vi.useFakeTimers();
+    });
+
+    it('calls onStatusUpdate when status changes from API', async () => {
+      vi.useRealTimers();
+      const onStatusUpdate = vi.fn();
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: 'completed' }),
+      });
+      global.fetch = mockFetch;
+
+      render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          onStatusUpdate={onStatusUpdate}
+          enablePolling={true}
+          pollingInterval={100}
+        />
+      );
+
+      await waitFor(() => {
+        expect(onStatusUpdate).toHaveBeenCalledWith('completed');
+      }, { timeout: 3000 });
+      
+      vi.useFakeTimers();
+    });
+
+    it('handles API errors gracefully', async () => {
+      vi.useRealTimers();
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'));
+      global.fetch = mockFetch;
+
+      render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          enablePolling={true}
+          pollingInterval={100}
+        />
+      );
+
+      await waitFor(() => {
+        expect(consoleError).toHaveBeenCalled();
+      }, { timeout: 3000 });
+
+      consoleError.mockRestore();
+      vi.useFakeTimers();
+    });
+
+    it('does not update status if API returns same status', async () => {
+      vi.useRealTimers();
+      const onStatusUpdate = vi.fn();
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: 'processing' }),
+      });
+      global.fetch = mockFetch;
+
+      render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          onStatusUpdate={onStatusUpdate}
+          enablePolling={true}
+          pollingInterval={100}
+        />
+      );
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalled();
+      }, { timeout: 3000 });
+
+      expect(onStatusUpdate).not.toHaveBeenCalled();
+      vi.useFakeTimers();
+    });
+  });
+
+  describe('Cleanup', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    it('cleans up polling interval on unmount', () => {
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      const { unmount } = render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={5000}
+        />
+      );
+
+      unmount();
+
+      vi.advanceTimersByTime(10000);
+
+      expect(onRefresh).not.toHaveBeenCalled();
+    });
+
+    it('cleans up polling when enablePolling changes to false', () => {
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      const { rerender } = render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={5000}
+        />
+      );
+
+      vi.advanceTimersByTime(5000);
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+
+      rerender(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={false}
+          pollingInterval={5000}
+        />
+      );
+
+      vi.advanceTimersByTime(10000);
+      expect(onRefresh).toHaveBeenCalledTimes(1); // No additional calls
+    });
+  });
+
+  describe('Polling Interval Configuration', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    it('uses default polling interval of 5000ms', () => {
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={true}
+        />
+      );
+
+      vi.advanceTimersByTime(4999);
+      expect(onRefresh).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(1);
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('respects custom polling interval', async () => {
+      // usePolling awaits each refresh before scheduling the next, so flush promises too.
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={2000}
+        />
+      );
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(onRefresh).toHaveBeenCalledTimes(2);
+    });
+
+    it('updates polling interval when prop changes', async () => {
+      // usePolling awaits each refresh before scheduling the next, so flush promises too.
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      const { unmount } = render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={2000}
+        />
+      );
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(onRefresh).toHaveBeenCalledTimes(2);
+
+      unmount();
+    });
+  });
+
+  describe('Auto-updating Indicator', () => {
+    it('shows auto-updating indicator when polling is active', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={5000}
+        />
+      );
+
+      // Trigger a refresh to show the timestamp
+      const refreshButton = screen.getByRole('button', { name: /refresh/i });
+      await user.click(refreshButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/auto-updating/)).toBeInTheDocument();
+      }, { timeout: 3000 });
+      
+      vi.useFakeTimers();
+    });
+
+    it('does not show auto-updating indicator when polling is stopped', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const onRefresh = vi.fn().mockResolvedValue(undefined);
+
+      render(
+        <TransactionStatusTracker
+          currentStatus="completed"
+          onRefresh={onRefresh}
+          enablePolling={true}
+          pollingInterval={5000}
+        />
+      );
+
+      // Trigger a refresh to show the timestamp
+      const refreshButton = screen.getByRole('button', { name: /refresh/i });
+      await user.click(refreshButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Last refresh:/)).toBeInTheDocument();
+      }, { timeout: 3000 });
+
+      expect(screen.queryByText(/auto-updating/)).not.toBeInTheDocument();
+      vi.useFakeTimers();
+    });
+  });
+
+  describe('WebSocket Functionality', () => {
+    let mockWebSocket: any;
+
+    beforeEach(() => {
+      mockWebSocket = {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        close: vi.fn(),
+        send: vi.fn(),
+      };
+
+      global.WebSocket = vi.fn(() => mockWebSocket) as any;
+    });
+
+    it('connects to WebSocket when transactionId is provided', () => {
+      render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          enablePolling={false}
+        />
+      );
+
+      expect(global.WebSocket).toHaveBeenCalledWith(
+        expect.stringContaining('/ws/transaction-status/tx_123')
+      );
+    });
+
+    it('updates status when receiving valid WebSocket message', () => {
+      const onStatusUpdate = vi.fn();
+      render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          onStatusUpdate={onStatusUpdate}
+          enablePolling={false}
+        />
+      );
+
+      const messageHandler = mockWebSocket.addEventListener.mock.calls.find(
+        call => call[0] === 'message'
+      )?.[1];
+
+      expect(messageHandler).toBeDefined();
+      const mockEvent = new MessageEvent('message', {
+        data: JSON.stringify({ status: 'completed', transactionId: 'tx_123' }),
+      });
+      messageHandler?.(mockEvent);
+
+      expect(onStatusUpdate).toHaveBeenCalledWith('completed');
+    });
+
+    it('gracefully handles malformed JSON payload', () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const onStatusUpdate = vi.fn();
+
+      render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          onStatusUpdate={onStatusUpdate}
+          enablePolling={false}
+        />
+      );
+
+      const messageHandler = mockWebSocket.addEventListener.mock.calls.find(
+        call => call[0] === 'message'
+      )?.[1];
+
+      const mockEvent = new MessageEvent('message', {
+        data: 'invalid json',
+      });
+      messageHandler?.(mockEvent);
+
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse transaction status websocket payload'),
+        expect.any(Error)
+      );
+      expect(onStatusUpdate).not.toHaveBeenCalled();
+
+      consoleError.mockRestore();
+    });
+
+    it('ignores messages with non-string status field', () => {
+      const onStatusUpdate = vi.fn();
+      render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          onStatusUpdate={onStatusUpdate}
+          enablePolling={false}
+        />
+      );
+
+      const messageHandler = mockWebSocket.addEventListener.mock.calls.find(
+        call => call[0] === 'message'
+      )?.[1];
+
+      const mockEvent = new MessageEvent('message', {
+        data: JSON.stringify({ status: 123, transactionId: 'tx_123' }),
+      });
+      messageHandler?.(mockEvent);
+
+      expect(onStatusUpdate).not.toHaveBeenCalled();
+    });
+
+    it('ignores messages for different transaction IDs', () => {
+      const onStatusUpdate = vi.fn();
+      render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          onStatusUpdate={onStatusUpdate}
+          enablePolling={false}
+        />
+      );
+
+      const messageHandler = mockWebSocket.addEventListener.mock.calls.find(
+        call => call[0] === 'message'
+      )?.[1];
+
+      const mockEvent = new MessageEvent('message', {
+        data: JSON.stringify({ status: 'completed', transactionId: 'tx_456' }),
+      });
+      messageHandler?.(mockEvent);
+
+      expect(onStatusUpdate).not.toHaveBeenCalled();
+    });
+
+    it('closes WebSocket on unmount', () => {
+      const { unmount } = render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          enablePolling={false}
+        />
+      );
+
+      expect(mockWebSocket.close).not.toHaveBeenCalled();
+
+      unmount();
+
+      expect(mockWebSocket.close).toHaveBeenCalled();
+    });
+
+    it('closes WebSocket when status reaches terminal state', () => {
+      const { rerender } = render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          enablePolling={false}
+        />
+      );
+
+      expect(mockWebSocket.close).not.toHaveBeenCalled();
+
+      rerender(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="completed"
+          enablePolling={false}
+        />
+      );
+
+      expect(mockWebSocket.close).toHaveBeenCalled();
+    });
+
+    it('uses provided socketUrl instead of default', () => {
+      global.WebSocket = vi.fn(() => mockWebSocket) as any;
+
+      render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          socketUrl="wss://custom.host/ws"
+          enablePolling={false}
+        />
+      );
+
+      expect(global.WebSocket).toHaveBeenCalledWith('wss://custom.host/ws');
+    });
+
+    it('does not connect to WebSocket when transactionId is missing', () => {
+      global.WebSocket = vi.fn(() => mockWebSocket) as any;
+
+      render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          enablePolling={false}
+        />
+      );
+
+      expect(global.WebSocket).not.toHaveBeenCalled();
+    });
+
+    it('reconnects with exponential backoff on error', () => {
+      vi.useFakeTimers();
+
+      const { unmount } = render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          maxReconnectAttempts={3}
+          initialReconnectDelayMs={1000}
+          enablePolling={false}
+        />
+      );
+
+      const errorHandler = mockWebSocket.addEventListener.mock.calls.find(
+        call => call[0] === 'error'
+      )?.[1];
+
+      errorHandler?.(new Event('error'));
+
+      vi.advanceTimersByTime(1000);
+      expect(global.WebSocket).toHaveBeenCalledTimes(2);
+
+      vi.advanceTimersByTime(2000);
+      expect(global.WebSocket).toHaveBeenCalledTimes(3);
+
+      unmount();
+      vi.useRealTimers();
+    });
+
+    it('does not reconnect after max attempts reached', () => {
+      vi.useFakeTimers();
+
+      const { unmount } = render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          maxReconnectAttempts={2}
+          initialReconnectDelayMs={500}
+          enablePolling={false}
+        />
+      );
+
+      const errorHandler = mockWebSocket.addEventListener.mock.calls.find(
+        call => call[0] === 'error'
+      )?.[1];
+
+      errorHandler?.(new Event('error'));
+      vi.advanceTimersByTime(500);
+
+      errorHandler?.(new Event('error'));
+      vi.advanceTimersByTime(1000);
+
+      errorHandler?.(new Event('error'));
+      vi.advanceTimersByTime(2000);
+
+      const initialCallCount = global.WebSocket.mock.calls.length;
+      vi.advanceTimersByTime(10000);
+
+      expect(global.WebSocket.mock.calls.length).toBe(initialCallCount);
+
+      unmount();
+      vi.useRealTimers();
+    });
+
+    it('does not reconnect after terminal state reached', () => {
+      vi.useFakeTimers();
+
+      const { rerender } = render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          maxReconnectAttempts={5}
+          enablePolling={false}
+        />
+      );
+
+      const closeHandler = mockWebSocket.addEventListener.mock.calls.find(
+        call => call[0] === 'close'
+      )?.[1];
+
+      rerender(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="completed"
+          maxReconnectAttempts={5}
+          enablePolling={false}
+        />
+      );
+
+      const initialCallCount = global.WebSocket.mock.calls.length;
+      closeHandler?.(new Event('close'));
+      vi.advanceTimersByTime(10000);
+
+      expect(global.WebSocket.mock.calls.length).toBe(initialCallCount);
+      vi.useRealTimers();
+    });
+
+    it('resets reconnect attempts on successful connection', () => {
+      vi.useFakeTimers();
+
+      global.WebSocket = vi.fn(() => mockWebSocket) as any;
+
+      const { unmount } = render(
+        <TransactionStatusTracker
+          transactionId="tx_123"
+          currentStatus="processing"
+          maxReconnectAttempts={5}
+          initialReconnectDelayMs={1000}
+          enablePolling={false}
+        />
+      );
+
+      const openHandler = mockWebSocket.addEventListener.mock.calls.find(
+        call => call[0] === 'open'
+      )?.[1];
+
+      openHandler?.(new Event('open'));
+
+      expect(global.WebSocket).toHaveBeenCalledTimes(1);
+
+      unmount();
+      vi.useRealTimers();
+    });
+  });
+
+  describe('accessibility', () => {
+    it('has no a11y violations in initiated state', async () => {
+      const { container } = render(
+        <TransactionStatusTracker currentStatus="initiated" enablePolling={false} />
+      );
+      const results = await axe(container);
+      expect(results).toHaveNoViolations();
+    });
+
+    it('has no a11y violations in processing state', async () => {
+      const { container } = render(
+        <TransactionStatusTracker currentStatus="processing" enablePolling={false} />
+      );
+      const results = await axe(container);
+      expect(results).toHaveNoViolations();
+    });
+
+    it('has no a11y violations in completed state', async () => {
+      const { container } = render(
+        <TransactionStatusTracker currentStatus="completed" enablePolling={false} />
+      );
+      const results = await axe(container);
+      expect(results).toHaveNoViolations();
+    });
+
+    it('has no a11y violations in failed state', async () => {
+      const { container } = render(
+        <TransactionStatusTracker currentStatus="failed" enablePolling={false} />
+      );
+      const results = await axe(container);
+      expect(results).toHaveNoViolations();
+    });
+
+    it('has no a11y violations when refresh button is present', async () => {
+      const { container } = render(
+        <TransactionStatusTracker
+          currentStatus="processing"
+          onRefresh={vi.fn().mockResolvedValue(undefined)}
+          enablePolling={false}
+        />
+      );
+      const results = await axe(container);
+      expect(results).toHaveNoViolations();
+    });
+  });
