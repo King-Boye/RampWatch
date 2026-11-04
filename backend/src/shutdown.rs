@@ -1,0 +1,381 @@
+//! Graceful shutdown handling for the backend server
+//!
+//! This module provides utilities for handling shutdown signals (SIGTERM, SIGINT)
+//! and coordinating graceful shutdown of server components.
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::broadcast;
+use tokio::time::timeout;
+use tracing::{info, warn};
+
+/// Cheaply-clonable, level-triggered shutdown signal.
+///
+/// Unlike `broadcast::Receiver` (edge-triggered — a receiver that subscribes
+/// after `trigger_shutdown()` has already fired will never see it), this can
+/// be polled at any time from any loop to ask "has shutdown started yet?".
+///
+/// Long-running ingestion loops (e.g. `ingestion::ledger::LedgerIngestionService`,
+/// which fetches and persists ledgers one at a time) hold a clone and check
+/// `is_set()` between units of work — specifically *before* starting the next
+/// ledger, never mid-ledger — so a SIGTERM stops ingestion at a ledger
+/// boundary instead of leaving a partially-written ledger behind (#2655).
+#[derive(Clone, Default)]
+pub struct ShutdownFlag(Arc<AtomicBool>);
+
+impl ShutdownFlag {
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Arc::new(AtomicBool::new(false)))
+    }
+
+    /// Marks shutdown as started. Idempotent.
+    pub fn set(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+
+    /// Whether shutdown has been requested.
+    #[must_use]
+    pub fn is_set(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// Configuration for graceful shutdown behavior
+#[derive(Debug, Clone)]
+pub struct ShutdownConfig {
+    /// Maximum time to wait for in-flight requests to complete
+    pub graceful_timeout: Duration,
+    /// Maximum time to wait for background tasks to complete
+    pub background_task_timeout: Duration,
+    /// Maximum time to wait for database connections to close
+    pub db_close_timeout: Duration,
+}
+
+impl Default for ShutdownConfig {
+    fn default() -> Self {
+        Self {
+            graceful_timeout: Duration::from_secs(30),
+            background_task_timeout: Duration::from_secs(10),
+            db_close_timeout: Duration::from_secs(5),
+        }
+    }
+}
+
+impl ShutdownConfig {
+    /// Create a new shutdown configuration from environment variables
+    pub fn from_env() -> Self {
+        let graceful_timeout = std::env::var("SHUTDOWN_GRACEFUL_TIMEOUT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .map_or(Duration::from_secs(30), Duration::from_secs);
+
+        let background_task_timeout = std::env::var("SHUTDOWN_BACKGROUND_TIMEOUT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .map_or(Duration::from_secs(10), Duration::from_secs);
+
+        let db_close_timeout = std::env::var("SHUTDOWN_DB_TIMEOUT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .map_or(Duration::from_secs(5), Duration::from_secs);
+
+        Self {
+            graceful_timeout,
+            background_task_timeout,
+            db_close_timeout,
+        }
+    }
+}
+
+/// Shutdown coordinator that manages the graceful shutdown process
+pub struct ShutdownCoordinator {
+    config: ShutdownConfig,
+    shutdown_tx: broadcast::Sender<()>,
+    shutdown_flag: ShutdownFlag,
+}
+
+impl ShutdownCoordinator {
+    /// Create a new shutdown coordinator with the given configuration
+    #[must_use]
+    pub fn new(config: ShutdownConfig) -> Self {
+        let (shutdown_tx, _) = broadcast::channel(1);
+        Self {
+            config,
+            shutdown_tx,
+            shutdown_flag: ShutdownFlag::new(),
+        }
+    }
+
+    /// Get a receiver for shutdown notifications
+    #[must_use]
+    pub fn subscribe(&self) -> broadcast::Receiver<()> {
+        self.shutdown_tx.subscribe()
+    }
+
+    /// Get a cheaply-clonable, level-triggered handle for the shutdown
+    /// state. Hand a clone to any long-running loop (e.g. ledger ingestion)
+    /// that needs to check "has shutdown started?" between units of work
+    /// rather than reacting to a one-shot broadcast.
+    #[must_use]
+    pub fn shutdown_flag(&self) -> ShutdownFlag {
+        self.shutdown_flag.clone()
+    }
+
+    /// Trigger shutdown and notify all subscribers
+    pub fn trigger_shutdown(&self) {
+        info!("Triggering graceful shutdown");
+        self.shutdown_flag.set();
+        let _ = self.shutdown_tx.send(());
+    }
+
+    /// Get the graceful timeout duration
+    #[must_use]
+    pub const fn graceful_timeout(&self) -> Duration {
+        self.config.graceful_timeout
+    }
+
+    /// Get the background task timeout duration
+    #[must_use]
+    pub const fn background_task_timeout(&self) -> Duration {
+        self.config.background_task_timeout
+    }
+
+    /// Get the database close timeout duration
+    #[must_use]
+    pub const fn db_close_timeout(&self) -> Duration {
+        self.config.db_close_timeout
+    }
+}
+
+/// Wait for shutdown signals (SIGTERM, SIGINT/Ctrl+C)
+///
+/// This function will block until either SIGTERM or SIGINT is received.
+/// On Windows, only Ctrl+C is supported.
+pub async fn wait_for_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("Failed to install SIGTERM handler");
+        let mut sigint = signal(SignalKind::interrupt()).expect("Failed to install SIGINT handler");
+
+        tokio::select! {
+            _ = sigterm.recv() => {
+                info!("Received SIGTERM signal");
+            }
+            _ = sigint.recv() => {
+                info!("Received SIGINT signal");
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+        info!("Received Ctrl+C signal");
+    }
+}
+
+/// Shutdown signal future suitable for use with `axum::serve().with_graceful_shutdown()`.
+///
+/// Resolves when SIGTERM or SIGINT (Ctrl+C) is received. Errors installing
+/// signal handlers are logged as warnings rather than panicking, so the server
+/// continues to run and can still be stopped via other means.
+pub async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        let sigterm = signal(SignalKind::terminate());
+        let sigint = signal(SignalKind::interrupt());
+
+        match (sigterm, sigint) {
+            (Ok(mut term), Ok(mut int)) => {
+                tokio::select! {
+                    _ = term.recv() => info!("Received SIGTERM, shutting down"),
+                    _ = int.recv()  => info!("Received SIGINT, shutting down"),
+                }
+            }
+            (Err(e), _) | (_, Err(e)) => {
+                warn!(
+                    "Failed to install signal handler: {}; falling back to Ctrl+C",
+                    e
+                );
+                let _ = tokio::signal::ctrl_c().await;
+                info!("Received Ctrl+C, shutting down");
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => info!("Received Ctrl+C, shutting down"),
+            Err(e) => warn!("Failed to listen for Ctrl+C: {}", e),
+        }
+    }
+}
+
+/// Gracefully shutdown background tasks
+///
+/// Waits for the given task handles to complete within the timeout period.
+/// If the timeout is exceeded, tasks are forcefully aborted.
+pub async fn shutdown_background_tasks(
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+    timeout_duration: Duration,
+) {
+    info!("Shutting down {} background tasks", tasks.len());
+
+    let shutdown_future = async {
+        for (idx, task) in tasks.into_iter().enumerate() {
+            match task.await {
+                Ok(()) => info!("Background task {} completed successfully", idx),
+                Err(e) if e.is_cancelled() => {
+                    info!("Background task {} was cancelled", idx);
+                }
+                Err(e) => warn!("Background task {} failed: {}", idx, e),
+            }
+        }
+    };
+
+    if let Ok(()) = timeout(timeout_duration, shutdown_future).await {
+        info!("All background tasks completed within timeout")
+    } else {
+        warn!(
+            "Background tasks did not complete within {:?}, proceeding with shutdown",
+            timeout_duration
+        )
+    }
+}
+
+/// Gracefully close database connection pool
+///
+/// Attempts to close the database pool within the timeout period.
+pub async fn shutdown_database(pool: sqlx::SqlitePool, timeout_duration: Duration) {
+    info!("Closing database connections");
+
+    let close_future = async {
+        pool.close().await;
+        info!("Database connections closed successfully");
+    };
+
+    if let Ok(()) = timeout(timeout_duration, close_future).await {
+        info!("Database closed within timeout")
+    } else {
+        warn!(
+            "Database did not close within {:?}, proceeding with shutdown",
+            timeout_duration
+        )
+    }
+}
+
+
+
+/// Log shutdown statistics and final state
+pub fn log_shutdown_summary(start_time: std::time::Instant) {
+    let elapsed = start_time.elapsed();
+    info!(
+        "Graceful shutdown completed in {:.2}s",
+        elapsed.as_secs_f64()
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_shutdown_config_default() {
+        let config = ShutdownConfig::default();
+        assert_eq!(config.graceful_timeout, Duration::from_secs(30));
+        assert_eq!(config.background_task_timeout, Duration::from_secs(10));
+        assert_eq!(config.db_close_timeout, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn test_shutdown_coordinator_creation() {
+        let config = ShutdownConfig::default();
+        let coordinator = ShutdownCoordinator::new(config);
+
+        // Should be able to subscribe
+        let _rx = coordinator.subscribe();
+
+        // Should be able to get timeouts
+        assert_eq!(coordinator.graceful_timeout(), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_shutdown_flag_starts_unset() {
+        let flag = ShutdownFlag::new();
+        assert!(!flag.is_set());
+        flag.set();
+        assert!(flag.is_set());
+    }
+
+    #[test]
+    fn test_shutdown_flag_clone_shares_state() {
+        let flag = ShutdownFlag::new();
+        let clone = flag.clone();
+        assert!(!clone.is_set());
+        flag.set();
+        // A clone taken before `set()` still observes it — this is what
+        // lets an ingestion loop poll the same handle a coordinator holds.
+        assert!(clone.is_set());
+    }
+
+    #[test]
+    fn test_coordinator_shutdown_flag_reflects_trigger() {
+        let coordinator = ShutdownCoordinator::new(ShutdownConfig::default());
+        let flag = coordinator.shutdown_flag();
+        assert!(!flag.is_set());
+
+        coordinator.trigger_shutdown();
+
+        assert!(flag.is_set());
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_coordinator_broadcast() {
+        let config = ShutdownConfig::default();
+        let coordinator = ShutdownCoordinator::new(config);
+
+        let mut rx1 = coordinator.subscribe();
+        let mut rx2 = coordinator.subscribe();
+
+        coordinator.trigger_shutdown();
+
+        // Both receivers should get the signal
+        assert!(rx1.recv().await.is_ok());
+        assert!(rx2.recv().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_background_tasks_success() {
+        let task1 = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        });
+
+        let task2 = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        });
+
+        shutdown_background_tasks(vec![task1, task2], Duration::from_secs(1)).await;
+
+        // Should complete without panic
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_background_tasks_timeout() {
+        let task = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        });
+
+        // Should timeout but not panic
+        shutdown_background_tasks(vec![task], Duration::from_millis(100)).await;
+    }
+}

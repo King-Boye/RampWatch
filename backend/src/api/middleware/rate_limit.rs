@@ -1,0 +1,851 @@
+use anyhow::Context;
+use axum::{
+    extract::{ConnectInfo, Request, State},
+    http::{header, HeaderValue, StatusCode},
+    middleware::Next,
+    response::{IntoResponse, Response},
+};
+use redis::aio::MultiplexedConnection;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+use crate::auth::api_key_model::{extract_key_prefix, verify_api_key};
+
+/// Rate limit configuration for an endpoint
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitConfig {
+    pub requests_per_minute: u32,
+    pub whitelist_ips: Vec<String>,
+    /// Per-client rate limits (overrides default)
+    pub client_limits: Option<ClientRateLimits>,
+}
+
+/// Client-specific rate limit configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientRateLimits {
+    /// Rate limit for authenticated users with API keys
+    pub authenticated: u32,
+    /// Rate limit for premium/paid tier clients
+    pub premium: u32,
+    /// Rate limit for anonymous/IP-based clients
+    pub anonymous: u32,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            requests_per_minute: 100,
+            whitelist_ips: vec![],
+            client_limits: Some(ClientRateLimits {
+                authenticated: 200,
+                premium: 1000,
+                anonymous: 60,
+            }),
+        }
+    }
+}
+
+/// Client identification for rate limiting
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ClientIdentifier {
+    /// Authenticated client with API key
+    ApiKey(String),
+    /// Authenticated user via JWT
+    User(String),
+    /// Anonymous client identified by IP
+    IpAddress(String),
+}
+
+impl ClientIdentifier {
+    /// Get the tier for this client type
+    #[must_use]
+    pub const fn tier(&self) -> ClientTier {
+        match self {
+            Self::ApiKey(_) => ClientTier::Authenticated,
+            Self::User(_) => ClientTier::Authenticated,
+            Self::IpAddress(_) => ClientTier::Anonymous,
+        }
+    }
+
+    /// Get the identifier string for rate limit key
+    #[must_use]
+    pub fn as_key(&self) -> String {
+        match self {
+            Self::ApiKey(key) => format!("apikey:{key}"),
+            Self::User(id) => format!("user:{id}"),
+            Self::IpAddress(ip) => format!("ip:{ip}"),
+        }
+    }
+}
+
+/// Client tier for rate limiting
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientTier {
+    Anonymous,
+    Authenticated,
+    Premium,
+}
+
+/// Normalize an IP address for use as a rate-limit bucket key.
+///
+/// IPv6 addresses are masked to their /48 prefix so that an attacker rotating
+/// through addresses within a single /64 cannot trivially bypass per-IP limits.
+/// IPv4 addresses are returned unchanged.
+fn normalize_ip_for_rate_limit(ip: &str) -> String {
+    use std::net::IpAddr;
+    match ip.parse::<IpAddr>() {
+        Ok(IpAddr::V6(v6)) => {
+            let s = v6.segments();
+            // Keep the first three 16-bit groups (48 bits), zero the rest.
+            std::net::Ipv6Addr::new(s[0], s[1], s[2], 0, 0, 0, 0, 0).to_string()
+        }
+        _ => ip.to_string(),
+    }
+}
+
+/// Comma-separated user/API-key IDs in `RAMPWATCH_PREMIUM_CLIENT_IDS` map to premium tier.
+fn client_id_has_premium_env_override(client_id: &str) -> bool {
+    std::env::var("RAMPWATCH_PREMIUM_CLIENT_IDS")
+        .ok()
+        .is_some_and(|raw| raw.split(',').any(|part| part.trim() == client_id))
+}
+
+/// Rate limiter state
+pub struct RateLimiter {
+    redis_connection: Arc<RwLock<Option<MultiplexedConnection>>>,
+    endpoint_configs: Arc<RwLock<HashMap<String, RateLimitConfig>>>,
+    fallback_memory_store: Arc<RwLock<HashMap<String, (u32, i64)>>>,
+    db_pool: Option<sqlx::SqlitePool>,
+    /// SHA-256 of a presented key -> (key id, when the entry expires). Keys
+    /// are stored as salted Argon2 hashes, which are deliberately slow to
+    /// check, so a verified key is remembered briefly instead of re-verified
+    /// on every request.
+    verified_keys: Arc<dashmap::DashMap<[u8; 32], (String, std::time::Instant)>>,
+}
+
+/// How long a verified API key is trusted without re-checking its hash. A
+/// revoked key stops working within this window.
+const VERIFIED_KEY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+impl RateLimiter {
+    pub async fn new() -> anyhow::Result<Self> {
+        Self::new_with_db(None).await
+    }
+
+    pub async fn new_with_db(db_pool: Option<sqlx::SqlitePool>) -> anyhow::Result<Self> {
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+
+        let connection = if let Ok(client) = redis::Client::open(redis_url.as_str()) {
+            match client.get_multiplexed_async_connection().await {
+                Ok(conn) => {
+                    tracing::info!("Connected to Redis for rate limiting");
+                    Some(conn)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to connect to Redis ({}), using memory-only rate limiting",
+                        e
+                    );
+                    None
+                }
+            }
+        } else {
+            tracing::warn!("Invalid Redis URL, using memory-only rate limiting");
+            None
+        };
+
+        Ok(Self {
+            redis_connection: Arc::new(RwLock::new(connection)),
+            endpoint_configs: Arc::new(RwLock::new(HashMap::new())),
+            fallback_memory_store: Arc::new(RwLock::new(HashMap::new())),
+            db_pool,
+            verified_keys: Arc::new(dashmap::DashMap::new()),
+        })
+    }
+
+    /// Construct a rate limiter that never attempts Redis (in-memory path only).
+    /// Used by integration tests to compare Redis vs memory behavior (#1869).
+    pub fn new_memory_only(db_pool: Option<sqlx::SqlitePool>) -> Self {
+        Self {
+            redis_connection: Arc::new(RwLock::new(None)),
+            endpoint_configs: Arc::new(RwLock::new(HashMap::new())),
+            fallback_memory_store: Arc::new(RwLock::new(HashMap::new())),
+            db_pool,
+            verified_keys: Arc::new(dashmap::DashMap::new()),
+        }
+    }
+
+    /// Whether this limiter is currently backed by a live Redis connection.
+    pub async fn is_using_redis(&self) -> bool {
+        self.redis_connection.read().await.is_some()
+    }
+
+    /// Register a rate limit config for an endpoint
+    pub async fn register_endpoint(&self, path: String, config: RateLimitConfig) {
+        self.endpoint_configs.write().await.insert(path, config);
+    }
+
+    /// Resolve client identifier from extracted request context.
+    async fn resolve_client_identifier(
+        &self,
+        bearer_token: Option<String>,
+        auth_user_id: Option<String>,
+        ip_address: String,
+    ) -> ClientIdentifier {
+        // Try to extract API key from Authorization header
+        if let Some(token) = bearer_token {
+            if token.starts_with("rw_live_") || token.starts_with("rw_test_") {
+                // Validate API key against database if available
+                if let Some(api_key_id) = self.resolve_api_key_id(&token).await {
+                    return ClientIdentifier::ApiKey(api_key_id);
+                }
+            }
+        }
+
+        // Try to extract authenticated user from extensions (set by auth middleware)
+        if let Some(user_id) = auth_user_id {
+            return ClientIdentifier::User(user_id);
+        }
+
+        // Fall back to IP address — normalized to /48 for IPv6 to prevent prefix rotation bypass.
+        ClientIdentifier::IpAddress(normalize_ip_for_rate_limit(&ip_address))
+    }
+
+    /// Find the active key matching a presented plaintext key.
+    ///
+    /// Stored hashes are salted Argon2, so the presented key cannot be
+    /// re-hashed and matched by equality (which is what this used to do, so no
+    /// key was ever recognised). Narrow by the stored prefix, then verify.
+    async fn find_active_api_key(
+        &self,
+        pool: &sqlx::SqlitePool,
+        plain_key: &str,
+    ) -> Result<Option<crate::auth::api_key_model::ApiKey>, sqlx::Error> {
+        let candidates = sqlx::query_as::<_, crate::auth::api_key_model::ApiKey>(
+            // The upstream copy selected `*` from api_keys, which has no
+            // rate_limit_per_minute column, so the row never decoded and no
+            // key was recognised. Join the limit table like api_key_db does.
+            "SELECT k.*, COALESCE(c.limit_per_minute, 200) AS rate_limit_per_minute
+             FROM api_keys k LEFT JOIN api_keys_rate_limit_config c ON c.api_key_id = k.id
+             WHERE k.key_prefix = ? AND k.status = 'active'
+               AND (k.expires_at IS NULL OR k.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        )
+        .bind(extract_key_prefix(plain_key))
+        .fetch_all(pool)
+        .await?;
+
+        Ok(candidates
+            .into_iter()
+            .find(|candidate| verify_api_key(plain_key, &candidate.key_hash)))
+    }
+
+    /// Update API key `last_used_at` timestamp
+    async fn update_api_key_last_used(
+        &self,
+        pool: &sqlx::SqlitePool,
+        key_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?")
+            .bind(key_id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Get client tier (check for premium status)
+    async fn get_client_tier(&self, client: &ClientIdentifier) -> ClientTier {
+        match client {
+            ClientIdentifier::ApiKey(id) => {
+                if client_id_has_premium_env_override(id) {
+                    return ClientTier::Premium;
+                }
+                ClientTier::Authenticated
+            }
+            ClientIdentifier::User(user_id) => {
+                if client_id_has_premium_env_override(user_id) {
+                    return ClientTier::Premium;
+                }
+                ClientTier::Authenticated
+            }
+            ClientIdentifier::IpAddress(_) => ClientTier::Anonymous,
+        }
+    }
+
+    /// Get rate limit for client based on tier
+    const fn get_limit_for_client(&self, config: &RateLimitConfig, tier: ClientTier) -> u32 {
+        if let Some(client_limits) = &config.client_limits {
+            match tier {
+                ClientTier::Anonymous => client_limits.anonymous,
+                ClientTier::Authenticated => client_limits.authenticated,
+                ClientTier::Premium => client_limits.premium,
+            }
+        } else {
+            config.requests_per_minute
+        }
+    }
+
+    /// Check if IP is in whitelist for an endpoint
+    fn is_whitelisted(&self, ip: &str, config: &RateLimitConfig) -> bool {
+        config
+            .whitelist_ips
+            .iter()
+            .any(|whitelisted_ip| whitelisted_ip == ip || whitelisted_ip == "*")
+    }
+
+    /// Check rate limit for a client/endpoint combination
+    pub async fn check_rate_limit_for_client(
+        &self,
+        client: &ClientIdentifier,
+        endpoint: &str,
+        ip: &str,
+    ) -> (bool, RateLimitInfo) {
+        // Get endpoint config
+        let configs = self.endpoint_configs.read().await;
+        let config = configs.get(endpoint).cloned().unwrap_or_default();
+
+        // Check IP whitelist (still applies for all clients)
+        if self.is_whitelisted(ip, &config) {
+            return (
+                true,
+                RateLimitInfo {
+                    limit: config.requests_per_minute,
+                    remaining: config.requests_per_minute,
+                    reset_at: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64
+                        + 60,
+                    reset_after_seconds: 60,
+                    window_seconds: 60,
+                    is_whitelisted: true,
+                    client_id: Some(client.as_key()),
+                },
+            );
+        }
+
+        // Get client tier and corresponding limit
+        let tier = self.get_client_tier(client).await;
+        let limit = self.get_limit_for_client(&config, tier);
+
+        let key = format!("ratelimit:{}:{}", endpoint, client.as_key());
+
+        // Try Redis first
+        if let Some(conn) = self.redis_connection.read().await.as_ref() {
+            let mut conn = conn.clone();
+            if let Ok((allowed, remaining, reset)) =
+                self.check_redis_limit(&mut conn, &key, limit).await
+            {
+                return (
+                    allowed,
+                    RateLimitInfo {
+                        limit,
+                        remaining,
+                        reset_at: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64
+                            + reset as i64,
+                        reset_after_seconds: reset,
+                        window_seconds: 60,
+                        is_whitelisted: false,
+                        client_id: Some(client.as_key()),
+                    },
+                );
+            }
+        }
+
+        // Fall back to memory store
+        let (allowed, remaining, reset) = self.check_memory_limit(&key, limit).await;
+        (
+            allowed,
+            RateLimitInfo {
+                limit,
+                remaining,
+                reset_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64
+                    + reset as i64,
+                reset_after_seconds: reset,
+                window_seconds: 60,
+                is_whitelisted: false,
+                client_id: Some(client.as_key()),
+            },
+        )
+    }
+
+    /// Check rate limit for an IP/endpoint combination (legacy method)
+    pub async fn check_rate_limit(&self, ip: &str, endpoint: &str) -> (bool, RateLimitInfo) {
+        let client = ClientIdentifier::IpAddress(normalize_ip_for_rate_limit(ip));
+        self.check_rate_limit_for_client(&client, endpoint, ip)
+            .await
+    }
+
+    /// Look up per-API-key rate limit from `api_keys_rate_limit_config`, with a safe default.
+    pub async fn get_api_key_limit_per_minute(&self, api_key_id: &str) -> u32 {
+        // Matches the authenticated tier's global limit. At 60 this per-key
+        // bucket throttled keyed callers to the anonymous rate even though
+        // the global limiter allowed them 200.
+        const DEFAULT_LIMIT: u32 = 200;
+
+        let Some(pool) = &self.db_pool else {
+            return DEFAULT_LIMIT;
+        };
+
+
+        match sqlx::query_scalar::<_, i64>(
+            "SELECT limit_per_minute FROM api_keys_rate_limit_config WHERE api_key_id = ?",
+        )
+        .bind(api_key_id)
+        .fetch_optional(pool)
+        .await
+        {
+            Ok(Some(limit)) => u32::try_from(limit).unwrap_or(DEFAULT_LIMIT).max(1),
+            Ok(None) => DEFAULT_LIMIT,
+            Err(e) => {
+                tracing::error!(
+                    "Failed to load API key rate limit for {}: {}",
+                    api_key_id,
+                    e
+                );
+                DEFAULT_LIMIT
+            }
+        }
+    }
+
+    /// Independent per-API-key rate limit bucket (not tied to client IP).
+    pub async fn rate_limit_api_key(
+        &self,
+        api_key_id: &str,
+        limit_per_minute: u32,
+    ) -> (bool, RateLimitInfo) {
+        let limit = limit_per_minute.max(1);
+        let key = format!("apikey_ratelimit:{api_key_id}");
+
+        if let Some(conn) = self.redis_connection.read().await.as_ref() {
+            let mut conn = conn.clone();
+            if let Ok((allowed, remaining, reset)) =
+                self.check_redis_limit(&mut conn, &key, limit).await
+            {
+                return (
+                    allowed,
+                    RateLimitInfo {
+                        limit,
+                        remaining,
+                        reset_at: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64
+                            + reset as i64,
+                        reset_after_seconds: reset,
+                        window_seconds: 60,
+                        is_whitelisted: false,
+                        client_id: Some(format!("apikey:{api_key_id}")),
+                    },
+                );
+            }
+        }
+
+        let (allowed, remaining, reset) = self.check_memory_limit(&key, limit).await;
+        (
+            allowed,
+            RateLimitInfo {
+                limit,
+                remaining,
+                reset_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64
+                    + reset as i64,
+                reset_after_seconds: reset,
+                window_seconds: 60,
+                is_whitelisted: false,
+                client_id: Some(format!("apikey:{api_key_id}")),
+            },
+        )
+    }
+
+    /// Resolve an API key bearer token to its database id, if valid.
+    pub async fn resolve_api_key_id(&self, bearer_token: &str) -> Option<String> {
+        if !bearer_token.starts_with("rw_live_") && !bearer_token.starts_with("rw_test_") {
+            return None;
+        }
+
+        let fingerprint: [u8; 32] = {
+            use sha2::Digest;
+            sha2::Sha256::digest(bearer_token.as_bytes()).into()
+        };
+        if let Some(entry) = self.verified_keys.get(&fingerprint) {
+            let (key_id, expires) = entry.value();
+            if *expires > std::time::Instant::now() {
+                return Some(key_id.clone());
+            }
+        }
+
+        let pool = self.db_pool.as_ref()?;
+        let api_key = self
+            .find_active_api_key(pool, bearer_token)
+            .await
+            .ok()
+            .flatten();
+        let Some(api_key) = api_key else {
+            self.verified_keys.remove(&fingerprint);
+            return None;
+        };
+
+        let _ = self.update_api_key_last_used(pool, &api_key.id).await;
+        self.verified_keys.insert(
+            fingerprint,
+            (
+                api_key.id.clone(),
+                std::time::Instant::now() + VERIFIED_KEY_TTL,
+            ),
+        );
+        Some(api_key.id)
+    }
+
+    /// Check rate limit in Redis
+    async fn check_redis_limit(
+        &self,
+        conn: &mut MultiplexedConnection,
+        key: &str,
+        limit: u32,
+    ) -> anyhow::Result<(bool, u32, u32), Box<dyn std::error::Error + Send + Sync>> {
+        use redis::AsyncCommands;
+
+        let current: u32 = conn.get(key).await.unwrap_or(0);
+        let ttl: i64 = conn.ttl(key).await.unwrap_or(-1);
+
+        if current >= limit {
+            return Ok((false, 0, if ttl > 0 { ttl as u32 } else { 60 }));
+        }
+
+        let new_count = current + 1;
+        conn.incr::<_, _, ()>(key, 1).await?;
+
+        if current == 0 {
+            conn.expire::<_, ()>(key, 60).await?;
+        }
+
+        let remaining = limit.saturating_sub(new_count);
+        Ok((new_count <= limit, remaining, 60))
+    }
+
+    /// Check rate limit in memory (fallback)
+    async fn check_memory_limit(&self, key: &str, limit: u32) -> (bool, u32, u32) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        let mut store = self.fallback_memory_store.write().await;
+
+        let (count, expiry) = store.get(key).copied().unwrap_or((0, now + 60));
+
+        if now > expiry {
+            // Reset counter
+            store.insert(key.to_string(), (1, now + 60));
+            (true, limit - 1, 60)
+        } else if count >= limit {
+            (false, 0, (expiry - now) as u32)
+        } else {
+            let new_count = count + 1;
+            store.insert(key.to_string(), (new_count, expiry));
+            let remaining = limit.saturating_sub(new_count);
+            (new_count <= limit, remaining, (expiry - now) as u32)
+        }
+    }
+}
+
+/// Rate limit information in response
+#[derive(Debug, Clone)]
+pub struct RateLimitInfo {
+    pub limit: u32,
+    pub remaining: u32,
+    pub reset_at: i64,
+    pub reset_after_seconds: u32,
+    pub window_seconds: u32,
+    pub is_whitelisted: bool,
+    pub client_id: Option<String>,
+}
+
+/// Add rate limit headers to a response according to standards
+pub fn add_rate_limit_headers(
+    mut response: Response,
+    info: &RateLimitInfo,
+) -> anyhow::Result<Response> {
+    // Standard rate limit headers (draft RFC)
+    response.headers_mut().insert(
+        "RateLimit-Limit",
+        HeaderValue::from_str(&info.limit.to_string())
+            .context("Failed to create RateLimit-Limit header")?,
+    );
+
+    response.headers_mut().insert(
+        "RateLimit-Remaining",
+        HeaderValue::from_str(&info.remaining.to_string())
+            .context("Failed to create RateLimit-Remaining header")?,
+    );
+
+    response.headers_mut().insert(
+        "RateLimit-Reset",
+        HeaderValue::from_str(&info.reset_at.to_string())
+            .context("Failed to create RateLimit-Reset header")?,
+    );
+
+    // Add Retry-After when rate limited
+    if info.remaining == 0 {
+        response.headers_mut().insert(
+            header::RETRY_AFTER,
+            HeaderValue::from_str(&info.reset_after_seconds.to_string())
+                .context("Failed to create Retry-After header")?,
+        );
+    }
+
+    // Add custom header for rate limit policy
+    response.headers_mut().insert(
+        "X-RateLimit-Policy",
+        HeaderValue::from_str(&format!(
+            "{} requests per {} seconds",
+            info.limit, info.window_seconds
+        ))
+        .context("Failed to create X-RateLimit-Policy header")?,
+    );
+
+    // Add optional client identifier for debugging (sanitized)
+    if let Some(client_id) = &info.client_id {
+        if let Ok(header_value) = HeaderValue::from_str(client_id) {
+            response
+                .headers_mut()
+                .insert("X-RateLimit-Client", header_value);
+        }
+    }
+
+    Ok(response)
+}
+
+/// Rate limit error response
+#[derive(Debug)]
+pub struct RateLimitError {
+    pub info: RateLimitInfo,
+}
+
+impl IntoResponse for RateLimitError {
+    fn into_response(self) -> Response {
+        let body = serde_json::json!({
+            "error": "Rate limit exceeded",
+            "limit": self.info.limit,
+            "reset_after": self.info.reset_after_seconds,
+        });
+
+        let response = (StatusCode::TOO_MANY_REQUESTS, axum::Json(body)).into_response();
+
+        match add_rate_limit_headers(response, &self.info) {
+            Ok(res) => res,
+            Err(e) => {
+                tracing::error!("Failed to add rate limit headers to error response: {}", e);
+                // Return basic error response if header addition fails
+                (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded").into_response()
+            }
+        }
+    }
+}
+
+/// Second-layer middleware: per-API-key rate limiting independent of client IP.
+///
+/// Runs after auth middleware on protected routes and enforces a dedicated bucket
+/// for each validated API key using limits from `api_keys_rate_limit_config`.
+pub async fn api_key_rate_limit_middleware(
+    State(limiter): State<Arc<RateLimiter>>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let bearer_token = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|auth_str| auth_str.strip_prefix("Bearer "))
+        .map(str::trim);
+
+    let Some(token) = bearer_token else {
+        return next.run(req).await;
+    };
+
+    let Some(api_key_id) = limiter.resolve_api_key_id(token).await else {
+        return next.run(req).await;
+    };
+
+    let limit = limiter.get_api_key_limit_per_minute(&api_key_id).await;
+    let (allowed, info) = limiter.rate_limit_api_key(&api_key_id, limit).await;
+
+    if !allowed {
+        return RateLimitError { info }.into_response();
+    }
+
+    let response = next.run(req).await;
+
+    match add_rate_limit_headers(response, &info) {
+        Ok(res) => res,
+        Err(e) => {
+            tracing::error!("Failed to add API key rate limit headers: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to add rate limit headers",
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Middleware for rate limiting
+pub async fn rate_limit_middleware(
+    State(limiter): State<Arc<RateLimiter>>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let bearer_token = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|auth_str| auth_str.strip_prefix("Bearer "))
+        .map(str::to_owned);
+
+    let auth_user_id: Option<String> = None;
+
+    let ip = req
+        .extensions()
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .map_or_else(
+            || "unknown".to_string(),
+            |connect_info| connect_info.0.ip().to_string(),
+        );
+    let path = req.uri().path().to_string();
+
+    // Resolve client identifier from copied request metadata.
+    let client = limiter
+        .resolve_client_identifier(bearer_token, auth_user_id, ip.clone())
+        .await;
+
+    let (allowed, info) = limiter
+        .check_rate_limit_for_client(&client, &path, &ip)
+        .await;
+
+    if !allowed {
+        return RateLimitError { info }.into_response();
+    }
+
+    let response = next.run(req).await;
+
+    match add_rate_limit_headers(response, &info) {
+        Ok(res) => res,
+        Err(e) => {
+            tracing::error!("Failed to add rate limit headers: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to add rate limit headers",
+            )
+                .into_response()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn setup_api_key_rate_limit_db() -> sqlx::SqlitePool {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite pool should connect");
+
+        sqlx::query(
+            "CREATE TABLE api_keys (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                key_prefix TEXT NOT NULL,
+                key_hash TEXT NOT NULL UNIQUE,
+                wallet_address TEXT NOT NULL,
+                scopes TEXT NOT NULL DEFAULT 'read',
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                last_used_at TEXT,
+                expires_at TEXT,
+                revoked_at TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("api_keys table creation should succeed");
+
+        sqlx::query(
+            "CREATE TABLE api_keys_rate_limit_config (
+                api_key_id TEXT PRIMARY KEY NOT NULL,
+                limit_per_minute INTEGER NOT NULL DEFAULT 60,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("api_keys_rate_limit_config table creation should succeed");
+
+        pool
+    }
+
+    #[tokio::test]
+    async fn test_api_key_rate_limit_is_independent_per_key() {
+        let db = setup_api_key_rate_limit_db().await;
+        let limiter = RateLimiter::new_with_db(Some(db))
+            .await
+            .expect("rate limiter should initialize");
+        let limit = 2u32;
+
+        // Unique per run: a real Redis may be reachable at the default
+        // REDIS_URL in dev/CI environments, and its 60s TTL means a fixed
+        // key name like "key-a" can carry a stale count over from the
+        // previous run of this same test, making it flaky.
+        let unique = uuid::Uuid::new_v4();
+        let key_a = format!("key-a-{unique}");
+        let key_b = format!("key-b-{unique}");
+
+        for _ in 0..2 {
+            let (allowed, _) = limiter.rate_limit_api_key(&key_a, limit).await;
+            assert!(allowed);
+        }
+
+        let (allowed, info) = limiter.rate_limit_api_key(&key_a, limit).await;
+        assert!(!allowed);
+        assert_eq!(info.remaining, 0);
+
+        let (allowed, _) = limiter.rate_limit_api_key(&key_b, limit).await;
+        assert!(allowed);
+    }
+
+    #[tokio::test]
+    async fn test_api_key_rate_limit_reads_config_table() {
+        let db = setup_api_key_rate_limit_db().await;
+        sqlx::query(
+            "INSERT INTO api_keys_rate_limit_config (api_key_id, limit_per_minute) VALUES (?, ?)",
+        )
+        .bind("configured-key")
+        .bind(15_i64)
+        .execute(&db)
+        .await
+        .expect("api key rate limit config insert should succeed");
+
+        let limiter = RateLimiter::new_with_db(Some(db))
+            .await
+            .expect("rate limiter should initialize");
+        assert_eq!(
+            limiter.get_api_key_limit_per_minute("configured-key").await,
+            15
+        );
+        assert_eq!(
+            limiter.get_api_key_limit_per_minute("missing-key").await,
+            200
+        );
+    }
+}
