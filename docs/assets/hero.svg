@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="hero-title hero-desc">
+  <title id="hero-title">RampWatch</title>
+  <desc id="hero-desc">A heartbeat line draws across a monitor grid under the RampWatch name, with pulsing status lights for the NG, GH, KE and RW corridors.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#13213d"/>
+    </linearGradient>
+    <linearGradient id="beat" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2dd4bf" stop-opacity="0"/>
+      <stop offset="0.25" stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#38bdf8"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#1c2a47" stroke-width="1"/>
+    </pattern>
+    <filter id="glow" x="-20%" y="-50%" width="140%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="card"><rect width="1200" height="320" rx="24"/></clipPath>
+  </defs>
+  <style>
+    .title { font: 800 72px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #f8fafc; letter-spacing: -1px; }
+    .accent { fill: #2dd4bf; }
+    .sub { font: 400 22px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #94a3b8; }
+    .chip-text { font: 600 15px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #e2e8f0; }
+    .chip { fill: #16233f; stroke: #2a3b61; }
+    .beat { fill: none; stroke: url(#beat); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round;
+            stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: draw 4.5s linear infinite; }
+    .runner { fill: #e0fffa; offset-path: path("M40 274 H470 L490 274 L505 254 L520 298 L538 240 L558 290 L572 274 H770 L790 274 L805 254 L820 298 L838 240 L858 290 L872 274 H1030 L1050 274 L1065 254 L1080 298 L1098 240 L1118 290 L1132 274 H1160");
+              offset-distance: 0%; animation: run 4.5s linear infinite; }
+    .dot { animation: pulse 2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+    .d2 { animation-delay: .5s; } .d3 { animation-delay: 1s; } .d4 { animation-delay: 1.5s; }
+    .ring { fill: none; stroke: #2dd4bf; stroke-width: 2; opacity: 0; transform-box: fill-box; transform-origin: center;
+            animation: ripple 3s ease-out infinite; }
+    .r2 { animation-delay: 1s; } .r3 { animation-delay: 2s; }
+    @keyframes draw { 0% { stroke-dashoffset: 1000; opacity: 1; } 75% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+    @keyframes run { 0% { offset-distance: 0%; opacity: 1; } 75% { offset-distance: 100%; opacity: 1; } 76%, 100% { offset-distance: 100%; opacity: 0; } }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.7); } }
+    @keyframes ripple { 0% { opacity: .8; transform: scale(.3); } 100% { opacity: 0; transform: scale(1.6); } }
+    @media (prefers-reduced-motion: reduce) {
+      .beat { animation: none; stroke-dashoffset: 0; }
+      .runner, .ring { animation: none; opacity: 0; }
+      .dot { animation: none; }
+    }
+  </style>
+
+  <g clip-path="url(#card)">
+    <rect width="1200" height="320" fill="url(#bg)"/>
+    <rect width="1200" height="320" fill="url(#grid)" opacity=".6"/>
+  </g>
+
+  <text x="64" y="118" class="title">Ramp<tspan class="accent">Watch</tspan></text>
+  <text x="66" y="160" class="sub">Health monitoring for off-ramp and payout rails on Stellar</text>
+
+  <!-- corridor chips -->
+  <g transform="translate(66 186)">
+    <g><rect class="chip" width="78" height="34" rx="17"/><circle class="dot" cx="20" cy="17" r="6" fill="#34d399"/><text x="34" y="22" class="chip-text">NG</text></g>
+    <g transform="translate(92 0)"><rect class="chip" width="78" height="34" rx="17"/><circle class="dot d2" cx="20" cy="17" r="6" fill="#34d399"/><text x="34" y="22" class="chip-text">GH</text></g>
+    <g transform="translate(184 0)"><rect class="chip" width="78" height="34" rx="17"/><circle class="dot d3" cx="20" cy="17" r="6" fill="#34d399"/><text x="34" y="22" class="chip-text">KE</text></g>
+    <g transform="translate(276 0)"><rect class="chip" width="78" height="34" rx="17"/><circle class="dot d4" cx="20" cy="17" r="6" fill="#34d399"/><text x="34" y="22" class="chip-text">RW</text></g>
+  </g>
+
+  <!-- radar ripple -->
+  <g transform="translate(1040 120)">
+    <circle class="ring" r="70"/>
+    <circle class="ring r2" r="70"/>
+    <circle class="ring r3" r="70"/>
+    <circle r="12" fill="#2dd4bf" filter="url(#glow)"/>
+  </g>
+
+  <!-- heartbeat -->
+  <path class="beat" pathLength="1000" filter="url(#glow)"
+        d="M40 274 H470 L490 274 L505 254 L520 298 L538 240 L558 290 L572 274 H770 L790 274 L805 254 L820 298 L838 240 L858 290 L872 274 H1030 L1050 274 L1065 254 L1080 298 L1098 240 L1118 290 L1132 274 H1160"/>
+  <circle class="runner" r="5" filter="url(#glow)"/>
+</svg>

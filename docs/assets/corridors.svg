@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-labelledby="cor-title cor-desc">
+  <title id="cor-title">Corridor health board (example data)</title>
+  <desc id="cor-desc">Four corridor cards with animated score rings, using example scores: NG 92 healthy, GH 87 healthy, KE 71 degraded, RW 54 down. Bands: 85 and above healthy, 60 to 84 degraded, below 60 down.</desc>
+  <defs>
+    <linearGradient id="cbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#13213d"/>
+    </linearGradient>
+  </defs>
+  <style>
+    .card { fill: #16233f; stroke: #2a3b61; stroke-width: 1.5; }
+    .name { font: 700 22px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #f1f5f9; }
+    .pair { font: 500 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #94a3b8; }
+    .score { font: 800 30px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; text-anchor: middle; }
+    .band { font: 700 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: 1px; }
+    .foot { font: 400 14px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #94a3b8; }
+    .track { fill: none; stroke: #23314f; stroke-width: 10; }
+    .arc { fill: none; stroke-width: 10; stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; opacity: 0; animation-fill-mode: both;
+           transform: rotate(-90deg); transform-box: fill-box; transform-origin: center; }
+    .ok { stroke: #34d399; fill: #34d399; } .warn { stroke: #fbbf24; fill: #fbbf24; } .bad { stroke: #f87171; fill: #f87171; }
+    text.ok, text.warn, text.bad, circle.blink { stroke: none; }
+    circle.arc { fill: none; }
+    .a1 { animation: f92 6s ease-in-out infinite; }
+    .a2 { animation: f87 6s ease-in-out infinite .2s; }
+    .a3 { animation: f71 6s ease-in-out infinite .4s; }
+    .a4 { animation: f54 6s ease-in-out infinite .6s; }
+    .blink { animation: blink 1.4s ease-in-out infinite; }
+    @keyframes f92 { 0% { stroke-dashoffset: 100; opacity: 0; } 4% { opacity: 1; } 30%, 85% { stroke-dashoffset: 8; opacity: 1; } 97% { opacity: 1; } 100% { stroke-dashoffset: 100; opacity: 0; } }
+    @keyframes f87 { 0% { stroke-dashoffset: 100; opacity: 0; } 4% { opacity: 1; } 30%, 85% { stroke-dashoffset: 13; opacity: 1; } 97% { opacity: 1; } 100% { stroke-dashoffset: 100; opacity: 0; } }
+    @keyframes f71 { 0% { stroke-dashoffset: 100; opacity: 0; } 4% { opacity: 1; } 30%, 85% { stroke-dashoffset: 29; opacity: 1; } 97% { opacity: 1; } 100% { stroke-dashoffset: 100; opacity: 0; } }
+    @keyframes f54 { 0% { stroke-dashoffset: 100; opacity: 0; } 4% { opacity: 1; } 30%, 85% { stroke-dashoffset: 46; opacity: 1; } 97% { opacity: 1; } 100% { stroke-dashoffset: 100; opacity: 0; } }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+    @media (prefers-reduced-motion: reduce) {
+      .a1, .a2, .a3, .a4, .blink { animation: none; opacity: 1; }
+      .a1 { stroke-dashoffset: 8; } .a2 { stroke-dashoffset: 13; } .a3 { stroke-dashoffset: 29; } .a4 { stroke-dashoffset: 46; }
+    }
+  </style>
+
+  <rect width="1200" height="300" rx="24" fill="url(#cbg)"/>
+
+  <!-- NG -->
+  <g transform="translate(30 30)">
+    <rect class="card" width="262" height="200" rx="18"/>
+    <text class="name" x="24" y="44">NG</text>
+    <text class="pair" x="24" y="68">USDC → NGN</text>
+    <circle class="track" cx="190" cy="100" r="48"/>
+    <circle class="arc ok a1" cx="190" cy="100" r="48" pathLength="100"/>
+    <text class="score ok" x="190" y="111" stroke="none">92</text>
+    <circle class="ok blink" cx="32" cy="170" r="6" stroke="none"/>
+    <text class="band ok" x="46" y="175" stroke="none">HEALTHY</text>
+  </g>
+
+  <!-- GH -->
+  <g transform="translate(320 30)">
+    <rect class="card" width="262" height="200" rx="18"/>
+    <text class="name" x="24" y="44">GH</text>
+    <text class="pair" x="24" y="68">USDC → GHS</text>
+    <circle class="track" cx="190" cy="100" r="48"/>
+    <circle class="arc ok a2" cx="190" cy="100" r="48" pathLength="100"/>
+    <text class="score ok" x="190" y="111" stroke="none">87</text>
+    <circle class="ok blink" cx="32" cy="170" r="6" stroke="none"/>
+    <text class="band ok" x="46" y="175" stroke="none">HEALTHY</text>
+  </g>
+
+  <!-- KE -->
+  <g transform="translate(610 30)">
+    <rect class="card" width="262" height="200" rx="18"/>
+    <text class="name" x="24" y="44">KE</text>
+    <text class="pair" x="24" y="68">USDC → KES</text>
+    <circle class="track" cx="190" cy="100" r="48"/>
+    <circle class="arc warn a3" cx="190" cy="100" r="48" pathLength="100"/>
+    <text class="score warn" x="190" y="111" stroke="none">71</text>
+    <circle class="warn blink" cx="32" cy="170" r="6" stroke="none"/>
+    <text class="band warn" x="46" y="175" stroke="none">DEGRADED</text>
+  </g>
+
+  <!-- RW -->
+  <g transform="translate(900 30)">
+    <rect class="card" width="270" height="200" rx="18"/>
+    <text class="name" x="24" y="44">RW</text>
+    <text class="pair" x="24" y="68">USDC → RWF</text>
+    <circle class="track" cx="194" cy="100" r="48"/>
+    <circle class="arc bad a4" cx="194" cy="100" r="48" pathLength="100"/>
+    <text class="score bad" x="194" y="111" stroke="none">54</text>
+    <circle class="bad blink" cx="32" cy="170" r="6" stroke="none"/>
+    <text class="band bad" x="46" y="175" stroke="none">DOWN</text>
+  </g>
+
+  <text class="foot" x="30" y="272">Example data · score = 40% uptime + 35% success rate + 25% speed · ≥85 healthy · 60–84 degraded · &lt;60 down</text>
+</svg>

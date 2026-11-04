@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="330" viewBox="0 0 1200 330" role="img" aria-labelledby="flow-title flow-desc">
+  <title id="flow-title">How RampWatch works</title>
+  <desc id="flow-desc">Animated pipeline. Cash-out events from the operator enter Intake, Stellar payments enter the Ledger watcher, both land in the Store, Detectors read the Store and feed Alerts, the Weekly report and on-chain Anchoring.</desc>
+  <defs>
+    <linearGradient id="fbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#13213d"/>
+    </linearGradient>
+    <filter id="fglow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <style>
+    .node { fill: #16233f; stroke: #2a3b61; stroke-width: 1.5; }
+    .live { stroke: #2dd4bf; }
+    .soon { stroke: #64748b; stroke-dasharray: 6 5; }
+    .label { font: 700 17px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #f1f5f9; text-anchor: middle; }
+    .note { font: 400 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #94a3b8; text-anchor: middle; }
+    .legend { font: 500 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #94a3b8; }
+    .wire { fill: none; stroke: #2a3b61; stroke-width: 2; stroke-dasharray: 6 8; animation: march 1.2s linear infinite; }
+    .pkt { offset-distance: 0%; animation: travel 3s ease-in-out infinite; }
+    .p1 { offset-path: path("M210 75 H270"); fill: #2dd4bf; }
+    .p2 { offset-path: path("M210 255 H270"); fill: #38bdf8; animation-delay: .4s; }
+    .p3 { offset-path: path("M450 75 C490 75 490 165 530 165"); fill: #2dd4bf; animation-delay: .8s; }
+    .p4 { offset-path: path("M450 255 C490 255 490 165 530 165"); fill: #38bdf8; animation-delay: 1.2s; }
+    .p5 { offset-path: path("M710 165 H770"); fill: #a78bfa; animation-delay: 1.6s; }
+    .p6 { offset-path: path("M950 165 C985 165 985 70 1020 70"); fill: #f472b6; animation-delay: 2s; }
+    .p7 { offset-path: path("M950 165 H1020"); fill: #fbbf24; animation-delay: 2.2s; }
+    .p8 { offset-path: path("M950 165 C985 165 985 260 1020 260"); fill: #34d399; animation-delay: 2.4s; }
+    @keyframes march { to { stroke-dashoffset: -28; } }
+    @keyframes travel { 0% { offset-distance: 0%; opacity: 0; } 10% { opacity: 1; } 60% { offset-distance: 100%; opacity: 1; } 70%, 100% { offset-distance: 100%; opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .wire, .pkt { animation: none; } .pkt { opacity: 0; } }
+  </style>
+
+  <rect width="1200" height="330" rx="24" fill="url(#fbg)"/>
+
+  <!-- wires -->
+  <path class="wire" d="M210 75 H270"/>
+  <path class="wire" d="M210 255 H270"/>
+  <path class="wire" d="M450 75 C490 75 490 165 530 165"/>
+  <path class="wire" d="M450 255 C490 255 490 165 530 165"/>
+  <path class="wire" d="M710 165 H770"/>
+  <path class="wire" d="M950 165 C985 165 985 70 1020 70"/>
+  <path class="wire" d="M950 165 H1020"/>
+  <path class="wire" d="M950 165 C985 165 985 260 1020 260"/>
+
+  <!-- sources -->
+  <rect class="node" x="30" y="40" width="180" height="70" rx="14"/>
+  <text class="label" x="120" y="72">Operator</text>
+  <text class="note" x="120" y="94">cash-out state changes</text>
+
+  <rect class="node" x="30" y="220" width="180" height="70" rx="14"/>
+  <text class="label" x="120" y="252">Stellar</text>
+  <text class="note" x="120" y="274">Horizon / Soroban RPC</text>
+
+  <!-- intake + ledger -->
+  <rect class="node live" x="270" y="40" width="180" height="70" rx="14"/>
+  <text class="label" x="360" y="72">Intake</text>
+  <text class="note" x="360" y="94">key · HMAC · idempotency</text>
+
+  <rect class="node soon" x="270" y="220" width="180" height="70" rx="14"/>
+  <text class="label" x="360" y="252">Ledger watcher</text>
+  <text class="note" x="360" y="274">match memo / tx hash</text>
+
+  <!-- store -->
+  <rect class="node live" x="530" y="130" width="180" height="70" rx="14"/>
+  <text class="label" x="620" y="162">Store</text>
+  <text class="note" x="620" y="184">SQLite via sqlx</text>
+
+  <!-- detectors -->
+  <rect class="node soon" x="770" y="130" width="180" height="70" rx="14"/>
+  <text class="label" x="860" y="162">Detectors</text>
+  <text class="note" x="860" y="184">stuck · double-pay · score</text>
+
+  <!-- outputs -->
+  <rect class="node soon" x="1020" y="40" width="150" height="60" rx="14"/>
+  <text class="label" x="1095" y="66">Alerts</text>
+  <text class="note" x="1095" y="86">Telegram · Slack</text>
+
+  <rect class="node soon" x="1020" y="135" width="150" height="60" rx="14"/>
+  <text class="label" x="1095" y="161">Weekly report</text>
+  <text class="note" x="1095" y="181">canonical JSON</text>
+
+  <rect class="node soon" x="1020" y="230" width="150" height="60" rx="14"/>
+  <text class="label" x="1095" y="256">Anchoring</text>
+  <text class="note" x="1095" y="276">sha256 on Soroban</text>
+
+  <!-- packets -->
+  <circle class="pkt p1" r="6" filter="url(#fglow)"/>
+  <circle class="pkt p2" r="6" filter="url(#fglow)"/>
+  <circle class="pkt p3" r="6" filter="url(#fglow)"/>
+  <circle class="pkt p4" r="6" filter="url(#fglow)"/>
+  <circle class="pkt p5" r="6" filter="url(#fglow)"/>
+  <circle class="pkt p6" r="6" filter="url(#fglow)"/>
+  <circle class="pkt p7" r="6" filter="url(#fglow)"/>
+  <circle class="pkt p8" r="6" filter="url(#fglow)"/>
+
+  <!-- legend -->
+  <g transform="translate(30 312)">
+    <rect width="26" height="12" rx="4" fill="#16233f" stroke="#2dd4bf" stroke-width="1.5" y="-10"/>
+    <text class="legend" x="34">built (M1)</text>
+    <rect x="130" y="-10" width="26" height="12" rx="4" fill="#16233f" stroke="#64748b" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <text class="legend" x="164">planned (M2–M4)</text>
+  </g>
+</svg>
