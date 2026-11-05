@@ -292,6 +292,3 @@ flowchart LR
 
 Dependency, malware and CodeQL scans also rerun every Monday. Details in [SECURITY.md](SECURITY.md).
 
-## Credits
-
-RampWatch is built on code from [stellar-insights](https://github.com/Ndifreke000/stellar-insights), [AnchorKit](https://github.com/Haroldwonder/AnchorKit), [SwiftRemit](https://github.com/Haroldwonder/SwiftRemit), [fluxapay](https://github.com/MetroLogic/fluxapay) and [Real-Time Fraud Anomaly Detection](https://github.com/Ndifreke000/Real-Time-Fraud-Anomaly-Detection-System-for-Digital-Payments). Their full commit history is kept in this repo, and [SOURCES.md](SOURCES.md) lists where each file came from.
